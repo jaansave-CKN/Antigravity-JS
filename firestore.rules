@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isEnabled() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.disabled == false;
+    }
+
+    // ── Users collection ──
+    // Users read their own profile. Admins read all.
+    match /users/{uid} {
+      allow read: if isAuthenticated() && (isOwner(uid) || isAdmin());
+      allow write: if isAdmin();
+
+      // A user can update their own displayName/photoURL but NOT role/disabled
+      allow update: if isOwner(uid) &&
+        !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['role', 'disabled', 'proyectos']);
+    }
+
+    // ── Proyectos ──
+    // A user can only read/write projects they own or are assigned to.
+    match /proyectos/{proyectoId} {
+      allow read: if isEnabled() &&
+        (isOwner(resource.data.ownerUid) ||
+          request.auth.uid in resource.data.members);
+
+      allow create: if isEnabled() &&
+        request.resource.data.ownerUid == request.auth.uid;
+
+      allow update: if isEnabled() &&
+        (isOwner(resource.data.ownerUid) ||
+          request.auth.uid in resource.data.admins);
+
+      allow delete: if isEnabled() && isOwner(resource.data.ownerUid);
+    }
+
+    // ── Favoritos por proyecto ──
+    match /proyectos/{proyectoId}/favoritos/{convId} {
+      allow read, write: if isEnabled() &&
+        (isOwner(get(/databases/$(database)/documents/proyectos/$(proyectoId)).data.ownerUid) ||
+          request.auth.uid in get(/databases/$(database)/documents/proyectos/$(proyectoId)).data.members);
+    }
+
+    // ── Convocatorias Radar (lectura pública del flujo de datos del agente) ──
+    // Read-only para usuarios activos. Solo el scheduler/agente escribe.
+    match /radar/{convId} {
+      allow read: if isEnabled();
+      allow write: if false; // Escritura solo via Admin SDK / Cloud Functions
+    }
+
+    // ── Alertas por proyecto ──
+    match /proyectos/{proyectoId}/alertas/{alertaId} {
+      allow read: if isEnabled() &&
+        (isOwner(get(/databases/$(database)/documents/proyectos/$(proyectoId)).data.ownerUid) ||
+          request.auth.uid in get(/databases/$(database)/documents/proyectos/$(proyectoId)).data.members);
+    }
+
+    // ── Configuraciones por proyecto ──
+    match /proyectos/{proyectoId}/config/{configId} {
+      allow read, write: if isEnabled() &&
+        (isOwner(get(/databases/$(database)/documents/proyectos/$(proyectoId)).data.ownerUid) ||
+          request.auth.uid in get(/databases/$(database)/documents/proyectos/$(proyectoId)).data.admins);
+    }
+
+    // ── Auditoría (solo admins) ──
+    match /audit/{auditId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+  }
+}

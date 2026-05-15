@@ -1,0 +1,178 @@
+[
+  {
+    "titulo": "Proyecto de Desarrollo Rural Sostenible",
+    "donante": "Banco Mundial",
+    "monto": "USD 100 millones",
+    "fecha_cierre": "30 de junio de 2026",
+    "url": "https://www.bancomundial.org/es/project/desarrollo-rural-sostenible",
+    "fuente": "Banco Mundial",
+    "sectores": [
+      "Agricultura",
+      "Desarrollo Rural"
+    ]
+  },
+  {
+    "titulo": "Fortalecimiento de la Educación Básica",
+    "donante": "UNICEF",
+    "monto": "USD 50 millones",
+    "fecha_cierre": "31 de marzo de 2026",
+    "url": "https://www.unicef.org/es/proyectos/fortalecimiento-educacion-basica",
+    "fuente": "UNICEF",
+    "sectores": [
+      "Educación"
+    ]
+  },
+  {
+    "titulo": "Mejora de la Infraestructura Vial",
+    "donante": "Banco Interamericano de Desarrollo (BID)",
+    "monto": "USD 200 millones",
+    "fecha_cierre": "15 de mayo de 2026",
+    "url": "https://www.iadb.org/es/project/mejora-infraestructura-vial",
+    "fuente": "BID",
+    "sectores": [
+      "Infraestructura",
+      "Transporte"
+    ]
+  },
+  {
+    "titulo": "Proyecto de Energías Renovables",
+    "donante": "Agencia de los Estados Unidos para el Desarrollo Internacional (USAID)",
+    "monto": "USD 30 millones",
+    "fecha_cierre": "28 de febrero de 2026",
+    "url": "https://www.usaid.gov/es/project/energias-renovables",
+    "fuente": "USAID",
+    "sectores": [
+      "Energía",
+      "Medio Ambiente"
+    ]
+  },
+  {
+    "titulo": "Fortalecimiento de la Salud Pública",
+    "donante": "Organización Panamericana de la Salud (OPS)",
+    "monto": "USD 20 millones",
+    "fecha_cierre": "31 de enero de 2026",
+    "url": "https://www.paho.org/es/project/fortalecimiento-salud-publica",
+    "fuente": "OPS",
+    "sectores": [
+      "Salud"
+    ]
+  },
+  {
+    "titulo": "Proyecto de Desarrollo Turístico Sostenible",
+    "donante": "Unión Europea",
+    "monto": "EUR 15 millones",
+    "fecha_cierre": "30 de abril de 2026",
+    "url": "https://ec.europa.eu/europeaid/projects/desarrollo-turistico-sostenible_en",
+    "fuente": "Unión Europea",
+    "sectores": [
+      "Turismo",
+      "Desarrollo Sostenible"
+    ]
+  },
+  {
+    "titulo": "Mejora de la Gestión del Agua",
+    "donante": "Banco Alemán de Desarrollo (KfW)",
+    "monto": "EUR 25 millones",
+    "fecha_cierre": "15 de marzo de 2026",
+    "url": "https://www.kfw-entwicklungsbank.de/International-financing/KfW-Entwicklungsbank/Proyectos/Mejora-de-la-gestion-del-agua/",
+    "fuente": "KfW",
+    "sectores": [
+      "Agua",
+      "Saneamiento"
+    ]
+  },
+  {
+    "titulo": "Proyecto de Desarrollo de la Agricultura Familiar",
+    "donante": "Food and Agriculture Organization (FAO)",
+    "monto": "USD 10 millones",
+    "fecha_cierre": "28 de febrero de 2026",
+    "url": "https://www.fao.org/es/project/desarrollo-agricultura-familiar",
+    "fuente": "FAO",
+    "sectores": [
+      "Agricultura",
+      "Desarrollo Rural"
+    ]
+  },
+  {
+    "titulo": "Fortalecimiento de la Justicia y la Seguridad",
+    "donante": "Agencia de los Estados Unidos para el Desarrollo Internacional (USAID)",
+    "monto": "USD 25 millones",
+    "fecha_cierre": "31 de mayo de 2026",
+    "url": "https://www.usaid.gov/es/project/fortalecimiento-justicia-seguridad",
+    "fuente": "USAID",
+    "sectores": [
+      "Justicia",
+      "Seguridad"
+    ]
+  },
+  {
+    "titulo": "Proyecto de Desarrollo de la Infraestructura de Transporte",
+    "donante": "Banco Asiático de Inversión en Infraestructura (AIIB)",
+    "monto": "USD 50 millones",
+    "fecha_cierre": "30 de junio de 2026",
+    "url": "https://www.aiib.org/en/projects/desarrollo-infraestructura-transporte/",
+    "fuente": "AIIB",
+    "sectores": [
+      "Infraestructura",
+      "Transporte"
+    ]
+  },
+  {
+    "titulo": "Mejora de la Educación Superior",
+    "donante": "Unión Europea",
+    "monto": "EUR 10 millones",
+    "fecha_cierre": "15 de abril de 2026",
+    "url": "https://ec.europa.eu/europeaid/projects/mejora-educacion-superior_en",
+    "fuente": "Unión Europea",
+    "sectores": [
+      "Educación"
+    ]
+  },
+  {
+    "titulo": "Proyecto de Desarrollo de la Energía Renovable",
+    "donante": "Agencia de los Estados Unidos para el Desarrollo Internacional (USAID)",
+    "monto": "USD 20 millones",
+    "fecha_cierre": "28 de febrero de 2026",
+    "url": "https://www.usaid.gov/es/project/desarrollo-energia-renovable",
+    "fuente": "USAID",
+    "sectores": [
+      "Energía",
+      "Medio Ambiente"
+    ]
+  },
+  {
+    "titulo": "Fortalecimiento de la Salud Mental",
+    "donante": "Organización Panamericana de la Salud (OPS)",
+    "monto": "USD 15 millones",
+    "fecha_cierre": "31 de marzo de 2026",
+    "url": "https://www.paho.org/es/project/fortalecimiento-salud-mental",
+    "fuente": "OPS",
+    "sectores": [
+      "Salud"
+    ]
+  },
+  {
+    "titulo": "Proyecto de Desarrollo de la Agricultura Sostenible",
+    "donante": "Food and Agriculture Organization (FAO)",
+    "monto": "USD 12 millones",
+    "fecha_cierre": "30 de abril de 2026",
+    "url": "https://www.fao.org/es/project/desarrollo-agricultura-sostenible",
+    "fuente": "FAO",
+    "sectores": [
+      "Agricultura",
+      "Desarrollo Sostenible"
+    ]
+  },
+  {
+    "titulo": "Mejora de la Gestión de Riesgos",
+    "donante": "Banco Mundial",
+    "monto": "USD 18 millones",
+    "fecha_cierre": "15 de mayo de 2026",
+    "url": "https://www.bancomundial.org/es/project/mejora-gestion-riesgos",
+    "fuente": "Banco Mundial",
+    "sectores": [
+      "Gestión de Riesgos",
+      "Desarrollo Sostenible"
+    ]
+  }
+]

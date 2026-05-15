@@ -1,0 +1,314 @@
+/* ═══════════════════════════════════════
+   Analista de Riesgos – Styles
+   ═══════════════════════════════════════ */
+
+.riesgos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+/* ── Score Card ── */
+.riesgos__score-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xl);
+  padding: var(--space-xl);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.riesgos__score-visual {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  flex-shrink: 0;
+}
+
+.riesgos__score-ring {
+  width: 100%;
+  height: 100%;
+}
+
+.riesgos__score-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+}
+
+.riesgos__score-breakdown {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+  flex: 1;
+}
+
+.riesgos__score-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ── Tabs ── */
+.riesgos__tabs {
+  display: flex;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.riesgos__tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.riesgos__tab:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.riesgos__tab--active {
+  background: var(--primary);
+  color: white;
+}
+
+.riesgos__tab--active:hover {
+  background: var(--primary-dark);
+  color: white;
+}
+
+.riesgos__tab-count {
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  opacity: 0.8;
+}
+
+/* ── Document List ── */
+.riesgos__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.riesgos__doc {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: all var(--transition-fast);
+}
+
+.riesgos__doc:hover {
+  border-color: var(--border-hover);
+}
+
+.riesgos__doc--vencido {
+  border-left: 3px solid var(--danger);
+}
+
+.riesgos__doc--por_vencer {
+  border-left: 3px solid var(--warning);
+}
+
+.riesgos__doc-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.riesgos__doc-main:hover {
+  background: var(--bg-card-hover);
+}
+
+.riesgos__doc-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.riesgos__doc-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.riesgos__doc-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.riesgos__doc-tipo {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.riesgos__doc-estado {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.riesgos__doc-fecha {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.riesgos__doc-toggle {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.riesgos__doc-toggle:hover {
+  border-color: var(--primary);
+  color: var(--primary-light);
+}
+
+/* ── Details ── */
+.riesgos__doc-details {
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.riesgos__doc-details p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: var(--space-md);
+}
+
+.riesgos__doc-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.riesgos__btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.riesgos__btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.riesgos__btn--primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+.riesgos__btn--primary:hover {
+  background: var(--primary-dark);
+}
+
+.riesgos__btn--danger {
+  background: var(--danger-bg);
+  border-color: rgba(255, 82, 82, 0.3);
+  color: var(--danger);
+}
+
+.riesgos__btn--danger:hover {
+  background: rgba(255, 82, 82, 0.2);
+}
+
+.riesgos__btn--warning {
+  background: var(--warning-bg);
+  border-color: rgba(255, 171, 0, 0.3);
+  color: var(--warning);
+}
+
+.riesgos__btn--warning:hover {
+  background: rgba(255, 171, 0, 0.2);
+}
+
+/* ── Empty State ── */
+.riesgos__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-3xl);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+
+.riesgos__empty svg {
+  color: var(--text-muted);
+}
+
+.riesgos__empty h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.riesgos__empty p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 500px;
+  line-height: 1.5;
+}

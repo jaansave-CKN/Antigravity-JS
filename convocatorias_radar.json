@@ -1,0 +1,1007 @@
+[
+  {
+    "id": "8e1315bd383f",
+    "titulo": "Histórico Convocatorias",
+    "donante": "SENA",
+    "montoMax": 301967.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Empresarial",
+      "Patrimonio"
+    ],
+    "probabilidadExito": 81,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Empresarial, Patrimonio",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/Empresarios/Paginas/convocatoriasEmpresarios.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 89,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "6fe19cf2ebbf",
+    "titulo": "CONVOCATORIA NACIONAL DEL FONDO EMPRENDER No. 122 FORTALECIMIENTO EMPRESARIAL",
+    "donante": "SENA",
+    "montoMax": 149050.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Empresarial",
+      "Empleo",
+      "Fortalecimiento Institucional"
+    ],
+    "probabilidadExito": 79,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Empresarial, Empleo",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-122.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 63,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "abb7441e8ae0",
+    "titulo": "CONVOCATORIA NACIONAL DEL FONDO EMPRENDER No. 123 ECONOMÍA POPULAR",
+    "donante": "SENA",
+    "montoMax": 397683.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Desarrollo Economico",
+      "Empleo"
+    ],
+    "probabilidadExito": 72,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Desarrollo Economico, Empleo",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-123.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 74,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "e38b6f971980",
+    "titulo": "CONVOCATORIA NACIONAL FOCALIZADA No. 129 “INDÍGENAS ZENÚ”​​​",
+    "donante": "SENA",
+    "montoMax": 78264.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Empleo"
+    ],
+    "probabilidadExito": 84,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Empleo. Dirigida a indigenas",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-129.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 69,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": [
+      "indigenas"
+    ]
+  },
+  {
+    "id": "3f61c3104665",
+    "titulo": "CONVOCATORIA NACIONAL FOCALIZADA No. 130 “INDÍGENAS”",
+    "donante": "SENA",
+    "montoMax": 173488.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Empleo"
+    ],
+    "probabilidadExito": 67,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Empleo. Dirigida a indigenas",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-130.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 77,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": [
+      "indigenas"
+    ]
+  },
+  {
+    "id": "e2aa78752c5f",
+    "titulo": "CONVOCATORIA NACIONAL No. 131 ECONOMÍA CAMPESINA",
+    "donante": "SENA",
+    "montoMax": 138951.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Desarrollo Economico",
+      "Empleo"
+    ],
+    "probabilidadExito": 81,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Desarrollo Economico, Empleo",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/CONVOCATORIA-NACIONAL-No-131-ECONOMIA-CAMPESINA.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 82,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "497485ac8dc9",
+    "titulo": "CONVOCATORIA NACIONAL No. 133 EMPRENDIMIENTO FEMENINO",
+    "donante": "SENA",
+    "montoMax": 86833.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Empresarial",
+      "Emprendimiento",
+      "Empleo",
+      "Genero"
+    ],
+    "probabilidadExito": 87,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Empresarial, Emprendimiento",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-133.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 90,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "32e856d16e2f",
+    "titulo": "CONVOCATORIA NACIONAL No. 135 VÍCTIMAS Y VULNERABLES",
+    "donante": "SENA",
+    "montoMax": 137499.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Poblacion Vulnerable",
+      "Empleo"
+    ],
+    "probabilidadExito": 82,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Poblacion Vulnerable, Empleo",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-135.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 75,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "24a3af4f3e59",
+    "titulo": "CONVOCATORIA NACIONAL No. 137 EMPRENDIMIENTO VERDE",
+    "donante": "SENA",
+    "montoMax": 149345.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Empresarial",
+      "Emprendimiento",
+      "Empleo"
+    ],
+    "probabilidadExito": 60,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Empresarial, Emprendimiento",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-137.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 77,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "8e145feb62bf",
+    "titulo": "CONVOCATORIA NACIONAL No. 138 PERSONAS CON DISCAPACIDAD (PcD)",
+    "donante": "SENA",
+    "montoMax": 470520.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Empleo"
+    ],
+    "probabilidadExito": 60,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Empleo. Dirigida a salud_especial",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-138.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 82,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": [
+      "salud_especial"
+    ]
+  },
+  {
+    "id": "bf761eeb6688",
+    "titulo": "CONVOCATORIA NACIONAL No. 139 “INDÍGENAS”",
+    "donante": "SENA",
+    "montoMax": 31380.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Empleo"
+    ],
+    "probabilidadExito": 67,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Empleo. Dirigida a indigenas",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-139.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 81,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": [
+      "indigenas"
+    ]
+  },
+  {
+    "id": "0026b167e860",
+    "titulo": "CONVOCATORIA NACIONAL No. 140 Negros, Afrocolombianos, Raizales y Palenqueros - (NARP)",
+    "donante": "SENA",
+    "montoMax": 413305.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Empleo"
+    ],
+    "probabilidadExito": 82,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Empleo. Dirigida a afrocolombianos, raizales",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-140.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 80,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": [
+      "afrocolombianos",
+      "raizales",
+      "palenqueros"
+    ]
+  },
+  {
+    "id": "2c5301c32cd3",
+    "titulo": "CONVOCATORIA NACIONAL No. 141 ECOTURISMO",
+    "donante": "SENA",
+    "montoMax": 410590.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Turismo",
+      "Empleo"
+    ],
+    "probabilidadExito": 83,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Turismo, Empleo",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-141.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 66,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "a5a905ed66ef",
+    "titulo": "CONVOCATORIA NACIONAL No. 142 BASE TECNOLÓGICA E INDUSTRIA DIGITAL",
+    "donante": "SENA",
+    "montoMax": 263182.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Tecnologia e Innovacion",
+      "Tecnologia",
+      "Desarrollo Digital",
+      "Empleo",
+      "Competitividad Economica"
+    ],
+    "probabilidadExito": 60,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Tecnologia e Innovacion, Tecnologia",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-142.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 87,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "04e062cad9e1",
+    "titulo": "CONVOCATORIA NACIONAL No. 143 INDUSTRIAS CULTURALES, ANCESTRALES Y CREATIVAS",
+    "donante": "SENA",
+    "montoMax": 461385.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Cultura",
+      "Empleo",
+      "Competitividad Economica"
+    ],
+    "probabilidadExito": 71,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Cultura, Empleo",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-143.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 90,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "17b2b3ff2395",
+    "titulo": "CONVOCATORIA NACIONAL No. 144 PESCA ARTESANAL - ECONOMÍA POPULAR",
+    "donante": "SENA",
+    "montoMax": 262084.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Desarrollo Economico",
+      "Cultura",
+      "Empleo"
+    ],
+    "probabilidadExito": 69,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Desarrollo Economico, Cultura",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-144.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 81,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "5ec895d728c3",
+    "titulo": "CONVOCATORIA NACIONAL No. 145 ECONOMÍA POPULAR",
+    "donante": "SENA",
+    "montoMax": 35027.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Desarrollo Economico",
+      "Empleo"
+    ],
+    "probabilidadExito": 80,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Desarrollo Economico, Empleo",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-145.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 74,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "8b66eaa28414",
+    "titulo": "CONVOCATORIA NACIONAL No. 148 “FORTALECIMIENTO”",
+    "donante": "SENA",
+    "montoMax": 11870.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Empleo",
+      "Fortalecimiento Institucional"
+    ],
+    "probabilidadExito": 65,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Empleo, Fortalecimiento Institucional",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-148.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 73,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "7081e607f39f",
+    "titulo": "CONVOCATORIA CERRADA No. 305 AGENCIA PARA LA REINCORPORACIÓN Y LA NORMALIZACIÓN (ARN)",
+    "donante": "SENA",
+    "montoMax": 266816.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Empleo"
+    ],
+    "probabilidadExito": 73,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Empleo. Dirigida a reincorporacion",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/Paginas/FE-305.aspx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 87,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": [
+      "reincorporacion"
+    ]
+  },
+  {
+    "id": "801aa0f9e69b",
+    "titulo": "CONVOCATORIA NACIONAL No. 114 Pesca Artesanal Segundo Corte",
+    "donante": "SENA",
+    "montoMax": 391086.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Cultura",
+      "Empleo"
+    ],
+    "probabilidadExito": 90,
+    "requisutosClave": [],
+    "estado": "SENA",
+    "fuente": null,
+    "descripcion": "Convocatoria para Cultura, Empleo",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.sena.edu.co/es-co/trabajo/Paginas/fondo-emprender.aspx//es-co/trabajo/FondoEmprender/2025/Adenda/Planes-Formalizados/CONVOCATORIA%20NACIONAL%20No.%20114%20Pesca%20Artesanal%20Segundo%20Corte.xlsx",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 66,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "bfae1b26bc7a",
+    "titulo": "Créditos Condonables",
+    "donante": "MinCiencias",
+    "montoMax": 77803.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Ciencia",
+      "Inclusion Financiera"
+    ],
+    "probabilidadExito": 60,
+    "requisutosClave": [],
+    "estado": "BID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Ciencia, Inclusion Financiera",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://scienti.minciencias.gov.co/divrechum/becarios/index.jsp",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 64,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "fc006df4e1f9",
+    "titulo": "Participación Proyectos y Programas",
+    "donante": "MinCiencias",
+    "montoMax": 86013.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Ciencia",
+      "Tecnologia",
+      "Gobernanza"
+    ],
+    "probabilidadExito": 60,
+    "requisutosClave": [],
+    "estado": "BID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Ciencia, Tecnologia",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://plataformasigp.minciencias.gov.co:7003/FormularioProyectos/",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 65,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "0c20fe5645ec",
+    "titulo": "Formación de alto nivel",
+    "donante": "MinCiencias",
+    "montoMax": 296289.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Educacion",
+      "Formacion"
+    ],
+    "probabilidadExito": 78,
+    "requisutosClave": [],
+    "estado": "BID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Educacion, Formacion",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://minciencias.gov.co/convocatorias//convocatorias/oportunidades_formacion",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 64,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "19036f5b07fe",
+    "titulo": "Mentalidad y cultura",
+    "donante": "MinCiencias",
+    "montoMax": 454013.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Ciencia",
+      "Cultura"
+    ],
+    "probabilidadExito": 87,
+    "requisutosClave": [],
+    "estado": "BID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Ciencia, Cultura",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://minciencias.gov.co/convocatorias/mentalidad_cultura",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 70,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "4d0fea06ac00",
+    "titulo": "Investigación",
+    "donante": "MinCiencias",
+    "montoMax": 416161.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Ciencia",
+      "Investigacion"
+    ],
+    "probabilidadExito": 79,
+    "requisutosClave": [],
+    "estado": "BID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Ciencia, Investigacion",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://minciencias.gov.co/convocatorias/investigacion",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 67,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "06bbc5abacf1",
+    "titulo": "Innovación y desarrollo tecnológico",
+    "donante": "MinCiencias",
+    "montoMax": 292610.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Tecnologia e Innovacion",
+      "Innovacion"
+    ],
+    "probabilidadExito": 89,
+    "requisutosClave": [],
+    "estado": "BID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Tecnologia e Innovacion, Innovacion",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://minciencias.gov.co/convocatorias//convocatorias/innovacion",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 60,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "a819a58b38f6",
+    "titulo": "43 C/Resolution 51 on the Participation Programme",
+    "donante": "UNESCO",
+    "montoMax": 497621.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Tecnologia",
+      "Agua y Saneamiento",
+      "Agua"
+    ],
+    "probabilidadExito": 67,
+    "requisutosClave": [],
+    "estado": "UNESCO",
+    "fuente": null,
+    "descripcion": "Convocatoria para Tecnologia, Agua y Saneamiento",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://unesdoc.unesco.org/in/documentViewer.xhtml?v=2.1.196&id=p::usmarcdef_0000396877&file=/in/rest/annotationSVC/DownloadWatermarkedAttachment/attach_import_4991744d-83ad-4d07-915f-d4aada9eb72b%3F_%3D396877eng.pdf&updateUrl=updateUrl6711&ark=/ark:/48223/pf0000396877/PDF/396877eng.pdf.multi&fullScreen=true&locale=en#page=56&zoom=auto,-190,817",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 69,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "2f462ba68763",
+    "titulo": "AccederAcceder a Convocatoria Becas MAEC-AECID 2025-2026 Programa de becas Escuela Diplomática para ciudadanos de América Latina, África y Filipinas",
+    "donante": "AECID",
+    "montoMax": 356749.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Educacion",
+      "Tecnologia",
+      "Integracion Regional"
+    ],
+    "probabilidadExito": 77,
+    "requisutosClave": [],
+    "estado": "AECID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Educacion, Tecnologia",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.aecid.gob.es:443/detalle-procedimiento-activo?p_p_id=es_aecid_sede_procedimientos_ProcedimientoWebPortlet&p_p_lifecycle=0&p_p_state=normal&p_p_mode=view&refererPlid=48326&_es_aecid_sede_procedimientos_ProcedimientoWebPortlet_id=workspace%3A%2F%2FSpacesStore%2F5ab88107-88ff-4f8c-ab3e-942e95f47742",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 73,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "4ae77d97c55e",
+    "titulo": "AccederAcceder a Convocatoria de los Programas de Becas MAEC-AECID para capacitación de jóvenes españoles 2024-2025",
+    "donante": "AECID",
+    "montoMax": 433436.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Capacitacion",
+      "Formacion"
+    ],
+    "probabilidadExito": 90,
+    "requisutosClave": [],
+    "estado": "AECID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Capacitacion, Formacion",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.aecid.gob.es:443/detalle-procedimiento-activo?p_p_id=es_aecid_sede_procedimientos_ProcedimientoWebPortlet&p_p_lifecycle=0&p_p_state=normal&p_p_mode=view&refererPlid=48326&_es_aecid_sede_procedimientos_ProcedimientoWebPortlet_id=workspace%3A%2F%2FSpacesStore%2Fecc56459-bf70-47b2-be04-b2bcc022da02",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 66,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "2e99d7234308",
+    "titulo": "AccederAcceder a Convocatoria de Becas para residencias artísticas y de investigación en la Real Academia de España en Roma 2025-2026",
+    "donante": "AECID",
+    "montoMax": 386656.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Tecnologia",
+      "Investigacion"
+    ],
+    "probabilidadExito": 72,
+    "requisutosClave": [],
+    "estado": "AECID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Tecnologia, Investigacion. Dirigida a rrom",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.aecid.gob.es:443/detalle-procedimiento-activo?p_p_id=es_aecid_sede_procedimientos_ProcedimientoWebPortlet&p_p_lifecycle=0&p_p_state=normal&p_p_mode=view&refererPlid=48326&_es_aecid_sede_procedimientos_ProcedimientoWebPortlet_id=workspace%3A%2F%2FSpacesStore%2F40305b57-ee4a-4ab3-addf-34a81ad285e3",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 60,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": [
+      "rrom"
+    ]
+  },
+  {
+    "id": "8b93cb9471ce",
+    "titulo": "AccederAcceder a Convocatoria de subvenciones para la realización de convenios de cooperación para el desarrollo  sostenible y la solidaridad global c",
+    "donante": "AECID",
+    "montoMax": 480790.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Energia Renovable",
+      "Accion Social"
+    ],
+    "probabilidadExito": 84,
+    "requisutosClave": [],
+    "estado": "AECID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Energia Renovable, Accion Social",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.aecid.gob.es:443/detalle-procedimiento-activo?p_p_id=es_aecid_sede_procedimientos_ProcedimientoWebPortlet&p_p_lifecycle=0&p_p_state=normal&p_p_mode=view&refererPlid=48326&_es_aecid_sede_procedimientos_ProcedimientoWebPortlet_id=workspace%3A%2F%2FSpacesStore%2F288c5b41-ae35-4b10-bbc4-97e416d47fe5",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 67,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "0c7e19f141ae",
+    "titulo": "AccederAcceder a Convocatoria de subvenciones en concurrencia competitiva para la realización de acciones y proyectos de cooperación al desarrollo en ",
+    "donante": "AECID",
+    "montoMax": 147824.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Construccion",
+      "Paz",
+      "Gobernanza"
+    ],
+    "probabilidadExito": 68,
+    "requisutosClave": [],
+    "estado": "AECID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Construccion, Paz",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.aecid.gob.es:443/detalle-procedimiento-activo?p_p_id=es_aecid_sede_procedimientos_ProcedimientoWebPortlet&p_p_lifecycle=0&p_p_state=normal&p_p_mode=view&refererPlid=48326&_es_aecid_sede_procedimientos_ProcedimientoWebPortlet_id=workspace%3A%2F%2FSpacesStore%2Ff74e0bf1-b994-4463-be71-79f9145fbb24",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 70,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "bf225aa534ec",
+    "titulo": "AccederAcceder a Selección de propuestas de programaciones de capacitación técnica e innovación del Programa INTERCOONECTA 2025",
+    "donante": "AECID",
+    "montoMax": 192985.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Tecnologia e Innovacion",
+      "Innovacion",
+      "Capacitacion",
+      "Formacion"
+    ],
+    "probabilidadExito": 81,
+    "requisutosClave": [],
+    "estado": "AECID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Tecnologia e Innovacion, Innovacion",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.aecid.gob.es:443/detalle-procedimiento-activo?p_p_id=es_aecid_sede_procedimientos_ProcedimientoWebPortlet&p_p_lifecycle=0&p_p_state=normal&p_p_mode=view&refererPlid=48326&_es_aecid_sede_procedimientos_ProcedimientoWebPortlet_id=workspace%3A%2F%2FSpacesStore%2F3bd42760-4409-4370-849e-c9860d1d6265",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 89,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "1eb82214ed46",
+    "titulo": "AccederAcceder a 2026 Nicaragua - Convocatoria de una plaza de responsable de proyectos",
+    "donante": "AECID",
+    "montoMax": 13066.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Agua y Saneamiento",
+      "Agua"
+    ],
+    "probabilidadExito": 73,
+    "requisutosClave": [],
+    "estado": "AECID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Agua y Saneamiento, Agua",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.aecid.gob.es:443/detalle-procedimiento-activo?p_p_id=es_aecid_sede_procedimientos_ProcedimientoWebPortlet&p_p_lifecycle=0&p_p_state=normal&p_p_mode=view&refererPlid=48326&_es_aecid_sede_procedimientos_ProcedimientoWebPortlet_id=workspace%3A%2F%2FSpacesStore%2Fa482498e-3067-4d35-a175-f1341ee366e6",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 71,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  },
+  {
+    "id": "d6d14bf698f7",
+    "titulo": "AccederAcceder a 2021 CUBA – Convocatoria de una plaza de responsables de proyectos de cooperación - Agua",
+    "donante": "AECID",
+    "montoMax": 258054.0,
+    "moneda": "USD",
+    "fechaCierre": "",
+    "fechaPublicacion": "",
+    "paisesElegibles": [
+      "Colombia"
+    ],
+    "sectores": [
+      "Agua y Saneamiento",
+      "Agua"
+    ],
+    "probabilidadExito": 61,
+    "requisutosClave": [],
+    "estado": "AECID",
+    "fuente": null,
+    "descripcion": "Convocatoria para Agua y Saneamiento, Agua",
+    "urlOriginal": "",
+    "urlConvocatoria": "https://www.aecid.gob.es:443/detalle-procedimiento-activo?p_p_id=es_aecid_sede_procedimientos_ProcedimientoWebPortlet&p_p_lifecycle=0&p_p_state=normal&p_p_mode=view&refererPlid=48326&_es_aecid_sede_procedimientos_ProcedimientoWebPortlet_id=workspace%3A%2F%2FSpacesStore%2Fcef78a79-36ca-45c6-8896-d6db2e869fa2",
+    "urlTerminos": "",
+    "favorito": false,
+    "compatibilidadPerfil": 69,
+    "categoriaGestion": null,
+    "poblacionesObjetivo": []
+  }
+]

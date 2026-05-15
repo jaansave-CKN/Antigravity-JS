@@ -1,0 +1,122 @@
+/* ═══════════════════════════════════════
+   Radar Visual – Animated
+   ═══════════════════════════════════════ */
+
+.radar-visual {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+}
+
+.radar-visual__container {
+  width: 200px;
+  height: 200px;
+  position: relative;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 102, 255, 0.05) 0%, transparent 70%);
+}
+
+/* ── Rings ── */
+.radar-visual__ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid;
+}
+
+.radar-visual__ring--outer {
+  inset: 0;
+  border-color: rgba(0, 102, 255, 0.15);
+}
+
+.radar-visual__ring--middle {
+  inset: 25%;
+  border-color: rgba(0, 102, 255, 0.2);
+}
+
+.radar-visual__ring--inner {
+  inset: 50%;
+  border-color: rgba(0, 102, 255, 0.3);
+}
+
+/* ── Sweep ── */
+.radar-visual__sweep {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 50%;
+  height: 2px;
+  background: linear-gradient(90deg, var(--primary) 0%, transparent 100%);
+  transform-origin: left center;
+  animation: radar-sweep 4s linear infinite;
+}
+
+.radar-visual__sweep::before {
+  content: '';
+  position: absolute;
+  top: -40px;
+  left: 0;
+  width: 100%;
+  height: 80px;
+  background: conic-gradient(
+    from 0deg at 0% 50%,
+    transparent 0deg,
+    rgba(0, 102, 255, 0.1) 30deg,
+    transparent 60deg
+  );
+  transform-origin: left center;
+}
+
+/* ── Center ── */
+.radar-visual__center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  background: var(--primary);
+  border-radius: 50%;
+  box-shadow: 0 0 12px var(--primary-glow);
+}
+
+/* ── Blips ── */
+.radar-visual__blip {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.radar-visual__blip--strong {
+  width: 10px;
+  height: 10px;
+  background: var(--success);
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.4);
+}
+
+/* ── Label ── */
+.radar-visual__label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.radar-visual__label-status {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--success);
+  font-family: 'JetBrains Mono', monospace;
+  animation: pulse 2s infinite;
+}
+
+.radar-visual__label-text {
+  font-size: 11px;
+  color: var(--text-muted);
+}

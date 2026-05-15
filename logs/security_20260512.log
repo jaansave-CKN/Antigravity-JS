@@ -1,0 +1,17 @@
+[2026-05-12 19:11:07,579] WARNING - [SECURITY] Patron peligroso detectado en test
+[2026-05-12 19:11:07,579] WARNING - [VALIDATION] test: longitud excedida
+[2026-05-12 19:11:19,295] INFO - [SYSTEM] Iniciando sistema de seguridad avanzado
+[2026-05-12 19:11:19,313] INFO - [SYSTEM] Health check: {'status': 'healthy', 'rate_limiting': 'active', 'input_validation': 'active', 'audit_logging': 'active', 'timestamp': '2026-05-12T19:11:19.312925'}
+[2026-05-12 19:11:19,313] INFO - [SYSTEM] Agentes inicializados correctamente
+[2026-05-12 19:11:19,313] INFO - [RADAR] Iniciando ciclo de busqueda
+[2026-05-12 19:11:31,082] INFO - [OPPORTUNITY] Convocatoria encontrada: Call for Proposals: Sustainable Rural Infrastructure 2026
+[2026-05-12 19:11:31,082] INFO - [SYSTEM] Sistema en modo 24/7 - intervalo: 6 horas
+[2026-05-12 19:20:12,161] WARNING - [SECURITY] Patron peligroso detectado en test
+[2026-05-12 19:20:12,161] WARNING - [VALIDATION] test: longitud excedida
+[2026-05-12 19:20:19,447] INFO - [SYSTEM] Iniciando sistema de seguridad avanzado
+[2026-05-12 19:20:19,448] INFO - [SYSTEM] Health check: {'status': 'healthy', 'rate_limiting': 'active', 'input_validation': 'active', 'audit_logging': 'active', 'timestamp': '2026-05-12T19:20:19.448449'}
+[2026-05-12 19:20:19,448] INFO - [SYSTEM] Agentes inicializados correctamente
+[2026-05-12 19:20:19,448] INFO - [RADAR] Iniciando ciclo de busqueda
+[2026-05-12 19:20:35,443] INFO - [OPPORTUNITY] Convocatoria encontrada: Sustainable Rural Infrastructure 2026
+[2026-05-12 19:20:35,443] INFO - [SYSTEM] Sistema en modo 24/7 - intervalo: 6 horas
+[2026-05-12 19:47:37,181] WARNING - [SECURITY] Patron peligroso detectado en test
