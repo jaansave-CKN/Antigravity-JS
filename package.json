@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "chokidar": "^5.0.0",
     "esbuild": "^0.28.0",
     "firebase": "^12.13.0",
     "leaflet": "^1.9.4",
