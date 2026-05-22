@@ -11,6 +11,7 @@
 .app__main {
   flex: 1;
   margin-left: var(--sidebar-width);
+  margin-right: var(--sidebar-width);
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -82,10 +83,9 @@
 
 /* ── Grid Layout ── */
 .app__grid {
-  display: grid;
-  grid-template-columns: 320px 1fr;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-xl);
-  align-items: start;
 }
 
 .app__sidebar-panel {
@@ -161,21 +161,7 @@
 }
 
 /* ── Responsive ── */
-@media (max-width: 1200px) {
-  .app__grid {
-    grid-template-columns: 280px 1fr;
-  }
-}
-
 @media (max-width: 960px) {
-  .app__grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .app__sidebar-panel {
-    position: static;
-  }
-
   .app__main {
     margin-left: var(--sidebar-collapsed);
   }
@@ -265,4 +251,34 @@
 
 .app__feed-sort strong {
   color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════
+   Sidebar Right (Publicidad)
+   ═══════════════════════════════════════ */
+
+.sidebar-right {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: var(--sidebar-width);
+  height: 100vh;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
+  z-index: 100;
+}
+
+.sidebar-right__content {
+  padding: var(--space-xl);
+}
+
+.sidebar-right__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(100vh - var(--header-height));
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
+  font-size: 14px;
 }

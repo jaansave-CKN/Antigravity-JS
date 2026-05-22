@@ -1,8 +1,31 @@
-google-generativeai
-groq
-requests
-beautifulsoup4
-schedule
-pydantic
-python-dotenv
-firebase-admin
+# ============================================================================
+# RADAR FONDOS 360 - DEPENDENCIAS PYTHON
+# ============================================================================
+
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+sqlalchemy>=2.0.0
+pydantic[email]>=2.0.0
+python-dotenv>=1.0.0
+websockets>=12.0
+python-multipart>=0.0.6
+pyjwt>=2.8.0
+
+# Base de datos
+psycopg2-binary>=2.9.0
+aiosqlite>=0.19.0
+
+# Scraping
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# AI
+groq>=0.4.0
+google-generativeai>=0.3.0
+
+# Scheduler
+schedule>=1.2.0
+
+# Logging
+loguru>=0.7.0

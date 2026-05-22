@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bell, Search, Settings, User, RefreshCw, X, Moon, Sun, Volume2, VolumeX, Globe, LogOut, Shield, ChevronDown } from 'lucide-react';
+import { Bell, Search, Settings, User, RefreshCw, X, Moon, Sun, Volume2, VolumeX, Globe, LogOut, Shield, ChevronDown, Mic, MicOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useSpeech } from '../contexts/SpeechContext';
 import { Link } from 'react-router-dom';
 import type { AlertaSenal } from '../types';
 import './Header.css';
@@ -16,6 +17,7 @@ interface HeaderProps {
 
 export default function Header({ busqueda, onBusquedaChange, alertasCount, ultimaActualizacion, alertas, onNavigateToModule }: HeaderProps) {
   const { user, userProfile, signOut } = useAuth();
+  const { isListening, transcript, startListening, stopListening, setTranscript } = useSpeech();
   const [showAlertas, setShowAlertas] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -88,6 +90,20 @@ export default function Header({ busqueda, onBusquedaChange, alertasCount, ultim
               <X size={14} />
             </button>
           )}
+          <button
+            className={`header__mic-btn ${isListening ? 'header__mic-btn--active' : ''}`}
+            title={isListening ? 'Detener dictado' : 'Iniciar dictado por voz'}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (isListening) {
+                stopListening();
+              } else {
+                startListening(() => searchRef.current as HTMLInputElement | null);
+              }
+            }}
+          >
+            {isListening ? <MicOff size={14} /> : <Mic size={14} />}
+          </button>
           <kbd className="header__search-kbd">Ctrl+K</kbd>
         </div>
       </div>

@@ -8,3 +8,5 @@ ui-debug.log
 functions/lib/
 functions/node_modules/
 .DS_Store
+.vercel
+SIA_Radar/

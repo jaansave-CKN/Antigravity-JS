@@ -10,16 +10,45 @@ interface FilterBarProps {
   convocatorias?: Convocatoria[];
 }
 
-const sectores: Sector[] = [
-  'Infraestructura', 'Agua y Saneamiento', 'Saneamiento Basico', 'Desarrollo Social',
-  'Educacion', 'Salud', 'Primera Infancia', 'Vivienda', 'Agricola', 'Agroindustria',
-  'Medio Ambiente', 'Cambio Climatico', 'Energias Renovables', 'Turismo', 'Cultura',
-  'Emprendimiento', 'Empresarial', 'Tecnologia e Innovacion', 'Desarrollo Economico',
-  'Construccion', 'Transporte', 'Gestion de Riesgos', 'Cooperativismo',
-  'Desarrollo Rural', 'Seguridad Alimentaria', 'Ayuda Humanitaria', 'Derechos Humanos',
-  'Ordenamiento Territorial', 'Desarrollo Local', 'Poblacion Vulnerable', 'Empleo',
-  'Productividad', 'Gestion Publica', 'Desarrollo Sostenible'
+type SectorPilar = {
+  pilar: string;
+  sectores: Sector[];
+};
+
+const sectoresPorPilar: SectorPilar[] = [
+  {
+    pilar: 'HÁBITAT Y TERRITORIO',
+    sectores: [
+      'Construccion', 'Vivienda', 'Transporte', 'Ordenamiento Territorial'
+    ]
+  },
+  {
+    pilar: 'SOBERANÍA Y VIDA',
+    sectores: [
+      'Agua', 'Saneamiento', 'Salud', 'Medio Ambiente', 'Gestion de Riesgos'
+    ]
+  },
+  {
+    pilar: 'PAZ Y SOCIEDAD',
+    sectores: [
+      'Derechos Humanos', 'Cultura', 'Deporte', 'Justicia', 'Ayuda Humanitaria'
+    ]
+  },
+  {
+    pilar: 'AUTONOMÍA ECONÓMICA',
+    sectores: [
+      'Agro', 'Desarrollo Rural', 'Turismo', 'Emprendimiento y Cooperativismo'
+    ]
+  },
+  {
+    pilar: 'FUTURO Y CONOCIMIENTO',
+    sectores: [
+      'Educacion', 'Ciencia, Tecnologia e Innovacion', 'Tecnologias', 'Energias Renovables'
+    ]
+  }
 ];
+
+const todosLosSectores: Sector[] = sectoresPorPilar.flatMap(p => p.sectores);
 
 const estados = [
   { value: 'abierta' as const, label: 'Abiertas' },
@@ -35,29 +64,32 @@ type PoblacionItem = {
 
 const poblaciones: Record<string, PoblacionItem[]> = {
   'CICLO DE VIDA Y ETNIA': [
-    { value: 'primera_infancia' as const, label: '1. Primera Infancia' },
-    { value: 'adulto_mayor' as const, label: '2. Adulto Mayor' },
-    { value: 'madres_cabeza_hogar' as const, label: '3. Madres Cabeza de Hogar' },
-    { value: 'indigenas' as const, label: '4. GRUPOS ÉTNICOS', sub: [
-      { value: 'indigenas' as const, label: 'Indigenas' },
+    { value: 'primera_infancia' as const, label: 'Primera Infancia' },
+    { value: 'adulto_mayor' as const, label: 'Adulto Mayor' },
+    { value: 'madres_cabeza_hogar' as const, label: 'Madres Cabeza de Hogar' },
+    { value: 'grupos_etnicos' as const, label: 'GRUPOS ÉTNICOS', sub: [
+      { value: 'indigenas' as const, label: 'Indígenas' },
       { value: 'afrocolombianos' as const, label: 'Afrocolombianos' },
       { value: 'raizales' as const, label: 'Raizales' },
       { value: 'palenqueros' as const, label: 'Palenqueros' },
       { value: 'rrom' as const, label: 'Rrom' },
+      { value: 'otros_etnicos' as const, label: 'Otros' },
     ]},
   ],
   'JUSTICIA Y PAZ': [
-    { value: 'victimas_violencia' as const, label: '1. Victimas de la Violencia' },
-    { value: 'poblacion_desplazada' as const, label: '2. Poblacion Desplazada' },
-    { value: 'reincorporacion' as const, label: '3. Proceso de Reincorporacion' },
+    { value: 'victimas_violencia' as const, label: 'Víctimas de la Violencia' },
+    { value: 'poblacion_desplazada' as const, label: 'Población Desplazada' },
+    { value: 'reincorporacion' as const, label: 'Proceso de Reincorporación' },
+    { value: 'otros_justicia_paz' as const, label: 'Otros' },
   ],
   'VULNERABILIDAD CRÍTICA': [
-    { value: 'desastres_naturales' as const, label: '1. Victimas de desastres naturales' },
-    { value: 'situacion_calle' as const, label: '2. Personas en situacion de calle' },
-    { value: 'salud_especial' as const, label: '3. Condiciones de salud especiales' },
-    { value: 'consumo_sustancias' as const, label: '4. Consumo de sustancias' },
-    { value: 'pobreza_extrema' as const, label: '5. Pobreza extrema' },
-    { value: 'poblacion_migrante' as const, label: '6. Poblacion migrante' },
+    { value: 'desastres_naturales' as const, label: 'Víctimas de desastres naturales' },
+    { value: 'situacion_calle' as const, label: 'Personas en situación de calle' },
+    { value: 'salud_especial' as const, label: 'Condiciones de salud especiales' },
+    { value: 'consumo_sustancias' as const, label: 'Consumo de sustancias' },
+    { value: 'pobreza_extrema' as const, label: 'Pobreza extrema' },
+    { value: 'poblacion_migrante' as const, label: 'Población migrante' },
+    { value: 'otros_vulnerabilidad' as const, label: 'Otros' },
   ],
 };
 
@@ -67,9 +99,12 @@ export default function FilterBar({ filtros, onFiltroChange, totalResultados, co
   const [collapsedSecciones, setCollapsedSecciones] = useState<Record<string, boolean>>(
     Object.fromEntries(SECCIONES.map(s => [s, true]))
   );
-  const [collapsedGrupos, setCollapsedGrupos] = useState<Record<string, boolean>>(
-    Object.fromEntries(Object.keys(poblaciones).map(k => [k, false]))
-  );
+  const [collapsedGrupos, setCollapsedGrupos] = useState<Record<string, boolean>>(() => {
+    const grupos: Record<string, boolean> = {};
+    Object.keys(poblaciones).forEach(k => grupos[k] = false);
+    sectoresPorPilar.forEach(p => grupos[p.pilar] = true);
+    return grupos;
+  });
 
   const entidadesUnicas = useMemo(() => {
     const conteo: Record<string, number> = {};
@@ -172,7 +207,7 @@ export default function FilterBar({ filtros, onFiltroChange, totalResultados, co
         </div>
       </div>
 
-      <div className="filter-bar__group">
+      <div className="filter-bar__group" style={{ width: '25% !important', maxWidth: '25% !important', minWidth: '200px' }}>
         <button className="filter-bar__seccion-header" onClick={() => toggleSeccion('sector')}>
           <span className="filter-bar__seccion-title">
             Sector
@@ -181,24 +216,39 @@ export default function FilterBar({ filtros, onFiltroChange, totalResultados, co
           <ChevronDown size={14} className={`filter-bar__seccion-chevron ${collapsedSecciones['sector'] ? 'filter-bar__seccion-chevron--collapsed' : ''}`} />
         </button>
         {!collapsedSecciones['sector'] && (
-          <div className="filter-bar__chips filter-bar__chips--wrap">
-            {sectores.map((s) => (
-              <button
-                key={s}
-                className={`filter-chip ${filtros.sectores.includes(s) ? 'filter-chip--active' : ''}`}
-                onClick={() => toggleSector(s)}
-              >
-                {s}
-              </button>
+          <div className="filter-bar__pilar-container" style={{ maxWidth: '100% !important', width: '100%' }}>
+            {sectoresPorPilar.map((pilar) => (
+              <div key={pilar.pilar} className="filter-bar__pilar-group">
+                <button 
+                  className="filter-bar__pilar-header" 
+                  onClick={() => toggleGrupo(pilar.pilar)}
+                >
+                  <span className="filter-bar__pilar-title">{pilar.pilar}</span>
+                  <ChevronDown size={12} className={`filter-bar__seccion-chevron ${collapsedGrupos[pilar.pilar] ? 'filter-bar__seccion-chevron--collapsed' : ''}`} />
+                </button>
+                {!collapsedGrupos[pilar.pilar] && (
+                  <div className="filter-bar__chips filter-bar__chips--wrap">
+                    {pilar.sectores.map((s) => (
+                      <button
+                        key={s}
+                        className={`filter-chip ${filtros.sectores.includes(s) ? 'filter-chip--active' : ''}`}
+                        onClick={() => toggleSector(s)}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}
       </div>
 
-      <div className="filter-bar__group">
+      <div className="filter-bar__group" style={{ width: '25% !important', maxWidth: '25% !important', minWidth: '200px' }}>
         <button className="filter-bar__seccion-header" onClick={() => toggleSeccion('publico')}>
           <span className="filter-bar__seccion-title">
-            <Users size={12} /> Público Objetivo
+            <Users size={12} /> Población Objetiva
             {seccionBadge('publico', filtros.poblacionesObjetivo.length)}
           </span>
           <ChevronDown size={14} className={`filter-bar__seccion-chevron ${collapsedSecciones['publico'] ? 'filter-bar__seccion-chevron--collapsed' : ''}`} />

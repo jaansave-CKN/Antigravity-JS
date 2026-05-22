@@ -1,0 +1,368 @@
+.anexos-view {
+  --bg-primary: #0b111b;
+  --bg-secondary: #151d2b;
+  --bg-tertiary: #1a2436;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent-green: #10b981;
+  --accent-green-dim: rgba(16, 185, 129, 0.15);
+  --border-color: #2d3748;
+  --switch-track: #374151;
+  --switch-track-active: #10b981;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  padding: 24px;
+  background: var(--bg-primary);
+  min-height: 100vh;
+  color: var(--text-primary);
+}
+
+.anexos-view__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.anexos-view__title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.anexos-view__actions {
+  display: flex;
+  gap: 12px;
+}
+
+.anexos-view__btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.anexos-view__btn--upload {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.anexos-view__btn--upload:hover {
+  background: #243044;
+}
+
+.anexos-view__btn--add {
+  background: var(--accent-green);
+  color: #fff;
+}
+
+.anexos-view__btn--add:hover {
+  background: #0d9668;
+}
+
+.anexos-view__table-container {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.anexos-view__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.anexos-view__th {
+  text-align: left;
+  padding: 14px 16px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.anexos-view__th--estado { width: 80px; }
+.anexos-view__th--entidad { width: 25%; }
+.anexos-view__th--referencia { width: 15%; }
+.anexos-view__th--fuente { width: 80px; }
+.anexos-view__th--documento { width: 15%; }
+.anexos-view__th--notas { width: auto; }
+.anexos-view__th--actions { width: 50px; }
+
+.anexos-view__row {
+  border-bottom: 1px solid var(--border-color);
+  transition: background 0.15s ease;
+}
+
+.anexos-view__row:last-child {
+  border-bottom: none;
+}
+
+.anexos-view__row:hover {
+  background: var(--bg-tertiary);
+}
+
+.anexos-view__td {
+  padding: 12px 16px;
+  vertical-align: middle;
+  font-size: 0.875rem;
+}
+
+.anexos-view__toggle {
+  display: inline-flex;
+  cursor: pointer;
+}
+
+.anexos-view__toggle-input {
+  display: none;
+}
+
+.anexos-view__toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: var(--switch-track);
+  border-radius: 12px;
+  transition: background 0.25s ease;
+}
+
+.anexos-view__toggle-switch--active {
+  background: var(--switch-track-active);
+}
+
+.anexos-view__toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.25s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.anexos-view__toggle-switch--active .anexos-view__toggle-knob {
+  transform: translateX(20px);
+}
+
+.anexos-view__td--entidad {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.anexos-view__td--referencia {
+  color: var(--text-secondary);
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 0.8rem;
+}
+
+.anexos-view__fuente-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+}
+
+.fuente-icon--link { color: #60a5fa; }
+.fuente-icon--cloud { color: #a78bfa; }
+.fuente-icon--local { color: #34d399; }
+
+.anexos-view__doc-preview {
+  display: inline-block;
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.anexos-view__doc-empty {
+  color: var(--text-muted);
+}
+
+.anexos-view__notas-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.anexos-view__notas-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 0.2s;
+}
+
+.anexos-view__notas-toggle:hover {
+  color: var(--accent-green);
+}
+
+.anexos-view__notas-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  resize: none;
+  font-family: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.anexos-view__notas-input:focus {
+  outline: none;
+  border-color: var(--accent-green);
+  box-shadow: 0 0 0 3px var(--accent-green-dim);
+}
+
+.anexos-view__notas-input::placeholder {
+  color: var(--text-muted);
+}
+
+.anexos-view__btn-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.anexos-view__btn-delete:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.anexos-view__footer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.anexos-view__count {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.anexos-view__agents-status {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+
+.anexos-view__agent-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  transition: all 0.3s ease;
+}
+
+.anexos-view__agent-indicator--active {
+  color: var(--accent-green);
+  background: var(--accent-green-dim);
+}
+
+.anexos-view__led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: all 0.3s ease;
+}
+
+.anexos-view__agent-indicator--active .anexos-view__led {
+  background: var(--accent-green);
+  box-shadow: 0 0 8px var(--accent-green), 0 0 16px var(--accent-green);
+  animation: led-pulse 1s ease-in-out infinite;
+}
+
+.anexos-view__led--small {
+  width: 6px;
+  height: 6px;
+  display: inline-block;
+  margin-left: 4px;
+  background: var(--accent-green);
+  box-shadow: 0 0 6px var(--accent-green);
+  animation: led-pulse 0.8s ease-in-out infinite;
+}
+
+.anexos-view__scanning-indicator {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.anexos-view__row--scanning {
+  background: var(--accent-green-dim) !important;
+}
+
+@keyframes led-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.2); }
+}
+
+@media (max-width: 1024px) {
+  .anexos-view__table-container {
+    overflow-x: auto;
+  }
+  
+  .anexos-view__table {
+    min-width: 900px;
+  }
+}
+
+@media (max-width: 768px) {
+  .anexos-view {
+    padding: 16px;
+  }
+  
+  .anexos-view__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  
+  .anexos-view__th--documento,
+  .anexos-view__td--documento {
+    display: none;
+  }
+}

@@ -19,12 +19,57 @@ interface ConvocatoriaPendiente {
   compatibilidadPerfil: number;
 }
 
-const sectoresList = [
-  'Vivienda', 'Ambiente', 'Medio Ambiente', 'Ciencia', 'Tecnologia e Innovacion',
-  'Infraestructura', 'Educacion', 'Salud', 'Desarrollo Social', 'Saneamiento',
-  'Agricultura', 'Emprendimiento', 'Innovacion', 'Ayuda Humanitaria', 'Desarrollo Rural',
-  'Cambio Climatico', 'Biodiversidad', 'Genero', 'Paz', 'Empleo', 'Tecnologia'
-];
+const SECTORES_JERARQUIA = {
+  "Hábitat y Territorio": {
+    nivel1: "Hábitat y Territorio",
+    nivel2: {
+      "Construcción": ["obra civil", "edificación", "infraestructura", "construcción", "remodelación"],
+      "Vivienda": ["vivienda", "housin", "habitación", "residencial", "asentamientos"],
+      "Transporte": ["vial", "transporte", "carretera", "puente", "túnel", "aeropuerto"],
+      "Ordenamiento": ["urbanismo", "ordenamiento", "planificación", "catastro", "territorio"]
+    }
+  },
+  "Soberanía y Vida": {
+    nivel1: "Soberanía y Vida",
+    nivel2: {
+      "Agua": ["agua", "potable", "hidráulica", "riego", "recurso hídrico"],
+      "Saneamiento": ["saneamiento", "alcantarillado", "residual", "tratamiento"],
+      "Salud": ["salud", "hospital", "clínica", "médico", "sanitario", "epidemiología"],
+      "Medio Ambiente": ["ambiente", "medio ambiente", "ecología", "sostenible", "verde"],
+      "Riesgos": ["riesgo", "desastre", "gestión riesgo", "contingencia", "emergencia"]
+    }
+  },
+  "Paz y Sociedad": {
+    nivel1: "Paz y Sociedad",
+    nivel2: {
+      "DDHH": ["derechos humanos", "ddhh", "justicia social", "equidad"],
+      "Cultura": ["cultura", "patrimonio", "artist", "cultural", "museum"],
+      "Deporte": ["deporte", "recreación", "athlete", "olímpico"],
+      "Justicia": ["justicia", "judicial", "legal", "tribunal", "fiscal"],
+      "Ayuda Humanitaria": ["humanitario", "ayuda", "emergencia", "refugio"]
+    }
+  },
+  "Autonomía Económica": {
+    nivel1: "Autonomía Económica",
+    nivel2: {
+      "Agro": ["agricultura", "agro", "ganadería", "campo", "agrícola"],
+      "Desarrollo Rural": ["rural", "desarrollo rural", "vereda", "agropecuario"],
+      "Turismo": ["turismo", "hotel", "recreativo", "travel"],
+      "Emprendimiento": ["emprendimiento", "pyme", "empresa", "negocio", "startup"]
+    }
+  },
+  "Futuro y Conocimiento": {
+    nivel1: "Futuro y Conocimiento",
+    nivel2: {
+      "Educación": ["educación", "escuela", "universidad", "formación", "docencia"],
+      "Ciencia": ["ciencia", "investigación", "research", "laboratorio"],
+      "Tecnologías": ["tecnología", "tech", "digital", "innovación", "ia", "software"],
+      "Energías Renovables": ["energía", "renovable", "solar", "eólica", "green"]
+    }
+  }
+};
+
+const sectoresList = Object.values(SECTORES_JERARQUIA).flatMap(cat => Object.keys(cat.nivel2));
 
 const poblacionesList = [
   'primera_infancia', 'adulto_mayor', 'madres_cabeza_hogar', 'indigenas',
