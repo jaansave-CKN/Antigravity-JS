@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - ./data:/app/data
+      - ./radar.db:/app/backend/radar.db
+    environment:
+      - PYTHONUNBUFFERED=1
+      - JWT_SECRET=radarfondos_jwt_secret_change_in_production
+    command: python -m uvicorn backend.server_fastapi:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+
+  frontend:
+    image: node:20-alpine
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    working_dir: /app
+    environment:
+      - VITE_API_URL=http://localhost:8000/api
+    command: npm run dev -- --host
+    restart: unless-stopped
+    depends_on:
+      - backend

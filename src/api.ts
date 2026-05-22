@@ -1,6 +1,18 @@
 import type { Convocatoria, EstadisticasRadar, AlertaSenal, Entidad } from './types';
 
-export const API_BASE = 'http://localhost:5000';
+const isDev = import.meta.env.DEV;
+const getLocalAPI = () => {
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:5000';
+    }
+    return `http://${hostname}:5000`;
+  }
+  return 'http://localhost:5000';
+};
+
+export const API_BASE = isDev ? getLocalAPI() : 'https://antigravity-jairo-2026.web.app/api';
 
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -76,14 +88,19 @@ function mapApiToEntidad(apiData: any): Entidad {
 }
 
 export const apiService = {
-  async getConvocatorias(filtros?: { favoritos?: boolean; estado?: string }): Promise<Convocatoria[]> {
+  async getConvocatorias(filtros?: { favoritos?: boolean; estado?: string }, page: number = 1, limit: number = 50): Promise<{ data: Convocatoria[], pagination: { page: number; limit: number; total: number; pages: number } }> {
     const params = new URLSearchParams();
     if (filtros?.favoritos) params.append('favoritos', 'true');
     if (filtros?.estado) params.append('estado', filtros.estado);
+    params.append('page', page.toString());
+    params.append('limit', limit.toString());
 
     const query = params.toString() ? `?${params.toString()}` : '';
-    const data = await fetchApi<any[]>(`/api/convocatorias${query}`);
-    return data.map(mapApiToConvocatoria);
+    const data = await fetchApi<any>(`/api/convocatorias${query}`);
+    return {
+      data: data.data.map(mapApiToConvocatoria),
+      pagination: data.pagination
+    };
   },
 
   async getEntidades(): Promise<Entidad[]> {

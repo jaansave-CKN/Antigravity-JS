@@ -1,19 +1,11 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+/**
+ * GEMINI SERVICE - LEGACY COMPATIBILITY LAYER
+ * Re-exports from enhanced AI service for backward compatibility
+ */
 
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyDyOwoq8rvenHArnNrQ59TNJ_o_oqC8fVQ';
+import { geminiService } from './ai/geminiService';
 
-const genAI = new GoogleGenerativeAI(API_KEY);
+export const generateContent = (prompt: string): Promise<string> => 
+  geminiService.generateContent(prompt);
 
-const model = genAI.getGenerativeModel({
-  model: 'gemini-2.0-flash',
-});
-
-export async function generateContent(prompt: string): Promise<string> {
-  try {
-    const result = await model.generateContent(prompt);
-    return result.response.text();
-  } catch (error) {
-    console.error('Error calling Gemini API:', error);
-    throw error;
-  }
-}
+export default { generateContent };

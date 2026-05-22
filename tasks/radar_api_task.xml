@@ -32,8 +32,8 @@
   <Actions Context="Author">
     <Exec>
       <Command>python</Command>
-      <Arguments>"C:\2026 AI EGIOC5\Antigravity JS\proyectos\Proy_03_RadarFondos\main.py"</Arguments>
-      <WorkingDirectory>"C:\2026 AI EGIOC5\Antigravity JS\proyectos\Proy_03_RadarFondos"</WorkingDirectory>
+      <Arguments>"C:\2026 AI EGIOC5\Antigravity JS\proyectos\Proy_03_RadarFondos\backend\main.py"</Arguments>
+      <WorkingDirectory>"C:\2026 AI EGIOC5\Antigravity JS\proyectos\Proy_03_RadarFondos\backend"</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

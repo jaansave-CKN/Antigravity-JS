@@ -2,13 +2,55 @@ name: Radar de Convocatorias 24/7
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # Cada 6 horas
-  workflow_dispatch:  # Permitir ejecución manual
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
   push:
     branches:
       - main
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'vite.config.ts'
 
 jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
+
+      - name: Verificar build
+        run: |
+          echo "Build completado"
+          ls -la dist/
+
+      - name: Deploy a Firebase Hosting
+        uses: w9jks/firebase-action@v2
+        with:
+          args: deploy --only hosting
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+      - name: Notificar deployment
+        run: |
+          echo "✅ Deploy completado exitosamente"
+          echo "Fecha: $(date)"
+          echo "URL: https://antigravity-jairo-2026.web.app"
+
   buscar-convocatorias:
     runs-on: ubuntu-latest
     steps:

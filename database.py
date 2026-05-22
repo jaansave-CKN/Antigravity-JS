@@ -1,368 +1,617 @@
-import sqlite3
-import json
+"""
+SIA_Radar — database.py
+========================
+Rutas ABSOLUTAS garantizadas con pathlib.Path(__file__).
+Elimina el error "[Errno 2] No such file or directory" sin importar
+desde qué consola, directorio de trabajo o subproceso se ejecute.
+"""
+from __future__ import annotations
+import os, sys, sqlite3, uuid, logging
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Optional
 
-DB_PATH = Path(__file__).parent / "radar.db"
+# ---------------------------------------------------------------------------
+# 1. RESOLUCIÓN DE RUTAS (blindada contra CWD changes)
+# ---------------------------------------------------------------------------
+# __file__ es la ruta de ESTE archivo; todo se calcula a partir de ahí.
+_THIS_FILE: Path = Path(__file__).resolve()
+BACKEND_DIR: Path   = _THIS_FILE.parent          # .../backend
+PROJECT_ROOT: Path  = BACKEND_DIR.parent         # .../SIA_Radar  o raíz del repo
+DATA_DIR: Path      = PROJECT_ROOT / "data"
+LOGS_DIR: Path      = PROJECT_ROOT / "logs"
+DB_PATH: Path       = DATA_DIR / "radar.db"
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+# Garantizar existencia de directorios
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS entidades (
-            id TEXT PRIMARY KEY,
-            nombre TEXT,
-            sigla TEXT,
-            tipo TEXT,
-            pais TEXT,
-            bandera TEXT,
-            sectores TEXT,
-            sitio_web TEXT,
-            url_convocatorias TEXT,
-            contacto TEXT,
-            email_contacto TEXT,
-            convocatorias_activas INTEGER DEFAULT 0,
-            monto_total REAL DEFAULT 0,
-            moneda TEXT DEFAULT 'USD',
-            frecuencia TEXT DEFAULT 'variable',
-            ultima_convocatoria TEXT,
-            notas TEXT,
-            creado_en TEXT,
-            actualizado_en TEXT,
-            last_scraped TEXT,
-            scrape_status TEXT DEFAULT 'pendiente',
-            scrape_result TEXT
-        )
-    """)
+# Añadir directorio de modelos SQLAlchemy al sys.path
+sys.path.insert(0, str(PROJECT_ROOT / "agentes" / "04_arquitecto"))
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS scraped_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            entidad_id TEXT,
-            url TEXT,
-            titulo TEXT,
-            monto TEXT,
-            fecha_cierre TEXT,
-            estado TEXT,
-            estado_detectado TEXT,
-            contenido_html TEXT,
-            scraped_en TEXT,
-            success INTEGER DEFAULT 0,
-            error TEXT,
-            FOREIGN KEY (entidad_id) REFERENCES entidades(id)
-        )
-    """)
+# ---------------------------------------------------------------------------
+# 2. LOGGING
+# ---------------------------------------------------------------------------
+logger = logging.getLogger("radar.db")
+logger.setLevel(logging.INFO)
+_handler = logging.FileHandler(LOGS_DIR / "database.log", encoding="utf-8")
+_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+logger.addHandler(_handler)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS scraping_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            entidad_id TEXT,
-            url TEXT,
-            status TEXT,
-            duracion_ms INTEGER,
-            resultado TEXT,
-            registrado_en TEXT
-        )
-    """)
+# Alias como string para SQLAlchemy  /  subprocess
+DB_URL: str         = f"sqlite:///{DB_PATH}"
+DB_PATH_STR: str    = str(DB_PATH)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS convocatorias (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            externo_id TEXT UNIQUE,
-            titulo TEXT NOT NULL,
-            donante TEXT,
-            fuente TEXT,
-            descripcion TEXT,
-            monto_min REAL,
-            monto_max REAL,
-            moneda TEXT DEFAULT 'USD',
-            paises_elegibles TEXT,
-            sectores TEXT,
-            url_convocatoria TEXT,
-            url_fuente TEXT,
-            fecha_limite TEXT,
-            fecha_publicacion TEXT,
-            requisitos TEXT,
-            resumen_tecnico TEXT,
-            es_elegible BOOLEAN DEFAULT 0,
-            score_probabilidad INTEGER DEFAULT 0,
-            estado TEXT DEFAULT 'nueva',
-            favorito BOOLEAN DEFAULT 0,
-            categoria_gestion TEXT,
-            compatibilidad_perfil REAL DEFAULT 0,
-            scraped_en TEXT,
-            created_at TEXT,
-            actualizado_en TEXT
-        )
-    """)
+# ---------------------------------------------------------------------------
+# 3. IMPORTACIÓN DE MODELOS
+# ---------------------------------------------------------------------------
+from agentes_04_arquitecto_main import (  # type: ignore[import]
+    Base, engine, Entidad, Convocatoria,
+)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS alertas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            convocatoria_id INTEGER,
-            tipo TEXT,
-            mensaje TEXT,
-            prioridad TEXT DEFAULT 'media',
-            leida BOOLEAN DEFAULT 0,
-            creada_en TEXT,
-            FOREIGN KEY (convocatoria_id) REFERENCES convocatorias(id)
-        )
-    """)
+# Crear tablas si no existen
+Base.metadata.create_all(engine)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS historial_ejecucion (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tipo TEXT,
-            origen TEXT,
-            mensaje TEXT,
-            detalles TEXT,
-            ejecutada_en TEXT
-        )
-    """)
+# ---------------------------------------------------------------------------
+# 4. SESSION FACTORY
+# ---------------------------------------------------------------------------
+from sqlalchemy.orm import sessionmaker
+SessionLocal: sessionmaker = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    expire_on_commit=False,
+)
 
-    c.execute("CREATE INDEX IF NOT EXISTS idx_entidades_sigla ON entidades(sigla)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_scraped_entidad ON scraped_results(entidad_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_conv_estado ON convocatorias(estado)")
+# ---------------------------------------------------------------------------
+# 5. HELPERS DE CONVENIENCIA
+# ---------------------------------------------------------------------------
 
-    conn.commit()
-    conn.close()
+def get_db_session():
+    """Context-manager seguro: siempre cierra la sesión."""
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
 
-def guardar_entidad(data: dict) -> str:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    ahora = datetime.now().isoformat()
-    valores = (
-        data.get("id"),
-        data.get("nombre"),
-        data.get("sigla"),
-        data.get("tipo"),
-        data.get("pais"),
-        data.get("bandera"),
-        json.dumps(data.get("sectores", [])),
-        data.get("sitio_web"),
-        data.get("url_convocatorias"),
-        data.get("contacto"),
-        data.get("email_contacto"),
-        data.get("convocatorias_activas", 0),
-        data.get("monto_total", 0),
-        data.get("moneda", "USD"),
-        data.get("frecuencia", "variable"),
-        data.get("ultima_convocatoria"),
-        data.get("notas"),
-        data.get("creado_en", ahora),
-        ahora,
-        data.get("last_scraped"),
-        data.get("scrape_status", "pendiente"),
-        data.get("scrape_result")
-    )
-    c.execute("""
-        INSERT OR REPLACE INTO entidades (
-            id, nombre, sigla, tipo, pais, bandera, sectores, sitio_web,
-            url_convocatorias, contacto, email_contacto, convocatorias_activas,
-            monto_total, moneda, frecuencia, ultima_convocatoria, notas,
-            creado_en, actualizado_en, last_scraped, scrape_status, scrape_result
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, valores)
-    conn.commit()
-    conn.close()
-    return data.get("id")
 
-def get_entidades() -> list:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT * FROM entidades ORDER BY nombre")
-    rows = c.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+def log_ejecucion(modulo: str, evento: str, detalle: str = "") -> None:
+    logger.info(f"[{modulo}] {evento}: {detalle}")
 
-def guardar_scraped_result(data: dict) -> int:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    ahora = datetime.now().isoformat()
-    c.execute("""
-        INSERT INTO scraped_results (
-            entidad_id, url, titulo, monto, fecha_cierre, estado,
-            estado_detectado, contenido_html, scraped_en, success, error
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        data.get("entidad_id"), data.get("url"), data.get("titulo"),
-        data.get("monto"), data.get("fecha_cierre"), data.get("estado"),
-        data.get("estado_detectado"), data.get("contenido_html", "")[:5000],
-        ahora, 1 if data.get("success") else 0, data.get("error", "")
-    ))
-    id_result = c.lastrowid
-    c.execute("UPDATE entidades SET last_scraped = ?, scrape_status = ?, scrape_result = ? WHERE id = ?",
-              (ahora, data.get("success", False) and "ok" or "error",
-               data.get("error", "OK"), data.get("entidad_id")))
-    conn.commit()
-    conn.close()
-    return id_result
 
-def log_scraping(entidad_id: str, url: str, status: str, duracion_ms: int, resultado: str = ""):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO scraping_log (entidad_id, url, status, duracion_ms, resultado, registrado_en)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (entidad_id, url, status, duracion_ms, resultado, datetime.now().isoformat()))
-    conn.commit()
-    conn.close()
+def ensure_db() -> bool:
+    if not DB_PATH.exists():
+        logger.error(f"BD no encontrada en {DB_PATH}")
+        raise FileNotFoundError(f"Database not found: {DB_PATH}")
+    return True
 
-def validar_fuente_donante(fuente: str, donante: str) -> str:
-    """Valida y corrige la fuente según el donante"""
-    if not fuente or not donante:
-        return fuente
 
-    donante_lower = donante.lower()
-    fuente_lower = fuente.lower()
+def init_db() -> str:
+    ensure_db()
+    Base.metadata.create_all(engine)
+    path = str(DB_PATH)
+    logger.info(f"BD inicializada en {path}")
+    return path
 
-    entidades_colombianas = ['minciencias', 'sena', 'innpulsa', 'colciencias', 'icetex', 'bancolombia', 'bogota', 'medellin', 'cali']
-    entidades_internacionales = ['bid', 'banco interamericano', 'pnud', 'undp', 'usaid', 'giz', 'jica', 'caf', 'ue', 'unión europea', 'european union', 'aecid', 'unesco', 'cooperacion']
 
-    es_colombiana = any(e in donante_lower for e in entidades_colombianas)
-    es_internacional = any(e in donante_lower for e in entidades_internacionales)
-
-    if es_colombiana:
-        for e in entidades_colombianas:
-            if e in donante_lower:
-                return e.title().replace('minciencias', 'MinCiencias').replace('innpulsa', 'iNNpulsa').replace('sena', 'SENA')
-
-    if es_internacional:
-        for e in entidades_internacionales:
-            if e in donante_lower:
-                if 'bid' in e or 'banco interamericano' in e: return 'BID'
-                if 'pnud' in e or 'undp' in e: return 'PNUD'
-                if 'usaid' in e: return 'USAID'
-                if 'giz' in e: return 'GIZ'
-                if 'jica' in e: return 'JICA'
-                if 'caf' in e: return 'CAF'
-                if 'ue' in e or 'unión europea' in e or 'european union' in e: return 'Unión Europea'
-                if 'aecid' in e: return 'AECID'
-                if 'unesco' in e: return 'UNESCO'
-
-    return fuente
-
-def guardar_convocatoria(data: dict) -> int:
-    # Validar y corregir fuente según donante
-    fuente_validada = validar_fuente_donante(data.get('fuente', ''), data.get('donante', ''))
-    data['fuente'] = fuente_validada
-
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    ahora = datetime.now().isoformat()
-    c.execute("""
-        INSERT OR REPLACE INTO convocatorias (
-            externo_id, titulo, donante, fuente, descripcion,
-            monto_min, monto_max, moneda, paises_elegibles, sectores,
-            url_fuente, fecha_limite, fecha_publicacion,
-            requisitos, es_elegible, score_probabilidad, estado,
-            compatibilidad_perfil, creado_en, actualizado_en
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        data.get("externo_id"), data.get("titulo"), data.get("donante"),
-        data.get("fuente"), data.get("descripcion"),
-        data.get("monto_min"), data.get("monto_max"),
-        data.get("moneda", "USD"),
-        json.dumps(data.get("paises_elegibles", [])),
-        json.dumps(data.get("sectores", [])),
-        data.get("url_fuente"),
-        data.get("fecha_limite"), data.get("fecha_publicacion"),
-        json.dumps(data.get("requisitos", [])),
-        1 if data.get("es_elegible") else 0,
-        data.get("score_probabilidad", 0),
-        data.get("estado", "nueva"),
-        data.get("compatibilidad_perfil", 0),
-        ahora, ahora
-    ))
-    conv_id = c.lastrowid
-    conn.commit()
-    conn.close()
-    return conv_id
-
-def get_convocatorias(filtros: dict = None) -> list:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    query = "SELECT * FROM convocatorias WHERE 1=1"
-    params = []
-    if filtros:
-        if filtros.get("solo_favoritos"):
-            query += " AND favorito = 1"
-        if filtros.get("estado"):
-            query += " AND estado = ?"
-            params.append(filtros["estado"])
-    query += " ORDER BY probabilidadExito DESC"
-    c.execute(query, params)
-    rows = c.fetchall()
-    conn.close()
-    result = []
-    for row in rows:
-        item = dict(row)
-        item["paises_elegibles"] = json.loads(item.get("paisesElegibles", "[]") or "[]")
-        item["sectores"] = json.loads(item.get("sectores", "[]") or "[]")
-        item["requisitos"] = json.loads(item.get("requisitosClave", "[]") or "[]")
-        result.append(item)
-    return result
+# ── Estadísticas ───────────────────────────────────────────────────────────
 
 def get_estadisticas() -> dict:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM convocatorias WHERE es_elegible = 1")
-    total_elegibles = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM entidades")
-    total_entidades = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM entidades WHERE scrape_status = 'ok'")
-    entidades_ok = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM entidades WHERE last_scraped IS NOT NULL")
-    entidades_scraped = c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM scraped_results WHERE success = 1")
-    results_found = c.fetchone()[0]
-    c.execute("SELECT MAX(scraped_en) FROM scraped_results")
-    last_any = c.fetchone()[0]
-    conn.close()
-    return {
-        "totalConvocatorias": total_elegibles,
-        "totalEntidades": total_entidades,
-        "entidadesScraped": entidades_scraped,
-        "entidadesOk": entidades_ok,
-        "resultadosFound": results_found,
-        "ultimoScraping": last_any
+    conn  = sqlite3.connect(DB_PATH_STR)
+    conn.row_factory = sqlite3.Row
+    cur   = conn.cursor()
+    stats: dict[str, Any] = {
+        "totalEntidades":    cur.execute("SELECT COUNT(*) FROM entidades").fetchone()[0],
+        "resultadosFound":   cur.execute("SELECT COUNT(*) FROM convocatorias").fetchone()[0],
+        "pendientesValid":   cur.execute(
+            "SELECT COUNT(*) FROM cola_validacion WHERE estado='pendiente'"
+        ).fetchone()[0],
+        "aprobados":         cur.execute(
+            "SELECT COUNT(*) FROM entidades_indexadas"
+        ).fetchone()[0],
     }
-
-def log_ejecucion(tipo: str, origen: str, mensaje: str, detalles: dict = None):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO historial_ejecucion (tipo, origen, mensaje, detalles, ejecutada_en)
-        VALUES (?, ?, ?, ?, ?)
-    """, (tipo, origen, mensaje, json.dumps(detalles or {}), datetime.now().isoformat()))
-    conn.commit()
     conn.close()
+    return stats
+
+
+# ── CRUD entidades ─────────────────────────────────────────────────────────
+
+def guardar_entidad(entidad_data: dict) -> str:
+    ent_id = str(uuid.uuid4())
+    session = SessionLocal()
+    try:
+        ent = Entidad(
+            id=ent_id,
+            nombre=entidad_data.get("nombre", ""),
+            pais=entidad_data.get("pais", ""),
+            tipo_entidad=entidad_data.get("tipo_entidad", ""),
+            url=entidad_data.get("url", ""),
+        )
+        session.add(ent)
+        session.commit()
+        logger.info(f"Entidad guardada: {ent.nombre}")
+        return ent_id
+    except Exception as exc:
+        session.rollback()
+        logger.error(f"Error guardando entidad: {exc}")
+        raise
+    finally:
+        session.close()
+
+
+# ── CRUD convocatorias ─────────────────────────────────────────────────────
+
+def guardar_convocatoria(data: dict) -> int:
+    conn = sqlite3.connect(DB_PATH_STR)
+    cur  = conn.cursor()
+    cur.execute(
+        """INSERT INTO convocatorias
+           (titulo, sector, tipo_financiamiento, formato_formulacion,
+            monto, url, fecha_cierre, score, estado, entidad_id, es_favorito)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            data.get("titulo"),
+            data.get("sector"),
+            data.get("tipo_financiamiento"),
+            data.get("formato_formulacion"),
+            data.get("monto"),
+            data.get("url"),
+            data.get("fecha_cierre"),
+            data.get("score", 50.0),
+            data.get("estado", "pendiente"),
+            data.get("entidad_id"),
+            data.get("es_favorito", False),
+        ),
+    )
+    conn.commit()
+    row_id = cur.lastrowid
+    conn.close()
+    logger.info(f"Convocatoria guardada id={row_id}")
+    return row_id
+
+
+def get_convocatorias(filtros: Optional[dict] = None,
+                      page: int = 1,
+                      limit: int = 50) -> dict:
+    conn        = sqlite3.connect(DB_PATH_STR)
+    conn.row_factory = sqlite3.Row
+    cur         = conn.cursor()
+    where_sql   = "WHERE 1=1"
+    params: list = []
+
+    if filtros:
+        if filtros.get("solo_favoritos"):
+            where_sql += " AND es_favorito = 1"
+        if filtros.get("estado"):
+            where_sql += " AND estado = ?"
+            params.append(filtros["estado"])
+
+    offset  = (page - 1) * limit
+    cur.execute(
+        f"SELECT * FROM convocatorias {where_sql} ORDER BY creado_en DESC LIMIT ? OFFSET ?",
+        (*params, limit, offset),
+    )
+    rows        = [dict(r) for r in cur.fetchall()]
+    cur.execute(
+        f"SELECT COUNT(*) FROM convocatorias {where_sql}", params
+    )
+    total       = cur.fetchone()[0]
+    conn.close()
+    return {"data": rows, "total": total, "page": page, "limit": limit}
+
 
 def toggle_favorito(convocatoria_id: int) -> bool:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT favorito FROM convocatorias WHERE id = ?", (convocatoria_id,))
-    row = c.fetchone()
-    if row:
-        nuevo = not row[0]
-        c.execute("UPDATE convocatorias SET favorito = ? WHERE id = ?", (1 if nuevo else 0, convocatoria_id))
-        conn.commit()
-        conn.close()
-        return nuevo
+    conn = sqlite3.connect(DB_PATH_STR)
+    cur  = conn.cursor()
+    cur.execute(
+        "UPDATE convocatorias SET es_favorito = NOT es_favorito WHERE id = ?",
+        (convocatoria_id,),
+    )
+    conn.commit()
+    cur.execute("SELECT es_favorito FROM convocatorias WHERE id = ?", (convocatoria_id,))
+    row = cur.fetchone()
     conn.close()
-    return False
+    return bool(row[0]) if row else False
 
-def actualizar_estado(convocatoria_id: int, nuevo_estado: str):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE convocatorias SET estado = ?, actualizado_en = ? WHERE id = ?", 
-              (nuevo_estado, datetime.now().isoformat(), convocatoria_id))
+
+def actualizar_estado(convocatoria_id: int, estado: str) -> None:
+    conn = sqlite3.connect(DB_PATH_STR)
+    cur  = conn.cursor()
+    cur.execute(
+        "UPDATE convocatorias SET estado = ? WHERE id = ?", (estado, convocatoria_id)
+    )
     conn.commit()
     conn.close()
 
-if __name__ == "__main__":
-    init_db()
-    print("DB radar.db inicializada con esquema extendido")
+
+# ── Cola de validación ─────────────────────────────────────────────────────
+
+def agregar_a_cola_validacion(item: dict) -> str:
+    item_id = str(uuid.uuid4())
+    conn    = sqlite3.connect(DB_PATH_STR)
+    cur     = conn.cursor()
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS cola_validacion (
+               id TEXT PRIMARY KEY,
+               org_id TEXT,
+               titulo TEXT,
+               donante TEXT,
+               url_fuente TEXT,
+               descripcion TEXT,
+               monto_estimado REAL,
+               fecha_cierre TEXT,
+               paises_elegibles TEXT,
+               sectores TEXT,
+               score_encontrado INTEGER,
+               fuente TEXT,
+               estado TEXT DEFAULT 'pendiente',
+               fecha_ingreso TEXT,
+               revisado_por TEXT,
+               decision TEXT,
+               decision_notas TEXT
+           )"""
+    )
+    cur.execute(
+        """INSERT INTO cola_validacion
+           (id,org_id,titulo,donante,url_fuente,descripcion,monto_estimado,
+            fecha_cierre,paises_elegibles,sectores,score_encontrado,fuente,
+            estado,fecha_ingreso)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            item_id,
+            item.get("org_id", "default"),
+            item.get("titulo", ""),
+            item.get("donante", ""),
+            item.get("url_fuente", ""),
+            item.get("descripcion", ""),
+            item.get("monto_estimado"),
+            item.get("fecha_cierre", ""),
+            str(item.get("paises_elegibles", [])),
+            str(item.get("sectores", [])),
+            item.get("score_encontrado", 50),
+            item.get("fuente", ""),
+            item.get("estado", "pendiente"),
+            item.get("fecha_ingreso", datetime.utcnow().isoformat()),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    logger.info(f"Item agregado a cola: {item_id}")
+    return item_id
+
+
+def get_cola_validacion(org_id: str, estado: Optional[str] = None) -> list:
+    conn   = sqlite3.connect(DB_PATH_STR)
+    conn.row_factory = sqlite3.Row
+    cur    = conn.cursor()
+    sql    = "SELECT * FROM cola_validacion WHERE org_id = ?"
+    params = [org_id]
+    if estado:
+        sql += " AND estado = ?"
+        params.append(estado)
+    cur.execute(sql + " ORDER BY fecha_ingreso DESC", params)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def resolver_cola_validacion(
+    item_id: str,
+    decision: str,
+    notas: str = "",
+    revisado_por: str = "sistema",
+) -> None:
+    conn = sqlite3.connect(DB_PATH_STR)
+    cur  = conn.cursor()
+    cur.execute(
+        """UPDATE cola_validacion
+           SET estado=?, decision=?, decision_notas=?, revisado_por=?
+           WHERE id=?""",
+        (decision, decision, notas, revisado_por, item_id),
+    )
+    conn.commit()
+    conn.close()
+    logger.info(f"Item {item_id} resuelto: {decision}")
+
+
+# ── Entidades indexadas ─────────────────────────────────────────────────────
+
+def indexar_entidad(data: dict) -> str:
+    ent_id = str(data.get("id", uuid.uuid4()))
+    conn   = sqlite3.connect(DB_PATH_STR)
+    cur    = conn.cursor()
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS entidades_indexadas (
+               id TEXT PRIMARY KEY,
+               org_id TEXT,
+               titulo TEXT,
+               donante TEXT,
+               descripcion TEXT,
+               monto_min REAL,
+               monto_max REAL,
+               moneda TEXT,
+               url_convocatoria TEXT,
+               url_fuente TEXT,
+               fecha_cierre TEXT,
+               fecha_publicacion TEXT,
+               paises_elegibles TEXT,
+               sectores TEXT,
+               poblacion_objetivo TEXT,
+               tipo_fondo TEXT,
+               requisitos TEXT,
+               tags TEXT,
+               score_compatibilidad INTEGER,
+               estado TEXT,
+               origen TEXT,
+               proyecto_id TEXT,
+               fecha_indexacion TEXT
+           )"""
+    )
+    cur.execute(
+        """INSERT OR REPLACE INTO entidades_indexadas
+           (id,org_id,titulo,donante,descripcion,monto_min,monto_max,moneda,
+            url_convocatoria,url_fuente,fecha_cierre,fecha_publicacion,
+            paises_elegibles,sectores,poblacion_objetivo,tipo_fondo,requisitos,
+            tags,score_compatibilidad,estado,origen,proyecto_id,fecha_indexacion)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            ent_id,
+            data.get("org_id", "default"),
+            data.get("titulo", ""),
+            data.get("donante", ""),
+            data.get("descripcion", ""),
+            data.get("monto_min", 0),
+            data.get("monto_max", 0),
+            data.get("moneda", "USD"),
+            data.get("url_convocatoria", ""),
+            data.get("url_fuente", ""),
+            data.get("fecha_cierre", ""),
+            data.get("fecha_publicacion", ""),
+            str(data.get("paises_elegibles", [])),
+            str(data.get("sectores", [])),
+            str(data.get("poblacion_objetivo", [])),
+            data.get("tipo_fondo", ""),
+            str(data.get("requisitos", [])),
+            str(data.get("tags", [])),
+            data.get("score_compatibilidad", 50),
+            data.get("estado", "activa"),
+            data.get("origen", ""),
+            data.get("proyecto_id"),
+            data.get("fecha_indexacion", datetime.utcnow().isoformat()),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    logger.info(f"Entidad indexada: {ent_id}")
+    return ent_id
+
+
+def buscar_entidades_indexadas(
+    org_id: str,
+    filtros: Optional[dict] = None,
+) -> list:
+    conn        = sqlite3.connect(DB_PATH_STR)
+    conn.row_factory = sqlite3.Row
+    cur         = conn.cursor()
+    sql         = "SELECT * FROM entidades_indexadas WHERE org_id = ?"
+    params: list = [org_id]
+    if filtros:
+        if filtros.get("sectores"):
+            sql += " AND sectores LIKE ?"
+            params.append(f"%{filtros['sectores'][0]}%")
+        if filtros.get("pais"):
+            sql += " AND paises_elegibles LIKE ?"
+            params.append(f"%{filtros['pais']}%")
+        if filtros.get("monto_min"):
+            sql += " AND monto_max >= ?"
+            params.append(filtros["monto_min"])
+        if filtros.get("monto_max"):
+            sql += " AND monto_min <= ?"
+            params.append(filtros["monto_max"])
+    cur.execute(sql + " ORDER BY fecha_indexacion DESC", params)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+# ── Multi-tenant / organizaciones ──────────────────────────────────────────
+
+def crear_organizacion(data: dict) -> str:
+    org_id = str(uuid.uuid4())
+    conn   = sqlite3.connect(DB_PATH_STR)
+    cur    = conn.cursor()
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS organizaciones (
+               id TEXT PRIMARY KEY,
+               nombre TEXT,
+               pais TEXT,
+               email_admin TEXT,
+               api_key_google TEXT,
+               notebook_google TEXT,
+               limite_prospectos INTEGER DEFAULT 300,
+               activa INTEGER DEFAULT 1,
+               plan TEXT DEFAULT 'basico',
+               created_at TEXT,
+               updated_at TEXT
+           )"""
+    )
+    cur.execute(
+        """INSERT INTO organizaciones
+           (id,nombre,pais,email_admin,api_key_google,notebook_google,
+            limite_prospectos,activa,plan,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            org_id, data.get("nombre"), data.get("pais"),
+            data.get("email_admin"), data.get("api_key_google", ""),
+            data.get("notebook_google", ""),
+            data.get("limite_prospectos", 300),
+            1, data.get("plan", "basico"),
+            datetime.utcnow().isoformat(),
+            datetime.utcnow().isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    logger.info(f"Organización creada: {org_id}")
+    return org_id
+
+
+def get_organizaciones() -> list:
+    conn       = sqlite3.connect(DB_PATH_STR)
+    conn.row_factory = sqlite3.Row
+    cur        = conn.cursor()
+    cur.execute("SELECT * FROM organizaciones")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_organizacion_por_api_key(api_key: str) -> Optional[dict]:
+    conn       = sqlite3.connect(DB_PATH_STR)
+    conn.row_factory = sqlite3.Row
+    cur        = conn.cursor()
+    cur.execute("SELECT * FROM organizaciones WHERE api_key_google = ?", (api_key,))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+# ── Proyectos ──────────────────────────────────────────────────────────────
+
+def crear_proyecto(data: dict) -> str:
+    proyecto_id = str(uuid.uuid4())
+    conn        = sqlite3.connect(DB_PATH_STR)
+    cur         = conn.cursor()
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS proyectos (
+               id TEXT PRIMARY KEY,
+               org_id TEXT,
+               nombre TEXT,
+               descripcion TEXT,
+               palabras_clave TEXT,
+               estado TEXT DEFAULT 'activo',
+               creado_en TEXT,
+               actualizado_en TEXT
+           )"""
+    )
+    cur.execute(
+        """INSERT INTO proyectos
+           (id,org_id,nombre,descripcion,palabras_clave,estado,creado_en,actualizado_en)
+           VALUES (?,?,?,?,?,?,?,?)""",
+        (
+            proyecto_id, data.get("org_id", "default"),
+            data.get("nombre", ""), data.get("descripcion", ""),
+            str(data.get("palabras_clave", [])),
+            data.get("estado", "activo"),
+            datetime.utcnow().isoformat(),
+            datetime.utcnow().isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    logger.info(f"Proyecto creado: {proyecto_id}")
+    return proyecto_id
+
+
+def get_proyectos(org_id: str) -> list:
+    conn           = sqlite3.connect(DB_PATH_STR)
+    conn.row_factory = sqlite3.Row
+    cur            = conn.cursor()
+    cur.execute("SELECT * FROM proyectos WHERE org_id = ? ORDER BY creado_en DESC", (org_id,))
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+# ── Documentos de contexto ──────────────────────────────────────────────────
+
+def guardar_documento_contexto(data: dict) -> str:
+    doc_id = str(uuid.uuid4())
+    conn   = sqlite3.connect(DB_PATH_STR)
+    cur    = conn.cursor()
+    cur.execute(
+        """CREATE TABLE IF NOT EXISTS documentos_contexto (
+               id TEXT PRIMARY KEY,
+               proyecto_id TEXT,
+               nombre TEXT,
+               tipo TEXT,
+               contenido TEXT,
+               embedding_vector TEXT,
+               uploaded_en TEXT
+           )"""
+    )
+    cur.execute(
+        """INSERT INTO documentos_contexto
+           (id,proyecto_id,nombre,tipo,contenido,embedding_vector,uploaded_en)
+           VALUES (?,?,?,?,?,?,?)""",
+        (
+            doc_id, data.get("proyecto_id"), data.get("nombre"),
+            data.get("tipo", "txt"), data.get("contenido", ""),
+            data.get("embedding_vector", ""),
+            datetime.utcnow().isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return doc_id
+
+
+def get_documentos_contexto(proyecto_id: str) -> list:
+    conn       = sqlite3.connect(DB_PATH_STR)
+    conn.row_factory = sqlite3.Row
+    cur        = conn.cursor()
+    cur.execute("SELECT * FROM documentos_contexto WHERE proyecto_id = ?", (proyecto_id,))
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_estadisticas_org(org_id: str) -> dict:
+    conn         = sqlite3.connect(DB_PATH_STR)
+    conn.row_factory = sqlite3.Row
+    cur          = conn.cursor()
+    stats: dict  = {
+        "entidadesIndexadas":  cur.execute(
+            "SELECT COUNT(*) FROM entidades_indexadas WHERE org_id = ?", (org_id,)
+        ).fetchone()[0],
+        "pendienteValidacion": cur.execute(
+            "SELECT COUNT(*) FROM cola_validacion WHERE org_id=? AND estado='pendiente'",
+            (org_id,),
+        ).fetchone()[0],
+        "proyectosActivos":    cur.execute(
+            "SELECT COUNT(*) FROM proyectos WHERE org_id=? AND estado='activo'", (org_id,)
+        ).fetchone()[0],
+        "documentosContexto":  cur.execute(
+            "SELECT COUNT(*) FROM documentos_contexto WHERE proyecto_id IN "
+            "(SELECT id FROM proyectos WHERE org_id=?)",
+            (org_id,),
+        ).fetchone()[0],
+    }
+    conn.close()
+    return stats
+
+
+# ── Validación de fuentes/donantes ─────────────────────────────────────────
+
+def validar_fuente_donante(fuente: str, donante: str) -> str:
+    if not fuente or fuente.lower() in ("google", "radar", ""):
+        return donante or fuente or "Desconocido"
+    return fuente
+
+
+__all__ = [
+    "PROJECT_ROOT", "BACKEND_DIR", "DATA_DIR", "LOGS_DIR",
+    "DB_PATH", "DB_PATH_STR", "DB_URL",
+    "Base", "engine", "SessionLocal", "Entidad", "Convocatoria",
+    "init_db", "ensure_db", "log_ejecucion",
+    "get_db_session", "get_estadisticas",
+    "guardar_entidad", "guardar_convocatoria",
+    "get_convocatorias", "toggle_favorito", "actualizar_estado",
+    "agregar_a_cola_validacion", "get_cola_validacion", "resolver_cola_validacion",
+    "indexar_entidad", "buscar_entidades_indexadas",
+    "crear_organizacion", "get_organizaciones", "get_organizacion_por_api_key",
+    "crear_proyecto", "get_proyectos",
+    "guardar_documento_contexto", "get_documentos_contexto",
+    "get_estadisticas_org", "validar_fuente_donante",
+]

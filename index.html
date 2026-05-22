@@ -1,17 +1,21 @@
-<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="GGIE - Global Grant Intelligence Engine | Radar de Fondos y Subvenciones inteligente para Colombia" />
-    <title>GGIE · Radar de Fondos | Antigravity OS</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+from sqlalchemy.orm import sessionmaker
+from agentes.04_arquitecto.main import Convocatoria, engine
+
+Session = sessionmaker(bind=engine)
+session = Session()
+
+# Datos de prueba
+ejemplos = [
+{"nombre": "GIZ - Agencia Alemana", "tipo": "BILATERAL", "pais": "Alemania", "num_convocatorias": 3, "monto": "5.0M
+USD", "sectores": "Paz,Medio Ambiente"},
+{"nombre": "UNESCO - Naciones Unidas", "tipo": "MULTILATERAL", "pais": "Internacional", "num_convocatorias": 2, "monto":
+"2.0M USD", "sectores": "Educacion,Ciencia"}
+]
+
+for item in ejemplos:
+conv = Convocatoria(**item)
+session.add(conv)
+
+session.commit()
+session.close()
+print("✅ Datos inyectados exitosamente.")
