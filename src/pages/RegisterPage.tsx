@@ -13,12 +13,21 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  function validatePassword(pw: string): string | null {
+    if (pw.length < 8) return 'La contraseña debe tener al menos 8 caracteres.';
+    if (!/[A-Z]/.test(pw)) return 'Debe contener al menos una letra mayúscula.';
+    if (!/[0-9]/.test(pw)) return 'Debe contener al menos un número.';
+    if (!/[^a-zA-Z0-9\s]/.test(pw)) return 'Debe contener al menos un carácter especial (@, #, $, etc.).';
+    return null;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
 
-    if (password.length < 8) {
-      setError('La contraseña debe tener al menos 8 caracteres.');
+    const pwError = validatePassword(password);
+    if (pwError) {
+      setError(pwError);
       return;
     }
     if (password !== confirm) {
@@ -75,7 +84,7 @@ export default function RegisterPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Mínimo 8 caracteres"
+            placeholder="Mín. 8 car, 1 mayúscula, 1 número, 1 especial"
             required
             minLength={8}
           />
