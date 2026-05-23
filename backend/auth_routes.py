@@ -4,7 +4,9 @@ RadarFondos Authentication API Routes
 Endpoints REST para autenticación con roles
 """
 
+import logging
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 import sqlite3
@@ -14,6 +16,7 @@ from auth_system import AuthService, get_current_user, require_admin
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 auth = AuthService()
 DB_PATH = Path(__file__).parent / "radar.db"
+logger = logging.getLogger("radar_fondos_360")
 
 
 class RegisterRequest(BaseModel):
@@ -46,19 +49,27 @@ class ApproveUserRequest(BaseModel):
 @router.post("/register")
 async def register(data: RegisterRequest):
     try:
+        logger.info("Iniciando registro para: %s", data.email)
         result = auth.register(email=data.email, password=data.password, nombre=data.nombre, role=data.role)
         return result
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
+    except Exception as e:
+        logger.error("ERROR CRÍTICO EN SERVIDOR: %s", str(e))
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e) or "Error interno del servidor"})
 
 
 @router.post("/login")
 async def login(data: LoginRequest):
     try:
+        logger.info("Inicio de sesión para: %s", data.email)
         result = auth.login(data.email, data.password)
         return result
     except ValueError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        return JSONResponse(status_code=401, content={"success": False, "message": str(e)})
+    except Exception as e:
+        logger.error("ERROR CRÍTICO EN SERVIDOR: %s", str(e))
+        return JSONResponse(status_code=500, content={"success": False, "message": str(e) or "Error interno del servidor"})
 
 
 @router.post("/logout")
@@ -112,7 +123,10 @@ async def update_user_role(user_id: str, role: str, current_user = Depends(requi
 
 @router.get("/verify")
 async def verify_token(current_user = Depends(get_current_user)):
-    return {"valid": True, "user": current_user}
+    user = auth.get_user(current_user["sub"])
+    if not user:
+        return JSONResponse(status_code=404, content={"success": False, "message": "Usuario no encontrado"})
+    return {"valid": True, "user": user}
 
 
 @router.post("/admin/approve-user")

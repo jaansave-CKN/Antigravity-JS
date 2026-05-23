@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query
-from backend.normative_engine import NormativeEngine
+from normative_engine import NormativeEngine
 
 router = APIRouter(prefix="/api/opportunities", tags=["opportunities"])
 engine = NormativeEngine()
@@ -23,7 +23,7 @@ async def get_opportunities(
 
 @router.get("/evaluate/{matricula}")
 async def evaluate_property(matricula: str, lat: float, lng: float):
-    from backend.normative_engine import Predio
+    from normative_engine import Predio
     predio = Predio(
         id="temp",
         lat=lat,
