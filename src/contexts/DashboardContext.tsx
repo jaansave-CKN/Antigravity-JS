@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 interface Predio {
   id: string;
@@ -39,38 +39,53 @@ export function useDashboard() {
 }
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
-  const [predios, setPredios] = useState<Predio[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedPredio, setSelectedPredio] = useState<Predio | null>(null);
-  const [bounds, setBounds] = useState<{ south: number; north: number; west: number; east: number } | null>(null);
-  const [filters, setFilters] = useState({ minScore: 50, viableOnly: true });
+   const [predios, setPredios] = useState<Predio[]>([]);
+   const [loading, setLoading] = useState(false);
+   const [selectedPredio, setSelectedPredio] = useState<Predio | null>(null);
+   const [bounds, setBounds] = useState<{ south: number; north: number; west: number; east: number } | null>(null);
+   const [filters, setFilters] = useState({ minScore: 50, viableOnly: true });
 
-  const fetchOpportunities = useCallback(async () => {
-    if (!bounds) return;
-    setLoading(true);
-    try {
-      const response = await fetch(`${API_BASE}/opportunities?south=${bounds.south}&north=${bounds.north}&west=${bounds.west}&east=${bounds.east}&min_score=${filters.minScore}`);
-      if (response.ok) {
-        const text = await response.text();
-        try {
-          const data = JSON.parse(text);
-          setPredios(Array.isArray(data) ? data : []);
-        } catch {
-          console.warn('Non-JSON response from opportunities endpoint');
-          setPredios([]);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching opportunities:', error);
-      setPredios([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [bounds, filters]);
+   const fetchOpportunities = useCallback(async () => {
+     setLoading(true);
+     try {
+       let url = `${API_BASE}/opportunities`;
+       if (bounds) {
+         url += `?south=${bounds.south}&north=${bounds.north}&west=${bounds.west}&east=${bounds.east}&min_score=${filters.minScore}`;
+       }
+       const response = await fetch(url);
+       if (response.ok) {
+         const text = await response.text();
+         try {
+           const data = JSON.parse(text);
+           setPredios(Array.isArray(data) ? data : []);
+         } catch {
+           console.warn('Non-JSON response from opportunities endpoint');
+           setPredios([]);
+         }
+       }
+     } catch (error) {
+       console.error('Error fetching opportunities:', error);
+       setPredios([]);
+     } finally {
+       setLoading(false);
+     }
+   }, [bounds, filters]);
 
-  useEffect(() => {
-    fetchOpportunities();
-  }, [fetchOpportunities]);
+   useEffect(() => {
+     // Cargar oportunidades con bounds por defecto (Bogotá)
+     if (!bounds) {
+       setBounds({
+         south: 4.4,
+         north: 4.7,
+         west: -74.2,
+         east: -73.9
+       });
+     }
+   }, []);
+
+useEffect(() => {
+     fetchOpportunities();
+   }, [bounds]); // Cuando cambian los bounds
 
   const value: DashboardContextValue = {
     predios,
