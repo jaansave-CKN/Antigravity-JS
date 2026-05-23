@@ -1,11 +1,6 @@
 import { useDashboard } from '../contexts/DashboardContext';
-import dynamic from 'next/dynamic';
+import MapContainer from './MapContainer';
 import { OpportunitiesTable } from './OpportunitiesTable';
-
-const MapContainer = dynamic(() => import('./MapContainer').then((mod: any) => mod.MapContainer), {
-  ssr: false,
-  loading: () => <div className="h-full w-full bg-gray-50 flex items-center justify-center animate-pulse">Cargando Radar...</div>
-});
 
 export function Dashboard() {
   const { predios, loading, selectedPredio, selectPredio, filters, setFilters } = useDashboard();
