@@ -115,7 +115,7 @@ async function initDb() {
       descripcion TEXT, usuario_id TEXT,
       created_at TIMESTAMP, updated_at TIMESTAMP,
       estado TEXT DEFAULT 'activo',
-      metadata TEXT
+      metadata TEXT, deleted_at TIMESTAMP
     )`);
     console.log('DB initialized with PostgreSQL');
   } catch (error) {
@@ -370,6 +370,52 @@ async function start() {
       const now = new Date().toISOString();
       await runSql('INSERT INTO proyectos (id, nombre, descripcion, usuario_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6)', [id, nombre, descripcion || '', payload.sub, now, now]);
       res.status(201).json({ success: true, id });
+    } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  });
+
+  // Panel de Soporte y Recuperación - Admin
+  app.get('/api/admin/deleted', async (req, res) => {
+    try {
+      const auth = req.headers.authorization;
+      if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
+      const payload = verifyToken(auth.slice(7));
+      if (!payload || payload.role !== 'admin') return res.status(403).json({ success: false, message: 'Acceso denegado' });
+
+      const [usuarios, proyectos, convocatorias] = await Promise.all([
+        getRows('SELECT id, email, nombre, tipoUsuario as tipo, createdAt as created_at, deleted_at FROM usuarios WHERE deleted_at IS NOT NULL OR is_active = 0'),
+        getRows('SELECT id, nombre, descripcion, usuario_id, created_at, updated_at, deleted_at FROM proyectos WHERE deleted_at IS NOT NULL OR estado = \'eliminado\''),
+        getRows('SELECT id, titulo, estado, created_at, deleted_at FROM convocatorias WHERE deleted_at IS NOT NULL OR estado = \'eliminado\'')
+      ]);
+
+      res.json({ success: true, usuarios, proyectos, convocatorias });
+    } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  });
+
+  app.post('/api/admin/restore/:type/:id', async (req, res) => {
+    try {
+      const auth = req.headers.authorization;
+      if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
+      const payload = verifyToken(auth.slice(7));
+      if (!payload || payload.role !== 'admin') return res.status(403).json({ success: false, message: 'Acceso denegado' });
+
+      const { type, id } = req.params;
+      let result;
+
+      switch (type) {
+        case 'usuario':
+          result = await runSql('UPDATE usuarios SET deleted_at = NULL, is_active = 1 WHERE id = $1', [id]);
+          break;
+        case 'proyecto':
+          result = await runSql('UPDATE proyectos SET deleted_at = NULL, estado = \'activo\' WHERE id = $1', [id]);
+          break;
+        case 'convocatoria':
+          result = await runSql('UPDATE convocatorias SET deleted_at = NULL, estado = \'activa\' WHERE id = $1', [id]);
+          break;
+        default:
+          return res.status(400).json({ success: false, message: 'Tipo no válido' });
+      }
+
+      res.json({ success: true, message: `${type} restaurado exitosamente` });
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
   });
 
