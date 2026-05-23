@@ -98,6 +98,20 @@ function initDb() {
       activa INTEGER DEFAULT 1, plan TEXT DEFAULT 'basico',
       created_at TEXT, updated_at TEXT
     )`);
+    runSql(db, `CREATE TABLE IF NOT EXISTS subvenciones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, titulo TEXT NOT NULL,
+      entidad TEXT, descripcion TEXT,
+      fecha_limite TEXT, cuantia TEXT, requisitos TEXT,
+      url TEXT, sector TEXT, pais TEXT,
+      estado TEXT DEFAULT 'activa', source TEXT DEFAULT 'crawler',
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
+    runSql(db, `CREATE TABLE IF NOT EXISTS crawl_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tipo TEXT, fuente TEXT,
+      subvenciones_encontradas INTEGER DEFAULT 0,
+      resultado TEXT, ejecutada_en TEXT
+    )`);
     console.log(`DB initialized at ${DB_PATH}`);
   } finally { closeDb(db); }
 }
