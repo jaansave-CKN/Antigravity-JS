@@ -1,8 +1,7 @@
 services:
   - type: web
     name: radar-fondos-360
-    env: node
-    buildCommand: npm install && npm run build
-    startCommand: bash startup.sh
+    env: docker
     region: oregon
     autoDeploy: true
+    dockerfilePath: ./Dockerfile
