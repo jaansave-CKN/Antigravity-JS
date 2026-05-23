@@ -8,6 +8,7 @@
     "dev": "vite",
     "dev:open": "vite && start chrome http://localhost:5173 --app=http://localhost:5173",
     "build": "tsc && vite build",
+    "start": "node server.js",
     "preview": "vite preview"
   },
   "devDependencies": {
@@ -25,9 +26,14 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.10.0",
     "chokidar": "^5.0.0",
+    "cors": "^2.8.6",
     "esbuild": "^0.28.0",
+    "express": "^5.2.1",
     "firebase": "^12.13.0",
+    "jsonwebtoken": "^9.0.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.16.0",
     "pdfjs-dist": "^4.10.38",
