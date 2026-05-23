@@ -1,12 +1,10 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 
-interface RegisterPageProps {
-  onToggleMode?: () => void;
-}
-
-export default function RegisterPage({ onToggleMode }: RegisterPageProps) {
+export default function RegisterPage() {
   const { register } = useAuth();
+  const navigate = useNavigate();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,8 +37,9 @@ export default function RegisterPage({ onToggleMode }: RegisterPageProps) {
   }
 
   return (
-    <div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-4">Crear Cuenta</h2>
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+        <h2 className="text-2xl font-bold text-gray-800 mb-4">Crear Cuenta</h2>
 
       <form onSubmit={handleSubmit} className="auth-form">
         {error && <div className="error">{error}</div>}
@@ -102,16 +101,15 @@ export default function RegisterPage({ onToggleMode }: RegisterPageProps) {
           </select>
         </div>
 
-        <button type="submit" disabled={loading}>
+        <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
           {loading ? 'Creando cuenta...' : 'Crear Cuenta'}
         </button>
 
-        {onToggleMode && (
-          <button type="button" onClick={onToggleMode}>
-            ¿Ya tienes cuenta? Inicia sesión
-          </button>
-        )}
+        <button type="button" onClick={() => navigate('/login')} className="w-full mt-2 text-sm text-blue-600 hover:underline">
+          ¿Ya tienes cuenta? Inicia sesión
+        </button>
       </form>
+      </div>
     </div>
   );
 }
