@@ -90,18 +90,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ email, password })
     });
 
-    const text = await response.text();
-    console.log("[Auth] Login - raw response:", text);
-
-    if (!response.ok) {
-      throw new Error(`Error ${response.status}: ${text}`);
-    }
+    const resultText = await response.text();
+    console.log("[Auth] Login - raw response:", resultText);
 
     let data;
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(resultText);
     } catch {
-      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Revisa logs en Render.`);
+      throw new Error("El servidor respondió, pero no en formato JSON. Verifica logs de Render.");
+    }
+
+    if (!response.ok) {
+      throw new Error(data.message || "Error al iniciar sesión");
     }
 
     const { token: newToken, user: userData } = data;
@@ -117,18 +117,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ email, password, nombre, role })
     });
 
-    const text = await response.text();
-    console.log("[Auth] Register - raw response:", text);
-
-    if (!response.ok) {
-      throw new Error(`Error ${response.status}: ${text}`);
-    }
+    const resultText = await response.text();
+    console.log("[Auth] Register - raw response:", resultText);
 
     let data;
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(resultText);
     } catch {
-      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Revisa logs en Render.`);
+      throw new Error("El servidor respondió, pero no en formato JSON. Verifica logs de Render.");
+    }
+
+    if (!response.ok) {
+      throw new Error(data.message || "Error al registrarse");
     }
 
     const { token: newToken, user: userData } = data;
@@ -180,17 +180,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
     });
 
-    const text = await response.text();
-    console.log("[Auth] Change password - raw response:", text);
+    const resultText = await response.text();
+    console.log("[Auth] Change password - raw response:", resultText);
 
-    if (!response.ok) {
-      throw new Error(`Error ${response.status}: ${text}`);
+    let data;
+    try {
+      data = JSON.parse(resultText);
+    } catch {
+      throw new Error("El servidor respondió, pero no en formato JSON. Verifica logs de Render.");
     }
 
-    try {
-      JSON.parse(text);
-    } catch {
-      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Revisa logs en Render.`);
+    if (!response.ok) {
+      throw new Error(data.message || "Error al cambiar contraseña");
     }
   }
 
