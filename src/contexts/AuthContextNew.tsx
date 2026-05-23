@@ -76,15 +76,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ email, password })
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
-      console.error('[Auth] Login failed:', { status: response.status, statusText: response.statusText, error });
-      throw new Error(error.detail || `Error al iniciar sesión (${response.status})`);
+    const responseText = await response.text();
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      console.error('[Auth] Login - server returned non-JSON:', responseText);
+      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Verifica logs en Render.`);
     }
 
-    const data = await response.json();
+    if (!response.ok) {
+      console.error('[Auth] Login failed:', { status: response.status, error: data });
+      throw new Error(data.detail || data.message || `Error al iniciar sesión (${response.status})`);
+    }
+
     const { token: newToken, user: userData } = data;
-    
     localStorage.setItem('auth_token', newToken);
     setToken(newToken);
     setUser(userData);
@@ -97,15 +103,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ email, password, nombre, role })
     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
-      console.error('[Auth] Register failed:', { status: response.status, statusText: response.statusText, error });
-      throw new Error(error.detail || `Error al registrarse (${response.status})`);
+    const responseText = await response.text();
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      console.error('[Auth] Register - server returned non-JSON:', responseText);
+      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Verifica logs en Render.`);
     }
 
-    const data = await response.json();
+    if (!response.ok) {
+      console.error('[Auth] Register failed:', { status: response.status, error: data });
+      throw new Error(data.detail || data.message || `Error al registrarse (${response.status})`);
+    }
+
     const { token: newToken, user: userData } = data;
-    
     localStorage.setItem('auth_token', newToken);
     setToken(newToken);
     setUser(userData);
