@@ -223,7 +223,7 @@ app.use('/api/auth/register', (req, res, next) => {
   next();
 });
 
-app.post('/api/auth/register', tryCatch(async (req, res) => {
+app.post('/api/auth/register', express.json(), tryCatch(async (req, res) => {
   const { email, password, nombre, role } = req.body;
   if (!email || !password || !nombre) {
     return res.status(400).json({ success: false, message: 'Email, password y nombre son requeridos' });
@@ -254,7 +254,7 @@ app.post('/api/auth/register', tryCatch(async (req, res) => {
   } finally { db.close(); }
 }));
 
-app.post('/api/auth/login', tryCatch(async (req, res) => {
+app.post('/api/auth/login', express.json(), tryCatch(async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ success: false, message: 'Email y password son requeridos' });
