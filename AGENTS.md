@@ -13,7 +13,7 @@
 - **Frontend:** Servido estáticamente desde `dist/` (React compilado vía `npm run build`)
 - **Enrutamiento:** Rutas API (`/api/*`) primero; comodín SPA `app.get('*')` al FINAL
   del archivo (Commit `1dd5bfd`). PROHIBIDO mover su orden.
-- **Persistencia:** SQLite local en `backend/radar.db` via `better-sqlite3`
+- **Persistencia:** SQLite local en `backend/radar.db` via `sql.js` (WASM, sin compilación nativa)
 - **Nomenclatura:** Rol de usuario es estrictamente **'Usuario'** (no 'Cliente' ni 'Inversor')
 - **Respuestas HTTP:** Todas deben ser `res.status().json()` con `{ success, message }`
 
