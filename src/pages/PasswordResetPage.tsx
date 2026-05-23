@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContextNew';
 
 export default function PasswordResetPage() {
   const { sendPasswordReset } = useAuth();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
@@ -25,34 +26,34 @@ export default function PasswordResetPage() {
 
   if (sent) {
     return (
-      <div className="auth-page">
-        <div className="auth-card">
-          <div className="auth-card__header">
-            <div className="auth-icon auth-icon--email">✉</div>
-            <h1>Correo enviado</h1>
-            <p>Revisa <strong>{email}</strong> para restablecer tu contraseña.</p>
-          </div>
-          <Link to="/login" className="btn btn--primary btn--full">Volver al login</Link>
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md text-center">
+          <div className="text-4xl mb-4">✉</div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Correo enviado</h2>
+          <p className="text-gray-600 mb-6">
+            Revisa <strong>{email}</strong> para restablecer tu contraseña.
+          </p>
+          <button onClick={() => navigate('/login')} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">
+            Volver al login
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-card__header">
-          <h1>Recuperar contraseña</h1>
-          <p>Ingresa tu correo y te enviaremos un enlace para restablecerla.</p>
-        </div>
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+        <h2 className="text-2xl font-bold text-gray-800 mb-2">Recuperar contraseña</h2>
+        <p className="text-gray-600 mb-6">Ingresa tu correo y te enviaremos un enlace para restablecerla.</p>
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          {error && <div className="auth-alert auth-alert--error">{error}</div>}
+        <form onSubmit={handleSubmit}>
+          {error && <div className="bg-red-100 text-red-700 p-3 rounded mb-4">{error}</div>}
 
           <div className="auth-field">
-            <label htmlFor="email">Correo electrónico</label>
+            <label htmlFor="reset-email">Correo electrónico</label>
             <input
-              id="email"
+              id="reset-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -62,14 +63,14 @@ export default function PasswordResetPage() {
             />
           </div>
 
-          <button type="submit" className="btn btn--primary btn--full" disabled={loading}>
+          <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
             {loading ? 'Enviando...' : 'Enviar enlace de recuperación'}
           </button>
-
-          <div className="auth-card__footer">
-            <Link to="/login" className="auth-link">Volver al login</Link>
-          </div>
         </form>
+
+        <button type="button" onClick={() => navigate('/login')} className="w-full mt-4 text-sm text-blue-600 hover:underline">
+          Volver al login
+        </button>
       </div>
     </div>
   );

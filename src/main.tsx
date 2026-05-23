@@ -5,6 +5,7 @@ import { DashboardProvider } from './contexts/DashboardContext'
 import { Dashboard } from './components/Dashboard'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import PasswordResetPage from './pages/PasswordResetPage'
 import './index.css'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -30,6 +31,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={!isAuthenticated ? <LoginPage /> : <Navigate to="/" replace />} />
       <Route path="/register" element={!isAuthenticated ? <RegisterPage /> : <Navigate to="/" replace />} />
+      <Route path="/reset-password" element={!isAuthenticated ? <PasswordResetPage /> : <Navigate to="/" replace />} />
       <Route path="/" element={
         <RequireAuth>
           <DashboardProvider>

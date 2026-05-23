@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from '../firebase';
 
 interface UserProfile {
   id: string;
@@ -19,6 +21,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   updateProfile: (data: Partial<UserProfile>) => Promise<void>;
   changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
+  sendPasswordReset: (email: string) => Promise<void>;
   isAdmin: boolean;
   isAuthenticated: boolean;
 }
@@ -172,6 +175,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function sendPasswordReset(email: string) {
+    await sendPasswordResetEmail(auth, email);
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -183,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         updateProfile,
         changePassword,
+        sendPasswordReset,
         isAdmin: user?.role === 'admin',
         isAuthenticated: !!token && !!user,
       }}
