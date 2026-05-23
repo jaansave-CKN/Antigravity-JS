@@ -2,7 +2,7 @@ services:
   - type: web
     name: radar-fondos-360
     env: node
-    buildCommand: "npm run build"
-    startCommand: "serve -s dist -l $PORT"
+    buildCommand: npm install && npm run build
+    startCommand: bash startup.sh
     region: oregon
     autoDeploy: true
