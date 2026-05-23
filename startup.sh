@@ -1,7 +1,7 @@
 #!/bin/bash
-# Startup script for RadarFondos 360 en Render - Frontend
+# Startup script - serves frontend + API from same process
 
-echo "Starting RadarFondos 360 Frontend..."
+echo "Starting RadarFondos 360..."
 
 cd /app || exit 1
 
@@ -9,5 +9,5 @@ cd /app || exit 1
 npm install
 npm run build
 
-# Serve static dist folder with SPA fallback
-exec npx serve -s dist -l "${PORT:-10000}"
+# Start FastAPI server (serves API + static frontend)
+exec python -m uvicorn backend.server_fastapi:app --host 0.0.0.0 --port "${PORT:-10000}"
