@@ -17,6 +17,7 @@ from typing import List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # RUTAS ABSOLUTAS
@@ -194,6 +195,23 @@ async def get_stats():
 app.include_router(auth_router)
 app.include_router(opportunities_router)
 app.include_router(payment_router)
+
+# --- Serve static frontend ---
+STATIC_DIR = PROJECT_ROOT / "dist"
+if STATIC_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="static_assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        from fastapi.responses import FileResponse
+        file_path = STATIC_DIR / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        index = STATIC_DIR / "index.html"
+        if index.exists():
+            return FileResponse(str(index))
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "Not Found"}, status_code=404)
 
 
 @app.websocket("/ws/live_radar")

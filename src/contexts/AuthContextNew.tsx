@@ -25,7 +25,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -77,8 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Error al iniciar sesión');
+      const error = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+      console.error('[Auth] Login failed:', { status: response.status, statusText: response.statusText, error });
+      throw new Error(error.detail || `Error al iniciar sesión (${response.status})`);
     }
 
     const data = await response.json();
@@ -97,8 +98,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Error al registrarse');
+      const error = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+      console.error('[Auth] Register failed:', { status: response.status, statusText: response.statusText, error });
+      throw new Error(error.detail || `Error al registrarse (${response.status})`);
     }
 
     const data = await response.json();
