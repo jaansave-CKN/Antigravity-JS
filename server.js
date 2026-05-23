@@ -213,46 +213,46 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'SIA Radar', timestamp: new Date().toISOString() });
 });
 
-app.use('/api/auth/register', (req, res, next) => {
-  console.log("=== API DEBUG REGISTRO ===");
-  console.log("Headers:", JSON.stringify(req.headers, null, 2));
-  console.log("Body recibido:", JSON.stringify(req.body, null, 2));
-  if (!req.body || Object.keys(req.body).length === 0) {
-    console.error("CRITICO: El body llego vacio. ¿Falta express.json() arriba?");
-  }
-  next();
-});
-
-app.post('/api/auth/register', express.json(), tryCatch(async (req, res) => {
-  const { email, password, nombre, role } = req.body;
-  if (!email || !password || !nombre) {
-    return res.status(400).json({ success: false, message: 'Email, password y nombre son requeridos' });
-  }
-  if (password.length < 8) {
-    return res.status(400).json({ success: false, message: 'La contrasena debe tener al menos 8 caracteres' });
-  }
-  const userRole = role === 'admin' ? 'admin' : 'user';
-  const db = getDb();
-  try {
-    const existing = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
-    if (existing) {
-      return res.status(400).json({ success: false, message: 'El email ya esta registrado' });
+app.post('/api/auth/register', express.json(), async (req, res) => {
+    console.log("=== EJECUTANDO PARCHE DE REGISTRO EN CALIENTE ===");
+    try {
+        const email = req.body.email || req.body.correo;
+        const password = req.body.password || req.body.contrasena;
+        const nombre = req.body.nombre || req.body.nombreCompleto || "Usuario Base";
+        const role = req.body.role || 'user';
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: "Faltan credenciales obligatorias (Email/Password)."
+            });
+        }
+        const db = new Database(DB_PATH, { fileMustExist: false });
+        db.pragma('journal_mode = WAL');
+        db.prepare(`CREATE TABLE IF NOT EXISTS usuarios (
+            id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL, nombre TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
+            subscription_type TEXT DEFAULT 'subscriber',
+            is_approved INTEGER DEFAULT 1,
+            created_at TEXT NOT NULL, last_login TEXT,
+            is_active INTEGER DEFAULT 1,
+            email_verificado INTEGER DEFAULT 0
+        )`).run();
+        const existente = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
+        if (existente) { db.close(); return res.status(400).json({ success: false, message: "El correo ya esta registrado." }); }
+        const salt = crypto.randomBytes(16).toString('hex');
+        const hash = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256').toString('hex');
+        const userId = crypto.randomUUID();
+        const now = new Date().toISOString();
+        db.prepare('INSERT INTO usuarios (id, email, password_hash, nombre, role, created_at, is_active) VALUES (?,?,?,?,?,?,1)').run(userId, email, salt+':'+hash, nombre, role, now);
+        db.close();
+        const token = jwt.sign({ sub: userId, email, role }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '24h' });
+        return res.status(201).json({ success: true, message: "Registro exitoso", user: { id: userId, email, nombre, role, created_at: now, is_active: true }, token });
+    } catch (error) {
+        console.error("CRITICO - Fallo en el Hotfix:", error);
+        return res.status(500).json({ success: false, message: "Error interno del servidor", error: error.message });
     }
-    const userId = crypto.randomUUID();
-    const passHash = hashPassword(password);
-    const now = new Date().toISOString();
-    db.prepare(
-      `INSERT INTO usuarios (id, email, password_hash, nombre, role, created_at, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, 1)`
-    ).run(userId, email, passHash, nombre, userRole, now);
-    const token = generateToken(userId, email, userRole);
-    res.json({
-      success: true,
-      user: { id: userId, email, nombre, role: userRole, created_at: now, is_active: true },
-      token
-    });
-  } finally { db.close(); }
-}));
+});
 
 app.post('/api/auth/login', express.json(), tryCatch(async (req, res) => {
   const { email, password } = req.body;
