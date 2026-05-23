@@ -37,6 +37,7 @@
     "react-textarea-autosize": "^8.5.9",
     "react-window": "^2.2.7",
     "recharts": "^3.8.1",
+    "serve": "^14.2.6",
     "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
   }
