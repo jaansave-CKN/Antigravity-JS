@@ -5,16 +5,10 @@ echo "Starting RadarFondos 360..."
 
 cd /app || exit 1
 
-# Install Python dependencies
-pip install -r requirements.txt 2>&1 | tail -1
-
-# Build frontend (skip if already built by Render build phase)
+# Build frontend if dist/ doesn't exist (local dev / non-Docker)
 if [ ! -d "dist" ] || [ ! -f "dist/index.html" ]; then
   echo "Building frontend..."
-  npm install
-  npm run build
-else
-  echo "Frontend already built, skipping..."
+  npm install && npm run build
 fi
 
 # Start FastAPI server (serves API + static frontend)
