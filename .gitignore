@@ -11,3 +11,5 @@ functions/node_modules/
 .vercel
 SIA_Radar/
 .firebase/
+
+backend/__pycache__/
