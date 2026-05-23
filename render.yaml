@@ -6,6 +6,10 @@ services:
     startCommand: "npm run preview"
     region: oregon
     autoDeploy: true
+    staticPublishPath: dist
+    routes:
+      - src: /*
+        dest: /index.html
   </type>
 </services>
 </services>
