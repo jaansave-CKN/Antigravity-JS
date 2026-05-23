@@ -11,8 +11,8 @@
 - **Modelo:** Monolito Express (`server.js`) desplegado en Render bajo `env: node`
   con `startCommand: node server.js`
 - **Frontend:** Servido estáticamente desde `dist/` (React compilado vía `npm run build`)
-- **Enrutamiento:** Rutas API (`/api/*`) primero; comodín SPA `app.get('*')` al FINAL
-  del archivo (Commit `1dd5bfd`). PROHIBIDO mover su orden.
+- **Enrutamiento:** Rutas API (`/api/*`) primero; comodín SPA `app.get('/{*path}')` al FINAL
+  del archivo (Commit `1dd5bfd`). PROHIBIDO mover su orden. Express 5 requiere `'/{*path}'` no `'*'`.
 - **Persistencia:** SQLite local en `backend/radar.db` via `sql.js` (WASM, sin compilación nativa)
 - **Nomenclatura:** Rol de usuario es estrictamente **'Usuario'** (no 'Cliente' ni 'Inversor')
 - **Respuestas HTTP:** Todas deben ser `res.status().json()` con `{ success, message }`
