@@ -110,32 +110,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(userData);
   }
 
-  async function register(email: string, password: string, nombre: string, role = 'user') {
-    const response = await fetch(`${API_BASE}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, nombre, role })
-    });
+   async function register(email: string, password: string, nombre: string, role = 'user') {
+     const response = await fetch(`${API_BASE}/auth/register`, {
+       method: 'POST',
+       headers: {
+         'Content-Type': 'application/json',
+         'Accept': 'application/json'
+       },
+       body: JSON.stringify({
+         email: email,
+         password: password,
+         nombre: nombre || "Usuario Base",
+         role: role
+       })
+     });
 
-    const resultText = await response.text();
-    console.log("[Auth] Register - raw response:", resultText);
+     const resultText = await response.text();
+     console.log("[Auth] Register - raw response:", resultText);
 
-    let data;
-    try {
-      data = JSON.parse(resultText);
-    } catch {
-      throw new Error("El servidor respondió, pero no en formato JSON. Verifica logs de Render.");
-    }
+     let data;
+     try {
+       data = JSON.parse(resultText);
+     } catch {
+       throw new Error("El servidor respondió, pero no en formato JSON. Verifica logs de Render.");
+     }
 
-    if (!response.ok) {
-      throw new Error(data.message || "Error al registrarse");
-    }
+     if (!response.ok) {
+       throw new Error(data.message || "Error al registrarse");
+     }
 
-    const { token: newToken, user: userData } = data;
-    localStorage.setItem('auth_token', newToken);
-    setToken(newToken);
-    setUser(userData);
-  }
+     const { token: newToken, user: userData } = data;
+     localStorage.setItem('auth_token', newToken);
+     setToken(newToken);
+     setUser(userData);
+   }
 
   async function logout() {
     if (token) {
