@@ -4,7 +4,7 @@ Initialize default admin user for RadarFondos
 Ejecutar una vez: python backend/init_admin.py
 """
 
-from backend.auth_system import AuthService
+from auth_system import AuthService
 
 auth = AuthService()
 

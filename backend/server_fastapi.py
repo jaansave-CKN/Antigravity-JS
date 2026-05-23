@@ -15,7 +15,8 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import List
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -45,6 +46,7 @@ logging.basicConfig(
 logger = logging.getLogger("radar_fondos_360")
 
 from database import get_convocatorias, guardar_convocatoria, init_db, get_estadisticas, DB_PATH_STR
+from normative_engine import init_normative_tables
 import sqlite3
 from auth_routes import router as auth_router
 from opportunities_routes import router as opportunities_router
@@ -147,6 +149,15 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "message": str(exc) or "Error interno del servidor"}
+    )
+
+
 class ConvocatoriaCreate(BaseModel):
     titulo: str
     sector: str = ""
@@ -203,14 +214,12 @@ if STATIC_DIR.exists():
 
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
-        from fastapi.responses import FileResponse
         file_path = STATIC_DIR / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
-        index = STATIC_DIR / "index.html"
-        if index.exists():
-            return FileResponse(str(index))
-        from fastapi.responses import JSONResponse
+        index_path = STATIC_DIR / "index.html"
+        if index_path.exists():
+            return FileResponse(str(index_path))
         return JSONResponse({"error": "Not Found"}, status_code=404)
 
 

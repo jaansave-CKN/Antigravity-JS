@@ -105,7 +105,7 @@ class AuthService:
             
             return {
                 "success": True,
-                "user": {"id": user_id, "email": email, "nombre": nombre, "role": role},
+                "user": {"id": user_id, "email": email, "nombre": nombre, "role": role, "created_at": datetime.utcnow().isoformat(), "is_active": True},
                 "token": token
             }
         finally:
@@ -138,7 +138,7 @@ class AuthService:
             
             return {
                 "success": True,
-                "user": {"id": user["id"], "email": user["email"], "nombre": user["nombre"], "role": user["role"]},
+                "user": {"id": user["id"], "email": user["email"], "nombre": user["nombre"], "role": user["role"], "created_at": user["created_at"], "is_active": bool(user["is_active"])},
                 "token": token
             }
         finally:
@@ -237,7 +237,7 @@ class AuthService:
         return False, "bloqueado"
 
 
-from fastapi import HTTPException, Depends
+from fastapi import HTTPException, Depends, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 security = HTTPBearer()

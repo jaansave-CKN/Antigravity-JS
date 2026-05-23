@@ -51,18 +51,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: { Authorization: `Bearer ${storedToken}` }
       });
 
-      const responseText = await response.text();
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        console.error('[Auth] Verify - server returned non-JSON:', responseText);
+      const text = await response.text();
+      console.log("[Auth] Verify - raw response:", text);
+
+      if (!response.ok) {
         localStorage.removeItem('auth_token');
         setToken(null);
         return;
       }
 
-      if (response.ok) {
+      const data = JSON.parse(text);
+
+      if (data.valid && data.user) {
         setUser({
           id: data.user.id,
           email: data.user.email,
@@ -90,18 +90,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ email, password })
     });
 
-    const responseText = await response.text();
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch {
-      console.error('[Auth] Login - server returned non-JSON:', responseText);
-      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Verifica logs en Render.`);
-    }
+    const text = await response.text();
+    console.log("[Auth] Login - raw response:", text);
 
     if (!response.ok) {
-      console.error('[Auth] Login failed:', { status: response.status, error: data });
-      throw new Error(data.detail || data.message || `Error al iniciar sesión (${response.status})`);
+      throw new Error(`Error ${response.status}: ${text}`);
+    }
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Revisa logs en Render.`);
     }
 
     const { token: newToken, user: userData } = data;
@@ -117,18 +117,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ email, password, nombre, role })
     });
 
-    const responseText = await response.text();
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch {
-      console.error('[Auth] Register - server returned non-JSON:', responseText);
-      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Verifica logs en Render.`);
-    }
+    const text = await response.text();
+    console.log("[Auth] Register - raw response:", text);
 
     if (!response.ok) {
-      console.error('[Auth] Register failed:', { status: response.status, error: data });
-      throw new Error(data.detail || data.message || `Error al registrarse (${response.status})`);
+      throw new Error(`Error ${response.status}: ${text}`);
+    }
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Revisa logs en Render.`);
     }
 
     const { token: newToken, user: userData } = data;
@@ -180,17 +180,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
     });
 
-    const responseText = await response.text();
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch {
-      console.error('[Auth] Change password - server returned non-JSON:', responseText);
-      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Verifica logs en Render.`);
-    }
+    const text = await response.text();
+    console.log("[Auth] Change password - raw response:", text);
 
     if (!response.ok) {
-      throw new Error(data.detail || data.message || 'Error al cambiar contraseña');
+      throw new Error(`Error ${response.status}: ${text}`);
+    }
+
+    try {
+      JSON.parse(text);
+    } catch {
+      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Revisa logs en Render.`);
     }
   }
 
