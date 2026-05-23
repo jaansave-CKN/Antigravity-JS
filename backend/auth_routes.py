@@ -49,27 +49,23 @@ class ApproveUserRequest(BaseModel):
 @router.post("/register")
 async def register(data: RegisterRequest):
     try:
-        logger.info("Iniciando registro para: %s", data.email)
+        logger.info("Registrando usuario: %s", data.email)
         result = auth.register(email=data.email, password=data.password, nombre=data.nombre, role=data.role)
         return result
-    except ValueError as e:
-        return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
-    except Exception as e:
-        logger.error("ERROR CRÍTICO EN SERVIDOR: %s", str(e))
-        return JSONResponse(status_code=500, content={"success": False, "message": str(e) or "Error interno del servidor"})
+    except Exception as error:
+        logger.error("Error en servidor: %s", error)
+        return JSONResponse(status_code=500, content={"success": False, "message": str(error) or "Error interno del servidor"})
 
 
 @router.post("/login")
 async def login(data: LoginRequest):
     try:
-        logger.info("Inicio de sesión para: %s", data.email)
+        logger.info("Inicio de sesión: %s", data.email)
         result = auth.login(data.email, data.password)
         return result
-    except ValueError as e:
-        return JSONResponse(status_code=401, content={"success": False, "message": str(e)})
-    except Exception as e:
-        logger.error("ERROR CRÍTICO EN SERVIDOR: %s", str(e))
-        return JSONResponse(status_code=500, content={"success": False, "message": str(e) or "Error interno del servidor"})
+    except Exception as error:
+        logger.error("Error en servidor: %s", error)
+        return JSONResponse(status_code=500, content={"success": False, "message": str(error) or "Error interno del servidor"})
 
 
 @router.post("/logout")
