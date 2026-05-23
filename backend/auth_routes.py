@@ -20,7 +20,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     nombre: str
-    role: str = "inversor"
+    role: str = "user"
 
 
 class LoginRequest(BaseModel):

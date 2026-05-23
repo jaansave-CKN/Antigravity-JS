@@ -69,7 +69,7 @@ export function RegisterForm({ onToggleMode }: LoginFormProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [nombre, setNombre] = useState('');
-  const [role, setRole] = useState<'inversor' | 'admin'>('inversor');
+  const [role, setRole] = useState<'user' | 'admin'>('user');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -126,7 +126,7 @@ export function RegisterForm({ onToggleMode }: LoginFormProps) {
         <div>
           <label>Tipo de Usuario</label>
           <select value={role} onChange={e => setRole(e.target.value as any)} disabled={loading}>
-            <option value="inversor">Inversor/Cliente</option>
+            <option value="user">Usuario</option>
             <option value="admin">Administrador</option>
           </select>
         </div>

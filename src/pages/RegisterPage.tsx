@@ -9,7 +9,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [role, setRole] = useState<'inversor' | 'admin'>('inversor');
+  const [role, setRole] = useState<'user' | 'admin'>('user');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -105,7 +105,7 @@ export default function RegisterPage() {
         <div className="auth-field">
           <label htmlFor="role">Tipo de Usuario</label>
           <select id="role" value={role} onChange={(e) => setRole(e.target.value as any)}>
-            <option value="inversor">Inversor/Cliente</option>
+            <option value="user">Usuario</option>
             <option value="admin">Administrador</option>
           </select>
         </div>
