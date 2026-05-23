@@ -2,11 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 
-interface LoginPageProps {
-  onToggleMode?: () => void;
-}
-
-export default function LoginPage({ onToggleMode }: LoginPageProps) {
+export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -69,11 +65,9 @@ export default function LoginPage({ onToggleMode }: LoginPageProps) {
             {loading ? 'Ingresando...' : 'Iniciar Sesión'}
           </button>
 
-          {onToggleMode && (
-            <button type="button" onClick={onToggleMode} className="w-full mt-2 text-sm text-blue-600 hover:underline">
-              ¿No tienes cuenta? Regístrate
-            </button>
-          )}
+          <button type="button" onClick={() => navigate('/register')} className="w-full mt-2 text-sm text-blue-600 hover:underline">
+            ¿No tienes cuenta? Regístrate
+          </button>
         </form>
       </div>
     </div>
