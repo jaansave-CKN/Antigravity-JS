@@ -51,7 +51,7 @@ export default function RegisterPage() {
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Jairo Antonio Salinas"
+            placeholder="Tu nombre completo"
             required
           />
         </div>
