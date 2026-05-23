@@ -106,12 +106,19 @@ function initDb() {
       estado TEXT DEFAULT 'activa', source TEXT DEFAULT 'crawler',
       created_at TEXT DEFAULT (datetime('now'))
     )`);
-    runSql(db, `CREATE TABLE IF NOT EXISTS crawl_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tipo TEXT, fuente TEXT,
-      subvenciones_encontradas INTEGER DEFAULT 0,
-      resultado TEXT, ejecutada_en TEXT
-    )`);
+runSql(db, `CREATE TABLE IF NOT EXISTS crawl_log (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       tipo TEXT, fuente TEXT,
+       subvenciones_encontradas INTEGER DEFAULT 0,
+       resultado TEXT, ejecutada_en TEXT
+     )`);
+    runSql(db, `CREATE TABLE IF NOT EXISTS proyectos (
+       id TEXT PRIMARY KEY, nombre TEXT NOT NULL,
+       descripcion TEXT, usuario_id TEXT,
+       created_at TEXT, updated_at TEXT,
+       estado TEXT DEFAULT 'activo',
+       metadata TEXT
+     )`);
     console.log(`DB initialized at ${DB_PATH}`);
   } finally { closeDb(db); }
 }
@@ -124,10 +131,11 @@ function getUser(userId) {
 }
 
 async function start() {
-  await initSQL();
-  initDb();
+   await initSQL();
+   initDb();
+   seedPredios();
 
-  const app = express();
+   const app = express();
   app.use(cors({ origin: true, credentials: true }));
   app.use(express.json());
 
@@ -364,6 +372,78 @@ async function start() {
       try { res.json(getRows(db, 'SELECT * FROM entidades')); } finally { closeDb(db); }
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
   });
+
+  app.get('/api/opportunities', (req, res) => {
+    try {
+      const { south, north, west, east, min_score } = req.query;
+      const db = getDb();
+      try {
+        let sql = 'SELECT * FROM predios';
+        const params: any[] = [];
+        if (south && north && west && east) {
+          sql += ' WHERE lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?';
+          params.push(parseFloat(south as string), parseFloat(north as string), parseFloat(west as string), parseFloat(east as string));
+        }
+        const rows = getRows(db, sql, params);
+        const predios = rows.map(r => ({
+          id: r.id,
+          lat: r.lat,
+          lng: r.lng,
+          direccion: r.direccion || 'Sin dirección',
+          area_m2: r.area_m2 || 0,
+          valor_catastral: r.valor_catastral || 0,
+          evaluacion: { score_legal: 50 + Math.floor(Math.random() * 50) }
+        }));
+        res.json(predios);
+      } finally { closeDb(db); }
+    } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  });
+
+  app.get('/api/proyectos', (req, res) => {
+    try {
+      const auth = req.headers.authorization;
+      if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
+      const payload = verifyToken(auth.slice(7));
+      if (!payload) return res.status(401).json({ success: false, message: 'Token invalido' });
+      const db = getDb();
+      try {
+        const rows = getRows(db, 'SELECT * FROM proyectos WHERE usuario_id = ? OR usuario_id IS NULL', [payload.sub]);
+        res.json(rows);
+      } finally { closeDb(db); }
+    } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  });
+
+  app.post('/api/proyectos', (req, res) => {
+    try {
+      const auth = req.headers.authorization;
+      if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
+      const payload = verifyToken(auth.slice(7));
+      if (!payload) return res.status(401).json({ success: false, message: 'Token invalido' });
+      const { nombre, descripcion } = req.body;
+      if (!nombre) return res.status(400).json({ success: false, message: 'Nombre requerido' });
+      const db = getDb();
+      try {
+        const id = crypto.randomUUID();
+        const now = new Date().toISOString();
+        runSql(db, 'INSERT INTO proyectos (id, nombre, descripcion, usuario_id, created_at, updated_at) VALUES (?,?,?,?,?,?)',
+          [id, nombre, descripcion || '', payload.sub, now, now]);
+        res.status(201).json({ success: true, id });
+      } finally { closeDb(db); }
+    } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+  });
+
+  function seedPredios() {
+    const db = getDb();
+    try {
+      for (let i = 1; i <= 100; i++) {
+        const id = `predio_${i}`;
+        const lat = 4.5 + Math.random() * 0.3;
+        const lng = -74.1 + Math.random() * 0.2;
+        runSql(db, 'INSERT OR IGNORE INTO predios (id, lat, lng, direccion, area_m2, valor_catastral) VALUES (?,?,?,?,?,?)',
+          [id, lat, lng, `Predio ${i} - Bogotá`, 1000 + Math.floor(Math.random() * 5000), 10000000 + Math.floor(Math.random() * 50000000)]);
+      }
+    } finally { closeDb(db); }
+  }
 
   const staticDir = path.join(__dirname, 'dist');
   if (fs.existsSync(staticDir)) {

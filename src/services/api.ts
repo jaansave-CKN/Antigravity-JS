@@ -22,9 +22,23 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<Api
       ...options,
       headers: { 'Content-Type': 'application/json', ...options?.headers },
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    return { success: true, data };
+    
+    const text = await res.text();
+    if (!res.ok) {
+      try {
+        const err = JSON.parse(text);
+        throw new Error(err.message || `HTTP ${res.status}`);
+      } catch {
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+    }
+    
+    try {
+      const data = JSON.parse(text);
+      return { success: true, data };
+    } catch {
+      return { success: false, error: 'Invalid JSON response' };
+    }
   } catch (err) {
     console.warn(`API unavailable: ${endpoint}`, err);
     return { success: false, error: String(err) };
