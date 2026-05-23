@@ -354,7 +354,7 @@ async function start() {
   const staticDir = path.join(__dirname, 'dist');
   if (fs.existsSync(staticDir)) {
     app.use(express.static(staticDir, { maxAge: '1h' }));
-    app.get('*', (req, res) => { res.sendFile(path.join(staticDir, 'index.html')); });
+    app.get('/{*path}', (req, res) => { res.sendFile(path.join(staticDir, 'index.html')); });
     console.log(`Serving static files from ${staticDir}`);
   } else {
     console.log(`Static dir ${staticDir} not found, API only mode`);
