@@ -9,6 +9,8 @@ on:
       - main
     paths:
       - 'src/**'
+      - 'server.js'
+      - 'render.yaml'
       - 'package.json'
       - 'vite.config.ts'
 
@@ -50,6 +52,10 @@ jobs:
           echo "✅ Deploy completado exitosamente"
           echo "Fecha: $(date)"
           echo "URL: https://antigravity-jairo-2026.web.app"
+
+      - name: Trigger Render deploy (hotfix c423130)
+        run: |
+          curl -s -X POST "https://api.render.com/deploy/srv-cuf89v5um0ms73divp10?key=rnd_2vXCcwZp93R5m76asDq" | echo "Render deploy triggered: $(date)"
 
   buscar-convocatorias:
     runs-on: ubuntu-latest
