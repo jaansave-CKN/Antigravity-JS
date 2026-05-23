@@ -4,7 +4,7 @@ interface UserProfile {
   id: string;
   email: string;
   nombre: string;
-  role: 'admin' | 'inversor';
+  role: 'admin' | 'user';
   created_at: string;
   last_login?: string;
   is_active: boolean;
@@ -90,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(userData);
   }
 
-  async function register(email: string, password: string, nombre: string, role = 'inversor') {
+  async function register(email: string, password: string, nombre: string, role = 'user') {
     const response = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

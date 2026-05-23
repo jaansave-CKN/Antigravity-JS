@@ -51,7 +51,7 @@ def init_auth_tables():
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             nombre TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'inversor',
+            role TEXT NOT NULL DEFAULT 'user',
             subscription_type TEXT DEFAULT 'subscriber',
             is_approved INTEGER DEFAULT 1,
             created_at TEXT NOT NULL,
@@ -76,12 +76,12 @@ class AuthService:
     def __init__(self):
         init_auth_tables()
 
-    def register(self, email: str, password: str, nombre: str, role: str = "inversor") -> Dict[str, Any]:
+    def register(self, email: str, password: str, nombre: str, role: str = "user") -> Dict[str, Any]:
         if len(password) < 8:
             raise ValueError("La contraseña debe tener al menos 8 caracteres")
         
-        if role not in ("admin", "inversor"):
-            raise ValueError("Rol inválido. Debe ser 'admin' o 'inversor'")
+        if role not in ("admin", "user"):
+            raise ValueError("Rol inválido. Debe ser 'admin' o 'user'")
 
         conn = _get_db()
         cur = conn.cursor()
@@ -195,7 +195,7 @@ class AuthService:
             conn.close()
 
     def update_role(self, user_id: str, new_role: str, admin_id: str) -> bool:
-        if new_role not in ("admin", "inversor"):
+        if new_role not in ("admin", "user"):
             raise ValueError("Rol inválido")
         conn = _get_db()
         cur = conn.cursor()
