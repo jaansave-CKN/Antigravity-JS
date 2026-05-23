@@ -195,8 +195,32 @@ function tryCatch(handler) {
 
 initDb();
 
+try {
+  const _testDb = getDb();
+  _testDb.exec("CREATE TABLE IF NOT EXISTS _diag (id INTEGER PRIMARY KEY)");
+  _testDb.exec("INSERT INTO _diag VALUES (1)");
+  const _row = _testDb.prepare("SELECT id FROM _diag WHERE id = 1").get();
+  if (_row && _row.id === 1) {
+    _testDb.exec("DROP TABLE _diag");
+    console.log("SQLite OK: escritura/lectura verificada en", DB_PATH);
+  }
+  _testDb.close();
+} catch (e) {
+  console.error("CRÍTICO: SQLite no puede escribir en", DB_PATH, e);
+}
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'SIA Radar', timestamp: new Date().toISOString() });
+});
+
+app.use('/api/auth/register', (req, res, next) => {
+  console.log("=== API DEBUG REGISTRO ===");
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  console.log("Body recibido:", JSON.stringify(req.body, null, 2));
+  if (!req.body || Object.keys(req.body).length === 0) {
+    console.error("CRITICO: El body llego vacio. ¿Falta express.json() arriba?");
+  }
+  next();
 });
 
 app.post('/api/auth/register', tryCatch(async (req, res) => {
