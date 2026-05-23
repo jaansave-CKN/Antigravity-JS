@@ -50,38 +50,40 @@ export default function MapContainer() {
   }, []);
 
 useEffect(() => {
-    if (!mapInstanceRef.current) return;
+     if (!mapInstanceRef.current) return;
 
-    markersRef.current.forEach(m => m.remove());
-    markersRef.current = [];
+     markersRef.current.forEach(m => m.remove());
+     markersRef.current = [];
 
-    const L = require('leaflet');
-    
-    predios.forEach(predio => {
-      const score = predio.evaluacion?.score_legal ?? 50;
-      const color = score >= 80 ? 'green' : score >= 50 ? 'orange' : 'red';
-      
-      const marker = L.circleMarker([predio.lat, predio.lng], {
-        radius: 8,
-        fillColor: color,
-        color: '#fff',
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 0.9
-      }).addTo(mapInstanceRef.current);
+     const L = require('leaflet');
+     
+     predios.forEach(predio => {
+       const lat = predio.lat ?? mapCenter.lat;
+       const lng = predio.lng ?? mapCenter.lng;
+       const score = predio.evaluacion?.score_legal ?? 50;
+       const color = score >= 80 ? 'green' : score >= 50 ? 'orange' : 'red';
+       
+       const marker = L.circleMarker([lat, lng], {
+         radius: 8,
+         fillColor: color,
+         color: '#fff',
+         weight: 2,
+         opacity: 1,
+         fillOpacity: 0.9
+       }).addTo(mapInstanceRef.current);
 
-      marker.bindPopup(`
-        <b>${predio.direccion}</b><br/>
-        Score: ${score}<br/>
-        <button onclick="window.selectPredio('${predio.id}')">Ver detalle</button>
-      `);
+       marker.bindPopup(`
+         <b>${predio.direccion || predio.id}</b><br/>
+         Score: ${score}<br/>
+         <button onclick="window.selectPredio('${predio.id}')">Ver detalle</button>
+       `);
 
-      marker.on('click', () => selectPredio(predio));
-      markersRef.current.push(marker);
-    });
+       marker.on('click', () => selectPredio(predio));
+       markersRef.current.push(marker);
+     });
 
-    (window as any).selectPredio = selectPredio;
-  }, [predios]);
+     (window as any).selectPredio = selectPredio;
+   }, [predios, mapCenter, selectPredio]);
 
   return (
     <div className="h-full w-full rounded-lg overflow-hidden border border-gray-200">
