@@ -402,7 +402,6 @@ const staticDir = path.join(__dirname, 'dist');
 if (fs.existsSync(staticDir)) {
   app.use(express.static(staticDir, { maxAge: '1h' }));
   app.get('*', (req, res) => {
-    if (req.path.startsWith('/api/')) return;
     res.sendFile(path.join(staticDir, 'index.html'));
   });
   console.log(`Serving static files from ${staticDir}`);
