@@ -49,7 +49,7 @@ export default function MapContainer() {
     };
   }, []);
 
-  useEffect(() => {
+useEffect(() => {
     if (!mapInstanceRef.current) return;
 
     markersRef.current.forEach(m => m.remove());
@@ -58,8 +58,8 @@ export default function MapContainer() {
     const L = require('leaflet');
     
     predios.forEach(predio => {
-      const color = predio.evaluacion?.score_legal >= 80 ? 'green' :
-                    predio.evaluacion?.score_legal >= 50 ? 'orange' : 'red';
+      const score = predio.evaluacion?.score_legal ?? 50;
+      const color = score >= 80 ? 'green' : score >= 50 ? 'orange' : 'red';
       
       const marker = L.circleMarker([predio.lat, predio.lng], {
         radius: 8,
@@ -72,7 +72,7 @@ export default function MapContainer() {
 
       marker.bindPopup(`
         <b>${predio.direccion}</b><br/>
-        Score: ${predio.evaluacion?.score_legal || 'N/A'}<br/>
+        Score: ${score}<br/>
         <button onclick="window.selectPredio('${predio.id}')">Ver detalle</button>
       `);
 

@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
+.env.local
+.env.*.local
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
@@ -11,5 +13,5 @@ functions/node_modules/
 .vercel
 SIA_Radar/
 .firebase/
-
+__pycache__/
 backend/__pycache__/
