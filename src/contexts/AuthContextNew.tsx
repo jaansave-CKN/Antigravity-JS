@@ -50,8 +50,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await fetch(`${API_BASE}/auth/verify`, {
         headers: { Authorization: `Bearer ${storedToken}` }
       });
+
+      const responseText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        console.error('[Auth] Verify - server returned non-JSON:', responseText);
+        localStorage.removeItem('auth_token');
+        setToken(null);
+        return;
+      }
+
       if (response.ok) {
-        const data = await response.json();
         setUser({
           id: data.user.id,
           email: data.user.email,
@@ -169,9 +180,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
     });
 
+    const responseText = await response.text();
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      console.error('[Auth] Change password - server returned non-JSON:', responseText);
+      throw new Error(`Error ${response.status}: El servidor no respondió con JSON. Verifica logs en Render.`);
+    }
+
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Error al cambiar contraseña');
+      throw new Error(data.detail || data.message || 'Error al cambiar contraseña');
     }
   }
 
