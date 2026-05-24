@@ -6,9 +6,9 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { loadEnv } from './server/env-loader.js';
+import jwt from 'jsonwebtoken';
 
 const require = createRequire(import.meta.url);
-const jwt = require('jsonwebtoken');
 
 loadEnv();
 
@@ -64,16 +64,16 @@ async function initDb() {
       usuario_id TEXT NOT NULL, revocado_en TIMESTAMP NOT NULL,
       deleted_at TIMESTAMP DEFAULT NULL
     )`);
-    await runSql(`CREATE TABLE IF NOT EXISTS convocatorias (
-       id SERIAL PRIMARY KEY, titulo TEXT NOT NULL,
-       sector TEXT DEFAULT '', tipo_financiamiento TEXT DEFAULT '',
-       formato_formulacion TEXT DEFAULT '', monto REAL DEFAULT 0,
-       url TEXT DEFAULT '', fecha_cierre TEXT DEFAULT '',
-       entidad_id TEXT DEFAULT '', score REAL DEFAULT 50,
-       estado TEXT DEFAULT 'pendiente', es_favorito INTEGER DEFAULT 0,
-       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-       deleted_at TIMESTAMP DEFAULT NULL
-     )`);
+     await runSql(`CREATE TABLE IF NOT EXISTS convocatorias (
+        id SERIAL PRIMARY KEY, titulo TEXT NOT NULL,
+        sector TEXT DEFAULT '', tipo_financiamiento TEXT DEFAULT '',
+        formato_formulacion TEXT DEFAULT '', monto REAL DEFAULT 0,
+        url TEXT DEFAULT '', fecha_cierre TEXT DEFAULT '',
+        entidad_id TEXT DEFAULT '', score REAL DEFAULT 50,
+        estado TEXT DEFAULT 'pendiente', es_favorito INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TIMESTAMP DEFAULT NULL
+      )`);
     await runSql(`CREATE TABLE IF NOT EXISTS entidades (
        id TEXT PRIMARY KEY, nombre TEXT, sigla TEXT, tipo TEXT,
        pais TEXT, bandera TEXT, sectores TEXT, sitio_web TEXT,
@@ -111,22 +111,22 @@ async function initDb() {
        created_at TIMESTAMP, updated_at TIMESTAMP,
        deleted_at TIMESTAMP DEFAULT NULL
      )`);
-    await runSql(`CREATE TABLE IF NOT EXISTS subvenciones (
-       id SERIAL PRIMARY KEY, titulo TEXT NOT NULL,
-       entidad TEXT, descripcion TEXT,
-       fecha_limite TEXT, cuantia TEXT, requisitos TEXT,
-       url TEXT, sector TEXT, pais TEXT,
-       estado TEXT DEFAULT 'activa', source TEXT DEFAULT 'crawler',
-       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-       deleted_at TIMESTAMP DEFAULT NULL
-     )`);
-    await runSql(`CREATE TABLE IF NOT EXISTS crawl_log (
-       id SERIAL PRIMARY KEY,
-       tipo TEXT, fuente TEXT,
-       subvenciones_encontradas INTEGER DEFAULT 0,
-       resultado TEXT, ejecutada_en TIMESTAMP,
-       deleted_at TIMESTAMP DEFAULT NULL
-     )`);
+     await runSql(`CREATE TABLE IF NOT EXISTS subvenciones (
+        id SERIAL PRIMARY KEY, titulo TEXT NOT NULL,
+        entidad TEXT, descripcion TEXT,
+        fecha_limite TEXT, cuantia TEXT, requisitos TEXT,
+        url TEXT, sector TEXT, pais TEXT,
+        estado TEXT DEFAULT 'activa', source TEXT DEFAULT 'crawler',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TIMESTAMP DEFAULT NULL
+      )`);
+     await runSql(`CREATE TABLE IF NOT EXISTS crawl_log (
+        id SERIAL PRIMARY KEY,
+        tipo TEXT, fuente TEXT,
+        subvenciones_encontradas INTEGER DEFAULT 0,
+        resultado TEXT, ejecutada_en TIMESTAMP,
+        deleted_at TIMESTAMP DEFAULT NULL
+      )`);
     await runSql(`CREATE TABLE IF NOT EXISTS proyectos (
        id TEXT PRIMARY KEY, nombre TEXT NOT NULL,
        descripcion TEXT, usuario_id TEXT,
@@ -143,7 +143,7 @@ async function initDb() {
 }
 
 async function getUser(userId) {
-  return await getRow('SELECT id, email, nombre, tipoUsuario as role, created_at, is_active FROM usuarios WHERE id = $1', [userId]);
+  return await getRow('SELECT id, email, nombre, tipoUsuario as role, created_at, is_active, is_approved, deleted_at FROM usuarios WHERE id = $1', [userId]);
 }
 
 async function start() {
@@ -180,7 +180,7 @@ async function start() {
       const hash = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256').toString('hex');
       const userId = crypto.randomUUID();
       const now = new Date().toISOString();
-      await runSql('INSERT INTO usuarios (id, email, password_hash, nombre, tipoUsuario, createdAt, is_active) VALUES ($1,$2,$3,$4,$5,$6,1)', [userId, email, salt + ':' + hash, nombre, role, now]);
+       await runSql('INSERT INTO usuarios (id, email, password_hash, nombre, tipoUsuario, createdAt, is_approved, is_active) VALUES ($1,$2,$3,$4,$5,$6,1,1)', [userId, email, salt + ':' + hash, nombre, role, now]);
       const token = generateToken(userId, email, role);
       return res.status(201).json({ success: true, message: "Registro exitoso", user: { id: userId, email, nombre, role, createdAt: now, is_active: true }, token });
     } catch (error) {
@@ -780,14 +780,14 @@ async function start() {
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
   });
 
-  const staticDir = path.join(__dirname, 'dist');
-  if (fs.existsSync(staticDir)) {
-    app.use(express.static(staticDir, { maxAge: '1h' }));
-    app.get('/{*path}', (req, res) => { res.sendFile(path.join(staticDir, 'index.html')); });
-    console.log(`Serving static files from ${staticDir}`);
-  } else {
-    console.log(`Static dir ${staticDir} not found, API only mode`);
-  }
+   const staticDir = path.join(__dirname, 'dist');
+   if (fs.existsSync(staticDir)) {
+     app.use(express.static(staticDir, { maxAge: '1h' }));
+     app.get('/{*path}', (req, res) => { res.sendFile(path.join(staticDir, 'index.html')); });
+     console.log(`Serving static files from ${staticDir}`);
+   } else {
+     console.log(`Static dir ${staticDir} not found, API only mode`);
+   }
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);

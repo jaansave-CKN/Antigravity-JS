@@ -1,60 +1,44 @@
-import pg from 'pg';
+import { Pool } from 'pg';
 
-const { Pool } = pg;
+let _pool = null;
 
-let pool = null;
+const _rawUrl = (process.env.DATABASE_URL || '').trim();
 
-function getPool() {
-  if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString || !connectionString.startsWith('postgres')) {
-      throw new Error('DATABASE_URL environment variable is missing or not a PostgreSQL URL. Configure it in Render dashboard.');
-    }
-    pool = new Pool({
-      connectionString,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-    });
-  }
-  return pool;
+if (!_rawUrl) {
+  console.error('[DB] FATAL: DATABASE_URL environment variable is required for PostgreSQL');
+  process.exit(1);
 }
 
 export async function initSQL() {
-  getPool();
-  return getPool();
+  if (!_pool) {
+    _pool = new Pool({
+      connectionString: _rawUrl,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
+    console.log('[DB] PostgreSQL pool initialized');
+  }
+  return _pool;
 }
 
 export function getDb() {
-  return getPool();
-}
-
-export async function closeDb() {
-  if (pool) {
-    await pool.end();
-    pool = null;
-  }
+  return _pool;
 }
 
 export async function getRow(sql, params = []) {
-  const pool = getPool();
-  const result = await pool.query(sql, params);
-  return result.rows[0];
+  const { rows } = await _pool.query(sql, params);
+  return rows[0] || undefined;
 }
 
 export async function getRows(sql, params = []) {
-  const pool = getPool();
-  const result = await pool.query(sql, params);
-  return result.rows;
+  const { rows } = await _pool.query(sql, params);
+  return rows;
 }
 
 export async function getCount(sql, params = []) {
-  const pool = getPool();
-  const result = await pool.query(sql, params);
-  return parseInt(result.rows[0]?.c || 0);
+  const { rows } = await _pool.query(sql, params);
+  return parseInt(rows[0]?.c || 0);
 }
 
 export async function runSql(sql, params = []) {
-  const pool = getPool();
-  return await pool.query(sql, params);
+  return _pool.query(sql, params);
 }
-
-export { pool };
