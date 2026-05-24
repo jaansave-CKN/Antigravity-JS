@@ -780,14 +780,9 @@ async function start() {
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
   });
 
-   const staticDir = path.join(__dirname, 'dist');
-   if (fs.existsSync(staticDir)) {
-     app.use(express.static(staticDir, { maxAge: '1h' }));
-     app.get('/{*path}', (req, res) => { res.sendFile(path.join(staticDir, 'index.html')); });
-     console.log(`Serving static files from ${staticDir}`);
-   } else {
-     console.log(`Static dir ${staticDir} not found, API only mode`);
-   }
+const staticDir = path.join(__dirname, 'dist');
+  app.use(express.static(staticDir));
+  app.get('*', (req, res) => res.sendFile(path.join(staticDir, 'index.html')));
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
