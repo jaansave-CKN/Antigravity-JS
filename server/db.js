@@ -7,8 +7,8 @@ let pool = null;
 function getPool() {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      throw new Error('DATABASE_URL environment variable is required');
+    if (!connectionString || !connectionString.startsWith('postgres')) {
+      throw new Error('DATABASE_URL environment variable is missing or not a PostgreSQL URL. Configure it in Render dashboard.');
     }
     pool = new Pool({
       connectionString,

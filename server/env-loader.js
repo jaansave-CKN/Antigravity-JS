@@ -19,10 +19,13 @@ function loadEnv() {
       if (i === -1) continue;
       const key   = t.slice(0, i).trim();
       const value = t.slice(i + 1).trim().replace(/^"|"$/g, '');
+      console.log('[env] Setting:', key, '=', value ? '(loaded)' : '(empty)');
       if (!(key in process.env)) process.env[key] = value;
     }
-    console.log('[env] .env cargado');
-  } catch {
+    console.log('[env] .env cargado, envs count:', Object.keys(process.env).length);
+    console.log('[env] DATABASE_URL present:', !!process.env.DATABASE_URL);
+    console.log('[env] DATABASE_URL prefix:', (process.env.DATABASE_URL || '').substring(0, 15));
+  } catch (e) {
     console.log('[env] .env no encontrado, usando variables del sistema');
   }
 }

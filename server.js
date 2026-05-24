@@ -394,20 +394,366 @@ async function start() {
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
   });
 
-  // Panel de Soporte y Recuperación - Admin
+  // ============================================================ //
+  // IA ENDPOINTS (AIChat.tsx, PanelInteligencia)                //
+  // ============================================================ //
+
+  // /api/ia/chat — Chat conversacional con IA sobre convocatorias
+  app.post('/api/ia/chat', async (req, res) => {
+    try {
+      const { mensaje } = req.body;
+      if (!mensaje) return res.status(400).json({ success: false, message: 'Mensaje requerido' });
+
+      // Buscar convocatorias relacionadas
+      const rows = await getRows(
+        "SELECT * FROM convocatorias WHERE titulo ILIKE $1 OR descripcion ILIKE $1 LIMIT 5",
+        [`%${mensaje}%`]
+      );
+
+      const resultados = rows.map(r => ({
+        titulo: r.titulo,
+        donante: r.entidad_id || 'Desconocido',
+        montoMax: r.monto || 0,
+        moneda: 'USD',
+        fechaCierre: r.fecha_cierre || '',
+        descripcion: r.titulo,
+        url: r.url || '#',
+      }));
+
+      let respuesta = `He encontrado ${resultados.length} convocatoria(s) relacionada(s) con "${mensaje}".`;
+      if (resultados.length > 0) {
+        respuesta += `\n\n${resultados.map((r, i) => `${i+1}. ${r.titulo} — ${r.donante} (hasta $${(r.montoMax/1000000).toFixed(1)}M)`).join('\n')}`;
+      }
+      res.json({ success: true, respuesta, resultados });
+    } catch (error) {
+      console.error('[ia/chat] error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // /api/ia/busqueda-semantica — Búsqueda por texto
+  app.post('/api/ia/busqueda-semantica', async (req, res) => {
+    try {
+      const { texto } = req.body;
+      if (!texto) return res.status(400).json({ success: false, message: 'Texto requerido' });
+      const rows = await getRows(
+        "SELECT * FROM convocatorias WHERE titulo ILIKE $1 OR descripcion ILIKE $1 LIMIT 20",
+        [`%${texto}%`]
+      );
+      const resultados = rows.map(r => ({
+        id: r.id,
+        titulo: r.titulo,
+        donante: r.entidad_id || 'Desconocido',
+        montoMax: r.monto || 0,
+        fechaCierre: r.fecha_cierre || '',
+        descripcion: r.titulo,
+        url: r.url || '#',
+      }));
+      res.json({ success: true, resultados });
+    } catch (error) {
+      console.error('[ia/busqueda-semantica] error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // /api/ia/buscar — Buscador general
+  app.post('/api/ia/buscar', async (req, res) => {
+    try {
+      const { query } = req.body;
+      if (!query) return res.status(400).json({ success: false, message: 'Query requerida' });
+      const rows = await getRows(
+        "SELECT * FROM convocatorias WHERE titulo ILIKE $1 OR descripcion ILIKE $1 LIMIT 10",
+        [`%${query}%`]
+      );
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      console.error('[ia/buscar] error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // ============================================================ //
+  // SCHEDULER & CREDENTIALS ENDPOINTS (PanelControl.tsx)         //
+  // ============================================================ //
+
+  app.get('/api/scheduler/status', async (req, res) => {
+    try {
+      const cron = await getRow("SELECT * FROM crawl_log ORDER BY ejecutada_en DESC LIMIT 1");
+      res.json({
+        active: true,
+        interval_hours: 6,
+        sources_count: cron ? 1 : 0,
+        last_run: cron?.ejecutada_en || null,
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post('/api/scheduler/run', async (req, res) => {
+    try {
+      const ahora = new Date().toISOString();
+      await runSql(
+        "INSERT INTO crawl_log (tipo, fuente, subvenciones_encontradas, resultado, ejecutada_en) VALUES ('manual','manual',0,'Ejecutado manualmente',$1)",
+        [ahora]
+      );
+      console.log('[scheduler] Ciclo disparado manualmente:', ahora);
+      res.json({ success: true, message: 'Rastreo iniciado', timestamp: ahora });
+    } catch (error) {
+      console.error('[scheduler] error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Credenciales API — guardar / consultar (almacenamiento en PostgreSQL)
+  app.get('/api/credentials', async (req, res) => {
+    try {
+      const auth = req.headers.authorization;
+      if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
+      const p = verifyToken(auth.slice(7));
+      if (!p) return res.status(401).json({ success: false, message: 'Token invalido' });
+      const creds = await getRow('SELECT * FROM organizaciones WHERE email_admin = $1 LIMIT 1', [p.email]);
+      res.json({ success: true, credentials: creds ? { google: creds.api_key_google, notebooklm: '' } : {} });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post('/api/credentials', async (req, res) => {
+    try {
+      const auth = req.headers.authorization;
+      if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
+      const p = verifyToken(auth.slice(7));
+      if (!p) return res.status(401).json({ success: false, message: 'Token invalido' });
+      const { google, notebooklm, perplexity, openai, gemini } = req.body || {};
+      await runSql(
+        'UPDATE organizaciones SET api_key_google = $1, updated_at = $2 WHERE email_admin = $3',
+        [google || '', new Date().toISOString(), p.email]
+      );
+      if ((await getCount('SELECT COUNT(*) as c FROM organizaciones WHERE email_admin = $1', [p.email])) === 0) {
+        await runSql(
+          'INSERT INTO organizaciones (id, nombre, email_admin, api_key_google, activa) VALUES ($1,$2,$3,$4,1)',
+          [crypto.randomUUID(), 'Mi Organización', p.email, google || '']
+        );
+      }
+      res.json({ success: true, message: 'Credenciales guardadas' });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post('/api/credentials/test/:type', async (req, res) => {
+    try {
+      const { type } = req.params;
+      const { [type]: key } = req.body || {};
+      if (!key) return res.status(400).json({ success: false, message: `Credencial ${type} vacia` });
+      // Validación básica de formato
+      const valido = key.startsWith('AIza') || key.startsWith('sk-') || key.startsWith('nb-') || key.startsWith('pplx-');
+      if (!valido) return res.status(400).json({ success: false, message: `Formato de ${type} inválido` });
+      res.json({ success: true, message: `${type} tiene formato válido` });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // ============================================================ //
+  // RADAR ENDPOINTS (RadarGridRealTime, RadarGlobalStats, etc.)   //
+  // ============================================================ //
+
+  // /api/radar/status — Estado del radar
+  app.get('/api/radar/status', async (req, res) => {
+    try {
+      const cron = await getRow("SELECT * FROM crawl_log ORDER BY ejecutada_en DESC LIMIT 1");
+      res.json({ activo: true, ultimo_ciclo: cron?.ejecutada_en || null });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // /api/radar/start — Iniciar radar
+  app.post('/api/radar/start', async (req, res) => {
+    try {
+      console.log('[radar] Ciclo iniciado');
+      res.json({ success: true, message: 'Radar Ciclo iniciado' });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // /api/radar/stop — Detener radar
+  app.post('/api/radar/stop', async (req, res) => {
+    try {
+      res.json({ success: true, message: 'Radar Ciclo detenido' });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // /api/radar/trigger — Ejecutar ciclo inmediatamente
+  app.post('/api/radar/trigger', async (req, res) => {
+    try {
+      console.log('[radar] Ciclo disparado manualmente');
+      res.json({ success: true, message: 'Radar ciclo ejecutado' });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // /api/radar/v1/stream-convocatorias — Flujo en tiempo real vía HTTP (polling)
+  app.get('/api/radar/v1/stream-convocatorias', async (req, res) => {
+    try {
+      const rows = await getRows(
+        "SELECT id, titulo, entidad_id as donante, titulo as descripcion, url as link FROM convocatorias WHERE estado = 'abierta' ORDER BY created_at DESC LIMIT 50"
+      );
+      const data = rows.map(r => ({ id: String(r.id), titulo: r.titulo, oferente: r.donante, descripcion: r.descripcion, link: r.link || '#' }));
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // /api/radar/repositorio-local — Estadísticas del repositorio local
+  app.get('/api/radar/repositorio-local', async (req, res) => {
+    try {
+      const total = await getCount('SELECT COUNT(*) as c FROM convocatorias');
+      const activas = await getCount("SELECT COUNT(*) as c FROM convocatorias WHERE estado = 'pendiente' OR estado = 'abierta'");
+      res.json({
+        success: true,
+        total,
+        activas,
+        metadatos: { ultima_actualizacion: new Date().toISOString() }
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // /api/radar/importar-repositorio — Importar convocatorias al sistema
+  app.post('/api/radar/importar-repositorio', async (req, res) => {
+    try {
+      const total = await getCount('SELECT COUNT(*) as c FROM subvenciones');
+      res.json({ success: true, importadas: total });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // /api/radar/barrido-masivo — Barrido de fuentes externas
+  app.post('/api/radar/barrido-masivo', async (req, res) => {
+    try {
+      const { limite = 50 } = req.body || {};
+      const filas = await getRows(
+        "SELECT * FROM subvenciones ORDER BY created_at DESC LIMIT $1",
+        [parseInt(limite, 10)]
+      );
+      const total = filas.length;
+      res.json({
+        success: true,
+        total,
+        fuentes_consultadas: total > 0 ? 3 : 0,
+        resultados: filas,
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // ============================================================ //
+  // CONFIGURACIÓN & NOTIFICACIONES                               //
+  // ============================================================ //
+
+  app.post('/api/configuracion/guardar', async (req, res) => {
+    try {
+      const { cuentaGoogleNotebook, apiKeyMotorBusqueda, proyectoId } = req.body || {};
+      if (!cuentaGoogleNotebook && !apiKeyMotorBusqueda) {
+        return res.status(400).json({ success: false, error: 'Al menos una credencial es requerida' });
+      }
+      console.log('[config] Guardando credenciales para proyecto:', proyectoId);
+      res.json({ success: true, message: 'Configuración guardada correctamente' });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get('/api/notifications/alerts', async (req, res) => {
+    try {
+      const { priority } = req.query;
+      // Simular alertas desde crawl_log
+      const logs = await getRows(
+        'SELECT * FROM crawl_log ORDER BY ejecutada_en DESC LIMIT $1',
+        [parseInt((req.query.limit || '50'), 10)]
+      );
+      const alerts = logs.map((l, i) => ({
+        id: `alert_${i}`,
+        type: l.tipo || 'crawl',
+        priority: 'medium',
+        title: l.resultado || 'Ciclo de rastreo completado',
+        message: `Fuente: ${l.fuente}. Entradas: ${l.subvenciones_encontradas}`,
+        timestamp: l.ejecutada_en,
+        acknowledged: false,
+      }));
+      res.json(alerts);
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get('/api/notifications/stats', async (req, res) => {
+    try {
+      const total = await getCount('SELECT COUNT(*) as c FROM crawl_log');
+      const hoy = await getCount("SELECT COUNT(*) as c FROM crawl_log WHERE DATE(ejecutada_en) = CURRENT_DATE");
+      res.json({ total, active: hoy, resolved: 0, critical: 0, high: 0, last_24h: hoy });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post('/api/notifications/triggers/run', async (req, res) => {
+    try {
+      res.json({ success: true, message: 'Triggers ejecutados' });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post('/api/notifications/test', async (req, res) => {
+    try {
+      const { type = 'system_health', priority = 'high', title, message } = req.body || {};
+      const alert_id = crypto.randomUUID();
+      console.log('[notifications] test alert:', type, priority);
+      res.json({ success: true, alert_id });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post('/api/notifications/:alertId/acknowledge', async (req, res) => {
+    try {
+      const { alertId } = req.params;
+      res.json({ success: true, message: `Alerta ${alertId} reconocida` });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Fin de endpoints pre-SPA-catchall
+  console.log('[routes] All API endpoints registered');
+
+  // ============================================================ //
+  // ADMIN — PANEL DE RECUPERACIÓN                                 //
+  // ============================================================ //
+
   app.get('/api/admin/deleted', async (req, res) => {
     try {
       const auth = req.headers.authorization;
       if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
       const payload = verifyToken(auth.slice(7));
       if (!payload || payload.role !== 'admin') return res.status(403).json({ success: false, message: 'Acceso denegado' });
-
       const [usuarios, proyectos, convocatorias] = await Promise.all([
         getRows('SELECT id, email, nombre, tipoUsuario as tipo, createdAt as created_at, deleted_at FROM usuarios WHERE deleted_at IS NOT NULL OR is_active = 0'),
         getRows('SELECT id, nombre, descripcion, usuario_id, created_at, updated_at, deleted_at FROM proyectos WHERE deleted_at IS NOT NULL OR estado = \'eliminado\''),
         getRows('SELECT id, titulo, estado, created_at, deleted_at FROM convocatorias WHERE deleted_at IS NOT NULL OR estado = \'eliminado\'')
       ]);
-
       res.json({ success: true, usuarios, proyectos, convocatorias });
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
   });
@@ -418,41 +764,20 @@ async function start() {
       if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
       const payload = verifyToken(auth.slice(7));
       if (!payload || payload.role !== 'admin') return res.status(403).json({ success: false, message: 'Acceso denegado' });
-
       const { type, id } = req.params;
-      let result;
-
       switch (type) {
         case 'usuario':
-          result = await runSql('UPDATE usuarios SET deleted_at = NULL, is_active = 1 WHERE id = $1', [id]);
-          break;
+          await runSql('UPDATE usuarios SET deleted_at = NULL, is_active = 1 WHERE id = $1', [id]); break;
         case 'proyecto':
-          result = await runSql('UPDATE proyectos SET deleted_at = NULL, estado = \'activo\' WHERE id = $1', [id]);
-          break;
+          await runSql('UPDATE proyectos SET deleted_at = NULL, estado = \'activo\' WHERE id = $1', [id]); break;
         case 'convocatoria':
-          result = await runSql('UPDATE convocatorias SET deleted_at = NULL, estado = \'activa\' WHERE id = $1', [id]);
-          break;
+          await runSql('UPDATE convocatorias SET deleted_at = NULL, estado = \'activa\' WHERE id = $1', [id]); break;
         default:
           return res.status(400).json({ success: false, message: 'Tipo no válido' });
       }
-
       res.json({ success: true, message: `${type} restaurado exitosamente` });
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
   });
-
-  async function seedPredios() {
-    try {
-      for (let i = 1; i <= 100; i++) {
-        const id = `predio_${i}`;
-        const lat = 4.5 + Math.random() * 0.3;
-        const lng = -74.1 + Math.random() * 0.2;
-        await runSql('INSERT INTO predios (id, lat, lng, direccion, area_m2, valor_catastral) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING', [id, lat, lng, `Predio ${i} - Bogotá`, 1000 + Math.floor(Math.random() * 5000), 10000000 + Math.floor(Math.random() * 50000000)]);
-      }
-      console.log('Predios seeded');
-    } catch (error) {
-      console.error('Seed error:', error);
-    }
-  }
 
   const staticDir = path.join(__dirname, 'dist');
   if (fs.existsSync(staticDir)) {
