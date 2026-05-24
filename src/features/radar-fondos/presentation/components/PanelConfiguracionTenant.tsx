@@ -57,7 +57,7 @@ export const PanelConfiguracionTenant: React.FC = () => {
 
       // Paso 2 — Guardar en backend
       setGuardando(true);
-      const response = await fetch('/api/configuracion/guardar', {
+        const response = await fetch('/api/configuracion/guardar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -66,9 +66,10 @@ export const PanelConfiguracionTenant: React.FC = () => {
           proyectoId,
           timestamp: new Date().toISOString()
         })
-      });
-
-      const data = await response.json();
+        });
+      const respText = await response.text();
+      let data;
+      try { data = JSON.parse(respText); } catch { throw new Error('Invalid JSON from backend'); }
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Error al guardar en el backend');
@@ -92,7 +93,8 @@ export const PanelConfiguracionTenant: React.FC = () => {
           })
         });
 
-        const barridoData = await barridoResponse.json();
+        const barridoDataRaw = await barridoResponse.text();
+        const barridoData = barridoResponse.ok ? JSON.parse(barridoDataRaw) : {};
 
         if (barridoData.success && barridoData.total && barridoData.total > 0) {
           setMensaje(prev => `${prev}\nBarrido completado: ${barridoData.total} entradas indexadas desde ${barridoData.fuentes_consultadas || 'múltiples fuentes'}. El RadarGrid refleja los resultados al instante.`);

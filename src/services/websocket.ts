@@ -12,45 +12,44 @@
  *   ws.connect();   // abre el socket
  *   ws.disconnect(); // lo cierra (ej: cleanup en useEffect)
  *
- * El endpoint del backend es:  ws://localhost:8000/ws/convocatorias
- */
-type WebSocketCb = (...args: any[]) => void;
+  * El endpoint del backend se configura con la variable VITE_API_URL del entorno.
+  * Por defecto (local): ws://localhost:8000/ws/convocatorias
+  */
 
 export interface RadarWSConfig {
   /** URL del WebSocket (sin query params) */
-  url?:                     string;
+  url?:            string;
   /** Intervalo de ping automático en ms (0 para desactivar) */
-  pingIntervalMs?:          number;
+  pingIntervalMs?: number;
   /** Tiempo máximo de espera al reconectar antes de abortar intentos (ms) */
-  maxReconnectDelayMs?:     number;
+  maxReconnectDelayMs?: number;
   /** Callback al recibir una convocatoria nueva */
-  onNuevaConvocatoria?:     (data: any)   => void;
+  onNuevaConvocatoria?:   (data: any) => void;
   /** Callback al recibir el snapshot de conexión inicial */
-  onSnapshotInicial?:       (stats: any)  => void;
+  onSnapshotInicial?:     (stats: any) => void;
   /** Callback cuando el socket se conecta exitosamente */
-  onConnected?:             ()            => void;
+  onConnected?:           () => void;
   /** Callback cuando el socket se desconecta */
-  onDisconnected?:          ()            => void;
+  onDisconnected?:        () => void;
   /** Callback ante errores */
-  onError?:                 (err: Event)  => void;
+  onError?:               (err: Event) => void;
 }
 
-const DEFAULT_URL = "ws://localhost:8000/ws/convocatorias";
+const DEFAULT_API = (import.meta.env.VITE_API_URL || '').replace(/^http/, 'ws') || 'ws://localhost:8000';
+const DEFAULT_URL = `${DEFAULT_API}/ws/convocatorias`;
 
 /** Decide si usamos ws:// o wss:// según la ubicación de la página */
 function buildUrl(url: string): string {
-  const isHttps = window.location.protocol === "https:";
   if (url.startsWith("ws://") || url.startsWith("wss://")) return url;
+  const isHttps = window.location.protocol === "https:";
   return isHttps ? `wss://${url}` : `ws://${url}`;
 }
 
 /** Reemplaza el host/puerto si el WebSocket está en origen distinto al frontend */
 function resolveUrl(override?: string, appOrigin?: string): string {
   if (override) return buildUrl(override);
-  // En desarrollo Vite corre en :5173 y el WS en :8000 — armar URL completa
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const host     = appOrigin || `${location.hostname}:8000`;
-  return `${protocol}//${host}/ws/convocatorias`;
+  // Usar DEFAULT_URL que ya incluye protocolo correcto desde VITE_API_URL
+  return buildUrl(DEFAULT_URL);
 }
 
 /**

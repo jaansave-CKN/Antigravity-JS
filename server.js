@@ -5,15 +5,22 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import { loadEnv } from './server/env-loader.js';
 
 const require = createRequire(import.meta.url);
 const jwt = require('jsonwebtoken');
+
+loadEnv();
 
 import { initSQL, getDb, getRow, getRows, getCount, runSql } from './server/db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const JWT_SECRET = process.env.JWT_SECRET || 'radarfondos_jwt_secret_key_change_in_production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is not set. Set it in Render dashboard or .env.');
+  process.exit(1);
+}
 const JWT_ALGORITHM = 'HS256';
 const JWT_EXPIRATION_HOURS = 24;
 
@@ -127,7 +134,7 @@ async function initDb() {
        metadata TEXT,
        deleted_at TIMESTAMP DEFAULT NULL
      )`);
-    console.log('DB initialized with PostgreSQL');
+    console.log('DB initialized');
   } catch (error) {
     console.error('DB init error:', error);
     throw error;
@@ -146,6 +153,10 @@ async function start() {
   const app = express();
   app.use(cors({ origin: true, credentials: true }));
   app.use(express.json());
+
+  app.get('/', (req, res) => {
+    res.send('Servidor en línea y conectado a la base de datos.');
+  });
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', service: 'SIA Radar', timestamp: new Date().toISOString() });

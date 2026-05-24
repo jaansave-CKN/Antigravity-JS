@@ -64,8 +64,8 @@ export function useEntidades() {
     try {
       const res = await fetch('/api/entidades');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const data: Entidad[] = await res.json();
+      const resText = await res.text();
+      const data: Entidad[] = JSON.parse(resText);
       setCache(data);
 
       setState({

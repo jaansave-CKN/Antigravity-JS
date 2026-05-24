@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Alert, AlertStats } from '../types';
-import { API_BASE } from '../api';
+import API_BASE from '../api';
 
 export function useAlertas() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -17,8 +17,8 @@ export function useAlertas() {
 
       const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to fetch alerts');
-
-      const data = await response.json();
+      const respText = await response.text();
+      const data = JSON.parse(respText);
       setAlerts(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -31,8 +31,8 @@ export function useAlertas() {
     try {
       const response = await fetch(`${API_BASE}/notifications/stats`);
       if (!response.ok) throw new Error('Failed to fetch stats');
-
-      const data = await response.json();
+      const respText = await response.text();
+      const data = JSON.parse(respText);
       setStats(data);
     } catch (err) {
       console.error('Error fetching alert stats:', err);
@@ -89,8 +89,8 @@ export function useAlertas() {
       });
 
       if (!response.ok) throw new Error('Failed to send test notification');
-
-      const data = await response.json();
+      const respText = await response.text();
+      const data = JSON.parse(respText);
       await fetchAlerts();
       return data.alert_id;
     } catch (err) {

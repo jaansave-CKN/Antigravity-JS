@@ -29,7 +29,8 @@ export default function RadarGlobalStats() {
       // Intentar obtener stats locales primero
       const localRes = await fetch('/api/radar/repositorio-local');
       if (localRes.ok) {
-        const localData = await localRes.json();
+        const localText = await localRes.text();
+        const localData: any = localText ? JSON.parse(localText) : {};
         if (localData.success) {
           setStats({
             total: localData.total,
@@ -47,8 +48,10 @@ export default function RadarGlobalStats() {
       }
       
       // Fallback a Firebase
+            
       const res = await fetch('/api/ia/estadisticas');
-      const data = await res.json();
+      const resText = await res.text();
+      const data = res.ok ? JSON.parse(resText) : {};
       
       if (data.success) {
         setStats(data);
@@ -63,7 +66,8 @@ export default function RadarGlobalStats() {
   const triggerImport = async () => {
     try {
       const res = await fetch('/api/radar/importar-repositorio', { method: 'POST' });
-      const data = await res.json();
+      const resText = await res.text();
+      const data: any = (() => { try { return JSON.parse(resText); } catch { return {}; } })();
       
       if (data.success) {
         alert(`Importadas ${data.importadas} convocatorias al sistema`);

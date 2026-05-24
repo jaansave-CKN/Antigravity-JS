@@ -5,6 +5,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { Clock, Check, X, Eye, ExternalLink, Search, Filter, AlertCircle } from 'lucide-react';
 import '../components/AdminPanel.css';
 
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
 interface ConvocatoriaPendiente {
   id: string;
   titulo: string;
@@ -94,7 +96,7 @@ export default function AdminPanel() {
 
   const checkRadarStatus = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/radar/status');
+      const res = await fetch(`${API_BASE}/api/radar/status`);
       const data = await res.json();
       setRadarActivo(data.activo);
     } catch { setRadarActivo(false); }
@@ -103,7 +105,7 @@ export default function AdminPanel() {
   const toggleRadar = async () => {
     try {
       const endpoint = radarActivo ? '/api/radar/stop' : '/api/radar/start';
-      const res = await fetch(`http://localhost:5000${endpoint}`, { method: 'POST' });
+      const res = await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
       const data = await res.json();
       setRadarMsg(data.message || data.error);
       setTimeout(() => setRadarMsg(''), 3000);
@@ -114,7 +116,7 @@ export default function AdminPanel() {
   const triggerRadar = async () => {
     setRadarMsg('Ejecutando ciclo...');
     try {
-      await fetch('http://localhost:5000/api/radar/trigger', { method: 'POST' });
+      await fetch(`${API_BASE}/api/radar/trigger`, { method: 'POST' });
       setRadarMsg('Ciclo ejecutado');
       setTimeout(() => setRadarMsg(''), 3000);
     } catch { setRadarMsg('Error'); }
