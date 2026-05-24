@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Filter, Search, Calendar, DollarSign, Globe, ExternalLink, Award, Wifi, WifiOff } from 'lucide-react';
 import './ConvocatoriasView.css';
 
-const API_URL = 'http://localhost:8000';
-const WS_URL = 'ws://localhost:8000/ws/live_radar';
+const API_URL = import.meta.env.VITE_API_URL || '';
+const WS_URL = (API_URL || 'ws://localhost:8000').replace(/^http/, 'ws') + '/ws/live_radar';
 
 interface Convocatoria {
   id: number;
@@ -181,7 +181,10 @@ export default function ConvocatoriasView() {
         ]);
 
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data: { data: Convocatoria[]; total?: number } = await resp.json();
+        const text = await resp.text();
+        let parsed;
+        try { parsed = JSON.parse(text); } catch { throw new Error('Invalid JSON from backend'); }
+        const data: { data: Convocatoria[]; total?: number } = parsed;
 
         if (cancelled) return;
         setConvocatoriasLocal(data.data || []);
@@ -287,7 +290,7 @@ export default function ConvocatoriasView() {
             No se pudo conectar con el backend: {error}
           </p>
           <p className="convocatorias-view__hint">
-            Asegúrate de que el servidor esté activo en <code>python -m uvicorn backend.server_fastapi:app --port 8000</code>
+            Asegúrate de que el servidor esté activo ejecutando `node server.js`
           </p>
         </div>
       )}

@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, Filter, Wifi, WifiOff, TrendingUp, DollarSign, Calendar, Building2, ArrowUp, AlertCircle } from 'lucide-react';
 
-const API_URL = 'http://localhost:8000';
-const WS_URL = 'ws://localhost:8000/ws/live_radar';
+const API_URL = import.meta.env.VITE_API_URL || '';
+const WS_URL = (API_URL || 'ws://localhost:8000').replace(/^http/, 'ws') + '/ws/live_radar';
 
 interface Convocatoria {
   id: number;
@@ -140,7 +140,10 @@ export default function Dashboard() {
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
         ]);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data: { data: Convocatoria[] } = await resp.json();
+        const text = await resp.text();
+        let parsed;
+        try { parsed = JSON.parse(text); } catch { throw new Error('Invalid JSON from backend'); }
+        const data: { data: Convocatoria[] } = parsed;
         if (!cancelled) setConvocatorias(data.data || []);
       } catch (e: any) {
         if (!cancelled) setError(e.message);
@@ -276,7 +279,7 @@ export default function Dashboard() {
             <div className="p-12 text-center">
               <AlertCircle className="mx-auto text-red-400 mb-4" size={48} />
               <p className="text-red-400">{error}</p>
-              <p className="text-slate-500 mt-2 text-sm">Verifica que el backend esté en http://localhost:8000</p>
+               <p className="text-slate-500 mt-2 text-sm">Verifica que el backend esté activo en el puerto configurado (VITE_API_URL)</p>
             </div>
           ) : (
             <div className="overflow-x-auto">

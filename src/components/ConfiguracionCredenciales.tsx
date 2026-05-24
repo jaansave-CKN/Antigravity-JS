@@ -57,7 +57,9 @@ async function verifyJupyterToken(url: string, token: string): Promise<{ success
     clearTimeout(timeoutId);
 
     if (response.ok) {
-      const data = await response.json();
+      const text = await response.text();
+      let data;
+      try { data = JSON.parse(text); } catch { throw new Error('Invalid JSON from /api/status'); }
       return {
         success: true,
         message: `Servidor Jupyter OK - Kernel: ${data.kernelspecs?.default || 'default'}`,

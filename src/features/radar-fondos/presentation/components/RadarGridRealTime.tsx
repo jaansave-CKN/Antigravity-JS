@@ -14,9 +14,10 @@ export const RadarGridRealTime: React.FC = () => {
 
   useEffect(() => {
     async function obtenerFlujoReal() {
-      try {
-        const response = await fetch('/api/radar/v1/stream-convocatorias');
-        const datos = await response.json();
+    try {
+      const response = await fetch('/api/radar/v1/stream-convocatorias');
+      const respText = await response.text();
+      const datos = response.ok ? JSON.parse(respText) : [];
         setConvocatorias(datos);
       } catch (err) {
         console.error("Error en el flujo de datos reales:", err);

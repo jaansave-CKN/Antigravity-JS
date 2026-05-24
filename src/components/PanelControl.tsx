@@ -43,7 +43,8 @@ export const PanelControl = () => {
     try {
       const response = await fetch('/api/scheduler/status');
       if (response.ok) {
-        const data = await response.json();
+        const respText = await response.text();
+        const data = JSON.parse(respText);
         setSchedulerStatus(data);
       }
     } catch (e) {

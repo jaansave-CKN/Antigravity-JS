@@ -1,18 +1,12 @@
 import type { Convocatoria, EstadisticasRadar, AlertaSenal, Entidad } from './types';
 
-const isDev = import.meta.env.DEV;
-const getLocalAPI = () => {
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'http://localhost:5000';
-    }
-    return `http://${hostname}:5000`;
-  }
-  return 'http://localhost:5000';
-};
+export const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/api$/, '') || '';
 
-export const API_BASE = isDev ? getLocalAPI() : 'https://antigravity-jairo-2026.web.app/api';
+async function safeJson(resp: Response): Promise<any> {
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${text.slice(0, 200)}`);
+  try { return JSON.parse(text); } catch { throw new Error('Invalid JSON from backend'); }
+}
 
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -23,11 +17,7 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
     },
   });
 
-  if (!response.ok) {
-    throw new Error(`API Error: ${response.status}`);
-  }
-
-  return response.json();
+  return safeJson(response);
 }
 
 function mapApiToConvocatoria(apiData: any): Convocatoria {

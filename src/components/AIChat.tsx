@@ -72,7 +72,8 @@ export default function AIChat() {
         body: JSON.stringify({ mensaje: input })
       });
 
-      const data = await response.json();
+      const respText = await response.text();
+      const data = response.ok ? JSON.parse(respText) : { respuesta: 'Error de conexión' };
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -110,11 +111,12 @@ export default function AIChat() {
         body: JSON.stringify({ texto })
       });
 
-      const data = await response.json();
-      if (data.resultados) {
-        setConvocatorias(data.resultados);
-        setShowConvocatorias(true);
-      }
+        const respText = await response.text();
+        const data = JSON.parse(respText);
+        if (data.resultados) {
+          setConvocatorias(data.resultados);
+          setShowConvocatorias(true);
+        }
     } catch (error) {
       console.error('Error en búsqueda semántica:', error);
     } finally {
@@ -131,11 +133,12 @@ export default function AIChat() {
         body: JSON.stringify({ query: input || 'convocatorias abiertas Colombia 2026' })
       });
 
-      const data = await response.json();
-      if (data.data) {
-        setConvocatorias(data.data);
-        setShowConvocatorias(true);
-      }
+        const respText = await response.text();
+        const data = JSON.parse(respText);
+        if (data.data) {
+          setConvocatorias(data.data);
+          setShowConvocatorias(true);
+        }
     } catch (error) {
       console.error('Error en búsqueda:', error);
     } finally {
