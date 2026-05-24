@@ -1,44 +1,108 @@
-import { Pool } from 'pg';
+import sqlJs from 'sql.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-let _pool = null;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DB_PATH = path.join(__dirname, '..', 'radar.db');
 
-const _rawUrl = (process.env.DATABASE_URL || '').trim();
+let db = null;
 
-if (!_rawUrl) {
-  console.error('[DB] FATAL: DATABASE_URL environment variable is required for PostgreSQL');
-  process.exit(1);
+function pgToSqlite(sql, params) {
+  const newParams = [];
+  let paramIdx = 0;
+  let result = '';
+  for (let i = 0; i < sql.length; i++) {
+    if (sql[i] === '$' && i + 1 < sql.length && /\d/.test(sql[i + 1])) {
+      let num = '';
+      let j = i + 1;
+      while (j < sql.length && /\d/.test(sql[j])) {
+        num += sql[j];
+        j++;
+      }
+      const idx = parseInt(num, 10) - 1;
+      if (idx >= 0 && idx < params.length) {
+        newParams.push(params[idx]);
+      } else {
+        newParams.push(null);
+      }
+      result += '?';
+      i = j - 1;
+    } else {
+      result += sql[i];
+    }
+  }
+  return { sql: result, params: newParams };
 }
 
 export async function initSQL() {
-  if (!_pool) {
-    _pool = new Pool({
-      connectionString: _rawUrl,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    });
-    console.log('[DB] PostgreSQL pool initialized');
+  if (db) return db;
+  try {
+    const SQL = await sqlJs();
+    if (fs.existsSync(DB_PATH)) {
+      const data = fs.readFileSync(DB_PATH);
+      db = new SQL.Database(data);
+    } else {
+      db = new SQL.Database();
+    }
+    console.log('[DB] SQLite initialized at', DB_PATH);
+    return db;
+  } catch (error) {
+    console.error('[DB] Init error:', error);
+    throw error;
   }
-  return _pool;
 }
 
 export function getDb() {
-  return _pool;
+  return db;
 }
 
 export async function getRow(sql, params = []) {
-  const { rows } = await _pool.query(sql, params);
-  return rows[0] || undefined;
+  if (!db) throw new Error('DB not initialized');
+  const { sql: converted, params: newParams } = pgToSqlite(sql, params);
+  const stmt = db.prepare(converted);
+  try {
+    stmt.bind(newParams);
+    if (stmt.step()) {
+      return stmt.getAsObject();
+    }
+    return undefined;
+  } finally {
+    stmt.free();
+  }
 }
 
 export async function getRows(sql, params = []) {
-  const { rows } = await _pool.query(sql, params);
-  return rows;
+  if (!db) throw new Error('DB not initialized');
+  const { sql: converted, params: newParams } = pgToSqlite(sql, params);
+  const stmt = db.prepare(converted);
+  const results = [];
+  try {
+    stmt.bind(newParams);
+    while (stmt.step()) {
+      results.push(stmt.getAsObject());
+    }
+    return results;
+  } finally {
+    stmt.free();
+  }
 }
 
 export async function getCount(sql, params = []) {
-  const { rows } = await _pool.query(sql, params);
-  return parseInt(rows[0]?.c || 0);
+  const row = await getRow(sql, params);
+  return row?.c || 0;
 }
 
 export async function runSql(sql, params = []) {
-  return _pool.query(sql, params);
+  if (!db) throw new Error('DB not initialized');
+  const { sql: converted, params: newParams } = pgToSqlite(sql, params);
+  const stmt = db.prepare(converted);
+  try {
+    stmt.run(newParams);
+    const data = db.export();
+    fs.writeFileSync(DB_PATH, Buffer.from(data));
+    return { changes: db.getRowsModified() };
+  } finally {
+    stmt.free();
+  }
 }
