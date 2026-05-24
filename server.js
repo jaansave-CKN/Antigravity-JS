@@ -48,75 +48,85 @@ async function initDb() {
       password_hash TEXT NOT NULL, nombre TEXT NOT NULL,
       tipoUsuario TEXT NOT NULL DEFAULT 'user',
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      is_approved INTEGER DEFAULT 1, is_active INTEGER DEFAULT 1
+      is_approved INTEGER DEFAULT 1, is_active INTEGER DEFAULT 1,
+      deleted_at TIMESTAMP DEFAULT NULL
     )`);
     await runSql(`CREATE TABLE IF NOT EXISTS tokens_revocados (
       id TEXT PRIMARY KEY, token TEXT NOT NULL,
-      usuario_id TEXT NOT NULL, revocado_en TIMESTAMP NOT NULL
+      usuario_id TEXT NOT NULL, revocado_en TIMESTAMP NOT NULL,
+      deleted_at TIMESTAMP DEFAULT NULL
     )`);
     await runSql(`CREATE TABLE IF NOT EXISTS convocatorias (
-      id SERIAL PRIMARY KEY, titulo TEXT NOT NULL,
-      sector TEXT DEFAULT '', tipo_financiamiento TEXT DEFAULT '',
-      formato_formulacion TEXT DEFAULT '', monto REAL DEFAULT 0,
-      url TEXT DEFAULT '', fecha_cierre TEXT DEFAULT '',
-      entidad_id TEXT DEFAULT '', score REAL DEFAULT 50,
-      estado TEXT DEFAULT 'pendiente', es_favorito INTEGER DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`);
+       id SERIAL PRIMARY KEY, titulo TEXT NOT NULL,
+       sector TEXT DEFAULT '', tipo_financiamiento TEXT DEFAULT '',
+       formato_formulacion TEXT DEFAULT '', monto REAL DEFAULT 0,
+       url TEXT DEFAULT '', fecha_cierre TEXT DEFAULT '',
+       entidad_id TEXT DEFAULT '', score REAL DEFAULT 50,
+       estado TEXT DEFAULT 'pendiente', es_favorito INTEGER DEFAULT 0,
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+       deleted_at TIMESTAMP DEFAULT NULL
+     )`);
     await runSql(`CREATE TABLE IF NOT EXISTS entidades (
-      id TEXT PRIMARY KEY, nombre TEXT, sigla TEXT, tipo TEXT,
-      pais TEXT, bandera TEXT, sectores TEXT, sitio_web TEXT,
-      url_convocatorias TEXT, contacto TEXT, email_contacto TEXT,
-      convocatorias_activas INTEGER DEFAULT 0,
-      monto_total REAL DEFAULT 0, moneda TEXT DEFAULT 'USD',
-      frecuencia TEXT DEFAULT 'variable', ultima_convocatoria TEXT,
-      notas TEXT, creado_en TIMESTAMP, actualizado_en TIMESTAMP,
-      last_scraped TIMESTAMP, scrape_status TEXT DEFAULT 'pendiente',
-      scrape_result TEXT
-    )`);
+       id TEXT PRIMARY KEY, nombre TEXT, sigla TEXT, tipo TEXT,
+       pais TEXT, bandera TEXT, sectores TEXT, sitio_web TEXT,
+       url_convocatorias TEXT, contacto TEXT, email_contacto TEXT,
+       convocatorias_activas INTEGER DEFAULT 0,
+       monto_total REAL DEFAULT 0, moneda TEXT DEFAULT 'USD',
+       frecuencia TEXT DEFAULT 'variable', ultima_convocatoria TEXT,
+       notas TEXT, creado_en TIMESTAMP, actualizado_en TIMESTAMP,
+       last_scraped TIMESTAMP, scrape_status TEXT DEFAULT 'pendiente',
+       scrape_result TEXT,
+       deleted_at TIMESTAMP DEFAULT NULL
+     )`);
     await runSql(`CREATE TABLE IF NOT EXISTS entidades_indexadas (
-      id TEXT PRIMARY KEY, org_id TEXT, titulo TEXT, donante TEXT,
-      descripcion TEXT, url_convocatoria TEXT, url_fuente TEXT,
-      fecha_publicacion TIMESTAMP, fecha_cierre TIMESTAMP,
-      is_global INTEGER DEFAULT 0, target_country TEXT, local_region TEXT,
-      funding_type TEXT, sectores TEXT, poblacion_objetivo TEXT,
-      monto_min REAL, monto_max REAL, moneda TEXT DEFAULT 'USD',
-      requisitos TEXT, tags TEXT, score_compatibilidad INTEGER DEFAULT 50,
-      estado TEXT DEFAULT 'activa', origen TEXT, proyecto_id TEXT,
-      fecha_indexacion TIMESTAMP
-    )`);
+       id TEXT PRIMARY KEY, org_id TEXT, titulo TEXT, donante TEXT,
+       descripcion TEXT, url_convocatoria TEXT, url_fuente TEXT,
+       fecha_publicacion TIMESTAMP, fecha_cierre TIMESTAMP,
+       is_global INTEGER DEFAULT 0, target_country TEXT, local_region TEXT,
+       funding_type TEXT, sectores TEXT, poblacion_objetivo TEXT,
+       monto_min REAL, monto_max REAL, moneda TEXT DEFAULT 'USD',
+       requisitos TEXT, tags TEXT, score_compatibilidad INTEGER DEFAULT 50,
+       estado TEXT DEFAULT 'activa', origen TEXT, proyecto_id TEXT,
+       fecha_indexacion TIMESTAMP,
+       deleted_at TIMESTAMP DEFAULT NULL
+     )`);
     await runSql(`CREATE TABLE IF NOT EXISTS predios (
-      id TEXT PRIMARY KEY, lat REAL, lng REAL, direccion TEXT,
-      area_m2 REAL, valor_catastral REAL, propietario TEXT, matricula TEXT
-    )`);
+       id TEXT PRIMARY KEY, lat REAL, lng REAL, direccion TEXT,
+       area_m2 REAL, valor_catastral REAL, propietario TEXT, matricula TEXT,
+       deleted_at TIMESTAMP DEFAULT NULL
+     )`);
     await runSql(`CREATE TABLE IF NOT EXISTS organizaciones (
-      id TEXT PRIMARY KEY, nombre TEXT, pais TEXT,
-      email_admin TEXT, api_key_google TEXT,
-      notebook_google TEXT, limite_prospectos INTEGER DEFAULT 300,
-      activa INTEGER DEFAULT 1, plan TEXT DEFAULT 'basico',
-      created_at TIMESTAMP, updated_at TIMESTAMP
-    )`);
+       id TEXT PRIMARY KEY, nombre TEXT, pais TEXT,
+       email_admin TEXT, api_key_google TEXT,
+       notebook_google TEXT, limite_prospectos INTEGER DEFAULT 300,
+       activa INTEGER DEFAULT 1, plan TEXT DEFAULT 'basico',
+       created_at TIMESTAMP, updated_at TIMESTAMP,
+       deleted_at TIMESTAMP DEFAULT NULL
+     )`);
     await runSql(`CREATE TABLE IF NOT EXISTS subvenciones (
-      id SERIAL PRIMARY KEY, titulo TEXT NOT NULL,
-      entidad TEXT, descripcion TEXT,
-      fecha_limite TEXT, cuantia TEXT, requisitos TEXT,
-      url TEXT, sector TEXT, pais TEXT,
-      estado TEXT DEFAULT 'activa', source TEXT DEFAULT 'crawler',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`);
+       id SERIAL PRIMARY KEY, titulo TEXT NOT NULL,
+       entidad TEXT, descripcion TEXT,
+       fecha_limite TEXT, cuantia TEXT, requisitos TEXT,
+       url TEXT, sector TEXT, pais TEXT,
+       estado TEXT DEFAULT 'activa', source TEXT DEFAULT 'crawler',
+       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+       deleted_at TIMESTAMP DEFAULT NULL
+     )`);
     await runSql(`CREATE TABLE IF NOT EXISTS crawl_log (
-      id SERIAL PRIMARY KEY,
-      tipo TEXT, fuente TEXT,
-      subvenciones_encontradas INTEGER DEFAULT 0,
-      resultado TEXT, ejecutada_en TIMESTAMP
-    )`);
+       id SERIAL PRIMARY KEY,
+       tipo TEXT, fuente TEXT,
+       subvenciones_encontradas INTEGER DEFAULT 0,
+       resultado TEXT, ejecutada_en TIMESTAMP,
+       deleted_at TIMESTAMP DEFAULT NULL
+     )`);
     await runSql(`CREATE TABLE IF NOT EXISTS proyectos (
-      id TEXT PRIMARY KEY, nombre TEXT NOT NULL,
-      descripcion TEXT, usuario_id TEXT,
-      created_at TIMESTAMP, updated_at TIMESTAMP,
-      estado TEXT DEFAULT 'activo',
-      metadata TEXT, deleted_at TIMESTAMP
-    )`);
+       id TEXT PRIMARY KEY, nombre TEXT NOT NULL,
+       descripcion TEXT, usuario_id TEXT,
+       created_at TIMESTAMP, updated_at TIMESTAMP,
+       estado TEXT DEFAULT 'activo',
+       metadata TEXT,
+       deleted_at TIMESTAMP DEFAULT NULL
+     )`);
     console.log('DB initialized with PostgreSQL');
   } catch (error) {
     console.error('DB init error:', error);
