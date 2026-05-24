@@ -13,6 +13,7 @@ const jwt = require('jsonwebtoken');
 loadEnv();
 
 import { initSQL, getDb, getRow, getRows, getCount, runSql } from './server/db.js';
+import { seedPredios } from './server/seed-predios.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3000', 10);
