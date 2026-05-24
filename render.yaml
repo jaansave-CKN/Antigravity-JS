@@ -2,7 +2,7 @@ services:
   - type: web
     name: radar-fondos-360
     env: node
-    buildCommand: npm install && npm run build
+    buildCommand: npm install
     startCommand: node server.js
     region: oregon
     autoDeploy: true
