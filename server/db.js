@@ -36,22 +36,20 @@ function pgToSqlite(sql, params) {
 }
 
 export async function initSQL() {
-  if (db) return db;
-  try {
-    const SQL = await sqlJs();
-    if (fs.existsSync(DB_PATH)) {
-      const data = fs.readFileSync(DB_PATH);
-      db = new SQL.Database(data);
-    } else {
-      db = new SQL.Database();
-    }
-    console.log('[DB] SQLite initialized at', DB_PATH);
-    return db;
-  } catch (error) {
-    console.error('[DB] Init error:', error);
-    throw error;
-  }
-}
+   if (db) return db;
+   try {
+     const SQL = await sqlJs();
+     if (fs.existsSync(DB_PATH)) {
+       const data = fs.readFileSync(DB_PATH);
+       db = new SQL.Database(data);
+     } else {
+       db = new SQL.Database();
+     }
+     return db;
+   } catch (error) {
+     throw error;
+   }
+ }
 
 export function getDb() {
   return db;
