@@ -641,6 +641,17 @@ def get_organizacion_por_api_key(api_key: str) -> Optional[dict]:
     conn.close()
     return dict(row) if row else None
 
+
+def get_all_entidades() -> list:
+    """Obtener todas las entidades de la base de datos"""
+    conn = sqlite3.connect(DB_PATH_STR)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM entidades WHERE deleted_at IS NULL")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
 # ── Proyectos ──────────────────────────────────────────────────────────────
 
 def _ensure_table_proyectos(cur: sqlite3.Cursor) -> None:

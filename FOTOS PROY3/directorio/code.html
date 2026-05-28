@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en" style=""><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Global Grant Directory Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;700&amp;family=Jetbrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&amp;family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.fill {
+            font-variation-settings: 'FILL' 1;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-fixed-dim": "#b7c8e1",
+                        "error-container": "#ffdad6",
+                        "inverse-on-surface": "#eff1f3",
+                        "on-secondary-fixed-variant": "#004395",
+                        "on-error": "#ffffff",
+                        "on-background": "#191c1e",
+                        "inverse-surface": "#2d3133",
+                        "tertiary": "#000000",
+                        "tertiary-container": "#0b1c30",
+                        "surface-container-high": "#e6e8ea",
+                        "secondary": "#0058be",
+                        "surface-container-low": "#f2f4f6",
+                        "secondary-fixed": "#d8e2ff",
+                        "outline": "#76777d",
+                        "on-surface": "#191c1e",
+                        "inverse-primary": "#bec6e0",
+                        "error": "#ba1a1a",
+                        "secondary-fixed-dim": "#adc6ff",
+                        "on-tertiary-container": "#75859d",
+                        "on-tertiary-fixed": "#0b1c30",
+                        "on-tertiary-fixed-variant": "#38485d",
+                        "surface-container": "#eceef0",
+                        "secondary-container": "#2170e4",
+                        "primary": "#000000",
+                        "background": "#f7f9fb",
+                        "on-primary-container": "#7c839b",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-fixed": "#131b2e",
+                        "tertiary-fixed": "#d3e4fe",
+                        "surface-tint": "#565e74",
+                        "on-error-container": "#93000a",
+                        "on-tertiary": "#ffffff",
+                        "outline-variant": "#c6c6cd",
+                        "primary-container": "#131b2e",
+                        "on-secondary-fixed": "#001a42",
+                        "on-primary": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "surface-bright": "#f7f9fb",
+                        "on-secondary-container": "#fefcff",
+                        "on-surface-variant": "#45464d",
+                        "surface-container-highest": "#e0e3e5",
+                        "primary-fixed-dim": "#bec6e0",
+                        "surface-variant": "#e0e3e5",
+                        "surface-dim": "#d8dadc",
+                        "surface": "#f7f9fb",
+                        "primary-fixed": "#dae2fd",
+                        "on-primary-fixed-variant": "#3f465c"
+                    },
+                    borderRadius: {DEFAULT: "0.125rem", lg: "0.25rem", xl: "0.5rem", full: "0.75rem"},
+                    spacing: {xl: "32px", gutter: "20px", "container-max": "1440px", xs: "4px", sm: "8px", unit: "4px", lg: "24px", md: "16px"},
+                    fontFamily: {"headline-lg-mobile": ["Hanken Grotesk"], "body-md": ["Hanken Grotesk"], "headline-md": ["Hanken Grotesk"], "body-lg": ["Hanken Grotesk"], "label-md": ["JetBrains Mono"], "body-sm": ["Hanken Grotesk"], "label-sm": ["JetBrains Mono"], "headline-xl": ["Hanken Grotesk"], "headline-lg": ["Hanken Grotesk"], headline: ["Hanken Grotesk"], display: ["Hanken Grotesk"], body: ["Hanken Grotesk"], label: ["Jetbrains Mono"]},
+                    fontSize: {"headline-lg-mobile": ["28px", {lineHeight: "36px", fontWeight: "600"}], "body-md": ["16px", {lineHeight: "24px", fontWeight: "400"}], "headline-md": ["24px", {lineHeight: "32px", fontWeight: "600"}], "body-lg": ["18px", {lineHeight: "28px", fontWeight: "400"}], "label-md": ["12px", {lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "500"}], "body-sm": ["14px", {lineHeight: "20px", fontWeight: "400"}], "label-sm": ["10px", {lineHeight: "14px", letterSpacing: "0.08em", fontWeight: "600"}], "headline-xl": ["48px", {lineHeight: "56px", letterSpacing: "-0.02em", fontWeight: "700"}], "headline-lg": ["32px", {lineHeight: "40px", letterSpacing: "-0.01em", fontWeight: "600"}]}
+                }
+            }
+        };
+    </script>
+</head>
+<body class="bg-surface-container-low text-on-background min-h-screen flex flex-col font-body-md">
+<!-- TopNavBar -->
+<div class="flex flex-1 max-w-container-max mx-auto w-full">
+<!-- SideNavBar -->
+<!-- Main Content -->
+<main class="flex-1 p-lg md:p-xl bg-surface-container-low min-h-full">
+<!-- Data List -->
+<div class="grid grid-cols-1 gap-lg md:grid-cols-3"><!-- Card 1: Coca-Cola Foundation -->
+<div class="relative flex flex-col border border-outline-variant rounded bg-surface-container-lowest shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-md gap-sm hover:border-secondary transition-colors group">
+<div class="absolute top-3 right-3 flex items-center gap-2">
+<span class="text-label-sm font-label-sm text-on-surface-variant">#1</span>
+<button class="material-symbols-outlined text-[18px] text-outline hover:text-secondary transition-all cursor-pointer">delete</button>
+</div>
+<div class="flex items-center gap-md pr-16">
+<div class="w-12 h-12 rounded bg-secondary-fixed/10 border border-secondary flex items-center justify-center overflow-hidden shrink-0">
+<span class="text-secondary font-headline-md font-bold">CC</span>
+</div>
+<div class="flex-1">
+<h3 class="text-body-lg font-body-md font-bold text-primary group-hover:text-secondary transition-colors">Coca-Cola Foundation</h3>
+<span class="text-label-sm font-label-sm bg-surface-container border border-outline-variant text-on-surface-variant px-2 py-[2px] rounded-full inline-block mt-xs">PRIVADO</span>
+</div>
+</div>
+<div class="flex flex-col gap-xs text-body-sm text-on-surface-variant mt-sm">
+<a class="text-label-sm font-label-sm text-secondary hover:underline w-fit" href="#">cocacola.com</a>
+<div class="flex items-center gap-xs text-[12px]"><span class="material-symbols-outlined text-[14px]">call</span> +1 800-438-2653</div>
+<div class="flex items-center gap-xs text-[12px]"><span class="material-symbols-outlined text-[14px]">mail</span> foundation@coca-cola.com</div>
+<div class="flex items-center gap-xs font-label-sm text-label-sm"><span class="material-symbols-outlined text-[14px]">public</span> Global</div>
+</div>
+<div class="mt-auto pt-sm">
+<button class="w-full bg-secondary text-on-secondary hover:bg-secondary-container px-md rounded text-label-sm font-label-sm transition-colors border border-transparent h-9 flex items-center justify-center whitespace-nowrap">
+      Acceder al Portal
+    </button>
+</div>
+</div>
+<!-- Card 2: Ascenso -->
+<div class="relative flex flex-col border border-outline-variant rounded bg-surface-container-lowest shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-md gap-sm hover:border-secondary transition-colors group">
+<div class="absolute top-3 right-3 flex items-center gap-2">
+<span class="text-label-sm font-label-sm text-on-surface-variant">#2</span>
+<button class="material-symbols-outlined text-[18px] text-outline hover:text-secondary transition-all cursor-pointer">delete</button>
+</div>
+<div class="flex items-center gap-md pr-16">
+<div class="w-12 h-12 rounded bg-secondary-fixed/10 border border-secondary flex items-center justify-center overflow-hidden shrink-0">
+<span class="text-secondary font-headline-md font-bold">AS</span>
+</div>
+<div class="flex-1">
+<h3 class="text-body-lg font-body-md font-bold text-primary group-hover:text-secondary transition-colors">Ascenso</h3>
+<span class="text-label-sm font-label-sm bg-surface-container border border-outline-variant text-on-surface-variant px-2 py-[2px] rounded-full inline-block mt-xs">FINANCIERO</span>
+</div>
+</div>
+<div class="flex flex-col gap-xs text-body-sm text-on-surface-variant mt-sm">
+<a class="text-label-sm font-label-sm text-secondary hover:underline w-fit" href="#">ascenso.com.co</a>
+<div class="flex items-center gap-xs text-[12px]"><span class="material-symbols-outlined text-[14px]">call</span> +57 601-XXX-XXXX</div>
+<div class="flex items-center gap-xs text-[12px]"><span class="material-symbols-outlined text-[14px]">mail</span> contacto@ascenso.com.co</div>
+<div class="flex items-center gap-xs font-label-sm text-label-sm"><span class="material-symbols-outlined text-[14px]">location_on</span> Colombia</div>
+</div>
+<div class="mt-auto pt-sm">
+<button class="w-full bg-secondary text-on-secondary hover:bg-secondary-container px-md rounded text-label-sm font-label-sm transition-colors border border-transparent h-9 flex items-center justify-center whitespace-nowrap">
+      Sitio Web
+    </button>
+</div>
+</div>
+<!-- Card 3: Santander X -->
+<div class="relative flex flex-col border border-outline-variant rounded bg-surface-container-lowest shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-md gap-sm hover:border-secondary transition-colors group">
+<div class="absolute top-3 right-3 flex items-center gap-2">
+<span class="text-label-sm font-label-sm text-on-surface-variant">#3</span>
+<button class="material-symbols-outlined text-[18px] text-outline hover:text-secondary transition-all cursor-pointer">delete</button>
+</div>
+<div class="flex items-center gap-md pr-16">
+<div class="w-12 h-12 rounded bg-error-container border border-error-container flex items-center justify-center overflow-hidden shrink-0">
+<span class="text-on-error-container font-headline-md font-bold">SX</span>
+</div>
+<div class="flex-1">
+<h3 class="text-body-lg font-body-md font-bold text-primary group-hover:text-secondary transition-colors">Santander X</h3>
+<span class="text-label-sm font-label-sm bg-surface-container border border-outline-variant text-on-surface-variant px-2 py-[2px] rounded-full inline-block mt-xs">BANCO</span>
+</div>
+</div>
+<div class="flex flex-col gap-xs text-body-sm text-on-surface-variant mt-sm">
+<a class="text-label-sm font-label-sm text-secondary hover:underline w-fit" href="#">santanderx.com</a>
+<div class="flex items-center gap-xs text-[12px]"><span class="material-symbols-outlined text-[14px]">call</span> +34 912-XXX-XXXX</div>
+<div class="flex items-center gap-xs text-[12px]"><span class="material-symbols-outlined text-[14px]">mail</span> ayuda@santanderx.com</div>
+<div class="flex items-center gap-xs font-label-sm text-label-sm"><span class="material-symbols-outlined text-[14px]">public</span> Global</div>
+</div>
+<div class="mt-auto pt-sm">
+<button class="w-full bg-secondary text-on-secondary hover:bg-secondary-container px-md rounded text-label-sm font-label-sm transition-colors border border-transparent h-9 flex items-center justify-center whitespace-nowrap">
+      Acceder al Portal
+    </button>
+</div>
+</div>
+<!-- Card 4: Fundación FORD -->
+<div class="relative flex flex-col border border-outline-variant rounded bg-surface-container-lowest shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-md gap-sm hover:border-secondary transition-colors group">
+<div class="absolute top-3 right-3 flex items-center gap-2">
+<span class="text-label-sm font-label-sm text-on-surface-variant">#4</span>
+<button class="material-symbols-outlined text-[18px] text-outline hover:text-secondary transition-all cursor-pointer">delete</button>
+</div>
+<div class="flex items-center gap-md pr-16">
+<div class="w-12 h-12 rounded bg-secondary-fixed/10 border border-secondary flex items-center justify-center overflow-hidden shrink-0">
+<span class="text-secondary font-headline-md font-bold">FF</span>
+</div>
+<div class="flex-1">
+<h3 class="text-body-lg font-body-md font-bold text-primary group-hover:text-secondary transition-colors">Fundación FORD</h3>
+<span class="text-label-sm font-label-sm bg-surface-container border border-outline-variant text-on-surface-variant px-2 py-[2px] rounded-full inline-block mt-xs">PRIVADO</span>
+</div>
+</div>
+<div class="flex flex-col gap-xs text-body-sm text-on-surface-variant mt-sm">
+<a class="text-label-sm font-label-sm text-secondary hover:underline w-fit" href="#">fordfoundation.org</a>
+<div class="flex items-center gap-xs text-[12px]"><span class="material-symbols-outlined text-[14px]">call</span> +1 212-573-5000</div>
+<div class="flex items-center gap-xs text-[12px]"><span class="material-symbols-outlined text-[14px]">mail</span> grants@fordfoundation.org</div>
+<div class="flex items-center gap-xs font-label-sm text-label-sm"><span class="material-symbols-outlined text-[14px]">public</span> Global</div>
+</div>
+<div class="mt-auto pt-sm">
+<button class="w-full bg-secondary text-on-secondary hover:bg-secondary-container px-md rounded text-label-sm font-label-sm transition-colors border border-transparent h-9 flex items-center justify-center whitespace-nowrap">
+      Sitio Web
+    </button>
+</div>
+</div>
+<!-- Card 5: Fondo Canadiense -->
+<div class="relative flex flex-col border border-outline-variant rounded bg-surface-container-lowest shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-md gap-sm hover:border-secondary transition-colors group">
+<div class="absolute top-3 right-3 flex items-center gap-2">
+<span class="text-label-sm font-label-sm text-on-surface-variant">#5</span>
+<button class="material-symbols-outlined text-[18px] text-outline hover:text-secondary transition-all cursor-pointer">delete</button>
+</div>
+<div class="flex items-center gap-md pr-16">
+<div class="w-12 h-12 rounded bg-secondary-fixed/10 border border-secondary flex items-center justify-center overflow-hidden shrink-0">
+<span class="text-secondary font-headline-md font-bold">FC</span>
+</div>
+<div class="flex-1">
+<h3 class="text-body-lg font-body-md font-bold text-primary group-hover:text-secondary transition-colors">Fondo Canadiense</h3>
+<span class="text-label-sm font-label-sm bg-surface-container border border-outline-variant text-on-surface-variant px-2 py-[2px] rounded-full inline-block mt-xs">GOBIERNO</span>
+</div>
+</div>
+<div class="flex flex-col gap-xs text-body-sm text-on-surface-variant mt-sm">
+<a class="text-label-sm font-label-sm text-secondary hover:underline w-fit" href="#">international.gc.ca</a>
+<div class="flex items-center gap-xs text-[12px]"><span class="material-symbols-outlined text-[14px]">call</span> +1 613-XXX-XXXX</div>
+<div class="flex items-center gap-xs text-[12px]"><span class="material-symbols-outlined text-[14px]">mail</span> cfli-fcil@international.gc.ca</div>
+<div class="flex items-center gap-xs font-label-sm text-label-sm"><span class="material-symbols-outlined text-[14px]">public</span> Global</div>
+</div>
+<div class="mt-auto pt-sm">
+<button class="w-full bg-secondary text-on-secondary hover:bg-secondary-container px-md rounded text-label-sm font-label-sm transition-colors border border-transparent h-9 flex items-center justify-center whitespace-nowrap">
+      Sitio Web
+    </button>
+</div>
+</div><!-- Add New Card -->
+<div class="relative flex flex-col items-center justify-center border border-dashed border-outline-variant rounded bg-surface-container-lowest shadow-sm p-md gap-sm hover:border-secondary hover:bg-surface-container transition-all cursor-pointer group min-h-[220px]">
+<div class="flex flex-col items-center gap-md">
+<div class="w-12 h-12 rounded bg-secondary-fixed/10 border border-outline-variant flex items-center justify-center overflow-hidden shrink-0 group-hover:border-secondary transition-colors">
+<span class="material-symbols-outlined text-secondary text-[32px]">add</span>
+</div>
+<div class="text-center">
+<h3 class="text-body-lg font-body-md font-bold text-primary group-hover:text-secondary transition-colors">Agregar Nuevo</h3>
+<p class="text-label-sm font-label-sm text-on-surface-variant mt-xs">Entrada Manual</p>
+</div>
+</div>
+</div></div>
+<!-- Image display section based on instructions -->
+</main>
+</div>
+</body></html>
