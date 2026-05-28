@@ -13,6 +13,7 @@ import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS } from './SecurityMiddlew
 import { seedDirectorio } from './DataIngestor.js';
 import { startScheduler, runManualIngest } from './CronScheduler.js';
 import { parseFileBuffer, importToDirectorio, importToConvocatorias } from './FileImporter.js';
+import { encryptKey, decryptKey, maskKey } from './CryptoHelper.js';
 
 const require = createRequire(import.meta.url);
 
@@ -22,6 +23,38 @@ import { getRow, getRows, getCount, runSql } from './db.js';
 import { seedPredios } from './seed-predios.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ── Recovery Log ─────────────────────────────────────────────────────────────
+const LOGS_DIR      = path.join(__dirname, 'logs');
+const STATE_FILE    = path.join(LOGS_DIR, 'server_state.json');
+const RECOVERY_LOG  = path.join(LOGS_DIR, 'recovery.log');
+const ERROR_REPORTS = path.join(LOGS_DIR, 'error-reports.txt');
+
+function ensureLogsDir() {
+  try { fs.mkdirSync(LOGS_DIR, { recursive: true }); } catch {}
+}
+
+function writeServerState(status, extra = {}) {
+  ensureLogsDir();
+  try {
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ status, updatedAt: new Date().toISOString(), ...extra }));
+  } catch {}
+}
+
+function checkRecovery() {
+  ensureLogsDir();
+  try {
+    const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    if (state?.status === 'running') {
+      const msg = `[${new Date().toISOString()}] RECOVERY: Sistema recuperado de corte inesperado. Último heartbeat: ${state.updatedAt}\n`;
+      fs.appendFileSync(RECOVERY_LOG, msg);
+      console.log(`\x1b[33m[RECOVERY] ⚡ Sistema recuperado de corte inesperado. Último estado conocido: ${state.updatedAt}. Estado consolidado.\x1b[0m`);
+    }
+  } catch { /* primera ejecución sin archivo previo */ }
+}
+
+checkRecovery();
+writeServerState('running', { pid: process.pid });
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -181,6 +214,17 @@ async function initDb() {
         metadata TEXT,
         deleted_at TIMESTAMP DEFAULT NULL
       )`);
+    // Credenciales de usuario cifradas con AES-256-GCM
+    await runSql(`CREATE TABLE IF NOT EXISTS user_credentials (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      service TEXT NOT NULL,
+      encrypted_key TEXT NOT NULL,
+      label TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, service)
+    )`);
     console.log('DB initialized');
   } catch (error) {
     console.error('DB init error:', error);
@@ -530,6 +574,112 @@ async function start() {
     }
   });
 
+  // ── PATCH /api/directory/:id/status — Habilitar/deshabilitar entidad ─────────
+  app.patch('/api/directory/:id/status', authenticateToken, async (req, res) => {
+    const { status } = req.body || {};
+    if (!status || !['active', 'disabled'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Estado inválido (active|disabled).' });
+    }
+    try {
+      await runSql(
+        'UPDATE directorio_entidades SET deleted_at = ? WHERE id = ?',
+        [status === 'disabled' ? new Date().toISOString() : null, req.params.id]
+      );
+      res.json({ success: true, status });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── GET /api/credentials/status — Verificar si usuario tiene credenciales ────
+  app.get('/api/credentials/status', authenticateToken, async (req, res) => {
+    try {
+      const rows = await getRows(
+        'SELECT service FROM user_credentials WHERE user_id = ?',
+        [req.userId]
+      );
+      const configured = rows.map(r => r.service);
+      res.json({ success: true, hasCredentials: configured.length > 0, configured });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── GET /api/credentials — Listar credenciales del usuario (enmascaradas) ────
+  app.get('/api/credentials', authenticateToken, async (req, res) => {
+    try {
+      const rows = await getRows(
+        'SELECT id, service, label, created_at, updated_at FROM user_credentials WHERE user_id = ?',
+        [req.userId]
+      );
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── POST /api/credentials — Guardar/actualizar credencial cifrada ─────────────
+  app.post('/api/credentials', authenticateToken, async (req, res) => {
+    const { service, apiKey, label } = req.body || {};
+    if (!service || !apiKey) {
+      return res.status(400).json({ success: false, message: 'service y apiKey son requeridos.' });
+    }
+    const VALID_SERVICES = ['gemini', 'perplexity', 'serper', 'openai', 'groq', 'notebooklm'];
+    if (!VALID_SERVICES.includes(service)) {
+      return res.status(400).json({ success: false, message: `Servicio no reconocido. Válidos: ${VALID_SERVICES.join(', ')}` });
+    }
+    try {
+      const encrypted = encryptKey(apiKey, JWT_SECRET);
+      const masked    = maskKey(apiKey);
+      const now       = new Date().toISOString();
+      const id        = crypto.randomUUID();
+      await runSql(
+        `INSERT INTO user_credentials (id, user_id, service, encrypted_key, label, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, service) DO UPDATE SET encrypted_key=excluded.encrypted_key, label=excluded.label, updated_at=excluded.updated_at`,
+        [id, req.userId, service, encrypted, label || service, now, now]
+      );
+      res.json({ success: true, message: `Credencial '${service}' guardada correctamente.`, masked });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── DELETE /api/credentials/:service — Eliminar credencial ──────────────────
+  app.delete('/api/credentials/:service', authenticateToken, async (req, res) => {
+    try {
+      await runSql(
+        'DELETE FROM user_credentials WHERE user_id = ? AND service = ?',
+        [req.userId, req.params.service]
+      );
+      res.json({ success: true, message: `Credencial '${req.params.service}' eliminada.` });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── POST /api/report-error — Botón "Reportar Error" de testers ──────────────
+  app.post('/api/report-error', authenticateToken, async (req, res) => {
+    const { message, context, url, userAgent } = req.body || {};
+    if (!message) return res.status(400).json({ success: false, message: 'message es requerido.' });
+    try {
+      ensureLogsDir();
+      const entry = JSON.stringify({
+        ts: new Date().toISOString(),
+        userId: req.userId,
+        email: req.userEmail,
+        message: String(message).slice(0, 1000),
+        context: context ? String(context).slice(0, 500) : undefined,
+        url: url ? String(url).slice(0, 300) : undefined,
+        userAgent: userAgent ? String(userAgent).slice(0, 200) : undefined,
+      });
+      fs.appendFileSync(ERROR_REPORTS, entry + '\n');
+      res.json({ success: true, message: 'Reporte recibido. Gracias por el feedback.' });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   app.listen(PORT, () => {
     startScheduler();
     console.log(`[RASTREO] Sistema activo 24/7 en puerto ${PORT}`);
@@ -538,7 +688,22 @@ async function start() {
   });
 }
 
+// ── Shutdown limpio: marca estado para recovery log ──────────────────────────
+function gracefulShutdown(signal) {
+  writeServerState('clean_shutdown', { signal });
+  console.log(`[Shutdown] Cierre limpio por ${signal}. Estado guardado.`);
+  process.exit(0);
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
+process.on('uncaughtException', (err) => {
+  writeServerState('crashed', { error: err.message });
+  console.error('[CRASH]', err);
+  process.exit(1);
+});
+
 start().catch(err => {
+  writeServerState('start_failed', { error: err.message });
   console.error('Fatal error:', err);
   process.exit(1);
 });

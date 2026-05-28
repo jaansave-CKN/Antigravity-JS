@@ -9,6 +9,7 @@ import PasswordResetPage from './pages/PasswordResetPage';
 import ControlPanel from './pages/ControlPanel';
 import DirectoryPage from './pages/DirectoryPage';
 import ImportPage from './pages/ImportPage';
+import CredentialsPage from './pages/CredentialsPage';
 import TopNavBar from './components/TopNavBar';
 import HomePage from './pages/HomePage';
 import './index.css';
@@ -74,7 +75,8 @@ function AppLayout() {
 
 // ── Route guard ───────────────────────────────────────────────────────────────
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, hasCredentials } = useAuth();
+  const loc = window.location.pathname;
 
   if (loading) {
     return (
@@ -84,12 +86,19 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+
+  // Onboarding: si no tiene credenciales y no está ya en /apis, redirige
+  if (hasCredentials === false && loc !== '/apis') {
+    return <Navigate to="/apis" replace />;
+  }
+
+  return <>{children}</>;
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, hasCredentials } = useAuth();
   const toHome = <Navigate to="/" replace />;
 
   return (
@@ -112,6 +121,7 @@ function AppRoutes() {
         <Route path="/directorio" element={<DirectoryPage />} />
         <Route path="/importar"   element={<ImportPage />} />
         <Route path="/settings"   element={<ControlPanel />} />
+        <Route path="/apis"       element={<CredentialsPage isOnboarding={hasCredentials === false} />} />
       </Route>
 
       {/* Catch-all */}

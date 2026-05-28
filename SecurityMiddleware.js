@@ -10,12 +10,11 @@ import rateLimit from 'express-rate-limit';
 // ── Rate limiting estricto para rutas de autenticación ────────────────────────
 // Máx 5 intentos fallidos por IP cada 15 minutos
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,   // 15 minutos
+  windowMs: 15 * 60 * 1000,
   max: 5,
-  skipSuccessfulRequests: true, // Solo cuenta los intentos fallidos
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip ?? req.socket?.remoteAddress ?? 'unknown',
   handler: (_req, res) => {
     res.status(429).json({
       success: false,
