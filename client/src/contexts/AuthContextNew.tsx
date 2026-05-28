@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface UserProfile {
@@ -15,6 +15,7 @@ interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
   loading: boolean;
+  hasCredentials: boolean | null;  // null = aún verificando
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, nombre: string, role?: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -23,6 +24,7 @@ interface AuthContextType {
   sendPasswordReset: (email: string) => Promise<void>;
   validateSessionAction: (password: string) => Promise<void>;
   enterDemoMode: () => void;
+  refreshCredentialsStatus: () => Promise<void>;
   isAdmin: boolean;
   isAuthenticated: boolean;
 }
@@ -33,85 +35,29 @@ const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : '/api';
 
-// ── Bypass local — ninguna de estas credenciales toca el backend ──────────────
-const DEV_TOKEN = 'dev-bypass-token-v3';
-
-// Credenciales fijas de prueba: email → { profile, password }
-// password null = acepta cualquier contraseña
-const BYPASS_CREDENTIALS: Record<string, { profile: UserProfile; password: string | null }> = {
-  'jaansave@gmail.com': {
-    password: 'Radar360Admin!',
-    profile: {
-      id: 'admin-jaansave',
-      email: 'jaansave@gmail.com',
-      nombre: 'Juan Admin',
-      role: 'admin',
-      created_at: new Date().toISOString(),
-      is_active: true,
-    },
-  },
-  'admin@test.com': {
-    password: 'admin123',
-    profile: {
-      id: 'dev-admin-1',
-      email: 'admin@test.com',
-      nombre: 'Admin (Dev)',
-      role: 'admin',
-      created_at: new Date().toISOString(),
-      is_active: true,
-    },
-  },
-  'demo@radar.com': {
-    password: null,
-    profile: {
-      id: 'demo-user-1',
-      email: 'demo@radar.com',
-      nombre: 'Demo Usuario',
-      role: 'user',
-      created_at: new Date().toISOString(),
-      is_active: true,
-    },
-  },
-};
-
-// Kept for backward-compat (enterDemoMode uses it)
-const BYPASS_USERS: Record<string, UserProfile> = Object.fromEntries(
-  Object.entries(BYPASS_CREDENTIALS).map(([k, v]) => [k, v.profile])
-);
-
 // ── Provider ──────────────────────────────────────────────────────────────────
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser]               = useState<UserProfile | null>(null);
+  const [token, setToken]             = useState<string | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [hasCredentials, setHasCreds] = useState<boolean | null>(null);
 
-  // Al montar: restaurar sesión desde localStorage sin tocar el backend si es token local
   useEffect(() => {
     const storedToken = localStorage.getItem('auth_token');
     const storedUser  = localStorage.getItem('auth_user');
 
-    if (!storedToken) {
-      setLoading(false);
-      return;
-    }
+    if (!storedToken) { setLoading(false); return; }
 
-    // Token de bypass local → restaurar sin fetch
-    if (storedToken === DEV_TOKEN || storedToken === 'dev-bypass-token' || storedToken === 'dev-bypass-token-v2') {
+    // Token de demo local (modo sin backend)
+    if (storedToken === 'demo-mode-token') {
       if (storedUser) {
-        try {
-          setUser(JSON.parse(storedUser));
-          setToken(DEV_TOKEN);
-        } catch {
-          clearSession();
-        }
-      } else {
-        clearSession();
-      }
+        try { setUser(JSON.parse(storedUser)); setToken('demo-mode-token'); }
+        catch { clearSession(); }
+      } else { clearSession(); }
       setLoading(false);
       return;
     }
 
-    // Token real → verificar contra el backend
     verifyTokenWithBackend(storedToken);
   }, []);
 
@@ -120,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('auth_user');
     setToken(null);
     setUser(null);
+    setHasCreds(null);
   }
 
   function persistSession(t: string, u: UserProfile) {
@@ -134,83 +81,73 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await fetch(`${API_BASE}/auth/verify`, {
         headers: { Authorization: `Bearer ${storedToken}` },
       });
-
       if (!response.ok) { clearSession(); setLoading(false); return; }
-
       const text = await response.text();
       let data: any;
       try { data = JSON.parse(text); } catch { clearSession(); setLoading(false); return; }
-
       if (data.valid && data.user) {
         setToken(storedToken);
         setUser({
-          id: data.user.id,
-          email: data.user.email,
-          nombre: data.user.nombre,
-          role: data.user.role,
-          created_at: data.user.created_at,
-          is_active: data.user.is_active,
+          id: data.user.id, email: data.user.email,
+          nombre: data.user.nombre, role: data.user.role,
+          created_at: data.user.created_at, is_active: data.user.is_active,
         });
-      } else {
-        clearSession();
-      }
-    } catch {
-      // Backend no disponible — sesión se pierde, usuario debe volver a loguearse
-      clearSession();
-    } finally {
-      setLoading(false);
-    }
+        checkCredentials(storedToken);
+      } else { clearSession(); }
+    } catch { clearSession(); }
+    finally { setLoading(false); }
   }
+
+  async function checkCredentials(t: string) {
+    try {
+      const r = await fetch(`${API_BASE}/credentials/status`, {
+        headers: { Authorization: `Bearer ${t}` },
+      });
+      if (!r.ok) { setHasCreds(false); return; }
+      const data = await r.json();
+      setHasCreds(data.hasCredentials === true);
+    } catch { setHasCreds(false); }
+  }
+
+  const refreshCredentialsStatus = useCallback(async () => {
+    if (token && token !== 'demo-mode-token') await checkCredentials(token);
+  }, [token]);
 
   // ── login ──────────────────────────────────────────────────────────────────
   async function login(email: string, password: string) {
-    const trimmedEmail = email.trim().toLowerCase();
-
-    // BYPASS LOCAL — intercepta ANTES de cualquier fetch al backend
-    const bypassEntry = BYPASS_CREDENTIALS[trimmedEmail];
-    if (bypassEntry) {
-      // Valida contraseña si está definida; null = acepta cualquiera
-      if (bypassEntry.password !== null && password !== bypassEntry.password) {
-        throw new Error('Contraseña incorrecta.');
-      }
-      persistSession(DEV_TOKEN, bypassEntry.profile);
-      return;
-    }
-
-    // Login real contra el backend
     let response: Response;
     try {
       response = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: trimmedEmail, password }),
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
       });
     } catch {
       throw new Error('No se pudo conectar con el servidor. Verifica tu conexión o intenta más tarde.');
     }
-
     const text = await response.text();
     let data: any;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      // El backend devolvió HTML (Render error page, proxy caído, etc.)
-      throw new Error('El servicio no está disponible en este momento. Por favor intenta en unos minutos.');
-    }
-
-    if (!response.ok) {
-      throw new Error(data?.message || 'Credenciales incorrectas.');
-    }
-
+    try { data = JSON.parse(text); }
+    catch { throw new Error('El servicio no está disponible en este momento. Por favor intenta en unos minutos.'); }
+    if (!response.ok) throw new Error(data?.message || 'Credenciales incorrectas.');
     const { token: newToken, user: userData } = data;
     if (!newToken || !userData) throw new Error('Respuesta inválida del servidor.');
     persistSession(newToken, userData);
+    checkCredentials(newToken);
   }
 
-  // ── Modo demo — acceso sin credenciales ────────────────────────────────────
+  // ── Modo demo sin credenciales reales ─────────────────────────────────────
   function enterDemoMode() {
-    const demoUser = BYPASS_USERS['demo@radar.com'];
-    persistSession(DEV_TOKEN, demoUser);
+    const demoUser: UserProfile = {
+      id: 'demo-user', email: 'demo@radar.com',
+      nombre: 'Demo Usuario', role: 'user',
+      created_at: new Date().toISOString(), is_active: true,
+    };
+    localStorage.setItem('auth_token', 'demo-mode-token');
+    localStorage.setItem('auth_user', JSON.stringify(demoUser));
+    setToken('demo-mode-token');
+    setUser(demoUser);
+    setHasCreds(false);
   }
 
   // ── register ───────────────────────────────────────────────────────────────
@@ -222,28 +159,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password, nombre: nombre || 'Usuario', role }),
       });
-    } catch {
-      throw new Error('No se pudo conectar con el servidor.');
-    }
-
+    } catch { throw new Error('No se pudo conectar con el servidor.'); }
     const text = await response.text();
     let data: any;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error('El servicio no está disponible en este momento.');
-    }
-
+    try { data = JSON.parse(text); }
+    catch { throw new Error('El servicio no está disponible en este momento.'); }
     if (!response.ok) throw new Error(data?.message || 'Error al registrarse.');
-
     const { token: newToken, user: userData } = data;
     if (!newToken || !userData) throw new Error('Respuesta inválida del servidor.');
     persistSession(newToken, userData);
+    setHasCreds(false); // usuario nuevo nunca tiene credenciales
   }
 
   // ── logout ─────────────────────────────────────────────────────────────────
   async function logout() {
-    if (token && token !== DEV_TOKEN) {
+    if (token && token !== 'demo-mode-token') {
       try {
         await fetch(`${API_BASE}/auth/logout`, {
           method: 'POST',
@@ -256,12 +186,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── updateProfile ──────────────────────────────────────────────────────────
   async function updateProfile(data: Partial<UserProfile>) {
-    if (token === DEV_TOKEN) {
+    if (!token) return;
+    if (token === 'demo-mode-token') {
       const updated = user ? { ...user, ...data } : null;
       if (updated) { setUser(updated); localStorage.setItem('auth_user', JSON.stringify(updated)); }
       return;
     }
-    if (!token) return;
     const response = await fetch(`${API_BASE}/auth/me`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -273,8 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── changePassword ─────────────────────────────────────────────────────────
   async function changePassword(oldPassword: string, newPassword: string) {
-    if (token === DEV_TOKEN) return; // noop en dev
-    if (!token) return;
+    if (!token || token === 'demo-mode-token') return;
     const response = await fetch(`${API_BASE}/auth/change-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -294,53 +223,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
-    } catch {
-      // Si el backend no está disponible, no lanzamos error
-    }
+    } catch {}
   }
 
   // ── validateSessionAction ──────────────────────────────────────────────────
-  // Revalida identidad del admin antes de operaciones sensibles (toggles SIE).
   async function validateSessionAction(password: string) {
-    const trimmedEmail = user?.email.trim().toLowerCase() ?? '';
-
-    if (token === DEV_TOKEN) {
-      const entry = BYPASS_CREDENTIALS[trimmedEmail];
-      if (!entry) throw new Error('USUARIO NO RECONOCIDO EN EL SISTEMA.');
-      if (entry.password !== null && password !== entry.password) {
-        throw new Error('CREDENCIALES INVÁLIDAS · SESIÓN ADMINISTRATIVA NO AUTORIZADA.');
-      }
-      return;
-    }
-
+    if (!token) throw new Error('SESIÓN NO ACTIVA.');
+    if (token === 'demo-mode-token') return; // modo demo: acepta cualquier pwd
     const response = await fetch(`${API_BASE}/auth/validate-action`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ password }),
     });
     const data: any = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data?.message ?? 'CREDENCIALES INVÁLIDAS · ACCESO DENEGADO.');
-    }
+    if (!response.ok) throw new Error(data?.message ?? 'CREDENCIALES INVÁLIDAS · ACCESO DENEGADO.');
   }
 
   return (
     <AuthContext.Provider
       value={{
-        user,
-        token,
-        loading,
-        login,
-        register,
-        logout,
-        updateProfile,
-        changePassword,
-        sendPasswordReset,
-        validateSessionAction,
-        enterDemoMode,
+        user, token, loading, hasCredentials,
+        login, register, logout, updateProfile,
+        changePassword, sendPasswordReset,
+        validateSessionAction, enterDemoMode,
+        refreshCredentialsStatus,
         isAdmin: user?.role === 'admin',
         isAuthenticated: !!token && !!user,
       }}
