@@ -474,15 +474,6 @@ async function start() {
     res.json({ status: 'success', data: [] });
   });
 
-   app.get('/{*path}', (req, res) => {
-     const indexPath = path.join(__dirname, 'dist', 'index.html');
-     if (fs.existsSync(indexPath)) {
-       res.sendFile(indexPath);
-     } else {
-       res.status(404).json({ success: false, message: 'Index not found' });
-     }
-   });
-
   // ── Configurar multer para importación de archivos (memoria, no disco) ────────
   const multer = require('multer');
   const upload = multer({
@@ -655,6 +646,16 @@ async function start() {
       res.json({ success: true, message: `Credencial '${req.params.service}' eliminada.` });
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── SPA catch-all — SIEMPRE AL FINAL, después de todas las rutas /api/* ──────
+  app.get('/{*path}', (req, res) => {
+    const indexPath = path.join(__dirname, 'dist', 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).json({ success: false, message: 'Frontend no encontrado. Ejecuta npm run build.' });
     }
   });
 
