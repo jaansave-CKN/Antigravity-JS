@@ -5,17 +5,28 @@ import { resolve } from 'path';
 export default defineConfig({
   plugins: [react()],
   root: resolve(__dirname, 'client'),
-  base: './',
+  base: '/',
+  // Inyecta timestamp de build para que el JS sepa su versión
+  define: {
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   build: {
     outDir: resolve(__dirname, 'dist'),
     cssMinify: 'esbuild',
     rollupOptions: {
       input: resolve(__dirname, 'client', 'index.html'),
+      output: {
+        // Hashes de contenido explícitos — el nombre cambia si el contenido cambia
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]',
+      },
     },
   },
   server: {
     host: true,
     port: 5173,
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:3000',

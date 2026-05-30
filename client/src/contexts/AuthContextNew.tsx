@@ -51,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Token de demo local (modo sin backend)
     if (storedToken === 'demo-mode-token') {
       if (storedUser) {
-        try { setUser(JSON.parse(storedUser)); setToken('demo-mode-token'); }
+        try { setUser(JSON.parse(storedUser)); setToken('demo-mode-token'); setHasCreds(false); }
         catch { clearSession(); }
       } else { clearSession(); }
       setLoading(false);
@@ -94,19 +94,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         checkCredentials(storedToken);
       } else { clearSession(); }
-    } catch { clearSession(); }
+    } catch {
+      // Servidor no disponible — restaurar sesión en modo demo para no bloquear la app
+      const storedUser = localStorage.getItem('auth_user');
+      if (storedUser) {
+        try {
+          const parsed = JSON.parse(storedUser);
+          setToken('demo-mode-token');
+          setUser(parsed);
+          localStorage.setItem('auth_token', 'demo-mode-token');
+          console.warn('[Auth] Servidor no disponible — sesión restaurada en modo demo');
+        } catch { clearSession(); }
+      } else { clearSession(); }
+    }
     finally { setLoading(false); }
   }
 
   async function checkCredentials(t: string) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
     try {
       const r = await fetch(`${API_BASE}/credentials/status`, {
         headers: { Authorization: `Bearer ${t}` },
+        signal: controller.signal,
       });
       if (!r.ok) { setHasCreds(false); return; }
       const data = await r.json();
       setHasCreds(data.hasCredentials === true);
     } catch { setHasCreds(false); }
+    finally { clearTimeout(timeout); }
   }
 
   const refreshCredentialsStatus = useCallback(async () => {

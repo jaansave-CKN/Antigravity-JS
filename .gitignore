@@ -17,3 +17,19 @@ SIA_Radar/
 .firebase/
 __pycache__/
 backend/__pycache__/
+
+# Cloudflare Tunnel binary (large, platform-specific)
+tools/cloudflared.exe
+tools/*.exe
+
+# Base de datos local
+backend/radar.db
+*.db
+*.sqlite
+
+# Logs y archivos de runtime
+logs/
+server.err
+server.out
+*.bak
+*.log

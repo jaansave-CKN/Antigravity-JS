@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ArrowUp, AlertCircle } from 'lucide-react';
+import { ArrowUp, AlertCircle, Star, Loader2 } from 'lucide-react';
 import RadarDashboard, { type Donor, type DonorType, type TagColor } from './components/RadarDashboard';
+import FavoritosView from './components/FavoritosView';
+import { useFavoritos } from './contexts/FavoritosContext';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 const WS_URL = (API_URL || 'ws://localhost:8000').replace(/^http/, 'ws') + '/ws/live_radar';
@@ -92,7 +94,15 @@ function getAcronym(donante: string): string {
 }
 
 // ── ConvocatoriaCard — misma estructura exacta que DonorCard en RadarDashboard ─
-function ConvocatoriaCard({ conv, index }: { conv: Convocatoria; index: number }) {
+interface ConvocatoriaCardProps {
+  conv: Convocatoria;
+  index: number;
+  isFavorito?: boolean;
+  guardandoId?: string | null;
+  errorGuardado?: string | null;
+  onToggleFavorito?: (conv: Convocatoria) => void;
+}
+function ConvocatoriaCard({ conv, index, isFavorito, guardandoId, errorGuardado, onToggleFavorito }: ConvocatoriaCardProps) {
   const type = fuenteToType(conv.fuente);
   const sectores = parseJson<string[]>(conv.sectores, []);
   const paises = parseJson<string[]>(conv.paises_elegibles, ['Colombia']);
@@ -169,14 +179,42 @@ function ConvocatoriaCard({ conv, index }: { conv: Convocatoria; index: number }
             </svg>
           </a>
         )}
+
+        {/* Botón favorito */}
+        {onToggleFavorito && (
+          <div className="flex flex-col items-center gap-1 ml-1">
+            <button
+              onClick={() => onToggleFavorito(conv)}
+              disabled={guardandoId === String(conv.externo_id || conv.id)}
+              title={isFavorito ? 'Quitar de Mis Convocatorias' : 'Guardar en Mis Convocatorias'}
+              className="p-1.5 rounded-md transition-colors"
+              style={{
+                color: isFavorito ? '#f59e0b' : '#64748b',
+                background: isFavorito ? 'rgba(245,158,11,0.1)' : 'transparent',
+              }}
+            >
+              {guardandoId === String(conv.externo_id || conv.id)
+                ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+                : <Star size={18} fill={isFavorito ? 'currentColor' : 'none'} />}
+            </button>
+            {errorGuardado && guardandoId === null && (
+              <span className="text-red-400 text-xs whitespace-nowrap max-w-[120px] text-center leading-tight">
+                {errorGuardado}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </article>
   );
 }
 
 export default function Dashboard() {
-  const [vista, setVista] = useState<'convocatorias' | 'donantes'>('donantes');
+  const [vista, setVista] = useState<'convocatorias' | 'donantes' | 'mis-convocatorias'>('donantes');
   const [convocatorias, setConvocatorias] = useState<Convocatoria[]>([]);
+  const { isFavorito, guardarFavorito, eliminarPorGrantId } = useFavoritos();
+  const [guardandoId, setGuardandoId] = useState<string | null>(null);
+  const [errorGuardado, setErrorGuardado] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
@@ -306,6 +344,65 @@ export default function Dashboard() {
     });
   }, [convocatorias, search, filtroEstado]);
 
+  const handleToggleFavorito = useCallback(async (conv: Convocatoria) => {
+    const grantId = String(conv.externo_id || conv.id);
+    setGuardandoId(grantId);
+    setErrorGuardado(null);
+    try {
+      if (isFavorito(grantId)) {
+        await eliminarPorGrantId(grantId);
+      } else {
+        await guardarFavorito(grantId, {
+          titulo: conv.titulo,
+          donante: conv.donante,
+          fuente: conv.fuente,
+          estado: conv.estado,
+          monto_max: conv.monto_max,
+          moneda: conv.moneda,
+          fecha_limite: conv.fecha_limite,
+          fecha_cierre: conv.fecha_limite,
+          url_convocatoria: conv.url_convocatoria,
+          url_fuente: conv.url_fuente,
+          descripcion: conv.descripcion,
+          sectores: conv.sectores,
+          paises_elegibles: conv.paises_elegibles,
+        });
+      }
+    } catch (err: any) {
+      setErrorGuardado(err?.message || 'No se pudo guardar. Intenta nuevamente.');
+      setTimeout(() => setErrorGuardado(null), 4000);
+    } finally {
+      setGuardandoId(null);
+    }
+  }, [isFavorito, guardarFavorito, eliminarPorGrantId]);
+
+  // Vista "Mis Convocatorias"
+  if (vista === 'mis-convocatorias') {
+    return (
+      <>
+        <style>{STITCH_CSS}</style>
+        <div className="max-w-7xl mx-auto space-y-6">
+          <header className="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <h1 className="text-2xl font-semibold text-onSurface flex items-center gap-2">
+                <Star size={22} style={{ color: '#f59e0b' }} fill="#f59e0b" />
+                Mis Convocatorias
+              </h1>
+              <p className="text-sm text-outline font-medium mt-1">Convocatorias guardadas para postulación</p>
+            </div>
+            <button
+              onClick={() => setVista('convocatorias')}
+              className="text-xs text-outline hover:text-onSurface underline underline-offset-2"
+            >
+              ← Volver al Radar
+            </button>
+          </header>
+          <FavoritosView />
+        </div>
+      </>
+    );
+  }
+
   // Vista donantes → RadarDashboard (diseño Stitch ya implementado)
   if (vista === 'donantes') {
     return (
@@ -374,12 +471,20 @@ export default function Dashboard() {
               {estado === 'todos' ? 'Todas' : estado.charAt(0).toUpperCase() + estado.slice(1)}
             </button>
           ))}
-          <button
-            onClick={() => setVista('donantes')}
-            className="ml-auto text-xs text-outline hover:text-onSurface underline underline-offset-2"
-          >
-            ← Directorio Donantes
-          </button>
+          <div className="ml-auto flex items-center gap-4">
+            <button
+              onClick={() => setVista('mis-convocatorias')}
+              className="text-xs font-medium px-3 py-1.5 rounded-full border border-amber-400/40 text-amber-500 hover:bg-amber-400/10 transition-colors flex items-center gap-1"
+            >
+              <Star size={13} fill="currentColor" /> Mis Convocatorias
+            </button>
+            <button
+              onClick={() => setVista('donantes')}
+              className="text-xs text-outline hover:text-onSurface underline underline-offset-2"
+            >
+              ← Directorio Donantes
+            </button>
+          </div>
         </div>
 
         {/* States */}
@@ -401,7 +506,15 @@ export default function Dashboard() {
             </div>
           ) : (
             convocatoriasFiltradas.map((c, i) => (
-              <ConvocatoriaCard key={c.externo_id || c.id} conv={c} index={i} />
+              <ConvocatoriaCard
+                key={c.externo_id || c.id}
+                conv={c}
+                index={i}
+                isFavorito={isFavorito(String(c.externo_id || c.id))}
+                guardandoId={guardandoId}
+                errorGuardado={errorGuardado}
+                onToggleFavorito={handleToggleFavorito}
+              />
             ))
           )}
         </main>

@@ -1,5 +1,6 @@
+import { Navigate } from 'react-router-dom';
+
+// La ruta raíz redirige al radar; RequireAuth ya maneja el onboarding hacia /apis.
 export default function HomePage() {
-  return (
-    <div className="flex-1 bg-surface-container-low min-h-[calc(100vh-3rem)]" />
-  );
+  return <Navigate to="/radar" replace />;
 }

@@ -153,6 +153,29 @@ export const apiService = {
   async aplicarFiltros(filtros: any): Promise<ApiResponse<any>> {
     return fetchApi('/api/convocatorias/filtros', { method: 'POST', body: JSON.stringify({ filtros }) });
   },
+
+  async getFavoritos(): Promise<ApiResponse<any>> {
+    return fetchApi('/api/favorites');
+  },
+
+  async guardarFavorito(grantId: string, grantData: object): Promise<ApiResponse<any>> {
+    return fetchApi('/api/favorites', {
+      method: 'POST',
+      body: JSON.stringify({ grant_id: grantId, grant_data: grantData }),
+    });
+  },
+
+  async eliminarFavorito(id: string): Promise<ApiResponse<any>> {
+    return fetchApi(`/api/favorites/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  async getGoogleOAuthStatus(): Promise<ApiResponse<{ connected: boolean; connectedAt: string | null }>> {
+    return fetchApi('/api/auth/google/status');
+  },
+
+  async revokeGoogleOAuth(): Promise<ApiResponse<void>> {
+    return fetchApi('/api/auth/google/revoke', { method: 'DELETE' });
+  },
 };
 
 export default apiService;
