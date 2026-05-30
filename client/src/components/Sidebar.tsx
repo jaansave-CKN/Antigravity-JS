@@ -13,6 +13,7 @@ import {
   Zap,
   AlertTriangle,
   Users,
+  Star,
 } from 'lucide-react';
 import type { ModuloActivo } from '../types';
 import { useRadar } from '../contexts/RadarContext';
@@ -28,6 +29,7 @@ const menuItems: { id: ModuloActivo; label: string; icon: React.ReactNode }[] = 
   { id: 'radar', label: 'RadarGrid', icon: <Radar size={20} /> },
   { id: 'inbox', label: 'Bandeja de Prospectos', icon: <Inbox size={20} /> },
   { id: 'convocatorias', label: 'Convocatorias', icon: <Award size={20} /> },
+  { id: 'favoritos', label: 'Mis Convocatorias', icon: <Star size={20} /> },
   { id: 'directorio', label: 'Directorio', icon: <Folder size={20} /> },
   { id: 'realtime', label: 'Radar en Tiempo Real', icon: <Zap size={20} /> },
   { id: 'chat', label: 'Inteligencia y Chat', icon: <MessageSquare size={20} /> },

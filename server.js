@@ -14,6 +14,11 @@ import { seedDirectorio } from './DataIngestor.js';
 import { startScheduler, runManualIngest } from './CronScheduler.js';
 import { parseFileBuffer, importToDirectorio, importToConvocatorias } from './FileImporter.js';
 import { encryptKey, decryptKey, maskKey } from './CryptoHelper.js';
+import {
+  registerGoogleAuthRoutes,
+  getGoogleAccessToken,
+  GEMINI_SYSTEM_INSTRUCTIONS,
+} from './authGoogle.controller.js';
 
 const require = createRequire(import.meta.url);
 
@@ -193,6 +198,11 @@ async function initDb() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       deleted_at TIMESTAMP DEFAULT NULL
     )`);
+    // Migraciones: columnas OAuth2 en usuarios (idempotentes)
+    try { await runSql(`ALTER TABLE usuarios ADD COLUMN google_oauth_token TEXT DEFAULT NULL`); } catch {}
+    try { await runSql(`ALTER TABLE usuarios ADD COLUMN google_refresh_token TEXT DEFAULT NULL`); } catch {}
+    try { await runSql(`ALTER TABLE usuarios ADD COLUMN google_token_expires_at TEXT DEFAULT NULL`); } catch {}
+
     // Migraciones: agregar columnas nuevas a convocatorias si no existen
     try { await runSql(`ALTER TABLE convocatorias ADD COLUMN source TEXT DEFAULT 'manual'`); } catch {}
     try { await runSql(`ALTER TABLE convocatorias ADD COLUMN validation_status TEXT DEFAULT 'VALIDACION_PENDIENTE'`); } catch {}
@@ -225,6 +235,16 @@ async function initDb() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(user_id, service)
     )`);
+    // Favoritos por usuario — persistencia dura de convocatorias guardadas
+    await runSql(`CREATE TABLE IF NOT EXISTS user_favorites (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      grant_id TEXT NOT NULL,
+      grant_data TEXT NOT NULL,
+      saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES usuarios(id),
+      UNIQUE(user_id, grant_id)
+    )`);
     console.log('DB initialized');
   } catch (error) {
     console.error('DB init error:', error);
@@ -247,6 +267,8 @@ async function start() {
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cors({ origin: true, credentials: true }));
   app.use(express.json());
+  // Deshabilitar ETag global → res.send() no agregará Cache-Control automático
+  app.set('etag', false);
 
   // DIRECTIVA OMEGA V6.1: RATE LIMITING
   const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 });
@@ -408,10 +430,18 @@ async function start() {
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
   });
 
-   // Serve static files from the dist directory (React build)
+   // Servir estáticos del build de React
    const distPath = path.join(__dirname, 'dist');
    if (fs.existsSync(distPath)) {
-     app.use(express.static(distPath));
+     // Assets con hash (JS/CSS): cacheable 1 año — sus nombres cambian con cada build
+     app.use('/assets', express.static(path.join(distPath, 'assets'), {
+       maxAge: '1y',
+       immutable: true,
+       etag: false,
+       index: false,
+     }));
+     // Resto de estáticos (vite.svg, etc.) sin caché automático
+     app.use(express.static(distPath, { etag: false, index: false }));
    }
 
   // ── ENDPOINTS DE NEGOCIO (mock de alta fidelidad) ──────────────
@@ -649,14 +679,135 @@ async function start() {
     }
   });
 
-  // ── SPA catch-all — SIEMPRE AL FINAL, después de todas las rutas /api/* ──────
-  app.get('/{*path}', (req, res) => {
-    const indexPath = path.join(__dirname, 'dist', 'index.html');
-    if (fs.existsSync(indexPath)) {
-      res.sendFile(indexPath);
-    } else {
-      res.status(404).json({ success: false, message: 'Frontend no encontrado. Ejecuta npm run build.' });
+  // ── GET /api/favorites — Favoritos del usuario autenticado ──────────────────
+  app.get('/api/favorites', authenticateToken, async (req, res) => {
+    try {
+      const rows = await getRows(
+        'SELECT id, grant_id, grant_data, saved_at FROM user_favorites WHERE user_id = ? ORDER BY saved_at DESC',
+        [req.userId]
+      );
+      const data = rows.map(r => {
+        let grant_data = {};
+        try { grant_data = JSON.parse(r.grant_data); } catch {}
+        return { id: r.id, grant_id: r.grant_id, grant_data, saved_at: r.saved_at };
+      });
+      res.json({ success: true, data });
+    } catch (error) {
+      console.error('[favorites] GET error:', error);
+      res.status(500).json({ success: false, message: 'Error al cargar favoritos' });
     }
+  });
+
+  // ── POST /api/favorites — Guardar convocatoria como favorito ─────────────────
+  app.post('/api/favorites', authenticateToken, async (req, res) => {
+    const { grant_id, grant_data } = req.body || {};
+    if (!grant_id || !grant_data) {
+      return res.status(400).json({ success: false, message: 'grant_id y grant_data son requeridos' });
+    }
+    try {
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      await runSql(
+        'INSERT INTO user_favorites (id, user_id, grant_id, grant_data, saved_at) VALUES (?, ?, ?, ?, ?)',
+        [id, req.userId, String(grant_id), JSON.stringify(grant_data), now]
+      );
+      res.status(201).json({ success: true, data: { id, grant_id: String(grant_id), saved_at: now } });
+    } catch (error) {
+      if (error.message?.includes('UNIQUE')) {
+        return res.status(409).json({ success: false, message: 'Esta convocatoria ya está en favoritos' });
+      }
+      console.error('[favorites] POST error:', error);
+      res.status(500).json({ success: false, message: 'Error al guardar en la base de datos. Tu selección NO fue guardada.' });
+    }
+  });
+
+  // ── DELETE /api/favorites/:id — Eliminar favorito (solo si es del usuario) ───
+  app.delete('/api/favorites/:id', authenticateToken, async (req, res) => {
+    try {
+      const row = await getRow(
+        'SELECT id FROM user_favorites WHERE id = ? AND user_id = ?',
+        [req.params.id, req.userId]
+      );
+      if (!row) {
+        return res.status(404).json({ success: false, message: 'Favorito no encontrado o no autorizado' });
+      }
+      await runSql('DELETE FROM user_favorites WHERE id = ? AND user_id = ?', [req.params.id, req.userId]);
+      res.json({ success: true, message: 'Favorito eliminado' });
+    } catch (error) {
+      console.error('[favorites] DELETE error:', error);
+      res.status(500).json({ success: false, message: 'Error al eliminar favorito' });
+    }
+  });
+
+  // ── Google OAuth2 — rutas gestionadas por el controlador ────────────────────
+  registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRow, encryptKey, JWT_SECRET });
+
+  // ── POST /api/ai/convocatoria-analyze — Extracción IA con contexto aislado ───
+  app.post('/api/ai/convocatoria-analyze', authenticateToken, async (req, res) => {
+    const { prompt, context } = req.body || {};
+    if (!prompt) {
+      return res.status(400).json({ success: false, message: 'El campo "prompt" es requerido.' });
+    }
+    const accessToken = await getGoogleAccessToken(
+      req.userId,
+      { getRow, runSql, encryptKey, decryptKey, JWT_SECRET }
+    );
+    if (!accessToken) {
+      return res.status(403).json({
+        success: false,
+        message: 'Google OAuth no vinculado. Sincroniza tu IA desde /apis primero.',
+      });
+    }
+    try {
+      const body = JSON.stringify({
+        system_instruction: { parts: [{ text: GEMINI_SYSTEM_INSTRUCTIONS }] },
+        contents: [{
+          parts: [{ text: context ? `${context}\n\n${prompt}` : prompt }],
+        }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+      });
+      const geminiRes = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body,
+        }
+      );
+      if (!geminiRes.ok) {
+        const errText = await geminiRes.text();
+        return res.status(502).json({ success: false, message: `Gemini API: ${errText}` });
+      }
+      const data = await geminiRes.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      res.json({ success: true, result: text });
+    } catch (err) {
+      console.error('[gemini-analyze]', err.message);
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── SPA catch-all — SIEMPRE AL FINAL, después de todas las rutas /api/* ──────
+  // res.writeHead + res.end (Node.js puro) — Express no toca estos headers.
+  // Así Cache-Control: no-store llega al browser sin ser sobreescrito.
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+  const indexBuf  = fs.existsSync(indexPath) ? fs.readFileSync(indexPath) : null;
+
+  app.get('/{*path}', (_req, res) => {
+    if (!indexBuf) {
+      return res.status(404).json({ success: false, message: 'Frontend no encontrado. Ejecuta npm run build.' });
+    }
+    res.writeHead(200, {
+      'Content-Type':  'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma':        'no-cache',
+      'Expires':       '0',
+      'Content-Length': indexBuf.length,
+    });
+    res.end(indexBuf);
   });
 
   // ── POST /api/report-error — Botón "Reportar Error" de testers ──────────────

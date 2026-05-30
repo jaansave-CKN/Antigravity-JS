@@ -172,6 +172,31 @@ class GeminiService {
     ]);
   }
 
+  /**
+   * Analiza una convocatoria usando el token OAuth del usuario en el backend.
+   * El servidor inyecta las system instructions de aislamiento Radar_Fondos_360.
+   * @throws si el usuario no tiene Google OAuth vinculado (403) o falla la API.
+   */
+  async analyzeConvocatoria(prompt: string, context?: string): Promise<string> {
+    const token = localStorage.getItem('auth_token');
+    if (!token || token === 'demo-mode-token') {
+      throw new Error('Sesión no autenticada.');
+    }
+    const res = await fetch('/api/ai/convocatoria-analyze', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ prompt, context }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || `Error ${res.status}`);
+    }
+    return data.result as string;
+  }
+
   async generateMultimodalContent(
     prompt: string,
     _imageBase64?: string,
