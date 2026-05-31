@@ -19,8 +19,16 @@ __pycache__/
 backend/__pycache__/
 
 # Cloudflare Tunnel binary (large, platform-specific)
+cloudflared.exe
 tools/cloudflared.exe
 tools/*.exe
+*.exe
+
+# Orquestador y scripts locales (no necesarios en producción)
+000-orquestador.js
+orchestrator.js
+watchdog.ps1
+*.ps1
 
 # Base de datos local
 backend/radar.db

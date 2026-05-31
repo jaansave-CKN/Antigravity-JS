@@ -115,6 +115,7 @@ async function initDb() {
       id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL, nombre TEXT NOT NULL,
       tipoUsuario TEXT NOT NULL DEFAULT 'user',
+      plan TEXT DEFAULT 'free',
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       is_approved INTEGER DEFAULT 1, is_active INTEGER DEFAULT 1,
       deleted_at TIMESTAMP DEFAULT NULL
@@ -209,6 +210,13 @@ async function initDb() {
     try { await runSql(`ALTER TABLE convocatorias ADD COLUMN source_url TEXT DEFAULT ''`); } catch {}
     try { await runSql(`ALTER TABLE convocatorias ADD COLUMN last_verified TIMESTAMP`); } catch {}
 
+    // Migraciones: columnas del Formulador en proyectos (idempotentes)
+    try { await runSql(`ALTER TABLE proyectos ADD COLUMN sector TEXT DEFAULT ''`); } catch {}
+    try { await runSql(`ALTER TABLE proyectos ADD COLUMN progreso INTEGER DEFAULT 0`); } catch {}
+
+    // Migración: plan de suscripción en usuarios (idempotente)
+    try { await runSql(`ALTER TABLE usuarios ADD COLUMN plan TEXT DEFAULT 'free'`); } catch {}
+
     await runSql(`CREATE TABLE IF NOT EXISTS crawl_log (
          id INTEGER PRIMARY KEY AUTOINCREMENT,
          tipo TEXT, fuente TEXT,
@@ -253,7 +261,10 @@ async function initDb() {
 }
 
 async function getUser(userId) {
-  return await getRow('SELECT id, email, nombre, tipoUsuario as role, created_at, is_active, is_approved, deleted_at FROM usuarios WHERE id = $1', [userId]);
+  return await getRow(
+    'SELECT id, email, nombre, tipoUsuario as role, plan, createdAt as created_at, is_active, is_approved, deleted_at FROM usuarios WHERE id = $1',
+    [userId]
+  );
 }
 
 async function start() {
@@ -297,7 +308,7 @@ async function start() {
       const now = new Date().toISOString();
       await runSql('INSERT INTO usuarios (id, email, password_hash, nombre, tipoUsuario, createdAt, is_approved, is_active) VALUES ($1,$2,$3,$4,$5,$6,1,1)', [userId, email, passwordHash, nombre, role, now]);
       const token = generateToken(userId, email, role);
-      return res.status(201).json({ success: true, message: "Registro exitoso", user: { id: userId, email, nombre, role, createdAt: now, is_active: true }, token });
+      return res.status(201).json({ success: true, message: "Registro exitoso", user: { id: userId, email, nombre, role, plan: 'free', createdAt: now, is_active: true }, token });
     } catch (error) {
       console.error("CRITICO - Fallo en el Hotfix:", error);
       return res.status(500).json({ success: false, message: "Error interno del servidor", error: error.message });
@@ -321,7 +332,7 @@ async function start() {
       await runSql('UPDATE usuarios SET last_login = $1 WHERE id = $2', [now, row.id]);
       const token = generateToken(row.id, row.email, row.tipoUsuario || 'user');
       res.cookie('auth_session', token, COOKIE_OPTIONS);
-      res.json({ success: true, user: { id: row.id, email: row.email, nombre: row.nombre, role: row.tipoUsuario || 'user', createdAt: row.createdAt || now, is_active: true }, token });
+      res.json({ success: true, user: { id: row.id, email: row.email, nombre: row.nombre, role: row.tipoUsuario || 'user', plan: row.plan || 'free', createdAt: row.createdAt || now, is_active: true }, token });
     } catch (error) {
       console.error('Error en login:', error);
       res.status(500).json({ success: false, message: error.message || 'Error interno del servidor' });
@@ -787,6 +798,76 @@ async function start() {
     } catch (err) {
       console.error('[gemini-analyze]', err.message);
       res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── FORMULADOR — Borradores de proyectos ─────────────────────────────────────
+
+  // POST /api/formulador/proyectos — crear o actualizar borrador
+  app.post('/api/formulador/proyectos', authenticateToken, async (req, res) => {
+    const { id, titulo, sector, datos_json, progreso = 0 } = req.body || {};
+    if (!titulo) {
+      return res.status(400).json({ success: false, message: 'titulo es requerido' });
+    }
+    const now      = new Date().toISOString();
+    const metadata = JSON.stringify(datos_json || {});
+    try {
+      if (id) {
+        const existing = await getRow(
+          'SELECT id FROM proyectos WHERE id = $1 AND usuario_id = $2 AND deleted_at IS NULL',
+          [id, req.userId]
+        );
+        if (!existing) {
+          return res.status(404).json({ success: false, message: 'Proyecto no encontrado o sin autorización' });
+        }
+        await runSql(
+          'UPDATE proyectos SET nombre = $1, sector = $2, progreso = $3, metadata = $4, updated_at = $5 WHERE id = $6',
+          [titulo, sector || '', progreso, metadata, now, id]
+        );
+        return res.json({ success: true, id, message: 'Borrador actualizado' });
+      }
+      const newId = crypto.randomUUID();
+      await runSql(
+        'INSERT INTO proyectos (id, nombre, usuario_id, sector, progreso, metadata, created_at, updated_at, estado) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+        [newId, titulo, req.userId, sector || '', progreso, metadata, now, now, 'activo']
+      );
+      return res.status(201).json({ success: true, id: newId, message: 'Borrador creado' });
+    } catch (error) {
+      console.error('[formulador] POST error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // GET /api/formulador/proyectos — listar borradores del usuario
+  app.get('/api/formulador/proyectos', authenticateToken, async (req, res) => {
+    try {
+      const rows = await getRows(
+        'SELECT id, nombre, sector, progreso, created_at, updated_at FROM proyectos WHERE usuario_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC',
+        [req.userId]
+      );
+      res.json({ success: true, data: rows });
+    } catch (error) {
+      console.error('[formulador] GET list error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // GET /api/formulador/proyectos/:id — cargar borrador completo
+  app.get('/api/formulador/proyectos/:id', authenticateToken, async (req, res) => {
+    try {
+      const row = await getRow(
+        'SELECT * FROM proyectos WHERE id = $1 AND usuario_id = $2 AND deleted_at IS NULL',
+        [req.params.id, req.userId]
+      );
+      if (!row) {
+        return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+      }
+      let datos_json = {};
+      try { datos_json = JSON.parse(row.metadata || '{}'); } catch {}
+      res.json({ success: true, data: { ...row, titulo: row.nombre, datos_json } });
+    } catch (error) {
+      console.error('[formulador] GET single error:', error);
+      res.status(500).json({ success: false, message: error.message });
     }
   });
 

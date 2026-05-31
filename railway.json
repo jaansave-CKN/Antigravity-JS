@@ -1,29 +1,14 @@
 {
-  "services": [
-    {
-      "name": "backend",
-      "source": {
-        "path": "/backend"
-      },
-      "dockerfile": {
-        "path": "/Dockerfile.backend"
-      },
-      "env": {
-        "JWT_SECRET": "${JWT_SECRET}",
-        "ENVIRONMENT": "production"
-      }
-    },
-    {
-      "name": "frontend",
-      "source": {
-        "path": "/"
-      },
-      "dockerfile": {
-        "path": "/Dockerfile.frontend"
-      },
-      "env": {
-        "VITE_API_URL": "${RAILWAY_STATIC_URL}/api"
-      }
-    }
-  ]
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "node server.js",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3,
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 60
+  }
 }

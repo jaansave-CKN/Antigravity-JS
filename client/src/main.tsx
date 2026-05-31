@@ -11,7 +11,9 @@ import DirectoryPage from './pages/DirectoryPage';
 import ImportPage from './pages/ImportPage';
 import CredentialsPage from './pages/CredentialsPage';
 import TopNavBar from './components/TopNavBar';
-import HomePage from './pages/HomePage';
+import AuthGuard from './components/AuthGuard';
+import SelectionPage from './pages/SelectionPage';
+import FormuladorPage from './pages/FormuladorPage';
 import './index.css';
 import 'leaflet/dist/leaflet.css';
 
@@ -152,76 +154,38 @@ function AppLayout() {
   );
 }
 
-// ── Pantalla de carga compartida ──────────────────────────────────────────────
-function LoadingScreen({ message = 'Verificando sesión…' }: { message?: string }) {
-  return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f7f9fb' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-        <div style={{ width: 28, height: 28, border: '3px solid #c6c6cd', borderTopColor: '#0058be', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-        <span style={{ fontSize: 13, color: '#76777d', fontFamily: 'monospace' }}>{message}</span>
-      </div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
-  );
-}
-
-// ── Route guard ───────────────────────────────────────────────────────────────
-function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, loading, hasCredentials, enterDemoMode } = useAuth();
-  const [credTimedOut, setCredTimedOut] = React.useState(false);
-  const loc = window.location.pathname;
-
-  // Sin sesión → entrar en modo demo automáticamente (sin pantalla de login)
-  React.useEffect(() => {
-    if (!loading && !isAuthenticated) {
-      enterDemoMode();
-    }
-  }, [loading, isAuthenticated, enterDemoMode]);
-
-  // Si hasCredentials sigue null después de 5 s, el servidor no respondió — avanzar igual
-  React.useEffect(() => {
-    if (hasCredentials !== null) { setCredTimedOut(false); return; }
-    const t = setTimeout(() => setCredTimedOut(true), 5000);
-    return () => clearTimeout(t);
-  }, [hasCredentials]);
-
-  // Durante carga inicial o mientras se activa el demo, mostrar spinner breve
-  if (loading || !isAuthenticated) return <LoadingScreen message="Iniciando panel…" />;
-  if (hasCredentials === null && !credTimedOut) return <LoadingScreen message="Verificando acceso…" />;
-  if ((hasCredentials === false || credTimedOut) && loc !== '/apis') {
-    return <Navigate to="/apis" replace />;
-  }
-
-  return <>{children}</>;
-}
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 function AppRoutes() {
-  const { isAuthenticated, hasCredentials } = useAuth();
-  const toPanel = <Navigate to="/apis" replace />;
-  const toHome  = <Navigate to="/"    replace />;
+  const { isAuthenticated, hasCredentials, token } = useAuth();
+  const toHome = <Navigate to="/" replace />;
+  // Redirigir a home si ya tiene sesión real (no demo)
+  const realAuth = isAuthenticated && token !== 'demo-mode-token';
 
   return (
     <Routes>
-      {/* Públicas — con demo activo, redirige directo al panel */}
-      <Route path="/login"          element={isAuthenticated ? toPanel : <LoginPage />} />
-      <Route path="/register"       element={isAuthenticated ? toPanel : <RegisterPage />} />
-      <Route path="/reset-password" element={isAuthenticated ? toHome  : <PasswordResetPage />} />
+      {/* ── Autenticación (públicas) ───────────────────────────────────────── */}
+      <Route path="/login"          element={realAuth ? toHome : <LoginPage />} />
+      <Route path="/register"       element={realAuth ? toHome : <RegisterPage />} />
+      <Route path="/reset-password" element={<PasswordResetPage />} />
 
-      {/* Protegidas — con TopNavBar via AppLayout */}
-      <Route
-        element={
-          <RequireAuth>
-            <AppLayout />
-          </RequireAuth>
-        }
-      >
-        <Route path="/"           element={<HomePage />} />
-        <Route path="/radar"      element={<Dashboard />} />
-        <Route path="/directorio" element={<DirectoryPage />} />
-        <Route path="/importar"   element={<ImportPage />} />
-        <Route path="/settings"   element={<ControlPanel />} />
-        <Route path="/apis"       element={<CredentialsPage isOnboarding={hasCredentials === false} />} />
+      {/* ── Acceso libre: Inicio + Radar (demo mode automático, sin gate) ──── */}
+      <Route element={<AuthGuard mode="public-demo"><AppLayout /></AuthGuard>}>
+        <Route path="/"            element={<SelectionPage />} />
+        <Route path="/radar"       element={<Dashboard />} />
+        <Route path="/directorio"  element={<DirectoryPage />} />
+      </Route>
+
+      {/* ── Formulador: requiere autenticación real + plan válido ──────────── */}
+      <Route element={<AuthGuard mode="require-auth"><AppLayout /></AuthGuard>}>
+        <Route path="/formulador"  element={<FormuladorPage />} />
+      </Route>
+
+      {/* ── Gestión interna: demo mode + credential check ─────────────────── */}
+      <Route element={<AuthGuard mode="normal"><AppLayout /></AuthGuard>}>
+        <Route path="/importar"    element={<ImportPage />} />
+        <Route path="/settings"    element={<ControlPanel />} />
+        <Route path="/apis"        element={<CredentialsPage isOnboarding={hasCredentials === false} />} />
       </Route>
 
       {/* Catch-all */}

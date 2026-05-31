@@ -3,11 +3,18 @@
   "version": "1.0.0",
   "type": "module",
   "main": "server.js",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "dev": "vite",
+    "dev:open": "vite --open",
     "build": "vite build",
     "start": "node server.js",
-    "render-build": "npm install && npm run build"
+    "render-build": "npm install && npm run build",
+    "orchestrate": "node orchestrator.js",
+    "start:all": "node 000-orquestador.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
