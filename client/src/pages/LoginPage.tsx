@@ -133,7 +133,8 @@ export default function LoginPage() {
   const [showPwd, setShowPwd]         = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
 
-  const from = (location.state as any)?.from?.pathname || '/';
+  const from   = (location.state as any)?.from?.pathname || '/';
+  const reason = (location.state as any)?.reason as string | undefined;
 
   function switchModo(m: 'login' | 'registro') {
     setModo(m);
@@ -204,6 +205,14 @@ export default function LoginPage() {
           </div>
 
           <div className="px-8 py-7">
+            {/* Aviso de acceso restringido (viene de /formulador u otra ruta protegida) */}
+            {reason === 'requires-auth' && !error && (
+              <div className="mb-5 px-4 py-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-xs font-mono">
+                <span className="font-bold">ACCESO RESTRINGIDO · MÓDULO B</span>
+                <p className="mt-1 font-normal">El Formulador requiere una cuenta activa. Inicia sesión o crea una cuenta para continuar.</p>
+              </div>
+            )}
+
             {/* Alerta de error */}
             {error && (
               <div className="mb-5 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-mono">

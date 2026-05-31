@@ -6,6 +6,7 @@ export interface UserProfile {
   email: string;
   nombre: string;
   role: 'admin' | 'user';
+  plan?: string;      // 'free' | 'pro' — infraestructura para gating de suscripción
   created_at: string;
   last_login?: string;
   is_active: boolean;
@@ -90,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser({
           id: data.user.id, email: data.user.email,
           nombre: data.user.nombre, role: data.user.role,
+          plan: data.user.plan,
           created_at: data.user.created_at, is_active: data.user.is_active,
         });
         checkCredentials(storedToken);

@@ -1,8 +1,28 @@
-node_modules
-.git
+# Dependencias (se reinstalan en el build)
+node_modules/
+client/node_modules/
+
+# Control de versiones y herramientas de desarrollo
+.git/
+.kilo/
+*.log
+logs/
+
+# Variables de entorno locales — NUNCA en la imagen
+.env
+.env.local
+
+# Build anterior (se regenera)
+dist/
+
+# Binarios y orquestador local
+cloudflared.exe
+*.exe
+watchdog.ps1
+000-orquestador.js
+orchestrator.js
+
+# Proyectos paralelos
+SIA_Radar/
 *.pyc
 __pycache__
-.env
-data
-logs
-dist

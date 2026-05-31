@@ -1,8 +1,22 @@
 services:
   - type: web
-    name: radar-fondos-360
-    env: node
-    buildCommand: npm install
+    name: radarfondos-360
+    runtime: node
+    plan: starter                          # $7/mes — necesario para disco persistente
+    buildCommand: npm install && npm run build
     startCommand: node server.js
-    region: oregon
+    healthCheckPath: /api/health
     autoDeploy: true
+    disk:
+      name: radar-sqlite
+      mountPath: /app/backend             # Aquí vive radar.db — persiste entre deploys
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true               # Render genera uno seguro automáticamente
+      - key: GOOGLE_CLIENT_ID
+        sync: false                       # Rellenar en el dashboard de Render
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
