@@ -12,7 +12,7 @@ export default defineConfig({
   },
   build: {
     outDir: resolve(__dirname, 'dist'),
-    cssMinify: 'esbuild',
+    cssMinify: true,
     rollupOptions: {
       input: resolve(__dirname, 'client', 'index.html'),
       output: {
