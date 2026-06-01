@@ -6,6 +6,7 @@
 
 import crypto from 'crypto';
 import { runCrossCheck } from '../validators/crossCheckValidator.js';
+import { sanitizeFormuladorBody } from '../middlewares/SecurityMiddleware.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -32,7 +33,7 @@ export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow
    *   fichaTecnica   object  { metaFisicaTotal, descripcion, ... }  — Módulo 3b
    *   presupuesto    object  { fasesNegra:[], fasesGris:[], fasesBlanca:[] } — Módulo 4
    */
-  app.post('/api/proyectos', authenticateToken, wrap(async (req, res) => {
+  app.post('/api/proyectos', authenticateToken, sanitizeFormuladorBody, wrap(async (req, res) => {
     const { nombre, fichaTecnica = {}, presupuesto = {} } = req.body;
 
     if (!nombre || typeof nombre !== 'string' || !nombre.trim()) {
@@ -133,7 +134,7 @@ export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow
    * Actualiza nombre, ficha_tecnica o presupuesto mientras el proyecto
    * no esté en estado Finalizado.
    */
-  app.patch('/api/proyectos/:id', authenticateToken, wrap(async (req, res) => {
+  app.patch('/api/proyectos/:id', authenticateToken, sanitizeFormuladorBody, wrap(async (req, res) => {
     const proyecto = await getRow(
       'SELECT id, estado FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]

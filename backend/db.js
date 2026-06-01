@@ -128,3 +128,52 @@ export async function runSql(sql, params = []) {
     } finally { stmt.free(); }
   } finally { db.close(); }
 }
+
+/**
+ * Ejecuta múltiples queries como una transacción atómica.
+ * En PostgreSQL: BEGIN / COMMIT / ROLLBACK con cliente dedicado del pool.
+ * En SQLite: BEGIN / COMMIT / ROLLBACK nativo de sql.js.
+ *
+ * @param {Array<{sql: string, params: any[]}>} queries
+ * @returns {Promise<void>}
+ */
+export async function runTransaction(queries) {
+  if (USE_PG) {
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const q of queries) {
+        const { sql: converted, params: p } = qmarkToPg(q.sql, q.params || []);
+        await client.query(converted, p);
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+    return;
+  }
+
+  // SQLite: transacción nativa
+  const db = await getDb();
+  try {
+    db.run('BEGIN');
+    try {
+      for (const q of queries) {
+        const { sql: converted, params: p } = pgToSqlite(q.sql, q.params || []);
+        const stmt = db.prepare(converted);
+        try { stmt.run(p); } finally { stmt.free(); }
+      }
+      db.run('COMMIT');
+    } catch (err) {
+      db.run('ROLLBACK');
+      throw err;
+    }
+    const data = db.export();
+    fs.writeFileSync(DB_PATH, Buffer.from(data));
+  } finally {
+    db.close();
+  }
+}

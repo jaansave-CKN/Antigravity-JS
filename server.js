@@ -9,7 +9,7 @@ import { loadEnv } from './backend/env-loader.js';
 import jwt from 'jsonwebtoken';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS } from './backend/middlewares/SecurityMiddleware.js';
+import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter } from './backend/middlewares/SecurityMiddleware.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
 import { startScheduler, runManualIngest } from './backend/pipeline/CronScheduler.js';
 import { parseFileBuffer, importToDirectorio, importToConvocatorias } from './backend/pipeline/FileImporter.js';
@@ -50,6 +50,51 @@ if (!JWT_SECRET) {
   console.error('FATAL: JWT_SECRET not set.');
   process.exit(1);
 }
+
+// ── Hardening de variables de entorno en producción ──────────────────────────
+function validateProductionEnv() {
+  const isProd = process.env.NODE_ENV === 'production';
+  const errors = [];
+  const warnings = [];
+
+  if (isProd) {
+    // Bloqueos críticos (abortan el arranque)
+    if (!process.env.DATABASE_URL) {
+      errors.push('DATABASE_URL no configurada — en producción se requiere PostgreSQL. Configura en Render dashboard.');
+    } else if (process.env.DATABASE_URL.includes('localhost') || process.env.DATABASE_URL.includes('127.0.0.1')) {
+      errors.push('DATABASE_URL apunta a localhost en entorno de producción. Configura una BD remota.');
+    }
+    if (JWT_SECRET.length < 32) {
+      errors.push('JWT_SECRET demasiado corto (<32 chars). Genera uno seguro con: openssl rand -hex 32');
+    }
+    const frontendUrl = process.env.FRONTEND_URL || '';
+    if (frontendUrl.includes('localhost') || frontendUrl.includes('127.0.0.1')) {
+      errors.push(`FRONTEND_URL apunta a localhost (${frontendUrl}). Configura la URL de Firebase en producción.`);
+    }
+
+    // Advertencias (no abortan, pero se registran)
+    if (!process.env.GOOGLE_API_KEY) warnings.push('GOOGLE_API_KEY no configurada — IA deshabilitada (árbol objetivos + match scoring usarán modo mock).');
+    if (!process.env.BREVO_API_KEY)  warnings.push('BREVO_API_KEY no configurada — emails transaccionales deshabilitados.');
+    if (!process.env.ERROR_WEBHOOK_URL) warnings.push('ERROR_WEBHOOK_URL no configurada — alertas de error solo en logs del servidor.');
+    if (process.env.GOOGLE_CLIENT_ID?.includes('REEMPLAZAR')) warnings.push('GOOGLE_CLIENT_ID tiene valor placeholder — login con Google deshabilitado.');
+  }
+
+  if (errors.length > 0) {
+    console.error('\n╔══════════════════════════════════════════════════════╗');
+    console.error('║  PRODUCTION ENV ERROR — ARRANQUE ABORTADO            ║');
+    console.error('╚══════════════════════════════════════════════════════╝');
+    errors.forEach(e => console.error('  ✗', e));
+    process.exit(1);
+  }
+  if (warnings.length > 0 && isProd) {
+    console.warn('\n[ENV] Advertencias de configuración (no críticas):');
+    warnings.forEach(w => console.warn('  ⚠', w));
+  }
+  if (isProd) {
+    console.log('[ENV] ✓ Variables de producción validadas.');
+  }
+}
+validateProductionEnv();
 
 // ── Utilidades ───────────────────────────────────────────────────────────────
 function verifyToken(token) {
@@ -288,10 +333,11 @@ async function initDb() {
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES usuarios(id)
   )`);
-  // Migración: agrega org_id si la tabla existía antes de esta versión
+  // Migraciones de proyectos: agrega columnas ausentes en versiones anteriores del esquema
+  try { await runSql(`ALTER TABLE proyectos ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`); } catch {}
   try { await runSql(`ALTER TABLE proyectos ADD COLUMN org_id TEXT NOT NULL DEFAULT ''`); } catch {}
-  // Backfill: registros anteriores heredan el user_id como org_id
-  await runSql(`UPDATE proyectos SET org_id = user_id WHERE org_id = ''`);
+  // Backfill: registros anteriores heredan user_id como org_id
+  try { await runSql(`UPDATE proyectos SET org_id = user_id WHERE org_id = ''`); } catch {}
 
   // M4 APU — catalogo de rendimientos (SQLite fallback)
   await runSql(`CREATE TABLE IF NOT EXISTS catalogo_rendimientos (
@@ -390,6 +436,20 @@ async function initDb() {
     firmado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (proyecto_id) REFERENCES proyectos(id)
   )`);
+  // SECURITY: índice único previene race condition en numeración de versiones
+  try { await runSql('CREATE UNIQUE INDEX IF NOT EXISTS idx_versiones_num ON versiones_proyecto(proyecto_id, version_num)'); } catch {}
+
+  // Migraciones defensivas V8.0: agrega user_id si las tablas existen sin esa columna
+  // (SQLite no soporta ADD COLUMN IF NOT EXISTS — el catch silencia "already exists")
+  try { await runSql("ALTER TABLE motor_dialectico  ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await runSql("ALTER TABLE config_logistica  ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await runSql("ALTER TABLE marco_normativo   ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await runSql("ALTER TABLE compliance_data   ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await runSql("ALTER TABLE versiones_proyecto ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
+  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN access_radar INTEGER DEFAULT 0"); } catch {}
+  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN access_formulador INTEGER DEFAULT 0"); } catch {}
+  try { await runSql("ALTER TABLE system_config ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); } catch {}
+  try { await runSql("ALTER TABLE system_logs  ADD COLUMN nivel TEXT DEFAULT 'ERROR'"); } catch {}
 
   // V8.0 — Tabla de suscripciones por módulo (RBAC)
   await runSql(`CREATE TABLE IF NOT EXISTS user_subscriptions (
@@ -412,7 +472,12 @@ async function initDb() {
   try { await runSql("ALTER TABLE user_credentials ADD COLUMN service TEXT DEFAULT 'api_key'"); } catch {}
   try { await runSql('ALTER TABLE user_credentials ADD COLUMN encrypted_key TEXT DEFAULT NULL'); } catch {}
   try { await runSql("ALTER TABLE user_credentials ADD COLUMN label TEXT DEFAULT ''"); } catch {}
-  // Migración proyectos spec v2.0: location y problem_statement como columnas propias
+  // Migraciones proyectos: columnas que pueden faltar en radar.db de versiones anteriores
+  try { await runSql("ALTER TABLE proyectos ADD COLUMN bloqueo_razon TEXT"); } catch {}
+  try { await runSql("ALTER TABLE proyectos ADD COLUMN ficha_tecnica TEXT DEFAULT '{}'"); } catch {}
+  try { await runSql("ALTER TABLE proyectos ADD COLUMN presupuesto TEXT DEFAULT '{}'"); } catch {}
+  try { await runSql("ALTER TABLE proyectos ADD COLUMN crosscheck_sello TEXT DEFAULT NULL"); } catch {}
+  try { await runSql("ALTER TABLE proyectos ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); } catch {}
   try { await runSql("ALTER TABLE proyectos ADD COLUMN location TEXT DEFAULT ''"); } catch {}
   try { await runSql("ALTER TABLE proyectos ADD COLUMN problem_statement TEXT DEFAULT ''"); } catch {}
   // Migración usuarios: rol granular (Formulador, Evaluador, Diseñador, Administrador, Usuario)
@@ -428,6 +493,23 @@ async function initDb() {
       );
     } catch {}
   }
+  // Tabla de configuración del sistema (flags de producción)
+  await runSql(`CREATE TABLE IF NOT EXISTS system_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Tabla de auditoría de errores críticos del sistema
+  await runSql(`CREATE TABLE IF NOT EXISTS system_logs (
+    id TEXT PRIMARY KEY,
+    origen TEXT NOT NULL,
+    mensaje TEXT NOT NULL,
+    payload TEXT DEFAULT '{}',
+    nivel TEXT DEFAULT 'ERROR' CHECK(nivel IN ('INFO','WARN','ERROR','CRITICAL')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+
   // Aviso de producción: PostgreSQL recomendado sobre SQLite
   if (!process.env.DATABASE_URL) {
     console.warn('[DB] AVISO: DATABASE_URL no definida — usando SQLite (solo desarrollo). En producción configura PostgreSQL.');
@@ -454,7 +536,29 @@ async function start() {
   app.use('/api/radar/barrido-masivo', rejectMaterialsInput);
 
   // ── Healthcheck ──────────────────────────────────────────────────────────
-  app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+  app.get('/api/health', tryCatch(async (_req, res) => {
+    const cfg = await getRow("SELECT value FROM system_config WHERE key = 'production_ready'");
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      production_ready: cfg?.value === 'true',
+      version: '8.0',
+    });
+  }));
+
+  // POST /api/system/production-ready — llamado por smokeTest.js tras checks exitosos
+  app.post('/api/system/production-ready', tryCatch(async (req, res) => {
+    const smokeToken = req.headers['x-smoke-token'];
+    if (!smokeToken || smokeToken !== JWT_SECRET) {
+      return res.status(403).json({ success: false, message: 'Token inválido' });
+    }
+    await runSql(
+      `INSERT INTO system_config (key, value, updated_at) VALUES ('production_ready','true',CURRENT_TIMESTAMP)
+       ON CONFLICT(key) DO UPDATE SET value='true', updated_at=CURRENT_TIMESTAMP`
+    );
+    console.log('[System] ✓ BD marcada como PRODUCTION_READY —', new Date().toISOString());
+    res.json({ success: true, message: 'Sistema marcado como Production Ready' });
+  }));
 
   // ════════════════════════════════════════════════════════════════════════════
   // AUTH ROUTES
@@ -532,8 +636,8 @@ async function start() {
   }));
 
   // POST /api/auth/trial — genera token temporal 24h (Modo Visitante V8.0)
-  // No escribe en la base de datos: cero consumo de BD
-  app.post('/api/auth/trial', tryCatch(async (req, res) => {
+  // trialLimiter: máx 3 tokens/hora por IP — previene bypass infinito
+  app.post('/api/auth/trial', trialLimiter, tryCatch(async (req, res) => {
     const trialId = `trial-${crypto.randomUUID().slice(0, 8)}`;
     const token   = jwt.sign(
       { sub: trialId, role: 'trial', trial: true },
@@ -810,7 +914,7 @@ async function start() {
   }));
 
   // F4-03: Módulo 3b - Árbol de Objetivos (usa la API key del usuario o la del sistema)
-  app.post('/api/modulo3b/arbol/generar', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+  app.post('/api/modulo3b/arbol/generar', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
     const { proyectoId, objetivoCentral } = req.body;
     if (!proyectoId || !objetivoCentral) return res.status(400).json({ success: false, message: 'proyectoId y objetivoCentral requeridos' });
     const apiKey = await resolveGoogleApiKey(req.userId, getRow);
@@ -830,7 +934,7 @@ async function start() {
   }));
 
   // F4-04: Módulo 7 - Match Score Pipeline (requiere plan formulador + GOOGLE_API_KEY)
-  app.post('/api/modulo7/match/:proyectoId', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+  app.post('/api/modulo7/match/:proyectoId', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
     const apiKey = await resolveGoogleApiKey(req.userId, getRow);
     if (!apiKey) {
       return res.status(503).json({
@@ -839,6 +943,13 @@ async function start() {
         message: 'El módulo de Match Score requiere Google API Key. Configura tu clave en Ajustes o contacta al administrador.',
       });
     }
+    // SECURITY FIX: verificar ownership antes de pasar al pipeline
+    const ownerCheck = await getRow(
+      'SELECT id FROM proyectos WHERE id = ? AND org_id = ?',
+      [req.params.proyectoId, req.userId]
+    );
+    if (!ownerCheck) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
     try {
       const results = await runMatchPipeline(req.params.proyectoId, getRow, getRows, runSql);
       res.json({ success: true, data: results });

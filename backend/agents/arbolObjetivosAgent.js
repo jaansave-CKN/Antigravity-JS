@@ -60,7 +60,12 @@ export async function generarArbolConIA(objetivoCentral, apiKey) {
       },
     });
 
-    const prompt = `${ARBOL_SYSTEM_PROMPT}\n\nOBJETIVO CENTRAL DEL PROYECTO:\n"${objetivoCentral}"`;
+    // Sanitización anti-prompt-injection: limitar longitud y strip de delimitadores
+    const sanitized = String(objetivoCentral || '')
+      .slice(0, 400)
+      .replace(/["`\\]/g, '')
+      .replace(/\n{2,}/g, ' ');
+    const prompt = `${ARBOL_SYSTEM_PROMPT}\n\nOBJETIVO CENTRAL DEL PROYECTO:\n"${sanitized}"`;
     const result = await model.generateContent(prompt);
     const text   = result.response.text().trim();
 

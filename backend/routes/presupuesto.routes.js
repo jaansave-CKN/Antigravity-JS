@@ -5,6 +5,7 @@
  */
 import crypto from 'crypto';
 import { procesarPresupuesto, getRendimientoRef, RENDIMIENTOS_CATALOGO } from '../pipeline/apuEngine.js';
+import { runTransaction } from '../db.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -58,42 +59,37 @@ export function registerPresupuestoRoutes(app, { authenticateToken, runSql, getR
       console.warn('[presupuesto] Alertas de rendimiento:', JSON.stringify(resultado.alertas));
     }
 
-    // Persistir items en project_budgets
-    // Primero eliminar items anteriores del proyecto
-    try {
-      await runSql('DELETE FROM project_budgets WHERE proyecto_id = ?', [proyectoId]);
-    } catch {}
+    // FIX 4.3: DELETE + N INSERTs + UPDATE envueltos en una transacción atómica
+    const resumenPresupuesto = JSON.stringify({
+      porFase: resultado.porFase, total: resultado.total, alertas: resultado.alertas,
+    });
 
-    for (const it of resultado.items) {
-      const id = crypto.randomUUID();
-      try {
-        await runSql(
-          `INSERT INTO project_budgets
-             (id, proyecto_id, org_id, fase, capitulo, item, unidad, cantidad,
-              rendimiento_std, rendimiento_real, rendimiento_ref,
-              costo_jornal_dia, materiales, equipos,
-              costo_mano_obra, costo_materiales, costo_equipos,
-              costo_directo, aiu, valor_total)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
-            id, proyectoId, req.userId,
-            it.fase, it.capitulo || '', it.item || '', it.unidad || 'm2', it.cantidad,
-            it.rendimiento_std || '', it.rendimiento_real, it.rendimiento_ref,
-            it.costo_jornal_dia, JSON.stringify(it.materiales || []), JSON.stringify(it.equipos || []),
-            it.costo_mano_obra, it.costo_materiales, it.costo_equipos,
-            it.costo_directo, it.aiu ?? 0.28, it.valor_total,
-          ]
-        );
-      } catch (err) {
-        console.error('[presupuesto] Error insertando item:', err.message);
-      }
-    }
+    const queries = [
+      { sql: 'DELETE FROM project_budgets WHERE proyecto_id = ?', params: [proyectoId] },
+      ...resultado.items.map(it => ({
+        sql: `INSERT INTO project_budgets
+               (id, proyecto_id, org_id, fase, capitulo, item, unidad, cantidad,
+                rendimiento_std, rendimiento_real, rendimiento_ref,
+                costo_jornal_dia, materiales, equipos,
+                costo_mano_obra, costo_materiales, costo_equipos,
+                costo_directo, aiu, valor_total)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        params: [
+          crypto.randomUUID(), proyectoId, req.userId,
+          it.fase, it.capitulo || '', it.item || '', it.unidad || 'm2', it.cantidad,
+          it.rendimiento_std || '', it.rendimiento_real, it.rendimiento_ref,
+          it.costo_jornal_dia, JSON.stringify(it.materiales || []), JSON.stringify(it.equipos || []),
+          it.costo_mano_obra, it.costo_materiales, it.costo_equipos,
+          it.costo_directo, it.aiu ?? 0.28, it.valor_total,
+        ],
+      })),
+      {
+        sql: 'UPDATE proyectos SET presupuesto = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
+        params: [resumenPresupuesto, proyectoId, req.userId],
+      },
+    ];
 
-    // Actualizar resumen de presupuesto en proyectos
-    await runSql(
-      'UPDATE proyectos SET presupuesto = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [JSON.stringify({ porFase: resultado.porFase, total: resultado.total, alertas: resultado.alertas }), proyectoId]
-    );
+    await runTransaction(queries);
 
     return res.status(resultado.alertas.length > 0 ? 207 : 200).json({
       success: true,

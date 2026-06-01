@@ -84,6 +84,12 @@ export default function FormuladorPage() {
   const [proyectoFinalizado, setProyectoFinalizado] = useState(false);
   const autoSaveTimer                 = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // M7 Match Score — estado de progreso del batch de embeddings
+  type MatchStatus = 'idle' | 'loading' | 'done' | 'error';
+  const [matchStatus, setMatchStatus]   = useState<MatchStatus>('idle');
+  const [matchProgress, setMatchProgress] = useState('');
+  const [matchCount, setMatchCount]     = useState(0);
+
   // M2 Bridge: cargar proyecto existente desde URL param ?proyecto=XXX (desde Radar)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -227,6 +233,44 @@ export default function FormuladorPage() {
     }
   };
 
+  // M7 — Disparar pipeline de compatibilidad con IA (batch embeddings)
+  const handleMatchScore = async () => {
+    if (!proyectoId || !token || token === 'demo-mode-token' || isTrialMode) return;
+    setMatchStatus('loading');
+    setMatchProgress('Procesando convocatorias...');
+    const STEPS_MSG = [
+      'Procesando convocatorias...',
+      'Generando vectores semánticos...',
+      'Evaluando compatibilidad con IA...',
+      'Calculando puntajes de match...',
+      'Ordenando resultados...',
+    ];
+    let msgIdx = 0;
+    const ticker = setInterval(() => {
+      msgIdx = (msgIdx + 1) % STEPS_MSG.length;
+      setMatchProgress(STEPS_MSG[msgIdx]);
+    }, 1800);
+    try {
+      const r = await fetch(`/api/modulo7/match/${proyectoId}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      if (d.success) {
+        setMatchCount(d.data?.length || 0);
+        setMatchStatus('done');
+      } else {
+        setMatchStatus('error');
+        setMatchProgress(d.message || 'Error calculando compatibilidad');
+      }
+    } catch {
+      setMatchStatus('error');
+      setMatchProgress('Sin conexión con el servidor');
+    } finally {
+      clearInterval(ticker);
+    }
+  };
+
   const completedSteps = STEPS.filter(s => isStepComplete(s.id, data)).map(s => s.id);
   const progress = Math.round((completedSteps.length / STEPS.length) * 100);
 
@@ -285,6 +329,28 @@ export default function FormuladorPage() {
               ✓ auto-guardado
             </span>
           )}
+          {/* Botón M7 — solo visible cuando hay proyecto guardado */}
+          {proyectoId && !isTrialMode && !proyectoFinalizado && (
+            <button
+              onClick={handleMatchScore}
+              disabled={matchStatus === 'loading'}
+              title="Calcular compatibilidad del proyecto con convocatorias activas"
+              style={{
+                padding: '7px 14px', borderRadius: 6, border: '1px solid #374151',
+                background: matchStatus === 'done' ? '#14532d' : matchStatus === 'error' ? '#7f1d1d' : '#1e293b',
+                color: matchStatus === 'error' ? '#fca5a5' : '#9ca3af',
+                fontSize: 10, fontFamily: 'monospace', fontWeight: 700,
+                cursor: matchStatus === 'loading' ? 'not-allowed' : 'pointer',
+                letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+              }}
+            >
+              {matchStatus === 'done'
+                ? `◎ ${matchCount} MATCHES`
+                : matchStatus === 'error'
+                ? '✗ MATCH ERROR'
+                : '◎ CALCULAR MATCH'}
+            </button>
+          )}
           {saveError && (
             <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#fca5a5', maxWidth: 180 }}>
               ⚠ {saveError}
@@ -306,6 +372,47 @@ export default function FormuladorPage() {
           </button>
         </div>
       </div>
+
+      {/* ── Overlay bloqueante M7 (batch embeddings en progreso) ───────────── */}
+      {matchStatus === 'loading' && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(25,28,30,0.82)', backdropFilter: 'blur(4px)',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 20,
+        }}>
+          <div style={{
+            background: '#191c1e', border: '1px solid #374151',
+            borderRadius: 16, padding: '2.5rem 3rem', textAlign: 'center',
+            maxWidth: 380,
+          }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: '50%', border: '3px solid #0058be',
+              borderTopColor: 'transparent', margin: '0 auto 20px',
+              animation: 'spin 0.9s linear infinite',
+            }} />
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            <p style={{ fontSize: 11, fontFamily: 'monospace', color: '#6b7280', letterSpacing: '0.15em', textTransform: 'uppercase', margin: '0 0 8px' }}>
+              MÓDULO 7 — MATCH SCORE IA
+            </p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: '#fff', margin: '0 0 20px', fontFamily: 'system-ui' }}>
+              {matchProgress}
+            </p>
+            {/* Barra de progreso animada */}
+            <div style={{ height: 4, background: '#374151', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', background: 'linear-gradient(90deg, #0058be, #16a34a)',
+                borderRadius: 2, animation: 'progress-bar 2.5s ease-in-out infinite',
+                width: '60%',
+              }} />
+            </div>
+            <style>{`@keyframes progress-bar { 0%{transform:translateX(-100%)} 100%{transform:translateX(250%)} }`}</style>
+            <p style={{ fontSize: 10, color: '#6b7280', fontFamily: 'monospace', margin: '12px 0 0' }}>
+              No cierres esta ventana
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Layout: sidebar + contenido ───────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -904,14 +1011,18 @@ function StepMotorDialectico({ data, update }: { data: ProjectData; update: Func
   const [palabraOro, setPalabraOro]     = React.useState('');
   const [palabraNegra, setPalabraNegra] = React.useState('');
 
+  const MAX_LISTA = 50;
+
   const addOro = () => {
     if (!palabraOro.trim()) return;
-    update('listaOro', [...data.listaOro, palabraOro.trim()]);
+    if (data.listaOro.length >= MAX_LISTA) return;
+    update('listaOro', [...data.listaOro, palabraOro.trim().slice(0, 120)]);
     setPalabraOro('');
   };
   const addNegra = () => {
     if (!palabraNegra.trim()) return;
-    update('listaNegra', [...data.listaNegra, palabraNegra.trim()]);
+    if (data.listaNegra.length >= MAX_LISTA) return;
+    update('listaNegra', [...data.listaNegra, palabraNegra.trim().slice(0, 120)]);
     setPalabraNegra('');
   };
   const removeOro   = (i: number) => update('listaOro',   data.listaOro.filter((_: string, idx: number) => idx !== i));
@@ -970,7 +1081,11 @@ function StepMotorDialectico({ data, update }: { data: ProjectData; update: Func
             onFocus={e => e.target.style.borderColor = '#16a34a'}
             onBlur={e => e.target.style.borderColor = '#e5e7eb'}
           />
-          <button onClick={addOro} style={{ flexShrink: 0, padding: '0 16px', background: '#16a34a', border: 'none', borderRadius: 8, color: '#fff', fontSize: 18, cursor: 'pointer' }}>+</button>
+          <button
+            onClick={addOro}
+            disabled={data.listaOro.length >= MAX_LISTA}
+            title={data.listaOro.length >= MAX_LISTA ? `Máximo ${MAX_LISTA} términos` : 'Agregar'}
+            style={{ flexShrink: 0, padding: '0 16px', background: data.listaOro.length >= MAX_LISTA ? '#9ca3af' : '#16a34a', border: 'none', borderRadius: 8, color: '#fff', fontSize: 18, cursor: data.listaOro.length >= MAX_LISTA ? 'not-allowed' : 'pointer' }}>+</button>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {data.listaOro.map((t: string, i: number) => (
@@ -995,7 +1110,11 @@ function StepMotorDialectico({ data, update }: { data: ProjectData; update: Func
             onFocus={e => e.target.style.borderColor = '#dc2626'}
             onBlur={e => e.target.style.borderColor = '#e5e7eb'}
           />
-          <button onClick={addNegra} style={{ flexShrink: 0, padding: '0 16px', background: '#dc2626', border: 'none', borderRadius: 8, color: '#fff', fontSize: 18, cursor: 'pointer' }}>+</button>
+          <button
+            onClick={addNegra}
+            disabled={data.listaNegra.length >= MAX_LISTA}
+            title={data.listaNegra.length >= MAX_LISTA ? `Máximo ${MAX_LISTA} términos` : 'Agregar'}
+            style={{ flexShrink: 0, padding: '0 16px', background: data.listaNegra.length >= MAX_LISTA ? '#9ca3af' : '#dc2626', border: 'none', borderRadius: 8, color: '#fff', fontSize: 18, cursor: data.listaNegra.length >= MAX_LISTA ? 'not-allowed' : 'pointer' }}>+</button>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {data.listaNegra.map((t: string, i: number) => (

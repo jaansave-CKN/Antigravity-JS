@@ -15,6 +15,7 @@ import {
   serializeEmbedding,
   deserializeEmbedding,
 } from '../services/embeddingsService.js';
+import { logCriticalError } from '../services/logService.js';
 
 // Pesos según spec v2.0 Sección D-3: w1=0.50 coseno, w2=0.30 P_norm, w3=0.20 C_risk
 const W = Object.freeze({ cosine: 0.50, prob: 0.30, risk: 0.20 });
@@ -98,21 +99,35 @@ async function stage2GetEmbedding(proyectoId, getRow, runSql) {
   return { embedding, fichaTecnica };
 }
 
-// ── Stage 3: Obtener/generar embedding de convocatoria ────────────────────────
-async function getConvocatoriaEmbedding(conv, runSql) {
-  if (conv.embedding) {
-    const vec = deserializeEmbedding(conv.embedding);
-    if (vec && vec.length > 0) return vec;
+
+// ── Batch embedding: procesa convocatorias sin embedding en chunks ─────────────
+const EMBED_BATCH_SIZE  = 5;   // llamadas Gemini concurrentes por lote
+const EMBED_BATCH_DELAY = 300; // ms entre lotes (respeta cuota por minuto)
+
+async function prefetchEmbeddings(convocatorias, runSql) {
+  const sinEmbedding = convocatorias.filter(c => !c.embedding);
+  if (sinEmbedding.length === 0) return;
+
+  for (let i = 0; i < sinEmbedding.length; i += EMBED_BATCH_SIZE) {
+    const chunk = sinEmbedding.slice(i, i + EMBED_BATCH_SIZE);
+    await Promise.allSettled(
+      chunk.map(async (conv) => {
+        try {
+          const text = [conv.titulo, conv.descripcion, conv.sectores, conv.donante]
+            .filter(Boolean).join('. ');
+          const embedding = await textToEmbedding(text);
+          conv.embedding = serializeEmbedding(embedding); // mutate in-place para reutilizar
+          await runSql('UPDATE convocatorias SET embedding = ? WHERE id = ?',
+            [conv.embedding, conv.id]);
+        } catch (err) {
+          console.error(`[MatchScore] Prefetch embedding falló para conv ${conv.id}:`, err.message);
+        }
+      })
+    );
+    if (i + EMBED_BATCH_SIZE < sinEmbedding.length) {
+      await new Promise(r => setTimeout(r, EMBED_BATCH_DELAY));
+    }
   }
-
-  const text = [conv.titulo, conv.descripcion, conv.sectores, conv.donante].filter(Boolean).join('. ');
-  const embedding = await textToEmbedding(text);
-
-  try {
-    await runSql('UPDATE convocatorias SET embedding = ? WHERE id = ?', [serializeEmbedding(embedding), conv.id]);
-  } catch {}
-
-  return embedding;
 }
 
 // ── Pipeline principal ────────────────────────────────────────────────────────
@@ -127,18 +142,22 @@ export async function runMatchPipeline(proyectoId, getRow, getRows, runSql) {
     []
   );
 
+  // FIX 3.2: pre-generar embeddings faltantes en batches antes de puntuar
+  if (!USE_PG) {
+    await prefetchEmbeddings(convocatorias, runSql);
+  }
+
   const results = [];
 
   for (const conv of convocatorias) {
     let cosine = 0;
 
     if (USE_PG) {
-      // pgvector: operador <=> (cosine distance = 1 - similarity)
       cosine = await pgCosineSim(proyEmb, conv.id, getRow);
     } else {
-      // SQLite fallback: coseno en JS
-      const convEmb = await getConvocatoriaEmbedding(conv, runSql);
-      cosine = clamp(cosineSimilarity(proyEmb, convEmb), 0, 1);
+      // Embedding ya disponible en memoria tras prefetch
+      const convEmb = deserializeEmbedding(conv.embedding);
+      cosine = convEmb ? clamp(cosineSimilarity(proyEmb, convEmb), 0, 1) : 0;
     }
 
     const P_norm = clamp(Number(conv.score_probabilidad || 50) / 100, 0, 1);
@@ -165,7 +184,7 @@ export async function runMatchPipeline(proyectoId, getRow, getRows, runSql) {
 
   const top20 = results.sort((a, b) => b.score - a.score).slice(0, 20);
 
-  // Persistir resultados
+  // Persistir resultados — FIX 3.5: log estructurado en catch (no silencioso)
   for (const res of top20) {
     const id = crypto.randomUUID();
     try {
@@ -176,7 +195,14 @@ export async function runMatchPipeline(proyectoId, getRow, getRows, runSql) {
          DO UPDATE SET score = excluded.score, breakdown = excluded.breakdown, calculado_en = CURRENT_TIMESTAMP`,
         [id, proyectoId, res.convocatoriaId, res.score, JSON.stringify(res.breakdown)]
       );
-    } catch {}
+    } catch (err) {
+      logCriticalError('MatchScore', 'Fallo al persistir score en match_scores', {
+        proyecto_id:     proyectoId,
+        convocatoria_id: res.convocatoriaId,
+        score:           res.score,
+        error:           err.message,
+      });
+    }
   }
 
   return top20;

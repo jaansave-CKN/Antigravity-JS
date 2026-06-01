@@ -2,13 +2,16 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
+const isProd = process.env.NODE_ENV === 'production';
+
 export default defineConfig({
   plugins: [react()],
   root: resolve(__dirname, 'client'),
   base: '/',
-  // Inyecta timestamp de build para que el JS sepa su versión
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    // En producción, console.log se convierte en función vacía sin sintaxis rota
+    ...(isProd ? { 'console.log': 'function(){}' } : {}),
   },
   build: {
     outDir: resolve(__dirname, 'dist'),
@@ -16,7 +19,6 @@ export default defineConfig({
     rollupOptions: {
       input: resolve(__dirname, 'client', 'index.html'),
       output: {
-        // Hashes de contenido explícitos — el nombre cambia si el contenido cambia
         entryFileNames: 'assets/[name]-[hash].js',
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]',

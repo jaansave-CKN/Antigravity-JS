@@ -48,16 +48,14 @@ export function registerRadicacionRoutes(app, { authenticateToken, runSql, getRo
       });
     }
 
+    // SECURITY FIX: user_id en WHERE evita enumeration (403 vs 404 leakage)
     const proyecto = await getRow(
-      'SELECT id, estado, user_id FROM proyectos WHERE id = ?',
-      [proyectoId]
+      'SELECT id, estado FROM proyectos WHERE id = ? AND user_id = ?',
+      [proyectoId, req.userId]
     );
 
     if (!proyecto) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-    }
-    if (proyecto.user_id !== req.userId) {
-      return res.status(403).json({ success: false, message: 'Acceso denegado' });
     }
     if (proyecto.estado === 'Finalizado') {
       return res.status(409).json({ success: false, message: 'El proyecto ya está Finalizado' });
@@ -125,16 +123,14 @@ export function registerRadicacionRoutes(app, { authenticateToken, runSql, getRo
    * Consulta el sello de auditoría de un proyecto ya finalizado.
    */
   app.get('/api/modulo9/radicar/:proyectoId/sello', authenticateToken, wrap(async (req, res) => {
+    // SECURITY FIX: user_id en WHERE — misma corrección de enumeration
     const proyecto = await getRow(
-      'SELECT id, estado, crosscheck_sello, user_id FROM proyectos WHERE id = ?',
-      [req.params.proyectoId]
+      'SELECT id, estado, crosscheck_sello FROM proyectos WHERE id = ? AND user_id = ?',
+      [req.params.proyectoId, req.userId]
     );
 
     if (!proyecto) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-    }
-    if (proyecto.user_id !== req.userId) {
-      return res.status(403).json({ success: false, message: 'Acceso denegado' });
     }
     if (proyecto.estado !== 'Finalizado' || !proyecto.crosscheck_sello) {
       return res.status(404).json({ success: false, message: 'Sello Cross-Check no disponible' });
