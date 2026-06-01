@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
+import { useSubscription } from '../contexts/SubscriptionContext';
 
 // ── Verificación de estado del sistema ────────────────────────────────────────
 function useSystemStatus() {
@@ -61,15 +62,29 @@ const MODULES = [
 
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function SelectionPage() {
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const sysStatus = useSystemStatus();
-  const [mounted, setMounted] = useState(false);
+  const navigate    = useNavigate();
+  const { user, startTrial } = useAuth();
+  const { subscription } = useSubscription();
+  const sysStatus   = useSystemStatus();
+  const [mounted, setMounted]       = useState(false);
+  const [startingTrial, setStartingTrial] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 50);
     return () => clearTimeout(t);
   }, []);
+
+  const handleTrial = async () => {
+    setStartingTrial(true);
+    try {
+      await startTrial();
+      navigate('/formulador');
+    } catch {
+      navigate('/login');
+    } finally {
+      setStartingTrial(false);
+    }
+  };
 
   return (
     <div style={{ minHeight: 'calc(100vh - 48px)', background: '#f7f9fb', display: 'flex', flexDirection: 'column' }}>
@@ -155,9 +170,48 @@ export default function SelectionPage() {
       </div>
 
       {/* ── Footer ────────────────────────────────────────────────────────── */}
-      <div style={{ padding: '1rem 2rem 1.5rem', textAlign: 'center' }}>
+      <div style={{ padding: '1rem 2rem 1.5rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+
+        {/* Plan activo o botón trial */}
+        {!user || user.role === 'trial' ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              onClick={handleTrial}
+              disabled={startingTrial}
+              style={{
+                padding: '8px 20px', borderRadius: 20,
+                background: startingTrial ? '#e5e7eb' : 'linear-gradient(135deg,#7c3aed,#0058be)',
+                color: startingTrial ? '#9ca3af' : '#fff',
+                border: 'none', cursor: startingTrial ? 'not-allowed' : 'pointer',
+                fontSize: 12, fontFamily: 'monospace', fontWeight: 700,
+                letterSpacing: '0.06em',
+              }}
+            >
+              {startingTrial ? 'Iniciando...' : '⚡ Probar sin registro — 24h gratis'}
+            </button>
+            <span style={{ fontSize: 11, color: '#9ca3af', fontFamily: 'system-ui' }}>o</span>
+            <button
+              onClick={() => navigate('/login')}
+              style={{ background: 'none', border: 'none', color: '#0058be', fontSize: 12, cursor: 'pointer', fontFamily: 'system-ui', textDecoration: 'underline' }}
+            >
+              Iniciar sesión
+            </button>
+          </div>
+        ) : subscription.plan !== 'free' ? (
+          <div style={{ fontSize: 11, color: '#16a34a', fontFamily: 'monospace', fontWeight: 700 }}>
+            ● Plan {subscription.plan.toUpperCase()} activo
+          </div>
+        ) : (
+          <button
+            onClick={() => navigate('/planes')}
+            style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: 20, padding: '6px 16px', color: '#0058be', fontSize: 11, cursor: 'pointer', fontFamily: 'monospace', fontWeight: 700 }}
+          >
+            Actualizar plan →
+          </button>
+        )}
+
         <p style={{ fontSize: 10, fontFamily: 'monospace', color: '#c6c6cd', letterSpacing: '0.08em', textTransform: 'uppercase', margin: 0 }}>
-          RadarFondos · EGIOC5 Platform · {new Date().getFullYear()} · Todos los módulos comparten credenciales y datos de sesión
+          RadarFondos · EGIOC5 Platform · {new Date().getFullYear()} · V8.0
         </p>
       </div>
     </div>

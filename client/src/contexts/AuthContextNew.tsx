@@ -5,18 +5,20 @@ export interface UserProfile {
   id: string;
   email: string;
   nombre: string;
-  role: 'admin' | 'user';
-  plan?: string;      // 'free' | 'pro' — infraestructura para gating de suscripción
+  role: 'admin' | 'user' | 'trial';
+  plan?: string;
   created_at: string;
   last_login?: string;
   is_active: boolean;
+  is_trial?: boolean;
 }
 
 interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
   loading: boolean;
-  hasCredentials: boolean | null;  // null = aún verificando
+  hasCredentials: boolean | null;
+  isTrialMode: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, nombre: string, role?: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -25,6 +27,7 @@ interface AuthContextType {
   sendPasswordReset: (email: string) => Promise<void>;
   validateSessionAction: (password: string) => Promise<void>;
   enterDemoMode: () => void;
+  startTrial: () => Promise<void>;
   refreshCredentialsStatus: () => Promise<void>;
   isAdmin: boolean;
   isAuthenticated: boolean;
@@ -154,6 +157,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkCredentials(newToken);
   }
 
+  // ── Modo Trial (V8.0) — token temporal 24h, datos en sessionStorage ──────
+  async function startTrial() {
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}/auth/trial`, { method: 'POST' });
+    } catch {
+      throw new Error('No se pudo conectar con el servidor.');
+    }
+    const text = await response.text();
+    let data: any;
+    try { data = JSON.parse(text); } catch { throw new Error('Respuesta inválida del servidor.'); }
+    if (!response.ok || !data.success) throw new Error(data?.message || 'Error al iniciar sesión trial.');
+    const { token: trialToken, user: trialUser } = data;
+    // Datos del trial en sessionStorage (volátiles — se pierden al cerrar la pestaña)
+    sessionStorage.setItem('trial_token', trialToken);
+    sessionStorage.setItem('trial_user', JSON.stringify(trialUser));
+    // También persistir en auth para que el contexto lo detecte
+    localStorage.setItem('auth_token', trialToken);
+    localStorage.setItem('auth_user', JSON.stringify(trialUser));
+    setToken(trialToken);
+    setUser(trialUser);
+    setHasCreds(false);
+  }
+
   // ── Modo demo sin credenciales reales ─────────────────────────────────────
   function enterDemoMode() {
     const demoUser: UserProfile = {
@@ -261,9 +288,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user, token, loading, hasCredentials,
+        isTrialMode: user?.role === 'trial' || user?.is_trial === true,
         login, register, logout, updateProfile,
         changePassword, sendPasswordReset,
-        validateSessionAction, enterDemoMode,
+        validateSessionAction, enterDemoMode, startTrial,
         refreshCredentialsStatus,
         isAdmin: user?.role === 'admin',
         isAuthenticated: !!token && !!user,

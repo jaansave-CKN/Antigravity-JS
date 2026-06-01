@@ -2,21 +2,63 @@ services:
   - type: web
     name: radarfondos-360
     runtime: node
-    plan: starter                          # $7/mes — necesario para disco persistente
+    plan: starter                          # $7/mes — necesario para disco persistente (SQLite fallback)
     buildCommand: npm install && npm run build
     startCommand: node server.js
     healthCheckPath: /api/health
     autoDeploy: true
     disk:
       name: radar-sqlite
-      mountPath: /app/backend             # Aquí vive radar.db — persiste entre deploys
+      mountPath: /app/backend             # radar.db persiste aquí si no hay DATABASE_URL
       sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
+
+      # ── JWT — OBLIGATORIO ───────────────────────────────────────────────────
+      # Opción A: dejar generateValue:true (Render genera uno seguro automáticamente)
+      # Opción B: pegar manualmente el valor de tu .env si quieres reusar el mismo
       - key: JWT_SECRET
-        generateValue: true               # Render genera uno seguro automáticamente
+        generateValue: true
+
+      # ── Base de datos — OBLIGATORIO para producción real ────────────────────
+      # Pegar la URL de Neon.tech (postgresql://user:pass@host/dbname?sslmode=require)
+      # Si se deja vacío, el servidor usa SQLite local (solo para pruebas)
+      - key: DATABASE_URL
+        sync: false
+
+      # ── Cifrado de API keys de usuarios ─────────────────────────────────────
+      # Si no se define, se usa JWT_SECRET como fallback (funcional pero menos seguro)
+      - key: ENCRYPTION_KEY
+        generateValue: true
+
+      # ── URLs ─────────────────────────────────────────────────────────────────
+      # URL pública del frontend en Firebase (sin trailing slash)
+      # Ej: https://antigravity-jairo-2026.web.app
+      - key: FRONTEND_URL
+        sync: false
+
+      # ── Email transaccional (Brevo) ──────────────────────────────────────────
+      # Obtener en: brevo.com → SMTP & API → API Keys
+      # Sin esto el reset de contraseña no envía emails (responde 200 silencioso)
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false
+      - key: BREVO_SENDER_NAME
+        value: RadarFondos 360
+
+      # ── Google Gemini API (IA — opcional) ────────────────────────────────────
+      # Desbloquea: árbol de objetivos IA + match scoring semántico
+      # Obtener en: aistudio.google.com → Get API key
+      - key: GOOGLE_API_KEY
+        sync: false
+
+      # ── Google OAuth2 (login social — opcional) ──────────────────────────────
+      # Crear en: console.cloud.google.com → APIs & Services → Credentials
       - key: GOOGLE_CLIENT_ID
-        sync: false                       # Rellenar en el dashboard de Render
+        sync: false
       - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
         sync: false

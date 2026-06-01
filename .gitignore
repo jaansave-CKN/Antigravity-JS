@@ -35,6 +35,11 @@ backend/radar.db
 *.db
 *.sqlite
 
+# Archivos de documentación / capturas locales (no son código)
+FOTOS PROY3/
+file_list.txt
+archive/
+
 # Logs y archivos de runtime
 logs/
 server.err

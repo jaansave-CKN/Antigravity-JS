@@ -1,6 +1,7 @@
-import React, { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
+import { useSubscription } from '../contexts/SubscriptionContext';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 interface ProjectData {
@@ -27,6 +28,17 @@ interface ProjectData {
   duracionMeses: string;
   fuenteFinanciamiento: string;
   contrapartida: string;
+  // Paso 6 — M4 Motor Dialéctico
+  tono: string;
+  listaOro: string[];
+  listaNegra: string[];
+  enfasis: string;
+  // Paso 7 — M10 Compliance
+  sostenibilidadAmbiental: string;
+  sostenibilidadSocial: string;
+  odsAlineados: number[];
+  enfoqueGenero: boolean;
+  enfoqueGeneroTexto: string;
 }
 
 const INITIAL: ProjectData = {
@@ -35,6 +47,11 @@ const INITIAL: ProjectData = {
   objetivoGeneral: '', objetivosEspecificos: [''], resultadosEsperados: [''],
   componenteMarco: '', indicadores: '', mediosVerificacion: '', supuestos: '',
   montoTotal: '', duracionMeses: '', fuenteFinanciamiento: '', contrapartida: '',
+  // M4 Motor Dialéctico
+  tono: 'formal', listaOro: [], listaNegra: [], enfasis: '',
+  // M10 Compliance
+  sostenibilidadAmbiental: '', sostenibilidadSocial: '',
+  odsAlineados: [], enfoqueGenero: false, enfoqueGeneroTexto: '',
 };
 
 const STEPS = [
@@ -43,6 +60,9 @@ const STEPS = [
   { id: 3, key: 'objetivos', label: 'Objetivos y Resultados', icon: '③', short: 'Objetivos' },
   { id: 4, key: 'marco',     label: 'Marco Lógico',           icon: '④', short: 'Marco'     },
   { id: 5, key: 'pres',      label: 'Presupuesto',            icon: '⑤', short: 'Presupuesto'},
+  { id: 6, key: 'm4',        label: 'M4 — Motor Dialéctico',  icon: '⑥', short: 'Dialéctico'},
+  { id: 7, key: 'm10',       label: 'M10 — Compliance',       icon: '⑦', short: 'Compliance'},
+  { id: 8, key: 'm12',       label: 'M12 — Ficha Maestra',    icon: '⑧', short: 'Sello'},
 ] as const;
 
 const SECTORES = ['Salud', 'Educación', 'Infraestructura', 'Medio Ambiente', 'Desarrollo Rural', 'Tecnología', 'Cultura', 'Seguridad', 'Otro'];
@@ -51,13 +71,70 @@ const TIPOS_FIN = ['Subvención', 'Crédito blando', 'Cooperación técnica', 'F
 // ── Página principal ──────────────────────────────────────────────────────────
 export default function FormuladorPage() {
   const navigate                      = useNavigate();
-  const { token }                     = useAuth();
+  const location                      = useLocation();
+  const { token, isTrialMode }        = useAuth();
+  const { hasFormulador }             = useSubscription();
   const [step, setStep]               = useState(1);
   const [data, setData]               = useState<ProjectData>(INITIAL);
   const [saving, setSaving]           = useState(false);
   const [saved, setSaved]             = useState(false);
+  const [autoSaved, setAutoSaved]     = useState(false);
   const [proyectoId, setProyectoId]   = useState<string | null>(null);
   const [saveError, setSaveError]     = useState<string | null>(null);
+  const [proyectoFinalizado, setProyectoFinalizado] = useState(false);
+  const autoSaveTimer                 = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // M2 Bridge: cargar proyecto existente desde URL param ?proyecto=XXX (desde Radar)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const proyId = params.get('proyecto');
+    if (!proyId || !token || token === 'demo-mode-token' || isTrialMode) return;
+    setProyectoId(proyId);
+    fetch(`/api/proyectos/${proyId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => {
+        if (!d.success || !d.data) return;
+        const p   = d.data;
+        const ft  = p.ficha_tecnica || {};
+        if (p.estado === 'Finalizado') setProyectoFinalizado(true);
+        setData(prev => ({
+          ...prev,
+          titulo:               ft.nombre               || '',
+          sector:               ft.sector               || '',
+          tipoFinanciamiento:   ft.tipoFinanciamiento   || '',
+          entidadConvocante:    ft.convocatoria         || '',
+          problema:             ft.descripcion          || '',
+          poblacionObjetivo:    ft.poblacion            || '',
+          ubicacion:            ft.municipio            || '',
+          objetivoGeneral:      ft.objetivos            || '',
+          objetivosEspecificos: ft.objetivosEspecificos?.length ? ft.objetivosEspecificos : [''],
+          resultadosEsperados:  ft.resultadosEsperados?.length  ? ft.resultadosEsperados  : [''],
+          componenteMarco:      ft.componenteMarco      || '',
+          indicadores:          ft.indicadores          || '',
+          mediosVerificacion:   ft.mediosVerif          || '',
+          supuestos:            ft.supuestos            || '',
+          montoTotal:           ft.metaFisicaTotal      ? String(ft.metaFisicaTotal) : '',
+          duracionMeses:        ft.duracionMeses        ? String(ft.duracionMeses)   : '',
+          fuenteFinanciamiento: ft.fuenteFinanciamiento || '',
+          contrapartida:        ft.contrapartida        || '',
+        }));
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-save debounced: 2.5 s después del último cambio, solo con proyecto existente
+  useEffect(() => {
+    if (!proyectoId || !token || token === 'demo-mode-token' || isTrialMode || proyectoFinalizado) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      try {
+        await handleSave();
+        setAutoSaved(true);
+        setTimeout(() => setAutoSaved(false), 2000);
+      } catch { /* silencioso — el usuario puede guardar manualmente */ }
+    }, 2500);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const update = useCallback(<K extends keyof ProjectData>(key: K, value: ProjectData[K]) => {
     setData(prev => ({ ...prev, [key]: value }));
@@ -65,11 +142,12 @@ export default function FormuladorPage() {
   }, []);
 
   const handleSave = async () => {
+    if (proyectoFinalizado) return;
     setSaving(true);
     setSaveError(null);
 
-    // Modo demo: simulación visual sin persistencia real
-    if (!token || token === 'demo-mode-token') {
+    // Modo demo o trial: simulación visual sin persistencia en BD
+    if (!token || token === 'demo-mode-token' || isTrialMode) {
       await new Promise(r => setTimeout(r, 400));
       setSaving(false);
       setSaved(true);
@@ -78,28 +156,69 @@ export default function FormuladorPage() {
     }
 
     try {
-      const res = await fetch('/api/formulador/proyectos', {
-        method: 'POST',
+      const method  = proyectoId ? 'PATCH' : 'POST';
+      const url     = proyectoId ? `/api/proyectos/${proyectoId}` : '/api/proyectos';
+      const res = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          id:         proyectoId,
-          titulo:     data.titulo || 'Borrador sin título',
-          sector:     data.sector,
-          datos_json: data,
-          progreso:   progress,
+          nombre:       data.titulo || 'Borrador sin título',
+          fichaTecnica: {
+            nombre:           data.titulo,
+            sector:           data.sector,
+            descripcion:      data.problema,
+            objetivos:        data.objetivoGeneral,
+            poblacion:        data.poblacionObjetivo,
+            municipio:        data.ubicacion,
+            convocatoria:     data.entidadConvocante,
+            indicadores:      data.indicadores,
+            mediosVerif:      data.mediosVerificacion,
+            supuestos:        data.supuestos,
+            tipoFinanciamiento: data.tipoFinanciamiento,
+            metaFisicaTotal:  parseFloat(data.montoTotal.replace(/[^0-9.]/g, '')) || 0,
+            duracionMeses:    Number(data.duracionMeses) || 0,
+            fuenteFinanciamiento: data.fuenteFinanciamiento,
+            contrapartida:    data.contrapartida,
+            objetivosEspecificos: data.objetivosEspecificos,
+            resultadosEsperados:  data.resultadosEsperados,
+            componenteMarco:  data.componenteMarco,
+            progreso: progress,
+          },
         }),
       });
+      const text = await res.text();
+      let json: any = {};
+      try { json = JSON.parse(text); } catch { /* noop */ }
       if (res.ok) {
-        const json = await res.json();
-        if (json.id) setProyectoId(json.id);
+        if (json.proyectoId && !proyectoId) setProyectoId(json.proyectoId);
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
       } else {
-        const err = await res.json().catch(() => ({}));
-        setSaveError(err.message || 'Error al guardar');
+        setSaveError(json.message || `Error ${res.status} al guardar`);
+      }
+      // Persistencia M4 y M10 en paralelo si ya existe proyectoId
+      const pid = json.proyectoId || proyectoId;
+      if (pid && token && token !== 'demo-mode-token') {
+        const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+        await Promise.allSettled([
+          fetch(`/api/m4/config/${pid}`, {
+            method: 'POST', headers,
+            body: JSON.stringify({ tono: data.tono, lista_oro: data.listaOro, lista_negra: data.listaNegra, enfasis: data.enfasis }),
+          }),
+          fetch(`/api/m10/compliance/${pid}`, {
+            method: 'POST', headers,
+            body: JSON.stringify({
+              sostenibilidad_ambiental: data.sostenibilidadAmbiental,
+              sostenibilidad_social: data.sostenibilidadSocial,
+              ods_alineados: data.odsAlineados,
+              enfoque_genero: data.enfoqueGenero,
+              enfoque_genero_texto: data.enfoqueGeneroTexto,
+            }),
+          }),
+        ]);
       }
     } catch {
       setSaveError('Sin conexión con el servidor');
@@ -111,8 +230,31 @@ export default function FormuladorPage() {
   const completedSteps = STEPS.filter(s => isStepComplete(s.id, data)).map(s => s.id);
   const progress = Math.round((completedSteps.length / STEPS.length) * 100);
 
+  // ── Gate de suscripción: free sin trial → muro de upgrade ──────────────────
+  if (!isTrialMode && !hasFormulador) {
+    return <FormuladorUpgradeWall />;
+  }
+
   return (
     <div style={{ minHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', background: '#f7f9fb' }}>
+
+      {/* ── Banner trial ────────────────────────────────────────────────────── */}
+      {isTrialMode && (
+        <div style={{ background: '#7c3aed', color: '#fff', padding: '6px 1.5rem', fontSize: 11, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.08em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>⚡ MODO TRIAL · Datos volátiles — se perderán al cerrar la pestaña</span>
+          <button onClick={() => navigate('/planes')} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 4, color: '#fff', padding: '3px 10px', fontSize: 10, cursor: 'pointer', fontFamily: 'monospace', fontWeight: 700 }}>
+            Activar plan →
+          </button>
+        </div>
+      )}
+
+      {/* ── Banner proyecto finalizado (lock M12) ───────────────────────────── */}
+      {proyectoFinalizado && (
+        <div style={{ background: '#14532d', color: '#86efac', padding: '7px 1.5rem', fontSize: 11, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span>🔒</span>
+          <span>PROYECTO FINALIZADO · Sello SHA-256 generado — documento de solo lectura</span>
+        </div>
+      )}
 
       {/* ── Top bar del módulo ─────────────────────────────────────────────── */}
       <div style={{ background: '#191c1e', padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
@@ -138,6 +280,11 @@ export default function FormuladorPage() {
             </div>
             <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#9ca3af' }}>{progress}%</span>
           </div>
+          {autoSaved && (
+            <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#86efac' }}>
+              ✓ auto-guardado
+            </span>
+          )}
           {saveError && (
             <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#fca5a5', maxWidth: 180 }}>
               ⚠ {saveError}
@@ -145,16 +292,17 @@ export default function FormuladorPage() {
           )}
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || proyectoFinalizado}
             style={{
-              background: saveError ? '#7f1d1d' : saved ? '#14532d' : '#0058be',
+              background: proyectoFinalizado ? '#374151' : saveError ? '#7f1d1d' : saved ? '#14532d' : '#0058be',
               border: 'none', borderRadius: 6, padding: '7px 16px',
               color: '#fff', fontSize: 11, fontFamily: 'monospace', fontWeight: 700,
-              cursor: 'pointer', letterSpacing: '0.08em', textTransform: 'uppercase',
+              cursor: proyectoFinalizado ? 'not-allowed' : 'pointer',
+              letterSpacing: '0.08em', textTransform: 'uppercase',
               opacity: saving ? 0.7 : 1, transition: 'background 0.2s',
             }}
           >
-            {saving ? 'GUARDANDO...' : saved ? '✓ GUARDADO' : saveError ? 'REINTENTAR' : 'GUARDAR BORRADOR'}
+            {proyectoFinalizado ? '🔒 FINALIZADO' : saving ? 'GUARDANDO...' : saved ? '✓ GUARDADO' : saveError ? 'REINTENTAR' : 'GUARDAR BORRADOR'}
           </button>
         </div>
       </div>
@@ -230,6 +378,9 @@ export default function FormuladorPage() {
           {step === 3 && <StepObjetivos data={data} update={update} />}
           {step === 4 && <StepMarcoLogico data={data} update={update} />}
           {step === 5 && <StepPresupuesto data={data} update={update} />}
+          {step === 6 && <StepMotorDialectico data={data} update={update} />}
+          {step === 7 && <StepCompliance data={data} update={update} proyectoId={proyectoId} token={token} sector={data.sector} municipio={data.ubicacion} />}
+          {step === 8 && <StepFichaTecnica data={data} proyectoId={proyectoId} token={token} onSealSuccess={() => setProyectoFinalizado(true)} />}
 
           {/* Navegación entre pasos */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: '1px solid #e5e7eb' }}>
@@ -253,13 +404,97 @@ export default function FormuladorPage() {
             ) : (
               <button
                 onClick={handleSave}
-                style={{ padding: '9px 24px', background: '#191c1e', border: 'none', borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'monospace', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.06em', textTransform: 'uppercase' }}
+                disabled={proyectoFinalizado}
+                style={{ padding: '9px 24px', background: proyectoFinalizado ? '#374151' : '#191c1e', border: 'none', borderRadius: 8, color: '#fff', fontSize: 12, fontFamily: 'monospace', fontWeight: 700, cursor: proyectoFinalizado ? 'not-allowed' : 'pointer', letterSpacing: '0.06em', textTransform: 'uppercase' }}
               >
-                ✓ Finalizar y guardar
+                {proyectoFinalizado ? '🔒 Proyecto sellado' : '✓ Finalizar y guardar'}
               </button>
             )}
           </div>
         </main>
+      </div>
+    </div>
+  );
+}
+
+// ── Muro de upgrade — Bloque 2 sin suscripción ───────────────────────────────
+function FormuladorUpgradeWall() {
+  const navigate = useNavigate();
+  const MODULOS  = [
+    'M3 — Ingesta de pliegos propios',
+    'M4 — Motor Dialéctico (tono, Lista Oro/Negra)',
+    'M5 — Configuración Logística',
+    'M6 — Árbol de Objetivos con IA',
+    'M7 — Arquitectura Financiera (APU)',
+    'M8 — Marco Normativo automático',
+    'M9 — Auditoría de Calidad',
+    'M10 — Compliance (riesgos / ODS)',
+    'M11 — Consultor Estratégico',
+    'M12 — Ficha Técnica Maestra (SHA-256)',
+  ];
+  return (
+    <div style={{
+      minHeight: 'calc(100vh - 48px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'linear-gradient(135deg,#f5f3ff 0%,#f7f9fb 60%,#f0fdf4 100%)',
+      padding: '2rem',
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: 20,
+        border: '2px solid #ede9fe',
+        boxShadow: '0 12px 48px rgba(124,58,237,0.10)',
+        padding: '3rem 2.5rem', maxWidth: 520, width: '100%', textAlign: 'center',
+      }}>
+        <div style={{
+          width: 64, height: 64, borderRadius: 16,
+          background: 'linear-gradient(135deg,#7c3aed,#0058be)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 30, margin: '0 auto 1.5rem',
+        }}>◧</div>
+
+        <p style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color: '#7c3aed', letterSpacing: '0.18em', textTransform: 'uppercase', margin: '0 0 8px' }}>
+          MÓDULO B · FORMULADOR
+        </p>
+        <h1 style={{ fontSize: 24, fontWeight: 800, color: '#191c1e', margin: '0 0 10px', letterSpacing: '-0.02em' }}>
+          Plan Formulador requerido
+        </h1>
+        <p style={{ fontSize: 14, color: '#6b7280', margin: '0 0 2rem', lineHeight: 1.6, fontFamily: 'system-ui, sans-serif' }}>
+          La Caja Negra de Formulación incluye 10 módulos que guían tu proyecto desde el pliego hasta el documento blindado con sello SHA-256.
+        </p>
+
+        <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 2rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {MODULOS.map(m => (
+            <li key={m} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12, color: '#374151', fontFamily: 'system-ui, sans-serif' }}>
+              <span style={{ color: '#7c3aed', fontWeight: 700, flexShrink: 0 }}>✓</span>
+              {m}
+            </li>
+          ))}
+        </ul>
+
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 4, marginBottom: '1.75rem' }}>
+          <span style={{ fontSize: 40, fontWeight: 800, color: '#7c3aed' }}>$79</span>
+          <span style={{ fontSize: 13, color: '#9ca3af' }}>/mes</span>
+        </div>
+
+        <button
+          onClick={() => navigate('/planes')}
+          style={{
+            width: '100%', padding: '14px',
+            background: 'linear-gradient(135deg,#7c3aed,#0058be)',
+            border: 'none', borderRadius: 10,
+            color: '#fff', fontSize: 13, fontFamily: 'monospace', fontWeight: 700,
+            letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer',
+            marginBottom: 12,
+          }}
+        >
+          Activar plan Formulador →
+        </button>
+        <button
+          onClick={() => navigate('/')}
+          style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: 12, cursor: 'pointer', fontFamily: 'system-ui' }}
+        >
+          ← Volver al inicio
+        </button>
       </div>
     </div>
   );
@@ -656,6 +891,438 @@ function ProjectSummary({ data }: { data: ProjectData }) {
   );
 }
 
+// ── Paso 6: M4 Motor Dialéctico ────────────────────────────────────────────────
+const TONOS = [
+  { value: 'formal',      label: 'Formal',      desc: 'Lenguaje institucional, protocolario y preciso' },
+  { value: 'tecnico',     label: 'Técnico',      desc: 'Términos especializados y datos cuantitativos' },
+  { value: 'comunitario', label: 'Comunitario',  desc: 'Cercano, participativo, lenguaje de base' },
+  { value: 'academico',   label: 'Académico',    desc: 'Referenciado, con citas y marco teórico' },
+  { value: 'normativo',   label: 'Normativo',    desc: 'Basado en marcos legales y regulatorios' },
+];
+
+function StepMotorDialectico({ data, update }: { data: ProjectData; update: Function }) {
+  const [palabraOro, setPalabraOro]     = React.useState('');
+  const [palabraNegra, setPalabraNegra] = React.useState('');
+
+  const addOro = () => {
+    if (!palabraOro.trim()) return;
+    update('listaOro', [...data.listaOro, palabraOro.trim()]);
+    setPalabraOro('');
+  };
+  const addNegra = () => {
+    if (!palabraNegra.trim()) return;
+    update('listaNegra', [...data.listaNegra, palabraNegra.trim()]);
+    setPalabraNegra('');
+  };
+  const removeOro   = (i: number) => update('listaOro',   data.listaOro.filter((_: string, idx: number) => idx !== i));
+  const removeNegra = (i: number) => update('listaNegra', data.listaNegra.filter((_: string, idx: number) => idx !== i));
+
+  return (
+    <div>
+      <InfoBox icon="⑥" text="El Motor Dialéctico calibra el tono narrativo de toda la formulación y define los términos clave que el sistema deberá incluir u omitir al generar textos." />
+
+      {/* Selector de tono */}
+      <Field label="Tono de la Propuesta" required hint="Selecciona el registro lingüístico que mejor represente a tu organización ante la entidad convocante.">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 10 }}>
+          {TONOS.map(t => (
+            <button
+              key={t.value}
+              onClick={() => update('tono', t.value)}
+              style={{
+                padding: '12px 14px', borderRadius: 10, textAlign: 'left', cursor: 'pointer',
+                border: `2px solid ${data.tono === t.value ? '#0058be' : '#e5e7eb'}`,
+                background: data.tono === t.value ? '#f0f4ff' : '#fff',
+                transition: 'border-color 0.15s, background 0.15s',
+              }}
+            >
+              <p style={{ fontSize: 12, fontWeight: 700, color: data.tono === t.value ? '#0058be' : '#191c1e', margin: '0 0 3px', fontFamily: 'monospace' }}>
+                {t.label}
+              </p>
+              <p style={{ fontSize: 11, color: '#76777d', margin: 0, fontFamily: 'system-ui', lineHeight: 1.4 }}>
+                {t.desc}
+              </p>
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      {/* Énfasis narrativo */}
+      <Field label="Énfasis narrativo" hint="Aspecto que la propuesta debe destacar por encima de los demás.">
+        <input
+          style={inputStyle}
+          value={data.enfasis}
+          onChange={e => update('enfasis', e.target.value)}
+          placeholder="Ej: impacto comunitario medible, innovación tecnológica, enfoque diferencial..."
+          onFocus={e => e.target.style.borderColor = '#0058be'}
+          onBlur={e => e.target.style.borderColor = '#e5e7eb'}
+        />
+      </Field>
+
+      {/* Lista Oro */}
+      <Field label="Lista Oro — términos a INCLUIR" hint="Palabras clave, frases o conceptos que deben aparecer en la propuesta.">
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <input
+            style={{ ...inputStyle, marginBottom: 0 }}
+            value={palabraOro}
+            onChange={e => setPalabraOro(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addOro()}
+            placeholder="Escribe y presiona Enter o el botón +"
+            onFocus={e => e.target.style.borderColor = '#16a34a'}
+            onBlur={e => e.target.style.borderColor = '#e5e7eb'}
+          />
+          <button onClick={addOro} style={{ flexShrink: 0, padding: '0 16px', background: '#16a34a', border: 'none', borderRadius: 8, color: '#fff', fontSize: 18, cursor: 'pointer' }}>+</button>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {data.listaOro.map((t: string, i: number) => (
+            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', borderRadius: 20, padding: '3px 10px', fontSize: 12, fontFamily: 'monospace' }}>
+              {t}
+              <button onClick={() => removeOro(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d', fontSize: 14, padding: 0, lineHeight: 1 }}>×</button>
+            </span>
+          ))}
+          {data.listaOro.length === 0 && <span style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Sin términos aún</span>}
+        </div>
+      </Field>
+
+      {/* Lista Negra */}
+      <Field label="Lista Negra — términos a EVITAR" hint="Palabras, jergas o conceptos que deben omitirse por ser inapropiados para esta convocatoria.">
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <input
+            style={{ ...inputStyle, marginBottom: 0 }}
+            value={palabraNegra}
+            onChange={e => setPalabraNegra(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addNegra()}
+            placeholder="Escribe y presiona Enter o el botón +"
+            onFocus={e => e.target.style.borderColor = '#dc2626'}
+            onBlur={e => e.target.style.borderColor = '#e5e7eb'}
+          />
+          <button onClick={addNegra} style={{ flexShrink: 0, padding: '0 16px', background: '#dc2626', border: 'none', borderRadius: 8, color: '#fff', fontSize: 18, cursor: 'pointer' }}>+</button>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {data.listaNegra.map((t: string, i: number) => (
+            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', borderRadius: 20, padding: '3px 10px', fontSize: 12, fontFamily: 'monospace' }}>
+              {t}
+              <button onClick={() => removeNegra(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontSize: 14, padding: 0, lineHeight: 1 }}>×</button>
+            </span>
+          ))}
+          {data.listaNegra.length === 0 && <span style={{ fontSize: 12, color: '#9ca3af', fontStyle: 'italic' }}>Sin términos aún</span>}
+        </div>
+      </Field>
+    </div>
+  );
+}
+
+// ── Paso 7: M10 Compliance ─────────────────────────────────────────────────────
+const ODS_LIST = [
+  { n: 1,  label: 'Fin de la pobreza' },        { n: 2,  label: 'Hambre cero' },
+  { n: 3,  label: 'Salud y bienestar' },         { n: 4,  label: 'Educación de calidad' },
+  { n: 5,  label: 'Igualdad de género' },        { n: 6,  label: 'Agua limpia' },
+  { n: 7,  label: 'Energía asequible' },         { n: 8,  label: 'Trabajo decente' },
+  { n: 9,  label: 'Industria e innovación' },    { n: 10, label: 'Reducción desigualdades' },
+  { n: 11, label: 'Ciudades sostenibles' },      { n: 12, label: 'Producción responsable' },
+  { n: 13, label: 'Acción por el clima' },       { n: 14, label: 'Vida submarina' },
+  { n: 15, label: 'Vida de ecosistemas' },       { n: 16, label: 'Paz y justicia' },
+  { n: 17, label: 'Alianzas para los ODS' },
+];
+
+function StepCompliance({
+  data, update, proyectoId, token, sector, municipio,
+}: {
+  data: ProjectData; update: Function;
+  proyectoId: string | null; token: string | null;
+  sector: string; municipio: string;
+}) {
+  const [generandoNormas, setGenerandoNormas] = React.useState(false);
+  const [normasGeneradas, setNormasGeneradas] = React.useState<any[]>([]);
+  const [normasError, setNormasError]         = React.useState<string | null>(null);
+
+  const toggleOds = (n: number) => {
+    const curr = data.odsAlineados;
+    update('odsAlineados', curr.includes(n) ? curr.filter((x: number) => x !== n) : [...curr, n]);
+  };
+
+  const generarNormas = async () => {
+    if (!proyectoId) { setNormasError('Guarda el proyecto primero para generar el marco normativo.'); return; }
+    setGenerandoNormas(true);
+    setNormasError(null);
+    try {
+      const r = await fetch('/api/m8/normas/generar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ proyecto_id: proyectoId, sector, municipio }),
+      });
+      const d = await r.json();
+      if (d.success) setNormasGeneradas(d.data?.normas_aplicables || []);
+      else setNormasError(d.message || 'Error generando normas');
+    } catch {
+      setNormasError('Sin conexión con el servidor');
+    } finally {
+      setGenerandoNormas(false);
+    }
+  };
+
+  return (
+    <div>
+      <InfoBox icon="⑦" text="El módulo de Compliance valida la sostenibilidad del proyecto, alinea los ODS y genera el Marco Normativo aplicable según sector y territorio." />
+
+      {/* Sostenibilidad ambiental */}
+      <Field label="Sostenibilidad Ambiental" hint="¿Cómo garantiza el proyecto un impacto ambiental neutro o positivo?">
+        <textarea
+          style={textareaStyle}
+          value={data.sostenibilidadAmbiental}
+          onChange={e => update('sostenibilidadAmbiental', e.target.value)}
+          placeholder="Ej: El proyecto implementará prácticas de manejo de residuos, plantación de especies nativas y reducción de emisiones..."
+          onFocus={e => (e.target as HTMLTextAreaElement).style.borderColor = '#16a34a'}
+          onBlur={e => (e.target as HTMLTextAreaElement).style.borderColor = '#e5e7eb'}
+        />
+      </Field>
+
+      {/* Sostenibilidad social */}
+      <Field label="Sostenibilidad Social" hint="¿Cómo asegura el proyecto continuidad e impacto social más allá del período de financiación?">
+        <textarea
+          style={textareaStyle}
+          value={data.sostenibilidadSocial}
+          onChange={e => update('sostenibilidadSocial', e.target.value)}
+          placeholder="Ej: Se formarán comités comunitarios de veeduría, se transferirán capacidades locales y se firmará acuerdo de continuidad..."
+          onFocus={e => (e.target as HTMLTextAreaElement).style.borderColor = '#0058be'}
+          onBlur={e => (e.target as HTMLTextAreaElement).style.borderColor = '#e5e7eb'}
+        />
+      </Field>
+
+      {/* Enfoque de género */}
+      <Field label="Enfoque Diferencial de Género">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: data.enfoqueGenero ? 12 : 0 }}>
+          <button
+            onClick={() => update('enfoqueGenero', !data.enfoqueGenero)}
+            style={{
+              width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+              background: data.enfoqueGenero ? '#0058be' : '#e5e7eb', position: 'relative', flexShrink: 0,
+            }}
+          >
+            <div style={{
+              width: 18, height: 18, borderRadius: '50%', background: '#fff',
+              position: 'absolute', top: 3, transition: 'left 0.2s',
+              left: data.enfoqueGenero ? 23 : 3,
+            }} />
+          </button>
+          <span style={{ fontSize: 13, color: '#374151', fontFamily: 'system-ui' }}>
+            Este proyecto incorpora enfoque de género
+          </span>
+        </div>
+        {data.enfoqueGenero && (
+          <textarea
+            style={{ ...textareaStyle, minHeight: 80 }}
+            value={data.enfoqueGeneroTexto}
+            onChange={e => update('enfoqueGeneroTexto', e.target.value)}
+            placeholder="Describe cómo se incorpora la perspectiva de género en el diseño, ejecución y evaluación del proyecto..."
+            onFocus={e => (e.target as HTMLTextAreaElement).style.borderColor = '#0058be'}
+            onBlur={e => (e.target as HTMLTextAreaElement).style.borderColor = '#e5e7eb'}
+          />
+        )}
+      </Field>
+
+      {/* ODS */}
+      <Field label="ODS Alineados" hint="Selecciona los Objetivos de Desarrollo Sostenible con los que se alinea este proyecto.">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {ODS_LIST.map(ods => {
+            const active = data.odsAlineados.includes(ods.n);
+            return (
+              <button
+                key={ods.n}
+                onClick={() => toggleOds(ods.n)}
+                title={ods.label}
+                style={{
+                  padding: '6px 12px', borderRadius: 20, cursor: 'pointer', fontSize: 12,
+                  fontFamily: 'monospace', fontWeight: 700, border: '2px solid',
+                  borderColor: active ? '#0058be' : '#e5e7eb',
+                  background: active ? '#f0f4ff' : '#fff',
+                  color: active ? '#0058be' : '#9ca3af',
+                  transition: 'all 0.15s',
+                }}
+              >
+                ODS {ods.n}
+              </button>
+            );
+          })}
+        </div>
+        {data.odsAlineados.length > 0 && (
+          <p style={{ fontSize: 11, color: '#0058be', marginTop: 8, fontFamily: 'system-ui' }}>
+            {data.odsAlineados.sort((a: number, b: number) => a - b).map((n: number) => ODS_LIST.find(o => o.n === n)?.label).join(' · ')}
+          </p>
+        )}
+      </Field>
+
+      {/* Marco normativo */}
+      <Field label="M8 — Marco Normativo Aplicable" hint="Genera automáticamente las normas y citas bibliográficas obligatorias según el sector y municipio del proyecto.">
+        <button
+          onClick={generarNormas}
+          disabled={generandoNormas}
+          style={{
+            padding: '9px 18px', background: generandoNormas ? '#e5e7eb' : '#191c1e',
+            border: 'none', borderRadius: 8, color: generandoNormas ? '#9ca3af' : '#fff',
+            fontSize: 11, fontFamily: 'monospace', fontWeight: 700, cursor: generandoNormas ? 'not-allowed' : 'pointer',
+            letterSpacing: '0.08em', textTransform: 'uppercase',
+          }}
+        >
+          {generandoNormas ? 'Generando normas...' : '⚖ Generar Marco Normativo'}
+        </button>
+        {normasError && <p style={{ fontSize: 12, color: '#dc2626', marginTop: 8 }}>{normasError}</p>}
+        {normasGeneradas.length > 0 && (
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {normasGeneradas.map((n: any, i: number) => (
+              <div key={i} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: '#191c1e', margin: '0 0 3px', fontFamily: 'monospace' }}>{n.codigo}</p>
+                  <span style={{
+                    fontSize: 9, fontFamily: 'monospace', fontWeight: 700, padding: '2px 8px', borderRadius: 20, textTransform: 'uppercase',
+                    background: n.relevancia === 'Alta' ? '#fef2f2' : '#f0f4ff',
+                    color: n.relevancia === 'Alta' ? '#dc2626' : '#0058be',
+                    border: `1px solid ${n.relevancia === 'Alta' ? '#fca5a5' : '#bfdbfe'}`,
+                  }}>
+                    {n.relevancia}
+                  </span>
+                </div>
+                <p style={{ fontSize: 12, color: '#374151', margin: '0 0 2px', fontFamily: 'system-ui' }}>{n.nombre}</p>
+                <p style={{ fontSize: 11, color: '#9ca3af', margin: 0, fontFamily: 'monospace' }}>Arts: {n.articulos}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </Field>
+    </div>
+  );
+}
+
+// ── Paso 8: M12 — Ficha Técnica Maestra (Sello SHA-256) ───────────────────────
+function StepFichaTecnica({
+  data, proyectoId, token, onSealSuccess,
+}: { data: ProjectData; proyectoId: string | null; token: string | null; onSealSuccess?: () => void }) {
+  const [generando, setGenerando]       = React.useState(false);
+  const [sello, setSello]               = React.useState<any>(null);
+  const [historial, setHistorial]       = React.useState<any[]>([]);
+  const [error, setError]               = React.useState<string | null>(null);
+  const [copiado, setCopiado]           = React.useState(false);
+
+  React.useEffect(() => {
+    if (!proyectoId || !token || token === 'demo-mode-token') return;
+    fetch(`/api/m12/ficha/${proyectoId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { if (d.success) setHistorial(d.data || []); })
+      .catch(() => {});
+  }, [proyectoId, token]);
+
+  const generarSello = async () => {
+    if (!proyectoId) { setError('Guarda el proyecto primero (pasos 1-7) antes de generar el sello.'); return; }
+    if (!token || token === 'demo-mode-token') { setError('Inicia sesión real para generar el sello.'); return; }
+    setGenerando(true); setError(null);
+    try {
+      const r = await fetch(`/api/m12/ficha/${proyectoId}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      if (d.success) {
+        setSello(d.data);
+        setHistorial(prev => [d.data, ...prev]);
+        onSealSuccess?.();
+      } else {
+        setError(d.message || 'Error generando sello');
+      }
+    } catch { setError('Sin conexión con el servidor'); }
+    finally { setGenerando(false); }
+  };
+
+  const copiar = (hash: string) => {
+    navigator.clipboard.writeText(hash).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1500); });
+  };
+
+  return (
+    <div>
+      <InfoBox icon="⑧" text="La Ficha Técnica Maestra genera un sello SHA-256 inmutable que certifica el estado completo del proyecto. Cada versión sellada queda registrada en el historial de auditoría." />
+
+      {/* Resumen del proyecto */}
+      <div style={{ background: '#f9fafb', border: '1.5px solid #e5e7eb', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' }}>
+        <p style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.15em', margin: '0 0 10px' }}>RESUMEN A SELLAR</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {[
+            { l: 'Proyecto',  v: data.titulo || '—' },
+            { l: 'Sector',    v: data.sector  || '—' },
+            { l: 'Tono M4',   v: data.tono    || '—' },
+            { l: 'ODS',       v: data.odsAlineados.length ? `${data.odsAlineados.length} alineados` : '—' },
+            { l: 'Monto',     v: data.montoTotal  || '—' },
+            { l: 'Duración',  v: data.duracionMeses ? `${data.duracionMeses} meses` : '—' },
+          ].map(f => (
+            <div key={f.l} style={{ padding: '8px 10px', background: '#fff', borderRadius: 7 }}>
+              <p style={{ fontSize: 9, fontFamily: 'monospace', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 2px' }}>{f.l}</p>
+              <p style={{ fontSize: 12, fontWeight: 600, color: '#191c1e', margin: 0, fontFamily: 'system-ui', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.v}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Botón generar sello */}
+      <button
+        onClick={generarSello}
+        disabled={generando}
+        style={{
+          width: '100%', padding: '12px', borderRadius: 10, border: 'none', cursor: generando ? 'not-allowed' : 'pointer',
+          background: generando ? '#e5e7eb' : 'linear-gradient(135deg,#191c1e,#374151)',
+          color: generando ? '#9ca3af' : '#fff', fontSize: 13, fontFamily: 'monospace',
+          fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '1.5rem',
+        }}
+      >
+        {generando ? 'Generando sello SHA-256...' : '🔒 Generar Ficha Técnica Maestra (SHA-256)'}
+      </button>
+
+      {error && <p style={{ color: '#dc2626', fontSize: 12, marginBottom: '1rem', fontFamily: 'system-ui' }}>{error}</p>}
+
+      {/* Sello actual */}
+      {sello && (
+        <div style={{ background: '#f0fdf4', border: '2px solid #86efac', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+            <div>
+              <p style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.15em', margin: '0 0 4px' }}>
+                ✓ SELLO GENERADO — V{sello.version_num}
+              </p>
+              <p style={{ fontSize: 11, color: '#166534', margin: 0, fontFamily: 'system-ui' }}>{sello.firmado_en}</p>
+            </div>
+            <button
+              onClick={() => copiar(sello.hash_sha256)}
+              style={{ padding: '5px 12px', background: '#16a34a', border: 'none', borderRadius: 6, color: '#fff', fontSize: 10, fontFamily: 'monospace', fontWeight: 700, cursor: 'pointer' }}
+            >
+              {copiado ? '✓ COPIADO' : 'COPIAR'}
+            </button>
+          </div>
+          <code style={{ fontSize: 10, fontFamily: 'monospace', color: '#15803d', wordBreak: 'break-all', lineHeight: 1.6, display: 'block', background: '#dcfce7', padding: '8px 10px', borderRadius: 6 }}>
+            {sello.hash_sha256}
+          </code>
+        </div>
+      )}
+
+      {/* Historial de versiones */}
+      {historial.length > 0 && (
+        <div>
+          <p style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.15em', margin: '0 0 10px' }}>
+            HISTORIAL DE VERSIONES
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {historial.map((v: any) => (
+              <div key={v.id} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: '#191c1e', margin: '0 0 2px', fontFamily: 'monospace' }}>V{v.version_num}</p>
+                  <p style={{ fontSize: 10, color: '#9ca3af', margin: 0, fontFamily: 'system-ui' }}>{v.firmado_en}</p>
+                </div>
+                <code style={{ fontSize: 9, fontFamily: 'monospace', color: '#6b7280', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {v.hash_sha256?.slice(0, 20)}…
+                </code>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Verificación de completitud de pasos ──────────────────────────────────────
 function isStepComplete(stepId: number, data: ProjectData): boolean {
   switch (stepId) {
@@ -664,6 +1331,9 @@ function isStepComplete(stepId: number, data: ProjectData): boolean {
     case 3: return !!(data.objetivoGeneral && data.objetivosEspecificos.some(o => o.trim()));
     case 4: return !!(data.componenteMarco);
     case 5: return !!(data.montoTotal && data.duracionMeses);
+    case 6: return !!(data.tono);
+    case 7: return !!(data.sostenibilidadAmbiental || data.odsAlineados.length > 0);
+    case 8: return false; // Se completa al generar el sello
     default: return false;
   }
 }

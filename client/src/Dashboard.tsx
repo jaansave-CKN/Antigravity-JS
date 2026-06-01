@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ArrowUp, AlertCircle, Star, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowUp, AlertCircle, Star, Loader2, ArrowRight } from 'lucide-react';
 import RadarDashboard, { type Donor, type DonorType, type TagColor } from './components/RadarDashboard';
 import FavoritosView from './components/FavoritosView';
 import { useFavoritos } from './contexts/FavoritosContext';
+import { useSubscription } from './contexts/SubscriptionContext';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 const WS_URL = (API_URL || 'ws://localhost:8000').replace(/^http/, 'ws') + '/ws/live_radar';
@@ -101,8 +103,9 @@ interface ConvocatoriaCardProps {
   guardandoId?: string | null;
   errorGuardado?: string | null;
   onToggleFavorito?: (conv: Convocatoria) => void;
+  onFormular?: (conv: Convocatoria) => void;
 }
-function ConvocatoriaCard({ conv, index, isFavorito, guardandoId, errorGuardado, onToggleFavorito }: ConvocatoriaCardProps) {
+function ConvocatoriaCard({ conv, index, isFavorito, guardandoId, errorGuardado, onToggleFavorito, onFormular }: ConvocatoriaCardProps) {
   const type = fuenteToType(conv.fuente);
   const sectores = parseJson<string[]>(conv.sectores, []);
   const paises = parseJson<string[]>(conv.paises_elegibles, ['Colombia']);
@@ -204,6 +207,25 @@ function ConvocatoriaCard({ conv, index, isFavorito, guardandoId, errorGuardado,
             )}
           </div>
         )}
+
+        {/* M2 — Puente de Interoperabilidad */}
+        {onFormular && (
+          <button
+            onClick={() => onFormular(conv)}
+            title="Formular esta oportunidad (M2 — Puente)"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '5px 10px', borderRadius: 6, border: 'none',
+              background: 'linear-gradient(135deg,#0058be,#16a34a)',
+              color: '#fff', fontSize: 11, fontWeight: 700,
+              fontFamily: 'monospace', letterSpacing: '0.04em',
+              cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+            }}
+          >
+            <ArrowRight size={13} />
+            Formular
+          </button>
+        )}
       </div>
     </article>
   );
@@ -213,6 +235,8 @@ export default function Dashboard() {
   const [vista, setVista] = useState<'convocatorias' | 'donantes' | 'mis-convocatorias'>('donantes');
   const [convocatorias, setConvocatorias] = useState<Convocatoria[]>([]);
   const { isFavorito, guardarFavorito, eliminarPorGrantId } = useFavoritos();
+  const navigate = useNavigate();
+  const { hasFormulador } = useSubscription();
   const [guardandoId, setGuardandoId] = useState<string | null>(null);
   const [errorGuardado, setErrorGuardado] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -376,6 +400,37 @@ export default function Dashboard() {
     }
   }, [isFavorito, guardarFavorito, eliminarPorGrantId]);
 
+  // M2 — Puente: transfiere convocatoria al Formulador si el usuario tiene acceso
+  const handleFormular = useCallback(async (conv: Convocatoria) => {
+    if (!hasFormulador) { navigate('/planes'); return; }
+    const token = localStorage.getItem('auth_token');
+    if (!token || token === 'demo-mode-token') { navigate('/login'); return; }
+    try {
+      const r = await fetch('/api/bridge/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          convocatoria: {
+            id: conv.externo_id || String(conv.id),
+            titulo: conv.titulo,
+            donante: conv.donante,
+            descripcion: conv.descripcion,
+            monto_max: conv.monto_max,
+            moneda: conv.moneda,
+          },
+        }),
+      });
+      const data = await r.json();
+      if (data.success && data.data?.redirect_to) {
+        navigate(data.data.redirect_to);
+      } else if (data.code === 'NO_ACCESS_FORMULADOR') {
+        navigate('/planes');
+      }
+    } catch {
+      navigate('/formulador');
+    }
+  }, [hasFormulador, navigate]);
+
   // Vista "Mis Convocatorias"
   if (vista === 'mis-convocatorias') {
     return (
@@ -514,6 +569,7 @@ export default function Dashboard() {
                 guardandoId={guardandoId}
                 errorGuardado={errorGuardado}
                 onToggleFavorito={handleToggleFavorito}
+                onFormular={handleFormular}
               />
             ))
           )}

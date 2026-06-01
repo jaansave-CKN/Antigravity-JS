@@ -14,6 +14,8 @@ import TopNavBar from './components/TopNavBar';
 import AuthGuard from './components/AuthGuard';
 import SelectionPage from './pages/SelectionPage';
 import FormuladorPage from './pages/FormuladorPage';
+import PlanesPage from './pages/PlanesPage';
+import { SubscriptionProvider } from './contexts/SubscriptionContext';
 import './index.css';
 import 'leaflet/dist/leaflet.css';
 
@@ -174,6 +176,7 @@ function AppRoutes() {
         <Route path="/"            element={<SelectionPage />} />
         <Route path="/radar"       element={<Dashboard />} />
         <Route path="/directorio"  element={<DirectoryPage />} />
+        <Route path="/planes"      element={<PlanesPage />} />
       </Route>
 
       {/* ── Formulador: requiere autenticación real + plan válido ──────────── */}
@@ -204,8 +207,10 @@ if (!rootEl) {
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
-          <OAuthParamCleaner />
-          <AppRoutes />
+          <SubscriptionProvider>
+            <OAuthParamCleaner />
+            <AppRoutes />
+          </SubscriptionProvider>
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>
