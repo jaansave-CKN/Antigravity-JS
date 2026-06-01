@@ -49,16 +49,32 @@ function computeRisk(convocatoria, metaFisicaTotal) {
   return clamp(risk, 0, 1);
 }
 
-// ── Coseno via pgvector (PostgreSQL) ──────────────────────────────────────────
-async function pgCosineSim(proyectoEmbedding, convocatoriaId, runRaw) {
+// ── Bulk match via pgvector (PostgreSQL): una sola query, top N por coseno ────
+async function pgBulkMatch(proyectoEmbedding, getRows) {
+  const vec = serializeEmbedding(proyectoEmbedding); // "[0.1,-0.45,...]" — pgvector text format
   try {
-    const vec = '[' + proyectoEmbedding.join(',') + ']';
-    const row = await runRaw(
-      'SELECT 1 - (embedding <=> $1::vector) AS sim FROM convocatorias WHERE id = $2',
-      [vec, convocatoriaId]
+    // Columna nativa vector(768) con índice HNSW — ruta rápida
+    return await getRows(
+      `SELECT id, titulo, descripcion, monto_min, monto_max, score_probabilidad, fecha_limite, donante,
+              (1 - (embedding_vec <=> $1::vector)) AS cosine_sim
+       FROM convocatorias
+       WHERE embedding_vec IS NOT NULL AND estado != 'cerrada' AND deleted_at IS NULL
+       ORDER BY embedding_vec <=> $1::vector
+       LIMIT 200`,
+      [vec]
     );
-    return row ? clamp(Number(row.sim), 0, 1) : 0;
-  } catch { return 0; }
+  } catch {
+    // Fallback: cast TEXT → vector si backfill aún no completó
+    return await getRows(
+      `SELECT id, titulo, descripcion, monto_min, monto_max, score_probabilidad, fecha_limite, donante,
+              (1 - (embedding::vector <=> $1::vector)) AS cosine_sim
+       FROM convocatorias
+       WHERE embedding IS NOT NULL AND estado != 'cerrada' AND deleted_at IS NULL
+       ORDER BY embedding::vector <=> $1::vector
+       LIMIT 200`,
+      [vec]
+    );
+  }
 }
 
 // ── Stage 1: Validar proyecto ─────────────────────────────────────────────────
@@ -91,9 +107,14 @@ async function stage2GetEmbedding(proyectoId, getRow, runSql) {
   const text = fichaTecnicaToText(fichaTecnica);
   const embedding = await textToEmbedding(text);
 
-  // Persistir embedding
+  // Persistir embedding — en PG también puebla la columna vector(768)
   try {
-    await runSql('UPDATE proyectos SET embedding = ? WHERE id = ?', [serializeEmbedding(embedding), proyectoId]);
+    const embStr = serializeEmbedding(embedding); // "[0.1,-0.45,...]" compatible con pgvector
+    if (USE_PG) {
+      await runSql('UPDATE proyectos SET embedding = ?, embedding_vec = ?::vector WHERE id = ?', [embStr, embStr, proyectoId]);
+    } else {
+      await runSql('UPDATE proyectos SET embedding = ? WHERE id = ?', [embStr, proyectoId]);
+    }
   } catch {}
 
   return { embedding, fichaTecnica };
@@ -116,9 +137,14 @@ async function prefetchEmbeddings(convocatorias, runSql) {
           const text = [conv.titulo, conv.descripcion, conv.sectores, conv.donante]
             .filter(Boolean).join('. ');
           const embedding = await textToEmbedding(text);
-          conv.embedding = serializeEmbedding(embedding); // mutate in-place para reutilizar
-          await runSql('UPDATE convocatorias SET embedding = ? WHERE id = ?',
-            [conv.embedding, conv.id]);
+          const embStr   = serializeEmbedding(embedding); // "[0.1,-0.45,...]"
+          conv.embedding = embStr; // mutate in-place para reutilizar en JS coseno
+          if (USE_PG) {
+            await runSql('UPDATE convocatorias SET embedding = ?, embedding_vec = ?::vector WHERE id = ?',
+              [embStr, embStr, conv.id]);
+          } else {
+            await runSql('UPDATE convocatorias SET embedding = ? WHERE id = ?', [embStr, conv.id]);
+          }
         } catch (err) {
           console.error(`[MatchScore] Prefetch embedding falló para conv ${conv.id}:`, err.message);
         }
@@ -137,29 +163,29 @@ export async function runMatchPipeline(proyectoId, getRow, getRows, runSql) {
   const { embedding: proyEmb, fichaTecnica } = await stage2GetEmbedding(proyectoId, getRow, runSql);
   const metaFisicaTotal = fichaTecnica.metaFisicaTotal || 0;
 
-  const convocatorias = await getRows(
-    "SELECT id, titulo, descripcion, sectores, paises_elegibles, monto_min, monto_max, score_probabilidad, fecha_limite, donante, embedding FROM convocatorias WHERE estado != 'cerrada' AND deleted_at IS NULL",
-    []
-  );
-
-  // FIX 3.2: pre-generar embeddings faltantes en batches antes de puntuar
-  if (!USE_PG) {
+  // Stage 3: obtener candidatas con similitud coseno
+  let candidatas = [];
+  if (USE_PG) {
+    // Una sola query SQL ordenada por pgvector — O(log n) con índice HNSW
+    candidatas = await pgBulkMatch(proyEmb, getRows);
+  } else {
+    // SQLite: cargar todas, prefetch embeddings faltantes, calcular coseno en JS
+    const convocatorias = await getRows(
+      "SELECT id, titulo, descripcion, sectores, paises_elegibles, monto_min, monto_max, score_probabilidad, fecha_limite, donante, embedding FROM convocatorias WHERE estado != 'cerrada' AND deleted_at IS NULL",
+      []
+    );
     await prefetchEmbeddings(convocatorias, runSql);
+    candidatas = convocatorias.map(conv => ({
+      ...conv,
+      cosine_sim: (() => {
+        const convEmb = deserializeEmbedding(conv.embedding);
+        return convEmb ? clamp(cosineSimilarity(proyEmb, convEmb), 0, 1) : 0;
+      })(),
+    }));
   }
 
-  const results = [];
-
-  for (const conv of convocatorias) {
-    let cosine = 0;
-
-    if (USE_PG) {
-      cosine = await pgCosineSim(proyEmb, conv.id, getRow);
-    } else {
-      // Embedding ya disponible en memoria tras prefetch
-      const convEmb = deserializeEmbedding(conv.embedding);
-      cosine = convEmb ? clamp(cosineSimilarity(proyEmb, convEmb), 0, 1) : 0;
-    }
-
+  const results = candidatas.map(conv => {
+    const cosine = clamp(Number(conv.cosine_sim || 0), 0, 1);
     const P_norm = clamp(Number(conv.score_probabilidad || 50) / 100, 0, 1);
     const C_risk = computeRisk(conv, metaFisicaTotal);
 
@@ -169,7 +195,7 @@ export async function runMatchPipeline(proyectoId, getRow, getRows, runSql) {
       W.risk   * C_risk
     );
 
-    results.push({
+    return {
       convocatoriaId: conv.id,
       titulo:         conv.titulo,
       score:          clamp(score, 0, 1),
@@ -179,8 +205,8 @@ export async function runMatchPipeline(proyectoId, getRow, getRows, runSql) {
         C_risk:     r4(C_risk),
         weights:    W,
       },
-    });
-  }
+    };
+  });
 
   const top20 = results.sort((a, b) => b.score - a.score).slice(0, 20);
 

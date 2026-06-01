@@ -26,6 +26,7 @@ import { rejectMaterialsInput } from './backend/middlewares/materialValidator.js
 import { validateStructuralElements } from './backend/validators/structuralValidator.js';
 import { generarArbolConIA } from './backend/agents/arbolObjetivosAgent.js';
 import { runMatchPipeline } from './backend/pipeline/matchScore.js';
+import { textToEmbedding, cosineSimilarity, deserializeEmbedding } from './backend/services/embeddingsService.js';
 import { registerRadicacionRoutes } from './backend/routes/radicacion.routes.js';
 import { registerProyectosRoutes } from './backend/routes/proyectos.routes.js';
 import { registerReporteRoutes } from './backend/routes/reporte.routes.js';
@@ -192,6 +193,15 @@ async function verifyPassword(password, stored) {
 
 // ── Inicialización BD ────────────────────────────────────────────────────────
 async function initDb() {
+  // pgvector: habilitar extensión en PostgreSQL para similitud vectorial
+  if (process.env.DATABASE_URL) {
+    try {
+      await runSql('CREATE EXTENSION IF NOT EXISTS vector');
+      console.log('[DB] pgvector: extensión vector activa');
+    } catch (err) {
+      console.warn('[DB] pgvector no disponible (continúa sin índice vectorial):', err.message);
+    }
+  }
   await runSql(`CREATE TABLE IF NOT EXISTS usuarios (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
@@ -468,6 +478,19 @@ async function initDb() {
   // Migraciones idempotentes para columnas nuevas
   try { await runSql('ALTER TABLE proyectos ADD COLUMN embedding TEXT DEFAULT NULL'); } catch {}
   try { await runSql('ALTER TABLE convocatorias ADD COLUMN embedding TEXT DEFAULT NULL'); } catch {}
+
+  // pgvector: columnas vector(768) nativas e índices HNSW para búsqueda semántica (PostgreSQL only)
+  if (process.env.DATABASE_URL) {
+    try { await runSql('ALTER TABLE convocatorias ADD COLUMN embedding_vec vector(768)'); } catch {}
+    try { await runSql('ALTER TABLE proyectos     ADD COLUMN embedding_vec vector(768)'); } catch {}
+    // Índice HNSW: búsqueda aproximada por coseno (<10 ms en 100k registros)
+    try { await runSql('CREATE INDEX IF NOT EXISTS idx_conv_emb_hnsw ON convocatorias USING hnsw(embedding_vec vector_cosine_ops)'); } catch {}
+    try { await runSql('CREATE INDEX IF NOT EXISTS idx_proy_emb_hnsw ON proyectos     USING hnsw(embedding_vec vector_cosine_ops)'); } catch {}
+    // Backfill: convertir embeddings TEXT ya almacenados → columna vector nativa
+    try { await runSql("UPDATE convocatorias SET embedding_vec = embedding::vector WHERE embedding IS NOT NULL AND embedding_vec IS NULL"); } catch {}
+    try { await runSql("UPDATE proyectos     SET embedding_vec = embedding::vector WHERE embedding IS NOT NULL AND embedding_vec IS NULL"); } catch {}
+    console.log('[DB] pgvector: columnas vector(768) e índices HNSW listos');
+  }
   try { await runSql("ALTER TABLE match_scores ADD COLUMN org_id TEXT DEFAULT ''"); } catch {}
   // Migración Google OAuth: columnas faltantes en user_credentials
   try { await runSql("ALTER TABLE user_credentials ADD COLUMN service TEXT DEFAULT 'api_key'"); } catch {}
@@ -852,12 +875,62 @@ async function start() {
     res.json({ success: true, message: 'Ingesta iniciada' });
   }));
 
-  app.get('/api/radar/status', (req, res) => res.json({ success: true, active: false }));
+  app.get('/api/radar/status', authenticateToken, tryCatch(async (_req, res) => {
+    const usePg = !!process.env.DATABASE_URL;
+    let vectorStats = { enabled: false, convocatorias_total: 0, convocatorias_indexadas: 0, proyectos_indexados: 0, cobertura_pct: 0 };
+    if (usePg) {
+      try {
+        const extRow  = await getRow("SELECT 1 AS ok FROM pg_extension WHERE extname = 'vector'");
+        const cTotal  = await getCount('SELECT COUNT(*) AS cnt FROM convocatorias WHERE deleted_at IS NULL');
+        const cIdx    = await getCount('SELECT COUNT(*) AS cnt FROM convocatorias WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL');
+        const pIdx    = await getCount('SELECT COUNT(*) AS cnt FROM proyectos WHERE embedding_vec IS NOT NULL');
+        vectorStats   = { enabled: !!extRow, convocatorias_total: cTotal, convocatorias_indexadas: cIdx, proyectos_indexados: pIdx, cobertura_pct: cTotal > 0 ? Math.round((cIdx / cTotal) * 100) : 0 };
+      } catch {}
+    }
+    res.json({
+      success: true, active: usePg && vectorStats.enabled,
+      infraestructura: {
+        motor_db:          usePg ? 'PostgreSQL (Neon) + pgvector' : 'SQLite (desarrollo local)',
+        embeddings_model:  'Google Gemini text-embedding-004 · 768 dims',
+        google_api_activa: !!process.env.GOOGLE_API_KEY,
+        busqueda_vectorial: vectorStats,
+      },
+    });
+  }));
   app.post('/api/radar/start', authenticateToken, (req, res) => res.json({ success: true }));
   app.post('/api/radar/stop', authenticateToken, (req, res) => res.json({ success: true }));
   app.post('/api/radar/trigger', authenticateToken, (req, res) => res.json({ success: true }));
   app.post('/api/radar/barrido', authenticateToken, (req, res) => res.json({ success: true, message: 'Barrido iniciado' }));
-  app.post('/api/radar/buscar-masivo', authenticateToken, (req, res) => res.json({ success: true }));
+  app.post('/api/radar/buscar-masivo', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
+    const { texto, limit = 20, threshold = 0.30 } = req.body;
+    if (!texto?.trim()) return res.status(400).json({ success: false, message: 'texto requerido' });
+    const qVec   = await textToEmbedding(texto.trim());
+    const vecStr = JSON.stringify(qVec); // "[0.1,-0.45,...]" — compatible con pgvector
+    const usePg  = !!process.env.DATABASE_URL;
+    const lim    = Math.min(Number(limit) || 20, 50);
+    const thr    = Number(threshold) || 0.30;
+    let resultados = [];
+    if (usePg) {
+      resultados = await getRows(
+        `SELECT id, titulo, donante, descripcion, monto_min, monto_max, fecha_limite, estado,
+                round((1 - (embedding_vec <=> $1::vector))::numeric, 4) AS similitud
+         FROM convocatorias
+         WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL AND estado != 'cerrada'
+           AND (1 - (embedding_vec <=> $1::vector)) >= $2
+         ORDER BY embedding_vec <=> $1::vector
+         LIMIT $3`,
+        [vecStr, thr, lim]
+      );
+    } else {
+      const convs = await getRows("SELECT id, titulo, donante, descripcion, monto_min, monto_max, fecha_limite, estado, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL AND estado != 'cerrada'", []);
+      resultados = convs
+        .map(c => ({ ...c, embedding: undefined, similitud: Math.round(cosineSimilarity(qVec, deserializeEmbedding(c.embedding)) * 10000) / 10000 }))
+        .filter(c => c.similitud >= thr)
+        .sort((a, b) => b.similitud - a.similitud)
+        .slice(0, lim);
+    }
+    res.json({ success: true, resultados, total: resultados.length, motor: usePg ? 'pgvector·HNSW' : 'js-coseno' });
+  }));
   app.get('/api/radar/buscar', (req, res) => res.json({ success: true, data: [] }));
   app.get('/api/buscar', (req, res) => res.json({ success: true, data: [] }));
   app.get('/api/fuentes', (req, res) => res.json({ success: true, data: [] }));
@@ -871,12 +944,78 @@ async function start() {
   app.get('/api/admin/deleted', authenticateToken, (req, res) => res.json({ success: true, data: [] }));
   app.post('/api/admin/restore/:tipo/:id', authenticateToken, (req, res) => res.json({ success: true }));
   app.post('/api/ia/chat', (req, res) => res.json({ success: true, response: 'IA no disponible en este plan.' }));
-  app.post('/api/ia/busqueda-semantica', (req, res) => res.json({ success: true, data: [] }));
+  app.post('/api/ia/busqueda-semantica', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
+    const { texto, limit = 10, threshold = 0.25 } = req.body;
+    if (!texto?.trim()) return res.status(400).json({ success: false, message: 'texto requerido' });
+    const qVec   = await textToEmbedding(texto.trim());
+    const vecStr = JSON.stringify(qVec);
+    const usePg  = !!process.env.DATABASE_URL;
+    const lim    = Math.min(Number(limit) || 10, 20);
+    const thr    = Number(threshold) || 0.25;
+    let data = [];
+    if (usePg) {
+      data = await getRows(
+        `SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado,
+                round((1 - (embedding_vec <=> $1::vector))::numeric, 4) AS similitud
+         FROM convocatorias
+         WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL
+           AND (1 - (embedding_vec <=> $1::vector)) >= $2
+         ORDER BY embedding_vec <=> $1::vector LIMIT $3`,
+        [vecStr, thr, lim]
+      );
+    } else {
+      const convs = await getRows("SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL", []);
+      data = convs
+        .map(c => ({ ...c, embedding: undefined, similitud: Math.round(cosineSimilarity(qVec, deserializeEmbedding(c.embedding)) * 10000) / 10000 }))
+        .filter(c => c.similitud >= thr)
+        .sort((a, b) => b.similitud - a.similitud)
+        .slice(0, lim);
+    }
+    res.json({ success: true, data, total: data.length, motor: usePg ? 'pgvector' : 'js-coseno' });
+  }));
   app.post('/api/ia/buscar', (req, res) => res.json({ success: true, data: [] }));
   app.post('/api/ai/convocatoria-analyze', (req, res) => res.json({ success: true, data: {} }));
   app.post('/api/triggers/run-with-context', authenticateToken, (req, res) => res.json({ success: true }));
   app.post('/api/configuracion/guardar', authenticateToken, (req, res) => res.json({ success: true }));
-  app.post('/api/radar/barrido-masivo', authenticateToken, (req, res) => res.json({ success: true }));
+  app.post('/api/radar/barrido-masivo', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
+    const { texto, proyectoId, limit = 30, threshold = 0.25 } = req.body;
+    if (!texto?.trim() && !proyectoId) return res.status(400).json({ success: false, message: 'texto o proyectoId requerido' });
+    let qVec;
+    if (proyectoId) {
+      const proy = await getRow('SELECT embedding FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, req.userId]);
+      if (!proy) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+      qVec = proy.embedding ? deserializeEmbedding(proy.embedding) : null;
+    }
+    if (!qVec) {
+      if (!texto?.trim()) return res.status(400).json({ success: false, message: 'El proyecto no tiene embeddings calculados — provee texto de búsqueda' });
+      qVec = await textToEmbedding(texto.trim());
+    }
+    const vecStr = JSON.stringify(qVec);
+    const usePg  = !!process.env.DATABASE_URL;
+    const lim    = Math.min(Number(limit) || 30, 100);
+    const thr    = Number(threshold) || 0.25;
+    let resultados = [];
+    if (usePg) {
+      resultados = await getRows(
+        `SELECT id, titulo, donante, descripcion, monto_min, monto_max, fecha_limite, estado, url_convocatoria,
+                round((1 - (embedding_vec <=> $1::vector))::numeric, 4) AS similitud
+         FROM convocatorias
+         WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL AND estado != 'cerrada'
+           AND (1 - (embedding_vec <=> $1::vector)) >= $2
+         ORDER BY embedding_vec <=> $1::vector
+         LIMIT $3`,
+        [vecStr, thr, lim]
+      );
+    } else {
+      const convs = await getRows("SELECT id, titulo, donante, descripcion, monto_min, monto_max, fecha_limite, estado, url_convocatoria, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL AND estado != 'cerrada'", []);
+      resultados = convs
+        .map(c => ({ ...c, embedding: undefined, similitud: Math.round(cosineSimilarity(qVec, deserializeEmbedding(c.embedding)) * 10000) / 10000 }))
+        .filter(c => c.similitud >= thr)
+        .sort((a, b) => b.similitud - a.similitud)
+        .slice(0, lim);
+    }
+    res.json({ success: true, resultados, total: resultados.length, motor: usePg ? 'pgvector·HNSW' : 'js-coseno' });
+  }));
   app.post('/api/convocatorias/filtros', (req, res) => res.json({ success: true, data: [] }));
   app.put('/api/convocatorias/:id/estado', authenticateToken, tryCatch(async (req, res) => {
     const { estado } = req.body;

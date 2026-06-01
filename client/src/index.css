@@ -12,6 +12,87 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Colors */
+  --surface: #00101c;
+  --surface-dim: #00101c;
+  --surface-bright: #002f49;
+  --surface-container-lowest: #000000;
+  --surface-container-low: #001524;
+  --surface-container: #001c2e;
+  --surface-container-high: #002237;
+  --surface-container-highest: #002840;
+  --on-surface: #d1e8ff;
+  --on-surface-variant: #8bafcf;
+  --inverse-surface: #f7f9ff;
+  --inverse-on-surface: #345875;
+  --outline: #557997;
+  --outline-variant: #254b67;
+  --surface-tint: #60c9ff;
+  --primary: #60c9ff;
+  --on-primary: #003f58;
+  --primary-container: #01bdfe;
+  --on-primary-container: #00354a;
+  --inverse-primary: #00668b;
+  --secondary: #2ba9f5;
+  --on-secondary: #00253c;
+  --secondary-container: #006496;
+  --on-secondary-container: #f4f8ff;
+  --tertiary: #9da0ff;
+  --on-tertiary: #161384;
+  --tertiary-container: #8d90fc;
+  --on-tertiary-container: #070071;
+  --error: #ff716c;
+  --on-error: #490006;
+  --error-container: #9f0519;
+  --on-error-container: #ffa8a3;
+  --primary-fixed: #01bdfe;
+  --primary-fixed-dim: #00afeb;
+  --on-primary-fixed: #001a27;
+  --on-primary-fixed-variant: #003e56;
+  --secondary-fixed: #a9d7ff;
+  --secondary-fixed-dim: #8acaff;
+  --on-secondary-fixed: #003756;
+  --on-secondary-fixed-variant: #005581;
+  --tertiary-fixed: #a6a9ff;
+  --tertiary-fixed-dim: #9699ff;
+  --on-tertiary-fixed: #050061;
+  --on-tertiary-fixed-variant: #282993;
+  --primary-dim: #00afeb;
+  --secondary-dim: #26a6f2;
+  --tertiary-dim: #9093ff;
+  --error-dim: #d7383b;
+  --background: #00101c;
+  --on-background: #d1e8ff;
+  --surface-variant: #002840;
+  /* Spacing */
+  --spacing-unit: 4px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-container-max: 1440px;
+  --spacing-gutter: 20px;
+  /* Rounded */
+  --rounded-sm: 0.125rem;
+  --rounded: 0.25rem;
+  --rounded-md: 0.375rem;
+  --rounded-lg: 0.5rem;
+  --rounded-xl: 0.75rem;
+  --rounded-full: 9999px;
+  /* Typography (font sizes) */
+  --font-size-headline-xl: 48px;
+  --font-size-headline-lg: 32px;
+  --font-size-headline-md: 24px;
+  --font-size-body-lg: 18px;
+  --font-size-body-md: 16px;
+  --font-size-body-sm: 14px;
+  --font-size-label-md: 12px;
+  --font-size-label-sm: 10px;
+  --font-size-headline-lg-mobile: 28px;
+  /* Font families */
+  --font-family-heading: 'Hanken Grotesk', sans-serif;
+  --font-family-mono: 'JetBrains Mono', monospace;
 }
 
 html, body {
