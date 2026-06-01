@@ -72,18 +72,25 @@ class Alert:
         }
 
 def get_notify_db():
-    for _ in range(5):
+    if os.getenv('DATABASE_URL'):
         try:
-            conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=30000")
-            return conn
-        except sqlite3.OperationalError as e:
-            if "locked" in str(e):
-                time.sleep(2)
-                continue
-            raise
-    return sqlite3.connect(DB_PATH, timeout=30)
+            import psycopg2
+        except ImportError:
+            raise Exception("PostgreSQL adapter (psycopg2) is not installed. Please install it or unset DATABASE_URL.")
+        conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+    else:
+        for _ in range(5):
+            try:
+                conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout=30000")
+                return conn
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e):
+                    time.sleep(2)
+                    continue
+                raise
+        return sqlite3.connect(DB_PATH, timeout=30)
 
 class NotificationManager:
     """
@@ -123,15 +130,18 @@ class NotificationManager:
             value TEXT NOT NULL
         )''')
 
-        c.execute('''CREATE TABLE IF NOT EXISTS notification_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            notification_id TEXT,
-            channel TEXT,
-            recipient TEXT,
-            status TEXT,
-            response TEXT,
-            timestamp TEXT NOT NULL
-        )''')
+         # Determine the ID column definition based on the database type
+         id_def = 'SERIAL PRIMARY KEY' if os.getenv('DATABASE_URL') else 'INTEGER PRIMARY KEY AUTOINCREMENT'
+
+         c.execute(f'''CREATE TABLE IF NOT EXISTS notification_log (
+             id {id_def},
+             notification_id TEXT,
+             channel TEXT,
+             recipient TEXT,
+             status TEXT,
+             response TEXT,
+             timestamp TEXT NOT NULL
+         )''')
 
         c.execute('''CREATE INDEX IF NOT EXISTS idx_notif_priority ON notifications(priority)''')
         c.execute('''CREATE INDEX IF NOT EXISTS idx_notif_type ON notifications(type)''')

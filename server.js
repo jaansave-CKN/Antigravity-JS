@@ -302,15 +302,16 @@ async function initDb() {
     propietario TEXT DEFAULT '',
     matricula TEXT DEFAULT ''
   )`);
-  // Tabla de log de ejecuciones del cron/ingestor
-  await runSql(`CREATE TABLE IF NOT EXISTS crawl_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tipo TEXT NOT NULL,
-    fuente TEXT NOT NULL,
-    subvenciones_encontradas INTEGER DEFAULT 0,
-    resultado TEXT DEFAULT '{}',
-    ejecutada_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )`);
+   // Tabla de log de ejecuciones del cron/ingestor
+   const idDef = process.env.DATABASE_URL ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT';
+   await runSql(`CREATE TABLE IF NOT EXISTS crawl_log (
+     id ${idDef},
+     tipo TEXT NOT NULL,
+     fuente TEXT NOT NULL,
+     subvenciones_encontradas INTEGER DEFAULT 0,
+     resultado TEXT DEFAULT '{}',
+     ejecutada_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+   )`);
   // Tabla de organizaciones (spec v2.0 — multi-tenant real)
   await runSql(`CREATE TABLE IF NOT EXISTS organizations (
     id TEXT PRIMARY KEY,
