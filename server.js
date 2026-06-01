@@ -72,9 +72,31 @@ function tryCatch(fn) {
     try { await fn(req, res, next); }
     catch (err) {
       console.error('[server] Error:', err.message);
+      // Errores de IA por clave faltante → 503 con mensaje claro para el usuario
+      if (err.message?.includes('EMBEDDINGS_ERROR') || err.message?.includes('GOOGLE_API_KEY')) {
+        return res.status(503).json({
+          success: false,
+          code: 'IA_NO_DISPONIBLE',
+          message: 'El módulo de inteligencia artificial no está disponible en este momento. Contacta al administrador para configurar el servicio.',
+        });
+      }
       res.status(500).json({ success: false, message: err.message || 'Error interno del servidor' });
     }
   };
+}
+
+// Resuelve la API key de IA: primero clave personal del usuario, luego clave del sistema
+async function resolveGoogleApiKey(userId, getRow) {
+  const systemKey = process.env.GOOGLE_API_KEY || '';
+  const cred = await getRow('SELECT api_key_enc FROM user_credentials WHERE user_id = ?', [userId]);
+  const enc  = process.env.ENCRYPTION_KEY || JWT_SECRET;
+  if (cred?.api_key_enc) {
+    try {
+      const userKey = decryptKey(cred.api_key_enc, enc);
+      if (userKey) return userKey;
+    } catch {}
+  }
+  return systemKey;
 }
 
 // V8.0 RBAC: verifica suscripción por módulo (radar | formulador)
@@ -791,11 +813,13 @@ async function start() {
   app.post('/api/modulo3b/arbol/generar', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const { proyectoId, objetivoCentral } = req.body;
     if (!proyectoId || !objetivoCentral) return res.status(400).json({ success: false, message: 'proyectoId y objetivoCentral requeridos' });
-    const cred = await getRow('SELECT api_key_enc FROM user_credentials WHERE user_id = ?', [req.userId]);
-    const enc  = process.env.ENCRYPTION_KEY || JWT_SECRET;
-    let apiKey = process.env.GOOGLE_API_KEY || '';
-    if (cred?.api_key_enc) {
-      try { apiKey = decryptKey(cred.api_key_enc, enc) || apiKey; } catch {}
+    const apiKey = await resolveGoogleApiKey(req.userId, getRow);
+    if (!apiKey) {
+      return res.status(503).json({
+        success: false,
+        code: 'IA_NO_DISPONIBLE',
+        message: 'El módulo de inteligencia artificial no está disponible. Configura tu API key en Ajustes o contacta al administrador.',
+      });
     }
     const nodos = await generarArbolConIA(objetivoCentral, apiKey);
     res.json({ success: true, data: nodos });
@@ -805,8 +829,16 @@ async function start() {
     res.json({ success: true });
   }));
 
-  // F4-04: Módulo 7 - Match Score Pipeline
-  app.post('/api/modulo7/match/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+  // F4-04: Módulo 7 - Match Score Pipeline (requiere plan formulador + GOOGLE_API_KEY)
+  app.post('/api/modulo7/match/:proyectoId', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    const apiKey = await resolveGoogleApiKey(req.userId, getRow);
+    if (!apiKey) {
+      return res.status(503).json({
+        success: false,
+        code: 'IA_NO_DISPONIBLE',
+        message: 'El módulo de Match Score requiere Google API Key. Configura tu clave en Ajustes o contacta al administrador.',
+      });
+    }
     try {
       const results = await runMatchPipeline(req.params.proyectoId, getRow, getRows, runSql);
       res.json({ success: true, data: results });
