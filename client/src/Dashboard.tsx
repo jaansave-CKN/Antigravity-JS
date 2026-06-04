@@ -31,6 +31,43 @@ interface Convocatoria {
   created_at: string;
 }
 
+// ── Radar Status ──────────────────────────────────────────────────────────────
+interface RadarStatus {
+  active: boolean;
+  infraestructura: {
+    motor_db: string;
+    embeddings_model: string;
+    google_api_activa: boolean;
+    busqueda_vectorial: {
+      enabled: boolean;
+      convocatorias_total: number;
+      convocatorias_indexadas: number;
+      proyectos_indexados: number;
+      cobertura_pct: number;
+    };
+  };
+}
+
+function useRadarStatus() {
+  const [status, setStatus] = useState<RadarStatus | null>(null);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const token = localStorage.getItem('auth_token');
+        const r = await fetch('/api/radar/status', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const d = await r.json();
+        if (d.success) setStatus(d);
+      } catch {}
+    };
+    load();
+    const t = setInterval(load, 60_000);
+    return () => clearInterval(t);
+  }, []);
+  return status;
+}
+
 function parseJson<T>(str: string, fallback: T): T {
   try { return JSON.parse(str) as T; } catch { return fallback; }
 }
@@ -42,14 +79,14 @@ function formatMoney(amount: number, currency: string): string {
 
 // ── Stitch helpers ────────────────────────────────────────────────────────────
 const STITCH_CSS = `
-  .badge-bilateral   { color: #059669; border-color: #059669; }
-  .badge-multilateral{ color: #0284c7; border-color: #0284c7; }
-  .badge-privado     { color: #9333ea; border-color: #9333ea; }
-  .badge-gobierno    { color: #ca8a04; border-color: #ca8a04; }
-  .tag-default { color: #45464d; background-color: transparent; border-color: transparent; }
-  .tag-blue    { color: #0058be; background-color: rgba(0,88,190,0.1); }
-  .tag-green   { color: #16a34a; background-color: rgba(22,163,74,0.1); }
-  .tag-orange  { color: #ea580c; background-color: rgba(234,88,12,0.1); }
+  .badge-bilateral   { color: var(--tertiary); border-color: var(--tertiary); }
+  .badge-multilateral{ color: var(--primary); border-color: var(--primary); }
+  .badge-privado     { color: var(--secondary); border-color: var(--secondary); }
+  .badge-gobierno    { color: var(--primary-fixed-dim); border-color: var(--primary-fixed-dim); }
+  .tag-default { color: var(--on-surface-variant); background-color: transparent; border-color: transparent; }
+  .tag-blue    { color: var(--primary); background-color: rgba(142, 213, 255, 0.1); }
+  .tag-green   { color: var(--tertiary); background-color: rgba(82, 232, 124, 0.1); }
+  .tag-orange  { color: var(--secondary-fixed-dim); background-color: rgba(189, 194, 255, 0.1); }
 `;
 
 const TYPE_ICON: Record<DonorType, string> = {
@@ -93,6 +130,45 @@ function getAcronym(donante: string): string {
   const parts = donante.split(/[\s\-–\/]+/).filter(p => p.length > 0);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return (parts[0] || 'FD').substring(0, 2).toUpperCase();
+}
+
+// ── RadarStatusBar ────────────────────────────────────────────────────────────
+function RadarStatusBar({ status }: { status: RadarStatus | null }) {
+  if (!status) return null;
+  const { infraestructura: inf } = status;
+  const vb = inf.busqueda_vectorial;
+  return (
+    <div style={{
+      display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center',
+      padding: '8px 14px', borderRadius: 8,
+      background: 'var(--surface-container)', border: '1px solid var(--outline-variant)',
+      fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'var(--on-surface)'
+    }}>
+      {/* Motor DB */}
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--on-surface-variant)' }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: vb.enabled ? 'var(--tertiary)' : 'var(--error)', display: 'inline-block', flexShrink: 0 }}/>
+        {inf.motor_db}
+      </span>
+      {/* Cobertura vectorial */}
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--on-surface-variant)' }}>
+        🔍 {vb.convocatorias_indexadas}/{vb.convocatorias_total} indexadas
+        <span style={{
+          padding: '1px 6px', borderRadius: 4,
+          background: vb.cobertura_pct > 70 ? 'rgba(82, 232, 124, 0.12)' : 'rgba(255, 180, 171, 0.12)',
+          color: vb.cobertura_pct > 70 ? 'var(--tertiary)' : 'var(--error)',
+          fontWeight: 700,
+        }}>{vb.cobertura_pct}%</span>
+      </span>
+      {/* API IA */}
+      <span style={{ color: inf.google_api_activa ? 'var(--tertiary)' : 'var(--error)' }}>
+        {inf.google_api_activa ? '● IA activa' : '○ IA inactiva'}
+      </span>
+      {/* Modelo embedding */}
+      <span style={{ color: 'var(--on-surface-variant)', marginLeft: 'auto' }}>
+        {inf.embeddings_model}
+      </span>
+    </div>
+  );
 }
 
 // ── ConvocatoriaCard — misma estructura exacta que DonorCard en RadarDashboard ─
@@ -216,8 +292,8 @@ function ConvocatoriaCard({ conv, index, isFavorito, guardandoId, errorGuardado,
             style={{
               display: 'flex', alignItems: 'center', gap: 5,
               padding: '5px 10px', borderRadius: 6, border: 'none',
-              background: 'linear-gradient(135deg,#0058be,#16a34a)',
-              color: '#fff', fontSize: 11, fontWeight: 700,
+              background: 'var(--primary-container)',
+              color: 'var(--on-primary-container)', fontSize: 11, fontWeight: 700,
               fontFamily: 'monospace', letterSpacing: '0.04em',
               cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
             }}
@@ -245,6 +321,10 @@ export default function Dashboard() {
   const [newCount, setNewCount] = useState(0);
   const [search, setSearch] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('todos');
+  const [searchMode, setSearchMode] = useState<'texto'|'semantica'>('texto');
+  const [semanticResults, setSemanticResults] = useState<Convocatoria[] | null>(null);
+  const [searchingIA, setSearchingIA] = useState(false);
+  const radarStatus = useRadarStatus();
 
   const connectWebSocket = useCallback(() => {
     let ws: WebSocket | null = null;
@@ -431,6 +511,100 @@ export default function Dashboard() {
     }
   }, [hasFormulador, navigate]);
 
+  // ── Búsqueda semántica con pgvector (POST /api/radar/buscar-masivo) ──────────
+  const handleBusquedaSemantica = useCallback(async () => {
+    if (!search.trim()) return;
+    setSearchingIA(true);
+    setSemanticResults(null);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const r = await fetch('/api/radar/buscar-masivo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ texto: search.trim(), limit: 20, threshold: 0.25 }),
+      });
+      const d = await r.json();
+      if (d.success && Array.isArray(d.resultados)) {
+        const mapped: Convocatoria[] = d.resultados.map((r: any, i: number) => ({
+          id: r.id || i,
+          externo_id: r.id || `sem-${i}`,
+          titulo: r.titulo || '',
+          donante: r.donante || '',
+          fuente: 'semantico',
+          descripcion: r.descripcion || '',
+          monto_min: r.monto_min || 0,
+          monto_max: r.monto_max || 0,
+          moneda: 'USD',
+          paises_elegibles: '["Colombia"]',
+          sectores: '[]',
+          url_convocatoria: '',
+          url_fuente: '',
+          fecha_limite: r.fecha_limite || '',
+          fecha_publicacion: '',
+          requisitos: '[]',
+          estado: r.estado || 'abierta',
+          score_probabilidad: Math.round((r.similitud || 0) * 100),
+          created_at: new Date().toISOString(),
+        }));
+        setSemanticResults(mapped);
+      }
+    } catch {
+      setSemanticResults([]);
+    } finally {
+      setSearchingIA(false);
+    }
+  }, [search]);
+
+  // ── Barrido masivo por proyecto (POST /api/radar/barrido-masivo) ─────────────
+  const handleBarridoMasivo = useCallback(async () => {
+    if (!search.trim()) return;
+    setSearchingIA(true);
+    setSemanticResults(null);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const r = await fetch('/api/radar/barrido-masivo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ texto: search.trim(), limit: 30, threshold: 0.25 }),
+      });
+      const d = await r.json();
+      if (d.success && Array.isArray(d.resultados)) {
+        const mapped: Convocatoria[] = d.resultados.map((res: any, i: number) => ({
+          id: res.id || i,
+          externo_id: res.id || `barrido-${i}`,
+          titulo: res.titulo || '',
+          donante: res.donante || '',
+          fuente: 'barrido',
+          descripcion: res.descripcion || '',
+          monto_min: res.monto_min || 0,
+          monto_max: res.monto_max || 0,
+          moneda: 'USD',
+          paises_elegibles: '["Colombia"]',
+          sectores: '[]',
+          url_convocatoria: res.url_convocatoria || '',
+          url_fuente: '',
+          fecha_limite: res.fecha_limite || '',
+          fecha_publicacion: '',
+          requisitos: '[]',
+          estado: res.estado || 'abierta',
+          score_probabilidad: Math.round((res.similitud || 0) * 100),
+          created_at: new Date().toISOString(),
+        }));
+        setSemanticResults(mapped);
+      }
+    } catch {
+      setSemanticResults([]);
+    } finally {
+      setSearchingIA(false);
+    }
+  }, [search]);
+
   // Vista "Mis Convocatorias"
   if (vista === 'mis-convocatorias') {
     return (
@@ -481,34 +655,105 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto space-y-6">
 
         {/* Header */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-2xl font-semibold text-onSurface">
-              RADAR FONDOS 360
-              {newCount > 0 && (
-                <span className="ml-3 inline-flex items-center gap-1 text-sm font-semibold px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-600">
-                  <ArrowUp size={14} /> {newCount} nueva{newCount > 1 ? 's' : ''}
-                </span>
+        <header className="flex flex-col gap-4 mb-6">
+          {/* Fila 1: título + búsqueda */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold text-onSurface">
+                RADAR FONDOS 360
+                {newCount > 0 && (
+                  <span className="ml-3 inline-flex items-center gap-1 text-sm font-semibold px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-600">
+                    <ArrowUp size={14} /> {newCount} nueva{newCount > 1 ? 's' : ''}
+                  </span>
+                )}
+              </h1>
+              <p className="text-sm text-outline font-medium mt-1">
+                {semanticResults
+                  ? `${semanticResults.length} resultado${semanticResults.length !== 1 ? 's' : ''} semántico${semanticResults.length !== 1 ? 's' : ''}`
+                  : `${convocatoriasFiltradas.length} convocatoria${convocatoriasFiltradas.length !== 1 ? 's' : ''} encontrada${convocatoriasFiltradas.length !== 1 ? 's' : ''}`
+                }
+              </p>
+            </div>
+            {/* Barra de búsqueda con modo IA */}
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <div className="relative flex-1 md:w-80">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-outline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  className="w-full bg-surface-container border border-outline-variant text-onSurface text-sm rounded-full focus:ring-secondary focus:border-secondary block pl-10 p-2.5 placeholder-outline-variant outline-none"
+                  placeholder={searchMode === 'semantica' ? 'Describe tu proyecto para buscar fondos...' : 'Buscar por título, donante o sector...'}
+                  type="text"
+                  value={search}
+                  onChange={e => { setSearch(e.target.value); if (semanticResults) setSemanticResults(null); }}
+                  onKeyDown={e => { if (e.key === 'Enter' && searchMode === 'semantica') handleBusquedaSemantica(); }}
+                />
+              </div>
+              {/* Toggle modo IA */}
+              <button
+                onClick={() => setSearchMode(m => m === 'texto' ? 'semantica' : 'texto')}
+                title={searchMode === 'texto' ? 'Activar búsqueda semántica IA (pgvector)' : 'Volver a búsqueda por texto'}
+                style={{
+                  padding: '7px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                  fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.04em',
+                  border: `1px solid ${searchMode === 'semantica' ? 'var(--primary)' : 'var(--outline-variant)'}`,
+                  background: searchMode === 'semantica' ? 'rgba(142, 213, 255, 0.08)' : 'transparent',
+                  color: searchMode === 'semantica' ? 'var(--primary)' : 'var(--on-surface-variant)',
+                  cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                }}
+              >🔮 IA</button>
+              {/* Botón búsqueda semántica */}
+              {searchMode === 'semantica' && (
+                <button
+                  onClick={handleBusquedaSemantica}
+                  disabled={searchingIA || !search.trim()}
+                  style={{
+                    padding: '7px 14px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                    fontFamily: 'JetBrains Mono, monospace',
+                    background: 'var(--primary)', color: 'var(--on-primary)', border: 'none',
+                    cursor: searchingIA || !search.trim() ? 'not-allowed' : 'pointer',
+                    opacity: searchingIA || !search.trim() ? 0.6 : 1,
+                    whiteSpace: 'nowrap', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
+                  }}
+                >
+                  {searchingIA ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                  {searchingIA ? 'Buscando...' : 'Buscar'}
+                </button>
               )}
-            </h1>
-            <p className="text-sm text-outline font-medium mt-1">
-              {convocatoriasFiltradas.length} convocatoria{convocatoriasFiltradas.length !== 1 ? 's' : ''} encontrada{convocatoriasFiltradas.length !== 1 ? 's' : ''}
-            </p>
-          </div>
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <div className="w-full md:w-96 relative">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-outline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                className="w-full bg-surface-container border border-outline-variant text-onSurface text-sm rounded-full focus:ring-secondary focus:border-secondary block pl-10 p-2.5 placeholder-outline-variant outline-none"
-                placeholder="Buscar por título, donante o sector..."
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
+              {/* Botón barrido masivo */}
+              {searchMode === 'semantica' && (
+                <button
+                  onClick={handleBarridoMasivo}
+                  disabled={searchingIA || !search.trim()}
+                  title="Barrido masivo de fondos (POST /api/radar/barrido-masivo)"
+                  style={{
+                    padding: '7px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                    fontFamily: 'JetBrains Mono, monospace',
+                    background: 'transparent', color: 'var(--primary)',
+                    border: '1px solid var(--primary)',
+                    cursor: searchingIA || !search.trim() ? 'not-allowed' : 'pointer',
+                    opacity: searchingIA || !search.trim() ? 0.6 : 1,
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >⚡ Barrido</button>
+              )}
+              {/* Limpiar resultados semánticos */}
+              {semanticResults && (
+                <button
+                  onClick={() => { setSemanticResults(null); setSearch(''); }}
+                  style={{
+                    padding: '7px 10px', borderRadius: 20, fontSize: 11,
+                    fontFamily: 'JetBrains Mono, monospace',
+                    background: 'transparent', color: 'var(--on-surface-variant)',
+                    border: '1px solid var(--outline-variant)', cursor: 'pointer', flexShrink: 0,
+                  }}
+                >✕ Limpiar</button>
+              )}
             </div>
           </div>
+
+          {/* Fila 2: RadarStatusBar */}
+          <RadarStatusBar status={radarStatus} />
         </header>
 
         {/* Filter tabs */}
@@ -553,9 +798,44 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* Etiqueta modo semántico */}
+        {semanticResults && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
+            borderRadius: 6, background: 'rgba(0,88,190,0.06)', border: '1px solid rgba(0,88,190,0.2)',
+            fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: '#0058be',
+          }}>
+            🔮 Resultados por similitud semántica pgvector · Motor: IA vectorial 768D
+          </div>
+        )}
+
         {/* Directory List */}
         <main className="space-y-3">
-          {convocatoriasFiltradas.length === 0 && !loading ? (
+          {searchingIA ? (
+            <div className="text-center py-16 text-outline flex flex-col items-center gap-3">
+              <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#0058be' }} />
+              <span>Procesando con pgvector HNSW…</span>
+            </div>
+          ) : semanticResults !== null ? (
+            semanticResults.length === 0 ? (
+              <div className="text-center py-16 text-outline">
+                Sin resultados semánticos para "{search}". Intenta con otro umbral.
+              </div>
+            ) : (
+              semanticResults.map((c, i) => (
+                <ConvocatoriaCard
+                  key={c.externo_id || c.id}
+                  conv={c}
+                  index={i}
+                  isFavorito={isFavorito(String(c.externo_id || c.id))}
+                  guardandoId={guardandoId}
+                  errorGuardado={errorGuardado}
+                  onToggleFavorito={handleToggleFavorito}
+                  onFormular={handleFormular}
+                />
+              ))
+            )
+          ) : convocatoriasFiltradas.length === 0 && !loading ? (
             <div className="text-center py-16 text-outline">
               No se encontraron convocatorias para "{search}"
             </div>

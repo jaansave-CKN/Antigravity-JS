@@ -18,19 +18,19 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
     return (
       <div style={{
         minHeight: '100vh', display: 'flex', alignItems: 'center',
-        justifyContent: 'center', background: '#f7f9fb', fontFamily: 'system-ui, sans-serif',
+        justifyContent: 'center', background: 'var(--background)', fontFamily: 'var(--font-family-heading)',
       }}>
         <div style={{ textAlign: 'center', padding: '2rem' }}>
-          <p style={{ color: '#ba1a1a', fontWeight: 700, marginBottom: '0.5rem', fontSize: 15 }}>
+          <p style={{ color: 'var(--error)', fontWeight: 700, marginBottom: '0.5rem', fontSize: 15 }}>
             Algo falló al cargar la aplicación
           </p>
-          <p style={{ color: '#76777d', fontSize: 12, marginBottom: '1.5rem' }}>
+          <p style={{ color: 'var(--on-surface-variant)', fontSize: 12, marginBottom: '1.5rem' }}>
             Esto puede deberse a un error de red o un módulo no disponible.
           </p>
           <button
             onClick={() => window.location.reload()}
             style={{
-              padding: '10px 28px', background: '#0058be', color: '#fff',
+              padding: '10px 28px', background: 'var(--primary)', color: 'var(--on-primary)',
               border: 'none', borderRadius: 8, cursor: 'pointer',
               fontWeight: 700, fontSize: 13, letterSpacing: '0.03em',
             }}
