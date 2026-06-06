@@ -1,5 +1,6 @@
 import { Component, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { captureError } from '../lib/sentry';
 
 interface Props {
   children: ReactNode;
@@ -38,6 +39,8 @@ export default class ErrorBoundary extends Component<Props, State> {
     };
 
     console.error('🔴 ERROR CAPTURADO:', log);
+
+    captureError(error, { componentStack: errorInfo.componentStack });
 
     try {
       const logs = JSON.parse(localStorage.getItem('antigravity_error_logs') || '[]');

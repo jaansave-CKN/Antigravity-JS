@@ -16,6 +16,7 @@ import {
   deserializeEmbedding,
 } from '../services/embeddingsService.js';
 import { logCriticalError } from '../services/logService.js';
+import { logger } from '../utils/logger.js';
 
 // Pesos según spec v2.0 Sección D-3: w1=0.50 coseno, w2=0.30 P_norm, w3=0.20 C_risk
 const W = Object.freeze({ cosine: 0.50, prob: 0.30, risk: 0.20 });
@@ -93,7 +94,11 @@ async function stage2GetEmbedding(proyectoId, getRow, runSql) {
   );
 
   let fichaTecnica = {};
-  try { fichaTecnica = typeof row.ficha_tecnica === 'string' ? JSON.parse(row.ficha_tecnica) : (row.ficha_tecnica || {}); } catch {}
+  try {
+    fichaTecnica = typeof row.ficha_tecnica === 'string' ? JSON.parse(row.ficha_tecnica) : (row.ficha_tecnica || {});
+  } catch (e) {
+    logger.warn('[MatchScore] ficha_tecnica con JSON corrupto — usando objeto vacío', { proyectoId, err: e.message });
+  }
 
   // Reusar embedding existente si ya fue calculado
   if (row.embedding) {
@@ -115,7 +120,9 @@ async function stage2GetEmbedding(proyectoId, getRow, runSql) {
     } else {
       await runSql('UPDATE proyectos SET embedding = ? WHERE id = ?', [embStr, proyectoId]);
     }
-  } catch {}
+  } catch (e) {
+    logCriticalError('MatchScore', 'No se pudo persistir embedding — se recalculará en cada match', { proyectoId, err: e.message });
+  }
 
   return { embedding, fichaTecnica };
 }

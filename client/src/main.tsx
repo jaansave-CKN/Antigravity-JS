@@ -12,12 +12,28 @@ import ImportPage from './pages/ImportPage';
 import CredentialsPage from './pages/CredentialsPage';
 import TopNavBar from './components/TopNavBar';
 import AuthGuard from './components/AuthGuard';
+import { FavoritosProvider } from './contexts/FavoritosContext';
 import SelectionPage from './pages/SelectionPage';
+import { PestañaRadar } from './features/radar-fondos/presentation/components/PestañaRadar';
 import FormuladorPage from './pages/FormuladorPage';
 import PlanesPage from './pages/PlanesPage';
-import { SubscriptionProvider } from './contexts/SubscriptionContext';
+import FavoritosPage from './pages/FavoritosPage';
+import AnexosPage from './pages/AnexosPage';
+import ModuloProximamente from './pages/ModuloProximamente';
+import PanelPage from './pages/PanelPage';
+import Modulo10Page from './pages/Modulo10Page';
+import { SubscriptionProvider, useSubscription } from './contexts/SubscriptionContext';
+import { LanguageProvider } from './contexts/LanguageContext';
+import { RadarProvider } from './contexts/RadarContext';
+import { SearchProvider } from './contexts/SearchContext';
+import FormulacionViewer from './components/FormulacionViewer';
 import './index.css';
 import 'leaflet/dist/leaflet.css';
+import { validateEnv } from './utils/envValidator';
+import { captureError } from './lib/sentry';
+
+// Falla rápido y explícito si faltan llaves críticas — evita arranques fantasma en producción
+validateEnv();
 
 // ── Error Boundary — global y por ruta ───────────────────────────────────────
 interface EBProps { children: React.ReactNode; routeName?: string; }
@@ -33,6 +49,7 @@ class ErrorBoundary extends React.Component<EBProps, EBState> {
   }
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error(`[ErrorBoundary${this.props.routeName ? ':' + this.props.routeName : ''}]`, error, info);
+    captureError(error, { routeName: this.props.routeName, componentStack: info.componentStack });
     this.setState({ info: info.componentStack?.slice(0, 400) ?? '' });
   }
   handleReload = () => {
@@ -144,15 +161,54 @@ function OAuthParamCleaner() {
   return null;
 }
 
+// ── Plan Gate V7.0: interceptor de pilares por suscripción ───────────────────
+// Redirige a /planes cuando el token no contiene el plan requerido.
+// El loading impide un flash de "acceso denegado" antes de que el contexto cargue.
+function PlanGate({ require: plan, children }: { require: 'radar' | 'formulador'; children: React.ReactNode }) {
+  const { subscription, loading } = useSubscription();
+
+  if (loading) {
+    return (
+      <div style={{
+        minHeight: 'calc(100vh - 48px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: '#f7f9fb',
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 24, height: 24,
+            border: '2px solid #c6c6cd', borderTopColor: '#0058be',
+            borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+          }} />
+          <span style={{ fontSize: 11, color: '#76777d', fontFamily: 'monospace' }}>Verificando plan…</span>
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  if (plan === 'radar' && !subscription.access_radar) {
+    return <Navigate to="/planes" state={{ upgrade: 'radar', reason: 'Requiere Plan Radar' }} replace />;
+  }
+  if (plan === 'formulador' && !subscription.access_formulador) {
+    return <Navigate to="/planes" state={{ upgrade: 'formulador', reason: 'Requiere Plan Formulador · IA 7.0' }} replace />;
+  }
+  return <>{children}</>;
+}
+
 // ── App layout (TopNavBar + página envuelta en ErrorBoundary por ruta) ────────
 function AppLayout() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      <TopNavBar />
-      <ErrorBoundary routeName="página">
-        <Outlet />
-      </ErrorBoundary>
-    </div>
+    <FavoritosProvider>
+      <SearchProvider>
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+          <TopNavBar />
+          <ErrorBoundary routeName="página">
+            <Outlet />
+          </ErrorBoundary>
+        </div>
+      </SearchProvider>
+    </FavoritosProvider>
   );
 }
 
@@ -161,7 +217,6 @@ function AppLayout() {
 function AppRoutes() {
   const { isAuthenticated, hasCredentials, token } = useAuth();
   const toHome = <Navigate to="/" replace />;
-  // Redirigir a home si ya tiene sesión real (no demo)
   const realAuth = isAuthenticated && token !== 'demo-mode-token';
 
   return (
@@ -174,24 +229,93 @@ function AppRoutes() {
       {/* ── Acceso libre: Inicio + Radar (demo mode automático, sin gate) ──── */}
       <Route element={<AuthGuard mode="public-demo"><AppLayout /></AuthGuard>}>
         <Route path="/"            element={<SelectionPage />} />
-        <Route path="/radar"       element={<Dashboard />} />
+        <Route path="/radar"       element={<PestañaRadar />} />
         <Route path="/directorio"  element={<DirectoryPage />} />
         <Route path="/planes"      element={<PlanesPage />} />
+        <Route path="/panel"       element={<PanelPage />} />
       </Route>
 
-      {/* ── Formulador: requiere autenticación real + plan válido ──────────── */}
+      {/* ── Pilar A (Gestión/Radar) — auth + plan radar ───────────────────── */}
+      {/* Token sin access_radar → interceptado → /planes (upgrade required)  */}
       <Route element={<AuthGuard mode="require-auth"><AppLayout /></AuthGuard>}>
-        <Route path="/formulador"  element={<FormuladorPage />} />
+        <Route path="/favoritos"  element={
+          <PlanGate require="radar"><FavoritosPage /></PlanGate>
+        } />
+        <Route path="/calendario" element={
+          <PlanGate require="radar">
+            <ModuloProximamente
+              nombre="Calendario de Favoritos"
+              icono="◈"
+              descripcion="Control de fechas críticas y vencimientos de convocatorias guardadas. Alertas automáticas configurables."
+            />
+          </PlanGate>
+        } />
+      </Route>
+
+      {/* ── Pilar B (Ejecución IA 7.0) — auth + plan formulador ──────────── */}
+      {/* Token sin access_formulador → interceptado → /planes               */}
+      <Route element={<AuthGuard mode="require-auth"><AppLayout /></AuthGuard>}>
+        <Route path="/formulador" element={
+          <PlanGate require="formulador"><FormuladorPage /></PlanGate>
+        } />
+        <Route path="/entrada"    element={
+          <PlanGate require="formulador">
+            <ModuloProximamente
+              nombre="Entrada · M1–M9"
+              icono="①"
+              descripcion="Punto de acceso centralizado al pipeline de formulación. Gestiona los módulos M1 a M9 del Formulador AI."
+            />
+          </PlanGate>
+        } />
+        <Route path="/anexos"     element={
+          <PlanGate require="formulador"><AnexosPage /></PlanGate>
+        } />
+        <Route path="/logistica"  element={
+          <PlanGate require="formulador">
+            <ModuloProximamente
+              nombre="Logística"
+              icono="◧"
+              descripcion="Gestión operativa y seguimiento de la ejecución del proyecto. Cronograma, APU y cadena logística."
+            />
+          </PlanGate>
+        } />
+        <Route path="/dialectica" element={
+          <PlanGate require="formulador">
+            <ModuloProximamente
+              nombre="Dialéctica"
+              icono="◨"
+              descripcion="Motor de argumentación y validación técnica. Contraste de hipótesis con el marco normativo vigente."
+            />
+          </PlanGate>
+        } />
+        <Route path="/ficha"      element={
+          <PlanGate require="formulador">
+            <ModuloProximamente
+              nombre="Ficha Técnica"
+              icono="◫"
+              descripcion="Generación de documentos inmutables con trazabilidad jurídica y hash SHA-256 (requisito V8.0)."
+            />
+          </PlanGate>
+        } />
+        <Route path="/modulo10"   element={
+          <PlanGate require="formulador"><Modulo10Page /></PlanGate>
+        } />
       </Route>
 
       {/* ── Gestión interna: demo mode + credential check ─────────────────── */}
       <Route element={<AuthGuard mode="normal"><AppLayout /></AuthGuard>}>
-        <Route path="/importar"    element={<ImportPage />} />
-        <Route path="/settings"    element={<ControlPanel />} />
-        <Route path="/apis"        element={<CredentialsPage isOnboarding={hasCredentials === false} />} />
+        <Route path="/importar"   element={<ImportPage />} />
+        <Route path="/settings"   element={<ControlPanel />} />
+        <Route path="/apis"       element={<CredentialsPage isOnboarding={hasCredentials === false} />} />
       </Route>
 
-      {/* Catch-all */}
+      {/* ── Rutas experimentales (WIP) — auth requerida ───────────────────── */}
+      <Route element={<AuthGuard mode="require-auth"><AppLayout /></AuthGuard>}>
+        <Route path="/dev/dashboard"   element={<RadarProvider><Dashboard /></RadarProvider>} />
+        <Route path="/dev/formulacion" element={<FormulacionViewer />} />
+      </Route>
+
+      {/* Catch-all → home */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -208,8 +332,10 @@ if (!rootEl) {
       <BrowserRouter>
         <AuthProvider>
           <SubscriptionProvider>
-            <OAuthParamCleaner />
-            <AppRoutes />
+            <LanguageProvider>
+              <OAuthParamCleaner />
+              <AppRoutes />
+            </LanguageProvider>
           </SubscriptionProvider>
         </AuthProvider>
       </BrowserRouter>

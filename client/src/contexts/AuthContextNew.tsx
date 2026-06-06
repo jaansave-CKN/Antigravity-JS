@@ -13,13 +13,20 @@ export interface UserProfile {
   is_trial?: boolean;
 }
 
+export interface LoginSubscription {
+  plan: string;
+  access_radar: boolean;
+  access_formulador: boolean;
+}
+
 interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
   loading: boolean;
   hasCredentials: boolean | null;
   isTrialMode: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  isReconnecting: boolean;
+  login: (email: string, password: string) => Promise<LoginSubscription | undefined>;
   register: (email: string, password: string, nombre: string, role?: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (data: Partial<UserProfile>) => Promise<void>;
@@ -45,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken]             = useState<string | null>(null);
   const [loading, setLoading]         = useState(true);
   const [hasCredentials, setHasCreds] = useState<boolean | null>(null);
+  const [isReconnecting, setIsReconnecting] = useState(false);
 
   useEffect(() => {
     const storedToken = localStorage.getItem('auth_token');
@@ -71,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setUser(null);
     setHasCreds(null);
+    setIsReconnecting(false);
   }
 
   function persistSession(t: string, u: UserProfile) {
@@ -85,11 +94,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await fetch(`${API_BASE}/auth/verify`, {
         headers: { Authorization: `Bearer ${storedToken}` },
       });
-      if (!response.ok) { clearSession(); setLoading(false); return; }
+      if (!response.ok) {
+        // El backend respondió: el token fue rechazado (inválido/expirado/revocado) → cerrar sesión
+        clearSession();
+        setLoading(false);
+        return;
+      }
       const text = await response.text();
       let data: any;
       try { data = JSON.parse(text); } catch { clearSession(); setLoading(false); return; }
       if (data.valid && data.user) {
+        setIsReconnecting(false);
         setToken(storedToken);
         setUser({
           id: data.user.id, email: data.user.email,
@@ -99,18 +114,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         checkCredentials(storedToken);
       } else { clearSession(); }
-    } catch {
-      // Servidor no disponible — restaurar sesión en modo demo para no bloquear la app
-      const storedUser = localStorage.getItem('auth_user');
-      if (storedUser) {
-        try {
-          const parsed = JSON.parse(storedUser);
-          setToken('demo-mode-token');
-          setUser(parsed);
-          localStorage.setItem('auth_token', 'demo-mode-token');
-          console.warn('[Auth] Servidor no disponible — sesión restaurada en modo demo');
-        } catch { clearSession(); }
-      } else { clearSession(); }
+    } catch (err: unknown) {
+      // TypeError  = fetch() falló antes de recibir respuesta (red caída, DNS, CORS).
+      // AbortError = el AbortController disparó un timeout.
+      // En ambos casos el token puede ser válido — mantenemos la sesión en modo reconexión.
+      // Cualquier otro error inesperado (ej. excepción en setState) → cierra sesión por seguridad.
+      const isNetworkError =
+        err instanceof TypeError ||
+        (err instanceof DOMException && err.name === 'AbortError');
+
+      if (isNetworkError) {
+        const storedUser = localStorage.getItem('auth_user');
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser);
+            setToken(storedToken);
+            setUser(parsed);
+            setIsReconnecting(true);
+            console.warn('[Auth] Backend no disponible — manteniendo sesión local (reconectando)');
+          } catch { clearSession(); }
+        } else { clearSession(); }
+      } else {
+        // Error inesperado no relacionado con la red → cerrar sesión por seguridad
+        console.warn('[Auth] Error inesperado en verificación de token, cerrando sesión:', err);
+        clearSession();
+      }
     }
     finally { setLoading(false); }
   }
@@ -135,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token]);
 
   // ── login ──────────────────────────────────────────────────────────────────
-  async function login(email: string, password: string) {
+  async function login(email: string, password: string): Promise<LoginSubscription | undefined> {
     let response: Response;
     try {
       response = await fetch(`${API_BASE}/auth/login`, {
@@ -151,10 +179,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento. Por favor intenta en unos minutos.'); }
     if (!response.ok) throw new Error(data?.message || 'Credenciales incorrectas.');
-    const { token: newToken, user: userData } = data;
+    const { token: newToken, user: userData, subscription } = data;
     if (!newToken || !userData) throw new Error('Respuesta inválida del servidor.');
     persistSession(newToken, userData);
     checkCredentials(newToken);
+    // Notifica a SubscriptionContext (mismo tab) para recargar sin depender de localStorage events
+    window.dispatchEvent(new CustomEvent('auth-login', { detail: { token: newToken } }));
+    return subscription as LoginSubscription | undefined;
   }
 
   // ── Modo Trial (V8.0) — token temporal 24h, datos en sessionStorage ──────
@@ -289,6 +320,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user, token, loading, hasCredentials,
         isTrialMode: user?.role === 'trial' || user?.is_trial === true,
+        isReconnecting,
         login, register, logout, updateProfile,
         changePassword, sendPasswordReset,
         validateSessionAction, enterDemoMode, startTrial,

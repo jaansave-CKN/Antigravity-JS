@@ -6,6 +6,7 @@
 import crypto from 'crypto';
 import { procesarPresupuesto, getRendimientoRef, RENDIMIENTOS_CATALOGO } from '../pipeline/apuEngine.js';
 import { runTransaction } from '../db.js';
+import { logger } from '../utils/logger.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -114,7 +115,9 @@ export function registerPresupuestoRoutes(app, { authenticateToken, runSql, getR
     let items = [];
     try {
       items = await getRows('SELECT * FROM project_budgets WHERE proyecto_id = ? ORDER BY fase, capitulo, item', [req.params.id]);
-    } catch {}
+    } catch (e) {
+      logger.error('[Presupuesto] Fallo consultando project_budgets — devolviendo presupuesto vacío', { proyectoId: req.params.id, err: e.message });
+    }
 
     const porFase = { NEGRA: 0, GRIS: 0, BLANCA: 0 };
     for (const it of items) {

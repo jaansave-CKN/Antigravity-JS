@@ -71,14 +71,20 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Cargar suscripción al montar y al cambiar la sesión
+  // Cargar suscripción al montar y al cambiar la sesión (mismo tab o tab cruzado)
   useEffect(() => {
     loadSubscription();
+    // storage event solo dispara en *otras* pestañas; auth-login cubre el tab actual
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'auth_token') loadSubscription();
     };
+    const onAuthLogin = () => loadSubscription();
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    window.addEventListener('auth-login', onAuthLogin);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('auth-login', onAuthLogin);
+    };
   }, [loadSubscription]);
 
   return (

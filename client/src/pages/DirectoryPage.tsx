@@ -114,7 +114,7 @@ function ValidationBadge({ status }: { status: string }) {
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#eceef0] text-[#76777d] border border-[#e2e8f0]">
+    <span className="inline-flex items-center gap-1 text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#eceef0] text-[#557997] border border-[#1a3a50]">
       IMPORTADO
     </span>
   );
@@ -170,7 +170,7 @@ export default function DirectoryPage() {
     setError('');
 
     try {
-      const { ok, data } = await safeJsonFetch('/api/directory', {
+      const { ok, data } = await safeJsonFetch('/api/entidades', {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!ok) throw new Error(data?.message ?? 'Error al cargar directorio.');
@@ -199,7 +199,7 @@ export default function DirectoryPage() {
     setRowOps(prev => ({ ...prev, [id]: 'deleting' }));
     try {
       // Intenta borrar en backend si está disponible; si falla, solo borra localmente
-      await safeJsonFetch(`/api/directory/${id}`, {
+      await safeJsonFetch(`/api/entidades/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {/* silencioso — continúa con borrado local */});
@@ -217,7 +217,7 @@ export default function DirectoryPage() {
       if (!entry) return;
       const nextStatus: 'active' | 'disabled' = entry.status === 'active' ? 'disabled' : 'active';
 
-      await safeJsonFetch(`/api/directory/${id}/status`, {
+      await safeJsonFetch(`/api/entidades/${id}/status`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextStatus }),

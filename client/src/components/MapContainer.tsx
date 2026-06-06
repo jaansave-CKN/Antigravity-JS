@@ -58,9 +58,9 @@ export default function MapContainer() {
     const updateMarkers = async () => {
       const L = await import('leaflet');
 
-      predios.forEach(predio => {
-        const lat = predio.lat ?? mapCenter.lat;
-        const lng = predio.lng ?? mapCenter.lng;
+       predios.forEach(predio => {
+         const lat = (predio as { lat?: number; lng?: number }).lat ?? mapCenter.lat;
+         const lng = (predio as { lat?: number; lng?: number }).lng ?? mapCenter.lng;
         const score = predio.evaluacion?.score_legal ?? 50;
         const color = score >= 80 ? 'green' : score >= 50 ? 'orange' : 'red';
         

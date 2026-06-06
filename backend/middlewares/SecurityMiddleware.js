@@ -6,6 +6,7 @@
  */
 
 import rateLimit from 'express-rate-limit';
+import { logger } from '../utils/logger.js';
 
 // ── Rate limiting estricto para rutas de autenticación ────────────────────────
 // Máx 5 intentos fallidos por IP cada 15 minutos
@@ -133,7 +134,9 @@ export function sanitizeFormuladorBody(req, res, next) {
         }
       }
     }
-  } catch {}
+  } catch (e) {
+    logger.warn('[SecurityMiddleware] Fallo sanitizando body — payload posiblemente malformado', { path: req.path, err: e.message });
+  }
   next();
 }
 

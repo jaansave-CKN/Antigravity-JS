@@ -181,6 +181,139 @@ export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow
 
     return res.json({ success: true, message: 'Proyecto actualizado' });
   }));
+
+  /**
+   * GET /api/proyectos/:id/hash
+   * Genera un SHA-256 del estado actual del proyecto y lo registra como
+   * versión inmutable en project_version_hashes (requisito de inmutabilidad V8.0).
+   *
+   * El hash cubre: payload_es, payload_en, status, updated_at del proyecto.
+   * Cada llamada genera un nuevo registro (ledger de versiones).
+   *
+   * Response:
+   *   { hash_id, project_id, hash_value, project_status, created_at, payload_size_bytes }
+   */
+  app.get('/api/proyectos/:id/hash', authenticateToken, wrap(async (req, res) => {
+    const projectId = req.params.id;
+    const tenantId  = req.tenantId || req.userId;
+
+    // Cargar datos canónicos del proyecto (tabla projects, migración 003)
+    let project = await getRow(
+      `SELECT id, tenant_id, status, payload_es, payload_en, updated_at, name
+       FROM projects WHERE id = $1 AND tenant_id = $2`,
+      [projectId, tenantId]
+    ).catch(() => null);
+
+    // Fallback a tabla legacy proyectos si no existe en projects
+    if (!project) {
+      project = await getRow(
+        `SELECT id, org_id AS tenant_id, estado AS status,
+                NULL AS payload_es, NULL AS payload_en,
+                updated_at, nombre AS name
+         FROM proyectos WHERE id = $1 AND org_id = $2`,
+        [projectId, tenantId]
+      ).catch(() => null);
+    }
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: 'Proyecto no encontrado o no pertenece a tu organización',
+      });
+    }
+
+    // Construir el documento canónico a hashear
+    const timestamp  = new Date().toISOString();
+    const canonical  = JSON.stringify({
+      project_id:   project.id,
+      tenant_id:    project.tenant_id,
+      status:       project.status,
+      payload_es:   project.payload_es ?? null,
+      payload_en:   project.payload_en ?? null,
+      db_updated_at: project.updated_at,
+      hashed_at:    timestamp,
+    });
+
+    const payloadBytes = Buffer.byteLength(canonical, 'utf8');
+    const hashValue    = crypto.createHash('sha256').update(canonical, 'utf8').digest('hex');
+
+    // Registrar en la tabla de hashes inmutables (append-only)
+    const hashRecord = await getRow(
+      `INSERT INTO project_version_hashes
+         (project_id, tenant_id, hash_value, payload_size_bytes, project_status,
+          triggered_by, created_by_user, metadata)
+       VALUES ($1, $2, $3, $4, $5, 'api_request', $6, $7)
+       ON CONFLICT (project_id, hash_value) DO UPDATE
+         SET metadata = project_version_hashes.metadata  -- no-op, retorna la fila existente
+       RETURNING id, project_id, hash_value, project_status, created_at, payload_size_bytes`,
+      [
+        project.id,
+        project.tenant_id,
+        hashValue,
+        payloadBytes,
+        project.status || 'unknown',
+        req.userId,
+        JSON.stringify({
+          pipeline_version: '8.0',
+          triggered_from:   'GET /api/proyectos/:id/hash',
+          project_name:     project.name,
+        }),
+      ]
+    );
+
+    return res.json({
+      success:         true,
+      hash_id:         hashRecord.id,
+      project_id:      hashRecord.project_id,
+      hash_value:      hashRecord.hash_value,
+      hash_algorithm:  'sha256',
+      project_status:  hashRecord.project_status,
+      created_at:      hashRecord.created_at,
+      payload_size_bytes: hashRecord.payload_size_bytes,
+      immutable:       true,
+      verification_url: `/api/proyectos/${project.id}/hash/verify/${hashValue}`,
+    });
+  }));
+
+  /**
+   * GET /api/proyectos/:id/hash/verify/:hash
+   * Verifica si un hash específico existe en el registro inmutable.
+   * Permite a terceros verificar la integridad de un proyecto formulado.
+   */
+  app.get('/api/proyectos/:id/hash/verify/:hash', authenticateToken, wrap(async (req, res) => {
+    const { id: projectId, hash: hashToVerify } = req.params;
+    const tenantId = req.tenantId || req.userId;
+
+    if (!/^[a-f0-9]{64}$/.test(hashToVerify)) {
+      return res.status(400).json({ success: false, message: 'Hash inválido: debe ser SHA-256 hex (64 chars)' });
+    }
+
+    const record = await getRow(
+      `SELECT id, project_id, hash_value, project_status, created_at, triggered_by
+       FROM project_version_hashes
+       WHERE project_id = $1 AND hash_value = $2 AND tenant_id = $3`,
+      [projectId, hashToVerify, tenantId]
+    );
+
+    if (!record) {
+      return res.status(404).json({
+        success:  false,
+        verified: false,
+        message:  'Hash no encontrado en el registro de versiones — el proyecto puede haber sido alterado',
+      });
+    }
+
+    return res.json({
+      success:        true,
+      verified:       true,
+      hash_id:        record.id,
+      project_id:     record.project_id,
+      hash_value:     record.hash_value,
+      project_status: record.project_status,
+      registered_at:  record.created_at,
+      triggered_by:   record.triggered_by,
+    });
+  }));
 }
 
 function safeParseJson(val) {

@@ -3,6 +3,7 @@
  * Spec v2.0 Sección C-M3: Grafo dirigido Causas→Problema→Efectos invertido a Medios→Objetivo→Fines
  */
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { logger } from '../utils/logger.js';
 
 export const ARBOL_SYSTEM_PROMPT = `Eres un experto en formulación de proyectos de cooperación internacional, \
 contratación pública colombiana y Metodología General Ajustada (MGA).
@@ -87,7 +88,7 @@ export async function generarArbolConIA(objetivoCentral, apiKey) {
     console.log(`[ArbolAgent] Árbol generado con ${nodos.length} nodos via Gemini`);
     return nodos;
   } catch (err) {
-    console.error('[ArbolAgent] Error Gemini — usando árbol de demostración:', err.message);
-    return buildMockArbol(objetivoCentral);
+    logger.error('[ArbolAgent] Fallo al generar árbol con Gemini', { err: err.message, objetivoCentral });
+    throw new Error('La IA de Gemini está experimentando alta latencia. Por favor, reintenta en unos momentos.');
   }
 }

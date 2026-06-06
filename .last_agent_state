@@ -1,0 +1,8 @@
+# .last_agent_state — RadarFondos 360
+# Protocolo: actualizar antes de cerrar sesión. Formato: exactamente 3 líneas por entrada.
+# ─────────────────────────────────────────────────────────────────
+# AGENTE: Claude (claude-sonnet-4-6) | SESION: 2026-06-04
+# ─────────────────────────────────────────────────────────────────
+COMPONENTE_TERMINADO: Auditoría profunda Stitch MCP — causa raíz identificada (doble fallo: type=http→streamable-http + auth X-Goog-Api-Key→Bearer OAuth2)
+ESTADO: Bloqueado esperando token OAuth2 del usuario — servidor Stitch confirmado vivo y funcional (HTTP 200, 18 tools disponibles)
+SIGUIENTE_PASO: 1) Usuario ejecuta "gcloud auth login" + "gcloud auth print-access-token" en su terminal local. 2) Pegar token en ~/.claude/settings.json cambiando X-Goog-Api-Key por Authorization: Bearer <token>. 3) Cambiar type:"http" a type:"streamable-http". 4) Reiniciar Claude Code. 5) Ejecutar list_projects → list_screens → get_screen INICIO → volcar en client/.stitch_snapshot.json → generar árbol de nodos + tabla de calco para SelectionPage.tsx.

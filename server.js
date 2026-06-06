@@ -20,9 +20,12 @@ import {
   GEMINI_SYSTEM_INSTRUCTIONS,
 } from './backend/routes/authGoogle.controller.js';
 import { emailAdapter } from './backend/notifications/BrevoEmailAdapter.js';
-import { getRow, getRows, getCount, runSql } from './backend/db.js';
+import { pool, getRow, getRows, getCount, runSql } from './backend/db.js';
+import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
+import { isRevoked, checkSessionValid } from './backend/middlewares/tokenBlacklist.js';
 import { seedPredios } from './backend/pipeline/seed-predios.js';
 import { rejectMaterialsInput } from './backend/middlewares/materialValidator.js';
+import { logger } from './backend/utils/logger.js';
 import { validateStructuralElements } from './backend/validators/structuralValidator.js';
 import { generarArbolConIA } from './backend/agents/arbolObjetivosAgent.js';
 import { runMatchPipeline } from './backend/pipeline/matchScore.js';
@@ -31,6 +34,7 @@ import { registerRadicacionRoutes } from './backend/routes/radicacion.routes.js'
 import { registerProyectosRoutes } from './backend/routes/proyectos.routes.js';
 import { registerReporteRoutes } from './backend/routes/reporte.routes.js';
 import { registerPresupuestoRoutes } from './backend/routes/presupuesto.routes.js';
+import { radarCacheMiddleware } from './backend/middlewares/radarCache.js';
 import { RENDIMIENTOS_CATALOGO } from './backend/pipeline/apuEngine.js';
 import { registerSubscriptionRoutes }    from './backend/routes/subscriptions.routes.js';
 import { registerMotorDialecticoRoutes } from './backend/routes/motorDialectico.routes.js';
@@ -103,11 +107,18 @@ function verifyToken(token) {
   catch { return null; }
 }
 
-function authenticateToken(req, res, next) {
+async function authenticateToken(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
-  const payload = verifyToken(auth.slice(7));
+  const token = auth.slice(7);
+  const payload = verifyToken(token);
   if (!payload) return res.status(401).json({ success: false, message: 'Token invalido' });
+
+  // Sesión revocada: blacklist por-token (logout) o invalidación bulk (Stripe/admin)
+  if (isRevoked(token) || !(await checkSessionValid(payload.sub, payload.iat, getRow))) {
+    return res.status(401).json({ success: false, message: 'Sesión revocada' });
+  }
+
   req.userId = payload.sub;
   req.userRole = payload.role;
   next();
@@ -117,7 +128,7 @@ function tryCatch(fn) {
   return async (req, res, next) => {
     try { await fn(req, res, next); }
     catch (err) {
-      console.error('[server] Error:', err.message);
+      logger.error('[server] Error no controlado en ruta', { method: req.method, path: req.path, err: err.message });
       // Errores de IA por clave faltante → 503 con mensaje claro para el usuario
       if (err.message?.includes('EMBEDDINGS_ERROR') || err.message?.includes('GOOGLE_API_KEY')) {
         return res.status(503).json({
@@ -459,6 +470,19 @@ async function initDb() {
   try { await runSql("ALTER TABLE versiones_proyecto ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
   try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN access_radar INTEGER DEFAULT 0"); } catch {}
   try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN access_formulador INTEGER DEFAULT 0"); } catch {}
+  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN stripe_customer_id TEXT DEFAULT NULL"); } catch {}
+  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN stripe_subscription_id TEXT DEFAULT NULL"); } catch {}
+  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN current_period_end TIMESTAMP DEFAULT NULL"); } catch {}
+  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN cancel_at_period_end INTEGER DEFAULT 0"); } catch {}
+  try { await runSql("ALTER TABLE directorio_entidades ADD COLUMN status TEXT DEFAULT 'active'"); } catch {}
+  // Tabla de idempotencia de webhooks Stripe
+  await runSql(`CREATE TABLE IF NOT EXISTS stripe_events (
+    stripe_event_id  TEXT        PRIMARY KEY,
+    event_type       TEXT        NOT NULL,
+    tenant_id        TEXT,
+    processed_at     TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+    raw_payload      TEXT
+  )`);
   try { await runSql("ALTER TABLE system_config ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); } catch {}
   try { await runSql("ALTER TABLE system_logs  ADD COLUMN nivel TEXT DEFAULT 'ERROR'"); } catch {}
 
@@ -550,6 +574,10 @@ async function start() {
   const app = express();
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cors({ origin: true, credentials: true }));
+  // STRIPE WEBHOOK — debe ir ANTES de express.json() para recibir raw body
+  // (la verificación de firma de Stripe falla si el body ya fue parseado)
+  app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+
   app.use(express.json());
   app.set('etag', false);
 
@@ -558,6 +586,11 @@ async function start() {
   app.use('/api/ia', rejectMaterialsInput);
   app.use('/api/modulo3b', rejectMaterialsInput);
   app.use('/api/radar/barrido-masivo', rejectMaterialsInput);
+
+  // ── Health Check (plataformas: Railway, Render, K8s liveness probe) ─────────
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'ok', uptime: process.uptime() });
+  });
 
   // ── Healthcheck ──────────────────────────────────────────────────────────
   app.get('/api/health', tryCatch(async (_req, res) => {
@@ -590,19 +623,19 @@ async function start() {
 
   // POST /api/auth/register
   app.post('/api/auth/register', authLimiter, sanitizeAuthBody, tryCatch(async (req, res) => {
-    const { email, password, nombre, role } = req.body;
-    if (!email || !password || !nombre) {
-      return res.status(400).json({ success: false, message: 'email, password y nombre son requeridos' });
-    }
-    const existing = await getRow('SELECT id FROM usuarios WHERE email = ?', [email.trim().toLowerCase()]);
-    if (existing) return res.status(409).json({ success: false, message: 'El email ya está registrado' });
-    const id = crypto.randomUUID();
-    const password_hash = await hashPassword(password);
-    const safeRole = role === 'admin' ? 'user' : (role || 'user'); // no permitir auto-admin
-    await runSql(
-      `INSERT INTO usuarios (id, email, password_hash, nombre, tipoUsuario) VALUES (?, ?, ?, ?, ?)`,
-      [id, email.trim().toLowerCase(), password_hash, nombre.trim(), 'Usuario']
-    );
+     const { email, password, nombre, role } = req.body;
+     if (!email || !password || !nombre) {
+       return res.status(400).json({ success: false, message: 'email, password y nombre son requeridos' });
+     }
+     const existing = await getRow('SELECT id FROM usuarios WHERE email = ?', [email.trim().toLowerCase()]);
+     if (existing) return res.status(409).json({ success: false, message: 'El email ya está registrado' });
+     const id = crypto.randomUUID();
+     const password_hash = await hashPassword(password);
+     const safeRole = role === 'admin' ? 'user' : (role || 'user'); // no permitir auto-admin
+     await runSql(
+       `INSERT INTO usuarios (id, email, password_hash, nombre, tipoUsuario, rol) VALUES (?, ?, ?, ?, ?, ?)`,
+       [id, email.trim().toLowerCase(), password_hash, nombre.trim(), 'Usuario', safeRole]
+     );
     // V8.0: auto-crear suscripción free al registrarse
     try {
       await runSql(
@@ -681,10 +714,22 @@ async function start() {
     });
   }));
 
-  // POST /api/auth/logout
-  app.post('/api/auth/logout', authenticateToken, (req, res) => {
-    res.json({ success: true, message: 'Sesión cerrada' });
-  });
+   // POST /api/auth/logout
+   app.post('/api/auth/logout', authenticateToken, tryCatch(async (req, res) => {
+     await runSql('UPDATE usuarios SET tokens_invalidated_at = NOW() WHERE id = ?', [req.userId]);
+     res.json({ success: true, message: 'Sesión cerrada' });
+   }));
+
+   // POST /api/report-error
+   app.post('/api/report-error', authenticateToken, tryCatch(async (req, res) => {
+     const { message, url } = req.body;
+     if (!message) {
+       return res.status(400).json({ success: false, message: 'Message required' });
+     }
+     // In a real implementation, you would store this in a database or send it to a logging service
+     console.error('[Error Report]', { userId: req.userId, message, url, timestamp: new Date().toISOString() });
+     res.json({ success: true, message: 'Error report submitted' });
+   }));
 
   // PUT /api/auth/me
   app.put('/api/auth/me', authenticateToken, tryCatch(async (req, res) => {
@@ -704,6 +749,7 @@ async function start() {
     if (!valid) return res.status(401).json({ success: false, message: 'Contraseña actual incorrecta' });
     const newHash = await hashPassword(new_password);
     await runSql('UPDATE usuarios SET password_hash = ? WHERE id = ?', [newHash, req.userId]);
+    await runSql('UPDATE usuarios SET tokens_invalidated_at = NOW() WHERE id = ?', [req.userId]);
     res.json({ success: true, message: 'Contraseña actualizada' });
   }));
 
@@ -764,6 +810,12 @@ async function start() {
     res.json({ success: true, message: 'Credenciales guardadas' });
   }));
 
+  // DELETE /api/credentials/:servicio
+  app.delete('/api/credentials/:servicio', authenticateToken, tryCatch(async (req, res) => {
+    await runSql('DELETE FROM user_credentials WHERE user_id=? AND service=?', [req.userId, req.params.servicio]);
+    res.json({ success: true });
+  }));
+
   // GET /api/credenciales/validar (alias legacy)
   app.get('/api/credenciales/validar', authenticateToken, tryCatch(async (req, res) => {
     const cred = await getRow('SELECT api_key_enc FROM user_credentials WHERE user_id = ?', [req.userId]);
@@ -775,12 +827,13 @@ async function start() {
   // ════════════════════════════════════════════════════════════════════════════
 
   // GET /api/convocatorias
-  app.get('/api/convocatorias', tryCatch(async (req, res) => {
+  app.get('/api/convocatorias', radarCacheMiddleware, tryCatch(async (req, res) => {
     const { q, estado, sector, page = 1, limit = 50 } = req.query;
     let sql = 'SELECT * FROM convocatorias WHERE deleted_at IS NULL';
     const params = [];
     if (q) { sql += ' AND (titulo LIKE ? OR donante LIKE ? OR descripcion LIKE ?)'; const like = `%${q}%`; params.push(like, like, like); }
     if (estado && estado !== 'todos') { sql += ' AND estado = ?'; params.push(estado); }
+    if (sector && sector !== 'Todas') { sql += ' AND sectores LIKE ?'; params.push(`%${sector}%`); }
     sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
     params.push(Number(limit), (Number(page) - 1) * Number(limit));
     const rows = await getRows(sql, params);
@@ -814,6 +867,30 @@ async function start() {
     res.json({ success: true, data: rows });
   }));
 
+  // DELETE /api/entidades/:id — soft-delete (preserva historial)
+  app.delete('/api/entidades/:id', authenticateToken, tryCatch(async (req, res) => {
+    const { id } = req.params;
+    const result = await runSql(
+      "UPDATE directorio_entidades SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+      [id]
+    );
+    res.json({ success: true });
+  }));
+
+  // PATCH /api/entidades/:id/status — activa o deshabilita una entidad
+  app.patch('/api/entidades/:id/status', authenticateToken, tryCatch(async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (status !== 'active' && status !== 'disabled') {
+      return res.status(400).json({ success: false, message: 'status debe ser "active" o "disabled"' });
+    }
+    await runSql(
+      "UPDATE directorio_entidades SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+      [status, id]
+    );
+    res.json({ success: true, status });
+  }));
+
   // ════════════════════════════════════════════════════════════════════════════
   // FAVORITES
   // ════════════════════════════════════════════════════════════════════════════
@@ -841,11 +918,37 @@ async function start() {
     }
   }));
 
-  // DELETE /api/favorites/:grantId
-  app.delete('/api/favorites/:grantId', authenticateToken, tryCatch(async (req, res) => {
-    await runSql('DELETE FROM user_favorites WHERE user_id = ? AND grant_id = ?', [req.userId, req.params.grantId]);
-    res.json({ success: true, message: 'Eliminado de favoritos' });
-  }));
+   // DELETE /api/favorites/:grantId
+   app.delete('/api/favorites/:grantId', authenticateToken, tryCatch(async (req, res) => {
+     await runSql('DELETE FROM user_favorites WHERE user_id = ? AND grant_id = ?', [req.userId, req.params.grantId]);
+     res.json({ success: true, message: 'Eliminado de favoritos' });
+   }));
+
+   // POST /api/convocatorias/:id/favorito - Toggle favorite status for a convocatoria
+   app.post('/api/convocatorias/:id/favorito', authenticateToken, tryCatch(async (req, res) => {
+     const convocatoriaId = req.params.id;
+     const userId = req.userId;
+
+     // Check if already in favorites
+     const existing = await getRow('SELECT id FROM user_favorites WHERE user_id = ? AND grant_id = ?', [userId, convocatoriaId]);
+
+     let isFavorito = false;
+     if (existing) {
+       // Remove from favorites
+       await runSql('DELETE FROM user_favorites WHERE user_id = ? AND grant_id = ?', [userId, convocatoriaId]);
+       isFavorito = false;
+     } else {
+       // Add to favorites
+       const grantData = JSON.stringify({ tipo: 'convocatoria', id: convocatoriaId });
+       await runSql(
+         'INSERT INTO user_favorites (id, user_id, grant_id, grant_data) VALUES (?, ?, ?, ?)',
+         [crypto.randomUUID(), userId, convocatoriaId, grantData]
+       );
+       isFavorito = true;
+     }
+
+     res.json({ success: true, favorito: isFavorito });
+   }));
 
   // ════════════════════════════════════════════════════════════════════════════
   // IMPORT (subida de archivos)
@@ -897,10 +1000,10 @@ async function start() {
       },
     });
   }));
-  app.post('/api/radar/start', authenticateToken, (req, res) => res.json({ success: true }));
-  app.post('/api/radar/stop', authenticateToken, (req, res) => res.json({ success: true }));
-  app.post('/api/radar/trigger', authenticateToken, (req, res) => res.json({ success: true }));
-  app.post('/api/radar/barrido', authenticateToken, (req, res) => res.json({ success: true, message: 'Barrido iniciado' }));
+  app.post('/api/radar/start',   authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Scheduler de radar no implementado en esta versión.' }));
+  app.post('/api/radar/stop',    authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Scheduler de radar no implementado en esta versión.' }));
+  app.post('/api/radar/trigger', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Trigger manual no implementado. Usa POST /api/scheduler/now.' }));
+  app.post('/api/radar/barrido', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Usa POST /api/radar/barrido-masivo con { texto } para búsqueda vectorial.' }));
   app.post('/api/radar/buscar-masivo', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
     const { texto, limit = 20, threshold = 0.30 } = req.body;
     if (!texto?.trim()) return res.status(400).json({ success: false, message: 'texto requerido' });
@@ -931,18 +1034,18 @@ async function start() {
     }
     res.json({ success: true, resultados, total: resultados.length, motor: usePg ? 'pgvector·HNSW' : 'js-coseno' });
   }));
-  app.get('/api/radar/buscar', (req, res) => res.json({ success: true, data: [] }));
-  app.get('/api/buscar', (req, res) => res.json({ success: true, data: [] }));
-  app.get('/api/fuentes', (req, res) => res.json({ success: true, data: [] }));
-  app.get('/api/scraped-results', (req, res) => res.json({ success: true, data: [] }));
-  app.post('/api/entidades/scrape-async', authenticateToken, (req, res) => res.json({ success: true }));
-  app.post('/api/entidades/indexadas', authenticateToken, (req, res) => res.json({ success: true, data: [] }));
-  app.get('/api/cola-validacion', authenticateToken, (req, res) => res.json({ success: true, data: [] }));
-  app.post('/api/cola-validacion/:id/aprobar', authenticateToken, (req, res) => res.json({ success: true }));
-  app.post('/api/cola-validacion/:id/descartar', authenticateToken, (req, res) => res.json({ success: true }));
+  app.get('/api/radar/buscar', (req, res) => res.status(501).json({ success: false, message: 'No implementado' }));
+  app.get('/api/buscar', (req, res) => res.status(501).json({ success: false, message: 'No implementado' }));
+  app.get('/api/fuentes', (req, res) => res.status(501).json({ success: false, message: 'No implementado' }));
+  app.get('/api/scraped-results', (req, res) => res.status(501).json({ success: false, message: 'No implementado' }));
+  app.post('/api/entidades/scrape-async', authenticateToken, (req, res) => res.status(501).json({ success: false, message: 'No implementado' }));
+  app.post('/api/entidades/indexadas', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Indexación manual de entidades no implementada.' }));
+  app.get('/api/cola-validacion',      authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Cola de validación no implementada en esta versión.' }));
+  app.post('/api/cola-validacion/:id/aprobar',   authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Cola de validación no implementada.' }));
+  app.post('/api/cola-validacion/:id/descartar', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Cola de validación no implementada.' }));
   // Proyectos (GET/POST/PATCH/:id gestionados por proyectos.routes.js)
-  app.get('/api/admin/deleted', authenticateToken, (req, res) => res.json({ success: true, data: [] }));
-  app.post('/api/admin/restore/:tipo/:id', authenticateToken, (req, res) => res.json({ success: true }));
+  app.get('/api/admin/deleted',             authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Papelera administrativa no implementada.' }));
+  app.post('/api/admin/restore/:tipo/:id',  authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Restauración administrativa no implementada.' }));
   app.post('/api/ia/chat', (req, res) => res.json({ success: true, response: 'IA no disponible en este plan.' }));
   app.post('/api/ia/busqueda-semantica', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
     const { texto, limit = 10, threshold = 0.25 } = req.body;
@@ -973,10 +1076,10 @@ async function start() {
     }
     res.json({ success: true, data, total: data.length, motor: usePg ? 'pgvector' : 'js-coseno' });
   }));
-  app.post('/api/ia/buscar', (req, res) => res.json({ success: true, data: [] }));
-  app.post('/api/ai/convocatoria-analyze', (req, res) => res.json({ success: true, data: {} }));
-  app.post('/api/triggers/run-with-context', authenticateToken, (req, res) => res.json({ success: true }));
-  app.post('/api/configuracion/guardar', authenticateToken, (req, res) => res.json({ success: true }));
+  app.post('/api/ia/buscar',                (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Usa POST /api/ia/busqueda-semantica.' }));
+  app.post('/api/ai/convocatoria-analyze',  (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Análisis de convocatoria no implementado.' }));
+  app.post('/api/triggers/run-with-context', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Triggers contextuales no implementados.' }));
+  app.post('/api/configuracion/guardar',    authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Configuración persistente no implementada.' }));
   app.post('/api/radar/barrido-masivo', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
     const { texto, proyectoId, limit = 30, threshold = 0.25 } = req.body;
     if (!texto?.trim() && !proyectoId) return res.status(400).json({ success: false, message: 'texto o proyectoId requerido' });
@@ -1041,7 +1144,7 @@ async function start() {
           "UPDATE proyectos SET estado = 'BLOQUEADO', bloqueo_razon = ? WHERE id = ?",
           ['CRITICAL_DESIGN_EXCEPTION: columnas en zonas de circulación', proyectoId]
         );
-      } catch (e) {} // ignorar si no existe la tabla
+      } catch (e) { if (!e.message?.includes('does not exist')) logger.warn('[Bloqueo] error inesperado', { err: e.message }); }
       
       return res.status(422).json({
         success: false,

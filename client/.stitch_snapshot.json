@@ -1,0 +1,146 @@
+{
+  "_meta": {
+    "description": "Plano de Obra — RadarFondos 360. Fuente de verdad de diseño desde Stitch MCP.",
+    "instruccion": "Volcar aquí el payload íntegro de get_screen antes de codificar cualquier componente visual. Este archivo es inmutable durante la sesión de desarrollo.",
+    "version": "1.0.0",
+    "ultima_actualizacion": "2026-06-04T19:44:00Z",
+    "screen_id": "scr_panel_control_360"
+  },
+  "screens": {
+    "Panel": {
+      "id": "scr_panel_control_360",
+      "name": "Panel de Control",
+      "layout": {
+        "type": "flex",
+        "direction": "column",
+        "padding": "32px",
+        "gap": "24px",
+        "background": "#F8FAFC"
+      },
+      "components": [
+        {
+          "id": "panel_header",
+          "type": "Header",
+          "styles": {
+            "borderBottom": "1px solid #E2E8F0",
+            "paddingBottom": "16px"
+          },
+          "properties": {
+            "title": "Panel de Control — Centro de Mando",
+            "subtitle": "Parametrización global de proyectos y credenciales de infraestructura."
+          }
+        },
+        {
+          "id": "panel_grid_workspace",
+          "type": "GridContainer",
+          "styles": {
+            "display": "grid",
+            "gridTemplateColumns": "1fr 1fr",
+            "gap": "24px"
+          },
+          "children": [
+            {
+              "id": "contenedor_a_favoritos",
+              "name": "Contenedor A — Gestión de Favoritos (20 Perfiles)",
+              "type": "Card",
+              "styles": {
+                "background": "#FFFFFF",
+                "borderRadius": "12px",
+                "padding": "24px",
+                "boxShadow": "0 4px 6px -1px rgba(0,0,0,0.05)"
+              },
+              "elements": [
+                {
+                  "id": "profile_selector_dropdown",
+                  "type": "Select",
+                  "label": "Cargar Ficha de Profesional Guardada",
+                  "placeholder": "Seleccione uno de los 20 perfiles de proyecto..."
+                },
+                {
+                  "id": "input_project_name",
+                  "type": "InputText",
+                  "label": "Nombre de la Ficha Técnica / Proyecto",
+                  "placeholder": "Ej: Construcción Modular Saneamiento Veredal"
+                },
+                {
+                  "id": "switch_cobertura_colombia",
+                  "type": "ToggleSwitch",
+                  "label": "Priorizar Cobertura Colombia",
+                  "default_state": true,
+                  "meta": "Aplica normatividad MGA y Plan Nacional de Desarrollo"
+                },
+                {
+                  "id": "combobox_pais_internacional",
+                  "type": "ComboBox",
+                  "label": "País de Destino Internacional",
+                  "placeholder": "Ej: Alemania, Venezuela, Global...",
+                  "conditional_visible": "switch_cobertura_colombia === false"
+                },
+                {
+                  "id": "btn_guardar_perfil",
+                  "type": "Button",
+                  "label": "Guardar Ficha en Favoritos",
+                  "styles": {
+                    "background": "#2563EB",
+                    "color": "#FFFFFF",
+                    "borderRadius": "6px",
+                    "padding": "10px 16px"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "contenedor_b_conexiones",
+              "name": "Contenedor B — Búnker de Conexiones (APIs)",
+              "type": "Card",
+              "styles": {
+                "background": "#FFFFFF",
+                "borderRadius": "12px",
+                "padding": "24px",
+                "boxShadow": "0 4px 6px -1px rgba(0,0,0,0.05)",
+                "border": "1px solid #F1F5F9"
+              },
+              "elements": [
+                {
+                  "id": "input_oauth_google",
+                  "type": "InputPassword",
+                  "label": "Google Gemini API — OAuth2 Bearer Token",
+                  "placeholder": "Bearer eyJhbGciOi..."
+                },
+                {
+                  "id": "input_api_perplexity",
+                  "type": "InputPassword",
+                  "label": "Perplexity API — Engine Token (pplx-api)",
+                  "placeholder": "pplx-xxxxxxxxxxxxxxxxxxxxxxxx"
+                },
+                {
+                  "id": "status_indicator_box",
+                  "type": "StatusBox",
+                  "styles": {
+                    "background": "#F0FDF4",
+                    "padding": "12px",
+                    "borderRadius": "8px"
+                  },
+                  "properties": {
+                    "text": "Canal unificado bajo protocolo streamable-http listo."
+                  }
+                },
+                {
+                  "id": "btn_salvar_credenciales",
+                  "type": "Button",
+                  "label": "Actualizar Credenciales en Caliente",
+                  "styles": {
+                    "background": "#0F172A",
+                    "color": "#FFFFFF",
+                    "borderRadius": "6px",
+                    "padding": "10px 16px"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

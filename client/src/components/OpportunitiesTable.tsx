@@ -85,5 +85,7 @@ export function OpportunitiesTable({ predios, onSelect, selectedId, loading }: O
         </tbody>
       </table>
     </div>
-  );
+   );
 }
+
+export default OpportunitiesTable;

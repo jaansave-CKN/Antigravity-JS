@@ -51,6 +51,9 @@ interface RadarState {
   
   // Notificaciones
   notificacion: { tipo: 'success' | 'error' | 'info'; mensaje: string } | null;
+
+  // Timestamp de la última carga de datos
+  ultimaActualizacion: string | null;
 }
 
 type RadarAction =
@@ -72,7 +75,8 @@ type RadarAction =
   | { type: 'RESET_FILTROS' }
   | { type: 'SET_VISTA'; payload: RadarState['vistaActual'] }
   | { type: 'SET_NOTIFICACION'; payload: RadarState['notificacion'] }
-  | { type: 'SET_BLOQUEO_CONFIGURACION'; payload: boolean };
+  | { type: 'SET_BLOQUEO_CONFIGURACION'; payload: boolean }
+  | { type: 'SET_ULTIMA_ACTUALIZACION'; payload: string };
 
 const estadoInicial: RadarState = {
   organizacionActiva: null,
@@ -97,6 +101,7 @@ const estadoInicial: RadarState = {
   vistaActual: 'radargrid',
   necesitaConfiguracion: false,
   notificacion: null,
+  ultimaActualizacion: null,
 };
 
 function radarReducer(state: RadarState, action: RadarAction): RadarState {
@@ -179,7 +184,10 @@ function radarReducer(state: RadarState, action: RadarAction): RadarState {
     
     case 'SET_BLOQUEO_CONFIGURACION':
       return { ...state, necesitaConfiguracion: action.payload };
-    
+
+    case 'SET_ULTIMA_ACTUALIZACION':
+      return { ...state, ultimaActualizacion: action.payload };
+
     default:
       return state;
   }
@@ -269,6 +277,7 @@ export function RadarProvider({ children }: { children: React.ReactNode }) {
       const response = await apiService.getEntidadesIndexadas();
       if (response.success && response.data) {
         dispatch({ type: 'SET_ENTIDADES_INDEXADAS', payload: response.data });
+        dispatch({ type: 'SET_ULTIMA_ACTUALIZACION', payload: new Date().toLocaleString('es-CO') });
       }
     } catch (error) {
       console.error('Error cargando entidades:', error);

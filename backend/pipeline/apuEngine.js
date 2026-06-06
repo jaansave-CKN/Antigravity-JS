@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { logger } from '../utils/logger.js';
 
 const ALERTA_DESVIACION_PCT = 0.30;
 
@@ -47,7 +48,9 @@ export async function getRendimientoRef(clave, getRow = null) {
     try {
       const row = await getRow('SELECT valor, unidad FROM catalogo_rendimientos WHERE clave = ? AND activo = TRUE', [clave]);
       if (row) return { valor: Number(row.valor), unidad: row.unidad };
-    } catch {}
+    } catch (e) {
+      logger.warn('[APU] Fallo consultando catalogo_rendimientos — usando catálogo local', { clave, err: e.message });
+    }
   }
   const loc = RENDIMIENTOS_CATALOGO[clave];
   return loc ? { valor: loc.valor, unidad: loc.unidad } : null;
