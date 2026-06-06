@@ -1,6 +1,10 @@
 node_modules/
 dist/
+
+# Zero-Trust: bloqueo global de cualquier archivo de entorno (V9.0)
+*.env*
 .env
+.env.railway
 .env.production
 .env.local
 .mcp.json
@@ -46,3 +50,18 @@ server.err
 server.out
 *.bak
 *.log
+
+# Herramientas de desarrollo locales
+.kilo/
+.stitch/
+/data/
+/SIA_Radar/
+
+# Archivos de test y smoke local
+/tmp/svr*.log
+/tmp/smoke*.log
+/tmp/stitch*.txt
+
+# Credenciales MCP (contienen API keys — nunca versionar)
+.mcp.json
+config/.mcp.json
