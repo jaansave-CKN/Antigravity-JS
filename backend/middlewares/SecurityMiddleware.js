@@ -8,12 +8,18 @@
 import rateLimit from 'express-rate-limit';
 import { logger } from '../utils/logger.js';
 
+const getRateLimitKey = (req) => {
+  const ip = req.ip || req.socket?.remoteAddress;
+  return ip || 'unknown';
+};
+
 // ── Rate limiting estricto para rutas de autenticación ────────────────────────
 // Máx 5 intentos fallidos por IP cada 15 minutos
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
   skipSuccessfulRequests: true,
+  keyGenerator: getRateLimitKey,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) => {
@@ -30,6 +36,7 @@ export const authLimiter = rateLimit({
 export const trialLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 3,
+  keyGenerator: getRateLimitKey,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) => {
@@ -47,7 +54,7 @@ export const aiLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
   // req.userId puede no existir si el rate limiter corre antes de authenticateToken → usa IP
-  keyGenerator: (req) => req.userId || req.ip || 'anon',
+  keyGenerator: (req) => req.userId || getRateLimitKey(req) || 'anon',
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) => {
