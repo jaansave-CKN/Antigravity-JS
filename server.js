@@ -22,7 +22,7 @@ import {
 import { emailAdapter } from './backend/notifications/BrevoEmailAdapter.js';
 import { pool, getRow, getRows, getCount, runSql } from './backend/db.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
-import { isRevoked, checkSessionValid } from './backend/middlewares/tokenBlacklist.js';
+import { isRevoked, checkSessionValid, revokeToken, revokeUserSession } from './backend/middlewares/tokenBlacklist.js';
 import { seedPredios } from './backend/pipeline/seed-predios.js';
 import { rejectMaterialsInput } from './backend/middlewares/materialValidator.js';
 import { logger } from './backend/utils/logger.js';
@@ -46,6 +46,10 @@ import { registerFichaTecnicaRoutes }    from './backend/routes/fichaTecnica.rou
 const require = createRequire(import.meta.url);
 loadEnv();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ── Resiliencia del proceso — previene muertes silenciosas del servidor ────────
+process.on('uncaughtException', (err) => console.error('[Fatal] Uncaught Exception:', err));
+process.on('unhandledRejection', (reason) => console.error('[Fatal] Unhandled Rejection:', reason));
 
 // ── Configuración y Seguridad ────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -71,6 +75,9 @@ function validateProductionEnv() {
     }
     if (JWT_SECRET.length < 32) {
       errors.push('JWT_SECRET demasiado corto (<32 chars). Genera uno seguro con: openssl rand -hex 32');
+    }
+    if (!process.env.ENCRYPTION_KEY) {
+      errors.push('ENCRYPTION_KEY no configurada — requerida en producción para el cifrado de credenciales de usuario. Configura en el dashboard de despliegue.');
     }
     const frontendUrl = process.env.FRONTEND_URL || '';
     if (frontendUrl.includes('localhost') || frontendUrl.includes('127.0.0.1')) {
@@ -104,7 +111,14 @@ validateProductionEnv();
 // ── Utilidades ───────────────────────────────────────────────────────────────
 function verifyToken(token) {
   try { return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }); }
-  catch { return null; }
+  catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      logger.info('[auth] Token expirado', { exp: err.expiredAt });
+    } else {
+      logger.warn('[auth] Token inválido', { reason: err.message });
+    }
+    return null;
+  }
 }
 
 async function authenticateToken(req, res, next) {
@@ -548,6 +562,41 @@ async function initDb() {
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
 
+  // Tabla canónica de proyectos V8.0 (Formulador — multi-tenant, bilingüe)
+  await runSql(`CREATE TABLE IF NOT EXISTS projects (
+    id                TEXT        PRIMARY KEY,
+    tenant_id         TEXT        NOT NULL,
+    name              TEXT        NOT NULL DEFAULT '',
+    status            TEXT        NOT NULL DEFAULT 'draft'
+      CHECK(status IN ('draft','formulado','needs_human_review','archived')),
+    translation_status TEXT       DEFAULT 'pending'
+      CHECK(translation_status IN ('pending','processing','completed','failed','skipped')),
+    payload_es        TEXT        DEFAULT NULL,
+    payload_en        TEXT        DEFAULT NULL,
+    ficha_tecnica     TEXT        DEFAULT '{}',
+    embedding         TEXT        DEFAULT NULL,
+    embedding_vec     vector(768) DEFAULT NULL,
+    audit_cycles      INTEGER     DEFAULT 0,
+    audit_approved_at TIMESTAMP   DEFAULT NULL,
+    created_at        TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP   DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Tabla inmutable de hashes de versiones (ledger V8.0)
+  await runSql(`CREATE TABLE IF NOT EXISTS project_version_hashes (
+    id                TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    project_id        TEXT        NOT NULL,
+    tenant_id         TEXT        NOT NULL,
+    hash_value        TEXT        NOT NULL,
+    payload_size_bytes INTEGER    DEFAULT 0,
+    project_status    TEXT        DEFAULT 'unknown',
+    triggered_by      TEXT        DEFAULT 'api_request',
+    created_by_user   TEXT        DEFAULT NULL,
+    metadata          TEXT        DEFAULT '{}',
+    created_at        TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id, hash_value)
+  )`);
+
   // Tabla de auditoría de errores críticos del sistema
   await runSql(`CREATE TABLE IF NOT EXISTS system_logs (
     id TEXT PRIMARY KEY,
@@ -639,7 +688,9 @@ async function start() {
     // V8.0: auto-crear suscripción free al registrarse
     try {
       await runSql(
-        'INSERT OR IGNORE INTO user_subscriptions (id, user_id, plan, access_radar, access_formulador) VALUES (?, ?, ?, ?, ?)',
+        `INSERT INTO user_subscriptions (id, user_id, plan, access_radar, access_formulador)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (user_id) DO NOTHING`,
         [crypto.randomUUID(), id, 'free', 0, 0]
       );
     } catch {}
@@ -714,11 +765,23 @@ async function start() {
     });
   }));
 
-   // POST /api/auth/logout
-   app.post('/api/auth/logout', authenticateToken, tryCatch(async (req, res) => {
-     await runSql('UPDATE usuarios SET tokens_invalidated_at = NOW() WHERE id = ?', [req.userId]);
-     res.json({ success: true, message: 'Sesión cerrada' });
-   }));
+  // POST /api/auth/logout
+  // Triple garantía: blacklist individual + bulk timestamp + Clear-Site-Data al navegador
+  app.post('/api/auth/logout', authenticateToken, tryCatch(async (req, res) => {
+    const rawToken = req.headers.authorization.slice(7);
+
+    // 1. Revocar token individual: añade al revokedSet (memoria O(1)) y persiste en BD
+    const payload = jwt.decode(rawToken);
+    const expiresAt = payload?.exp ?? Math.floor(Date.now() / 1000) + 3600;
+    await revokeToken(rawToken, req.userId, expiresAt, runSql);
+
+    // 2. Invalidación bulk: todos los tokens con iat < NOW() quedan rechazados
+    await revokeUserSession(req.userId, runSql);
+
+    // 3. Purgar datos de sesión en el navegador (cookies HTTP-only + Web Storage)
+    res.setHeader('Clear-Site-Data', '"cookies", "storage"');
+    res.json({ success: true, message: 'Sesión cerrada' });
+  }));
 
    // POST /api/report-error
    app.post('/api/report-error', authenticateToken, tryCatch(async (req, res) => {

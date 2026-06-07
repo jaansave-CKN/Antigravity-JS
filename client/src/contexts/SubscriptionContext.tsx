@@ -47,7 +47,12 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           access_formulador:  !!data.data.access_formulador,
         });
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof TypeError) {
+        console.warn('[Subscription] Red no disponible — usando plan por defecto', (err as Error).message);
+      } else {
+        console.error('[Subscription] Error inesperado al cargar suscripción', err);
+      }
       setSubscription(DEFAULT_SUB);
     } finally {
       setLoading(false);

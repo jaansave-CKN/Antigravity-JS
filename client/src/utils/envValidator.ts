@@ -11,13 +11,9 @@ export function validateEnv(): void {
 
   if (missingCritical.length > 0) {
     const message = `[envValidator] Variables de entorno CRÍTICAS faltantes: ${missingCritical.join(', ')}. ` +
-      'La aplicación no puede arrancar de forma segura sin ellas.';
-
-    if (env.PROD) {
-      console.error(message);
-      throw new Error(message);
-    }
-    console.warn(`${message} (modo desarrollo — continúa con valores por defecto)`);
+      'La aplicación no puede arrancar de forma segura sin ellas. Configura el archivo .env.local.';
+    console.error(message);
+    throw new Error(message);
   }
 
   const missingRecommended = RECOMMENDED_KEYS.filter((key) => !env[key]);

@@ -15,6 +15,11 @@
  *   const result = await http.post<{ success: boolean }>('/api/auth/login', { email, password });
  */
 
+// ── Selector de fuente de autenticación ──────────────────────────────────────
+// true  → prioriza Supabase Auth session
+// false → usa solo JWT local del servidor RadarFondos
+export const USE_SUPABASE_AUTH = !!import.meta.env.VITE_SUPABASE_URL;
+
 // ── Base URL (nunca localhost hardcodeado) ────────────────────────────────────
 const RAW_API_URL = import.meta.env.VITE_API_URL as string | undefined;
 export const API_BASE = RAW_API_URL
@@ -44,15 +49,17 @@ export class ApiError extends Error {
 
 // ── Resolución del token de autorización ─────────────────────────────────────
 function getAuthToken(): string | null {
-  // 1. Token de Supabase Auth (sesión activa — prioridad más alta)
-  try {
-    const supabaseKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
-    if (supabaseKey) {
-      const session = JSON.parse(localStorage.getItem(supabaseKey) || '{}');
-      const accessToken = session?.access_token || session?.currentSession?.access_token;
-      if (accessToken) return accessToken;
-    }
-  } catch { /* ignore */ }
+  // 1. Token de Supabase Auth (solo si VITE_SUPABASE_URL está configurada)
+  if (USE_SUPABASE_AUTH) {
+    try {
+      const supabaseKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+      if (supabaseKey) {
+        const session = JSON.parse(localStorage.getItem(supabaseKey) || '{}');
+        const accessToken = session?.access_token || session?.currentSession?.access_token;
+        if (accessToken) return accessToken;
+      }
+    } catch { /* ignore */ }
+  }
 
   // 2. JWT local del servidor RadarFondos
   const localToken = localStorage.getItem('auth_token');

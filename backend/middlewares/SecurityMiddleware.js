@@ -46,8 +46,8 @@ export const trialLimiter = rateLimit({
 export const aiLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
-  // Los endpoints IA requieren authenticateToken, por lo que req.userId siempre existe
-  keyGenerator: (req) => req.userId || 'anon',
+  // req.userId puede no existir si el rate limiter corre antes de authenticateToken → usa IP
+  keyGenerator: (req) => req.userId || req.ip || 'anon',
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) => {
@@ -68,7 +68,7 @@ export function sanitizeInput(value) {
     .replace(/javascript:/gi, '')
     .replace(/on\w+\s*=/gi, '')
     .replace(/--/g, '')
-    .replace(/[`;]/g, '')
+    .replace(/[;]/g, '')
     .replace(/\x00/g, '')
     .trim()
     .slice(0, 512);

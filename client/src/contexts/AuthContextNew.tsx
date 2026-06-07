@@ -71,7 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     verifyTokenWithBackend(storedToken);
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // mount-once: verifyTokenWithBackend estabilizado con useCallback, no cambia entre renders
 
   function clearSession() {
     localStorage.removeItem('auth_token');
@@ -89,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u);
   }
 
-  async function verifyTokenWithBackend(storedToken: string) {
+  const verifyTokenWithBackend = useCallback(async (storedToken: string) => { // eslint-disable-line react-hooks/exhaustive-deps
     try {
       const response = await fetch(`${API_BASE}/auth/verify`, {
         headers: { Authorization: `Bearer ${storedToken}` },
@@ -141,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     finally { setLoading(false); }
-  }
+  }, []); // useCallback con deps vacías: solo usa setters de estado (referencia estable garantizada por React)
 
   async function checkCredentials(t: string) {
     const controller = new AbortController();
@@ -249,14 +250,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── logout ─────────────────────────────────────────────────────────────────
   async function logout() {
+    // 1. Notificar al servidor ANTES de limpiar el estado local, para que
+    //    pueda revocar el token y responder con Clear-Site-Data
     if (token && token !== 'demo-mode-token') {
       try {
         await fetch(`${API_BASE}/auth/logout`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
+          credentials: 'include',  // incluye cookies HTTP-only si las hay
         });
-      } catch {}
+      } catch { /* red caída — la sesión del cliente se limpia de todas formas */ }
     }
+
+    // 2. Limpieza selectiva de localStorage (solo claves de sesión conocidas)
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_user');
+    localStorage.removeItem('trial_token');
+    localStorage.removeItem('trial_user');
+
+    // 3. Purgar sessionStorage completo (trial tokens volátiles + cualquier dato de sesión)
+    sessionStorage.clear();
+
+    // 4. Sincronizar estado React
     clearSession();
   }
 

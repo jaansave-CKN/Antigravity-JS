@@ -44,6 +44,7 @@ function sumEquipos(eqs = [], cantidad, rend) {
 }
 
 export async function getRendimientoRef(clave, getRow = null) {
+  if (!clave) throw new Error('APU_RENDIMIENTO_CLAVE_REQUIRED');
   if (getRow) {
     try {
       const row = await getRow('SELECT valor, unidad FROM catalogo_rendimientos WHERE clave = ? AND activo = TRUE', [clave]);

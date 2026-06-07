@@ -9,10 +9,12 @@ export default function MapContainer() {
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
+    let mounted = true;
 
     const initMap = async () => {
       const L = await import('leaflet');
-      
+      if (!mounted) return; // componente desmontado durante el import asíncrono
+
       delete (L.Icon.Default.prototype as any)._getIconUrl;
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
@@ -21,7 +23,7 @@ export default function MapContainer() {
       });
 
       const map = L.map(mapRef.current!).setView([mapCenter.lat, mapCenter.lng], 13);
-      
+
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap'
       }).addTo(map);
@@ -36,12 +38,14 @@ export default function MapContainer() {
         });
       });
 
+      if (!mounted) { map.remove(); return; } // desmontado durante el setup del mapa
       mapInstanceRef.current = map;
     };
 
     initMap();
 
     return () => {
+      mounted = false;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;

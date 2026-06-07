@@ -13,7 +13,7 @@ import CredentialsPage from './pages/CredentialsPage';
 import TopNavBar from './components/TopNavBar';
 import AuthGuard from './components/AuthGuard';
 import { FavoritosProvider } from './contexts/FavoritosContext';
-import SelectionPage from './pages/SelectionPage';
+import LandingPage from './pages/LandingPage';
 import { PestañaRadar } from './features/radar-fondos/presentation/components/PestañaRadar';
 import FormuladorPage from './pages/FormuladorPage';
 import PlanesPage from './pages/PlanesPage';
@@ -215,9 +215,19 @@ function AppLayout() {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 function AppRoutes() {
-  const { isAuthenticated, hasCredentials, token } = useAuth();
+  const { isAuthenticated, hasCredentials, token, logout } = useAuth();
+  const location = useLocation();
   const toHome = <Navigate to="/" replace />;
   const realAuth = isAuthenticated && token !== 'demo-mode-token';
+
+  // Guard: si React cree que hay sesión pero localStorage ya no tiene token
+  // (purgado por otra pestaña, extensión o Clear-Site-Data), forzar logout local.
+  React.useEffect(() => {
+    if (isAuthenticated && token !== 'demo-mode-token' && !localStorage.getItem('auth_token')) {
+      logout();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
 
   return (
     <Routes>
@@ -226,9 +236,10 @@ function AppRoutes() {
       <Route path="/register"       element={realAuth ? toHome : <RegisterPage />} />
       <Route path="/reset-password" element={<PasswordResetPage />} />
 
-      {/* ── Acceso libre: Inicio + Radar (demo mode automático, sin gate) ──── */}
+      {/* ── LANDING (ruta pública, sin gate de plan) ─────────────────────── */}
+      {/* Única ruta sin requisito de auth — todo lo demás pasa por AuthContextNew */}
       <Route element={<AuthGuard mode="public-demo"><AppLayout /></AuthGuard>}>
-        <Route path="/"            element={<SelectionPage />} />
+        <Route path="/"            element={<LandingPage />} />
         <Route path="/radar"       element={<PestañaRadar />} />
         <Route path="/directorio"  element={<DirectoryPage />} />
         <Route path="/planes"      element={<PlanesPage />} />
