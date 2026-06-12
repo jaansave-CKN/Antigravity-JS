@@ -221,10 +221,11 @@ export default function LoginPage() {
 
   function handleDemo() {
     enterDemoMode();
-    // /formulador requiere auth real — demo sólo accede a radar
-    const target = (from && from !== '/' && from !== '/login' && from !== '/formulador')
-      ? from
-      : '/radar';
+    // Pilar B: rutas que pertenecen al módulo Formulador IA
+    const PILAR_B = ['/formulador', '/entrada', '/modulo10', '/anexos', '/logistica', '/dialectica', '/ficha'];
+    const isFromB = from && PILAR_B.some(p => from.startsWith(p));
+    // Respetar el pilar de origen: B → /formulador, A o sin origen → /radar
+    const target = isFromB ? '/formulador' : '/radar';
     navigate(target, { replace: true });
   }
 

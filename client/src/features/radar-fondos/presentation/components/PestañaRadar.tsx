@@ -55,6 +55,7 @@ interface Convocatoria {
   score: number;
   esFavorito: boolean;
   link: string;
+  linkIsPortal: boolean;
 }
 
 function mapConvocatoria(c: Record<string, any>): Convocatoria {
@@ -75,9 +76,10 @@ function mapConvocatoria(c: Record<string, any>): Convocatoria {
     tipo:        TIPOS[Math.abs(hash) % 4],
     monto,
     fechaLimite: c.fecha_limite || undefined,
-    score:       Math.round(Number(c.score_probabilidad) || 70),
-    esFavorito:  false,
-    link:        c.url_convocatoria || c.url_fuente || '#',
+    score:        Math.round(Number(c.score_probabilidad) || 70),
+    esFavorito:   false,
+    link:         c.url_convocatoria || c.url_fuente || '#',
+    linkIsPortal: !c.url_convocatoria && !!c.url_fuente,
   };
 }
 
@@ -95,6 +97,7 @@ function mapGeminiResult(r: GeminiResult, i: number): Convocatoria {
     score:       88,
     esFavorito:  false,
     link:        r.enlace_oficial || '#',
+    linkIsPortal: false,
   };
 }
 
@@ -301,15 +304,17 @@ function ConvocatoriaCard({ c, onToggleFav }: { c: Convocatoria; onToggleFav: (i
         {c.link && c.link !== '#' && (
           <a
             href={c.link} target="_blank" rel="noopener noreferrer"
+            title={c.linkIsPortal ? 'Ver portal de convocatorias del donante' : 'Ver convocatoria específica'}
             style={{
               fontSize: 9, fontWeight: 700, fontFamily: T.mono, letterSpacing: '0.05em',
               padding: '3px 9px', borderRadius: 5,
-              background: T.inputBg, color: T.primary,
+              background: T.inputBg,
+              color: c.linkIsPortal ? T.textMuted : T.primary,
               border: `1px solid ${T.inputBorder}`,
               textDecoration: 'none', whiteSpace: 'nowrap',
               transition: 'border-color 0.15s, color 0.15s',
             }}
-          >Ver →</a>
+          >{c.linkIsPortal ? 'Ver portal →' : 'Ver →'}</a>
         )}
       </div>
     </article>
@@ -358,6 +363,8 @@ function readEngineFlags() {
   }
 }
 
+const PAGE_SIZE = 50;
+
 // ── Main component ─────────────────────────────────────────────────────────────
 export const PestañaRadar: React.FC = () => {
   const [data,       setData]       = useState<Convocatoria[]>([]);
@@ -368,6 +375,7 @@ export const PestañaRadar: React.FC = () => {
   const [noKeywords,  setNoKeywords] = useState(false);
   const [scanError,   setScanError]  = useState<string | null>(null);
   const [rawResults,  setRawResults] = useState<GeminiResult[]>([]);
+  const [page,        setPage]       = useState(1);
 
   // Sincronizar flags de motores cuando PanelPage los cambia
   useEffect(() => {
@@ -411,6 +419,7 @@ export const PestañaRadar: React.FC = () => {
       setRawResults(resultados);
       setTotal(resultados.length);
       setData(resultados.map(mapGeminiResult));
+      setPage(1);
 
     } catch (err: any) {
       const msg: string = err?.message ?? 'Error desconocido en el barrido.';
@@ -438,6 +447,14 @@ export const PestañaRadar: React.FC = () => {
   const toggleFav = useCallback((id: string) =>
     setData(prev => prev.map(c => c.id === id ? { ...c, esFavorito: !c.esFavorito } : c)),
   []);
+
+  // Paginación — fuente activa: rawResults (Gemini) o data (BD)
+  const activeList   = rawResults.length > 0 ? rawResults : data;
+  const totalPages   = Math.max(1, Math.ceil(activeList.length / PAGE_SIZE));
+  const safePage     = Math.min(page, totalPages);
+  const pageStart    = (safePage - 1) * PAGE_SIZE;
+  const pageRaw      = rawResults.length > 0 ? rawResults.slice(pageStart, pageStart + PAGE_SIZE) : [];
+  const pageData     = rawResults.length > 0 ? [] : data.slice(pageStart, pageStart + PAGE_SIZE);
 
   return (
     <div style={{
@@ -537,7 +554,7 @@ export const PestañaRadar: React.FC = () => {
       {/* ── Counter ── */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
         <span style={{ fontSize: 10, color: T.textMuted, fontFamily: T.mono }}>
-          {busy ? '…' : `${data.length} resultado${data.length !== 1 ? 's' : ''} indexados`}
+          {busy ? '…' : `${activeList.length} resultado${activeList.length !== 1 ? 's' : ''} indexados`}
         </span>
       </div>
 
@@ -548,9 +565,9 @@ export const PestañaRadar: React.FC = () => {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {busy ? (
           <EmptyState scanning={true} query="" />
-        ) : rawResults.length > 0 ? (
+        ) : pageRaw.length > 0 ? (
           /* ── Renderizado directo de GeminiResult (sin mapeo) ── */
-          rawResults.map((r, i) => (
+          pageRaw.map((r, i) => (
             <article key={i} style={{
               background: T.surface, border: `1px solid ${T.surfaceBorder}`,
               borderLeft: `3px solid ${T.cyan}`, borderRadius: 10,
@@ -593,22 +610,66 @@ export const PestañaRadar: React.FC = () => {
               )}
             </article>
           ))
-        ) : data.length > 0 ? (
-          data.map(c => <ConvocatoriaCard key={c.id} c={c} onToggleFav={toggleFav} />)
+        ) : pageData.length > 0 ? (
+          pageData.map(c => <ConvocatoriaCard key={c.id} c={c} onToggleFav={toggleFav} />)
         ) : (
           <EmptyState scanning={false} query="" />
         )}
       </div>
 
-      {/* ── Footer ── */}
-      {!busy && (rawResults.length > 0 || data.length > 0) && (
+      {/* ── Pagination bar ── */}
+      {!busy && activeList.length > 0 && (
         <div style={{
-          marginTop: 20, padding: '10px 0',
+          marginTop: 20,
           borderTop: `1px solid ${T.divider}`,
-          display: 'flex', justifyContent: 'center',
+          paddingTop: 14,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
         }}>
+          {/* Left: total */}
           <span style={{ fontSize: 9, color: T.textMuted, fontFamily: T.mono, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            {rawResults.length > 0 ? rawResults.length : data.length} fondos · RadarFondos 360 · Gemini 1.5 Flash · Search Grounding
+            {activeList.length} fondos · RadarFondos 360 · Gemini 1.5 Flash
+          </span>
+
+          {/* Center: prev / page indicator / next */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                style={{
+                  background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                  borderRadius: 6, color: safePage <= 1 ? T.textMuted : T.primary,
+                  fontFamily: T.mono, fontSize: 11, fontWeight: 700,
+                  padding: '5px 12px', cursor: safePage <= 1 ? 'not-allowed' : 'pointer',
+                  transition: 'border-color 0.15s, color 0.15s',
+                }}
+              >← Anterior</button>
+
+              <span style={{
+                fontFamily: T.mono, fontSize: 11, color: T.textPrimary,
+                background: T.surface, border: `1px solid ${T.surfaceBorder}`,
+                borderRadius: 6, padding: '5px 14px', whiteSpace: 'nowrap',
+              }}>
+                Página <strong style={{ color: T.primary }}>{safePage}</strong> de <strong>{totalPages}</strong>
+              </span>
+
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                style={{
+                  background: T.inputBg, border: `1px solid ${T.inputBorder}`,
+                  borderRadius: 6, color: safePage >= totalPages ? T.textMuted : T.primary,
+                  fontFamily: T.mono, fontSize: 11, fontWeight: 700,
+                  padding: '5px 12px', cursor: safePage >= totalPages ? 'not-allowed' : 'pointer',
+                  transition: 'border-color 0.15s, color 0.15s',
+                }}
+              >Siguiente →</button>
+            </div>
+          )}
+
+          {/* Right: range indicator */}
+          <span style={{ fontSize: 9, color: T.textMuted, fontFamily: T.mono, letterSpacing: '0.04em' }}>
+            {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, activeList.length)} de {activeList.length}
           </span>
         </div>
       )}

@@ -55,8 +55,12 @@ export function radarCacheMiddleware(req, res, next) {
   const key    = buildKey(req);
   const cached = cache.get(key);
 
+  // Bypass si el cliente pide datos frescos
+  const clientCC = req.headers['cache-control'] || '';
+  const bypassCache = clientCC.includes('no-cache') || clientCC.includes('no-store');
+
   // HIT: entrada válida en caché
-  if (cached && !isExpired(cached)) {
+  if (!bypassCache && cached && !isExpired(cached)) {
     res.setHeader('X-Cache',         'HIT');
     res.setHeader('X-Cache-Age',     String(Math.round((Date.now() - cached.timestamp) / 1000)));
     res.setHeader('Cache-Control',   `public, max-age=${Math.round((CACHE_TTL_MS - (Date.now() - cached.timestamp)) / 1000)}`);
@@ -67,8 +71,9 @@ export function radarCacheMiddleware(req, res, next) {
   const originalJson = res.json.bind(res);
 
   res.json = function (data) {
-    // Solo cachear respuestas exitosas
-    if (data && data.success !== false) {
+    // Solo cachear respuestas exitosas con al menos 1 resultado
+    const hasData = Array.isArray(data?.data) ? data.data.length > 0 : data?.data != null;
+    if (data && data.success !== false && hasData) {
       if (cache.size >= MAX_ENTRIES) {
         evictExpired();
         if (cache.size >= MAX_ENTRIES) evictOldest();

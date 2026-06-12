@@ -5,21 +5,21 @@
 
 import cron from 'node-cron';
 import { ingestConvocatorias } from './DataIngestor.js';
+import { ingestDirectorioConvocatorias } from './EntityScraper.js';
 import { runSql } from '../db.js';
 import { runS3Backup } from '../scripts/s3backup.js';
 
 async function logCrawl(tipo, resultado) {
   try {
+    // R1: RASTREO_DIRECTORIO | R2: fuentes web externas al directorio
+    const fuente = tipo.includes('rastreo1') ? 'RASTREO_DIRECTORIO' : 'RASTREO_WEB_EXTERNO';
+    const insertadas = tipo.includes('rastreo1')
+      ? (resultado?.inserted || 0)
+      : (resultado?.totalInserted || 0);
     await runSql(
       `INSERT INTO crawl_log (tipo, fuente, subvenciones_encontradas, resultado, ejecutada_en)
        VALUES (?,?,?,?,?)`,
-      [
-        tipo,
-        'SECOP_II + WORLD_BANK',
-        (resultado?.secop?.inserted || 0) + (resultado?.worldbank?.inserted || 0),
-        JSON.stringify(resultado),
-        new Date().toISOString(),
-      ]
+      [tipo, fuente, insertadas, JSON.stringify(resultado), new Date().toISOString()]
     );
   } catch (e) {
     console.error('[Cron] Error al registrar log:', e.message);
@@ -27,23 +27,35 @@ async function logCrawl(tipo, resultado) {
 }
 
 export function startScheduler() {
-  // Ejecución diaria a las 02:00 AM (zona Colombia UTC-5 → 07:00 UTC)
+  // Rastreo 2: Fuentes web EXTERNAS al Directorio — 02:00 AM COT
   cron.schedule('0 2 * * *', async () => {
-    console.log('[Cron] ▶ Iniciando ingesta programada de convocatorias...');
+    console.log('[Cron] ▶ Rastreo 2: fuentes web externas al Directorio...');
     const start = Date.now();
     try {
       const result = await ingestConvocatorias();
       const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-      const total = (result?.secop?.inserted || 0) + (result?.worldbank?.inserted || 0);
-      console.log(`[Cron] ✓ Ingesta completada en ${elapsed}s · ${total} convocatorias nuevas`);
-      await logCrawl('cron_diario', result);
+      console.log(`[Cron] ✓ Rastreo 2 completado en ${elapsed}s · ${result.totalInserted} nuevas`);
+      await logCrawl('cron_rastreo2', result);
     } catch (err) {
-      console.error('[Cron] ✗ Error en ingesta programada:', err.message);
-      await logCrawl('cron_diario_error', { error: err.message });
+      console.error('[Cron] ✗ Error Rastreo 2:', err.message);
+      await logCrawl('cron_rastreo2_error', { error: err.message });
     }
-  }, {
-    timezone: 'America/Bogota',
-  });
+  }, { timezone: 'America/Bogota' });
+
+  // Rastreo 1: Directorio de entidades — 02:30 AM COT (30 min después del Rastreo 2)
+  cron.schedule('30 2 * * *', async () => {
+    console.log('[Cron] ▶ Rastreo 1: entidades del Directorio...');
+    const start = Date.now();
+    try {
+      const result = await ingestDirectorioConvocatorias();
+      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+      console.log(`[Cron] ✓ Rastreo 1 completado en ${elapsed}s · ${result.inserted} nuevas de ${result.entidades_procesadas} entidades`);
+      await logCrawl('cron_rastreo1', result);
+    } catch (err) {
+      console.error('[Cron] ✗ Error Rastreo 1:', err.message);
+      await logCrawl('cron_rastreo1_error', { error: err.message });
+    }
+  }, { timezone: 'America/Bogota' });
 
   // Backup S3 diario a las 03:00 AM COT (una hora después de la ingesta)
   cron.schedule('0 3 * * *', async () => {
@@ -57,7 +69,7 @@ export function startScheduler() {
     }
   }, { timezone: 'America/Bogota' });
 
-  console.log('[Cron] Programador activo · Ingesta 02:00 + Backup S3 03:00 COT');
+  console.log('[Cron] Programador activo · Rastreo2 02:00 · Rastreo1 02:30 · Backup S3 03:00 COT');
 }
 
 // Permite ejecutar la ingesta manualmente (llamado desde /api/convocatorias/refresh)

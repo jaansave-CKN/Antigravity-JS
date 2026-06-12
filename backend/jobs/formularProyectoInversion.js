@@ -1,20 +1,37 @@
 /**
  * formularProyectoInversion.js — Inngest Job: Pipeline completo de Formulación
  *
- * 7 pasos asíncronos tolerantes a fallos:
- *   1. load-project       — Carga datos del proyecto desde PostgreSQL
- *   2. generate-embedding — Gemini text-embedding-004 (768 dims)
- *   3. persist-embedding  — Guarda vector en columna embedding_vec
- *   4. run-ai-modules     — Árbol de objetivos, marco normativo, match score
- *   5. consolidate-es     — Consolida payload_es (JSONB español canónico)
- *   6. translate-en       — Gemini traduce payload_es → payload_en (inglés técnico)
- *   7. persist-bilingual  — Guarda payload_es + payload_en en projects + notifica
+ * 9 pasos asíncronos tolerantes a fallos (v3 — Fase 1: Contención Transaccional):
+ *   1.  load-project                   — Carga datos del proyecto desde PostgreSQL
+ *   1b. resolve-api-key                — Recupera API key cifrada desde CredentialVault
+ *   2.  generate-embedding             — Gemini text-embedding-004 (768 dims)
+ *   3.  persist-embedding              — Guarda vector en columna embedding_vec
+ *   3b. semantic-cache-lookup          — Cosine similarity >98% → omite llamadas IA
+ *   4.  run-module-*                   — Árbol de objetivos, marco normativo, match score
+ *   5.  consolidate-es                 — Consolida payload_es (JSONB español canónico)
+ *   5b. generate-bibliographic-citation — Auditoría de citas con Gemini 1.5 Pro
+ *   6.  translate-en                   — Gemini traduce payload_es → payload_en
+ *   7.  persist-bilingual              — withTenant + RLS sin service_role key + email
+ *
+ * CAMBIOS DE SEGURIDAD v3:
+ *   [SEC-1] supabaseAdmin ELIMINADO de persist-bilingual.
+ *           Reemplazado por withTenant() que inyecta app.org_id → RLS activo.
+ *           WHERE tenant_id=$5 como segunda barrera (defensa en profundidad).
+ *
+ *   [SEC-2] Semantic Cache pgvector: si embedding_vec actual tiene similitud coseno
+ *           >98% con un proyecto previo del mismo tenant → retorna payload cacheado
+ *           sin invocar ninguna llamada a Gemini. Fallo de cache NUNCA aborta el pipeline.
+ *
+ *   [SEC-3] API keys resueltas desde CredentialVault (AES-256-GCM) con fallback a
+ *           event.data.googleApiKey para migración gradual. Después de migración
+ *           completa, eliminar la referencia a event.data.googleApiKey.
  *
  * Traducción especializada:
  *   Rol: "Experto bilingüe en proyectos de inversión pública, metodologías
  *   MGA/DNP y fondos de cooperación internacional (Kusanone/JICA, BID, PNUD)"
  */
 
+import crypto from 'node:crypto';
 import { inngest } from './inngest.instance.js';
 
 // ── Prompt de traducción técnica de alta fidelidad ───────────────────────────
@@ -60,7 +77,7 @@ export const formularProyectoInversion = inngest.createFunction(
       proyectoId,
       tenantId,
       userId,
-      googleApiKey,
+      googleApiKey,   // [SEC-3] retrocompat — vault tiene prioridad si key está almacenada
       modulos = ['arbol_objetivos', 'marco_normativo', 'match_score'],
     } = event.data;
 
@@ -77,6 +94,25 @@ export const formularProyectoInversion = inngest.createFunction(
       return row;
     });
 
+    // ── Paso 1b: [SEC-3] Resolver API key desde CredentialVault ──────────────
+    // La key se cifra en BD con AES-256-GCM; se descifra solo en memoria aquí.
+    // Fallback a event.data para migración gradual — remover tras migración total.
+    const resolvedApiKey = await step.run('resolve-api-key', async () => {
+      const { retrieveApiKey } = await import('../services/credentialVault.js');
+      const { getRow } = await import('../config/database.config.js');
+      try {
+        const vaultKey = await retrieveApiKey(userId, 'google_api_key', { getRow });
+        if (vaultKey) {
+          logger.info('[formulator] API key resuelta desde CredentialVault');
+          return vaultKey;
+        }
+      } catch (vaultErr) {
+        logger.warn(`[formulator] Vault lookup fallido — usando event key: ${vaultErr.message}`);
+      }
+      // Fallback de migración (event.data.googleApiKey)
+      return googleApiKey || null;
+    });
+
     // ── Paso 2: Generar embedding ─────────────────────────────────────────────
     const embedding = await step.run('generate-embedding', async () => {
       const { textToEmbedding, fichaTecnicaToText } = await import('../services/embeddingsService.js');
@@ -84,7 +120,7 @@ export const formularProyectoInversion = inngest.createFunction(
         ? JSON.parse(project.ficha_tecnica || '{}')
         : (project.ficha_tecnica || {});
       const text = fichaTecnicaToText(ficha);
-      return textToEmbedding(text, googleApiKey);
+      return textToEmbedding(text, resolvedApiKey);
     });
 
     // ── Paso 3: Persistir embedding ───────────────────────────────────────────
@@ -99,11 +135,60 @@ export const formularProyectoInversion = inngest.createFunction(
       );
     });
 
-    // ── Paso 4: Ejecutar módulos IA ───────────────────────────────────────────
+    // ── Paso 3b: [SEC-2] Semantic Cache pgvector ──────────────────────────────
+    // Compara el embedding actual con el histórico del mismo tenant.
+    // Umbral: similitud coseno > 0.98 (distancia coseno pgvector < 0.02).
+    // Si hay hit: los pasos 4-6 retornan el payload cacheado sin llamar a Gemini.
+    // INVARIANTE: fallo de cache NUNCA interrumpe el pipeline — siempre retorna null.
+    const cacheHit = await step.run('semantic-cache-lookup', async () => {
+      if (!embedding || !Array.isArray(embedding)) return null;
+
+      const { getRow } = await import('../config/database.config.js');
+      try {
+        const vecStr = JSON.stringify(embedding);
+        const row = await getRow(
+          `SELECT payload_es, payload_en
+           FROM   projects
+           WHERE  tenant_id     = $1
+             AND  id            != $2
+             AND  embedding_vec IS NOT NULL
+             AND  payload_es    IS NOT NULL
+             AND  status        IN ('formulado', 'in_review')
+             AND  1 - (embedding_vec <=> $3::vector) > 0.98
+           ORDER  BY embedding_vec <=> $3::vector ASC
+           LIMIT  1`,
+          [tenantId, proyectoId, vecStr]
+        );
+
+        if (!row) return null;
+
+        logger.info('[formulator] Semantic cache HIT — similitud >98% — omitiendo pipeline IA');
+        return {
+          payload_es: typeof row.payload_es === 'string'
+            ? JSON.parse(row.payload_es)
+            : row.payload_es,
+          payload_en: typeof row.payload_en === 'string'
+            ? JSON.parse(row.payload_en)
+            : row.payload_en,
+        };
+      } catch (err) {
+        // Cache failure = soft error: loguear y continuar con pipeline completo
+        logger.warn(`[formulator] semantic-cache-lookup error (continuando): ${err.message}`);
+        return null;
+      }
+    });
+
+    // ── Paso 4: Ejecutar módulos IA (cache-aware) ─────────────────────────────
     const moduleResults = {};
 
     for (const modulo of modulos) {
       moduleResults[modulo] = await step.run(`run-module-${modulo}`, async () => {
+        // [SEC-2] Cache hit: short-circuit sin llamar a Gemini
+        if (cacheHit) {
+          logger.info(`[formulator] Cache hit — skipping module ${modulo}`);
+          return { cache_hit: true, skipped: true, module: modulo };
+        }
+
         logger.info(`[formulator] Running module: ${modulo}`);
 
         switch (modulo) {
@@ -114,7 +199,7 @@ export const formularProyectoInversion = inngest.createFunction(
               ? JSON.parse(project.ficha_tecnica || '{}')
               : (project.ficha_tecnica || {});
             const objetivo = ficha?.objetivo_central || ficha?.nombre || project.name || 'Investment project';
-            const nodes = await generarArbolConIA(objetivo, googleApiKey);
+            const nodes = await generarArbolConIA(objetivo, resolvedApiKey);
 
             for (const node of nodes) {
               await runSql(
@@ -155,8 +240,18 @@ export const formularProyectoInversion = inngest.createFunction(
       });
     }
 
-    // ── Paso 5: Consolidar payload_es (árbol canónico en español) ────────────
+    // ── Paso 5: Consolidar payload_es (cache-aware) ───────────────────────────
     const payloadEs = await step.run('consolidate-es', async () => {
+      // [SEC-2] Cache hit: retornar payload cacheado con metadata de trazabilidad
+      if (cacheHit) {
+        logger.info('[formulator] Cache hit — usando payload_es cacheado');
+        return {
+          ...cacheHit.payload_es,
+          cache_hit:          true,
+          cache_retrieved_at: new Date().toISOString(),
+        };
+      }
+
       const { getRows } = await import('../config/database.config.js');
       const ficha = typeof project.ficha_tecnica === 'string'
         ? JSON.parse(project.ficha_tecnica || '{}')
@@ -207,19 +302,29 @@ export const formularProyectoInversion = inngest.createFunction(
       };
     });
 
-    // ── Paso 5b: Citas bibliográficas y normativas obligatorias (V8.0) ────────
+    // ── Paso 5b: Citas bibliográficas y normativas (cache-aware) ─────────────
     const citationResult = await step.run('generate-bibliographic-citation', async () => {
+      // [SEC-2] Cache hit: reutilizar compliance_score del payload previo
+      if (cacheHit) {
+        logger.info('[formulator] Cache hit — omitiendo generación de citas');
+        return {
+          status:             'cache_hit',
+          compliance_score:   cacheHit.payload_es?.bibliographic_citations?.compliance_score ?? null,
+          needs_human_review: false,
+        };
+      }
+
       logger.info(`[formulator] Generando citas bibliográficas — proyecto ${proyectoId}`);
 
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
       const { runSql } = await import('../config/database.config.js');
 
-      if (!googleApiKey && !process.env.GOOGLE_API_KEY) {
+      if (!resolvedApiKey) {
         logger.warn('[formulator] No Google API key — skipping citation generation');
         return { status: 'skipped', reason: 'no_api_key', needs_human_review: true };
       }
 
-      const genAI = new GoogleGenerativeAI(googleApiKey || process.env.GOOGLE_API_KEY);
+      const genAI = new GoogleGenerativeAI(resolvedApiKey);
       const model = genAI.getGenerativeModel({
         model: 'gemini-1.5-pro',
         generationConfig: {
@@ -265,8 +370,6 @@ REGLAS ABSOLUTAS:
           || (citationData.compliance_score ?? 100) < 70
           || (citationData.uncited_claims ?? 0) > 0;
 
-        // Persistir resultado de auditoría de citas en el proyecto
-        const newStatus = needsHumanReview ? 'needs_human_review' : null;
         await runSql(
           `UPDATE projects
            SET audit_result      = $1,
@@ -294,7 +397,7 @@ REGLAS ABSOLUTAS:
         };
       } catch (err) {
         logger.error('[formulator] Citation generation FAILED:', err.message);
-        // Fallar abiertamente — marcar el proyecto para revisión humana
+        // Marcar para revisión humana sin relanzar — evita reintento innecesario de Inngest
         await runSql(
           `UPDATE projects SET status = 'needs_human_review', updated_at = NOW() WHERE id = $1`,
           [proyectoId]
@@ -310,17 +413,26 @@ REGLAS ABSOLUTAS:
     // Agregar resultado de citas al payload_es para trazabilidad completa
     payloadEs.bibliographic_citations = citationResult;
 
-    // ── Paso 6: Traducción técnica de alta fidelidad ES → EN ─────────────────
+    // ── Paso 6: Traducción técnica de alta fidelidad ES → EN (cache-aware) ────
     const payloadEn = await step.run('translate-en', async () => {
+      // [SEC-2] Cache hit: retornar payload_en cacheado con flag de trazabilidad
+      if (cacheHit) {
+        logger.info('[formulator] Cache hit — usando payload_en cacheado');
+        return {
+          ...cacheHit.payload_en,
+          cache_hit: true,
+        };
+      }
+
       const { runSql } = await import('../config/database.config.js');
 
-      // Marcar como 'processing' antes de invocar la IA — previene lecturas de estado vacío
+      // Marcar como 'processing' antes de invocar la IA
       await runSql(
         "UPDATE projects SET translation_status = 'processing', updated_at = NOW() WHERE id = $1",
         [proyectoId]
       ).catch(e => logger.warn('[formulator] Could not set processing status:', e.message));
 
-      if (!googleApiKey && !process.env.GOOGLE_API_KEY) {
+      if (!resolvedApiKey) {
         logger.warn('[formulator] No Google API key — skipping EN translation');
         await runSql(
           "UPDATE projects SET translation_status = 'skipped' WHERE id = $1",
@@ -330,7 +442,7 @@ REGLAS ABSOLUTAS:
       }
 
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
-      const genAI = new GoogleGenerativeAI(googleApiKey || process.env.GOOGLE_API_KEY);
+      const genAI = new GoogleGenerativeAI(resolvedApiKey);
 
       const model = genAI.getGenerativeModel({
         model: 'gemini-1.5-pro',
@@ -343,7 +455,7 @@ REGLAS ABSOLUTAS:
 
       const contentToTranslate = {
         proyecto: {
-          nombre:       payloadEs.proyecto.nombre,
+          nombre:        payloadEs.proyecto.nombre,
           ficha_tecnica: payloadEs.proyecto.ficha_tecnica,
         },
         arbol_objetivos: payloadEs.arbol_objetivos,
@@ -355,11 +467,10 @@ REGLAS ABSOLUTAS:
       const prompt = `${TRANSLATION_SYSTEM_PROMPT}\n\nJSON to translate:\n${JSON.stringify(contentToTranslate, null, 2)}`;
 
       try {
-        const result       = await model.generateContent(prompt);
+        const result         = await model.generateContent(prompt);
         const translatedText = result.response.text();
-        const translated   = JSON.parse(translatedText);
+        const translated     = JSON.parse(translatedText);
 
-        // Actualizar estado a 'completed' en BD
         await runSql(
           "UPDATE projects SET translation_status = 'completed', updated_at = NOW() WHERE id = $1",
           [proyectoId]
@@ -384,13 +495,10 @@ REGLAS ABSOLUTAS:
         };
       } catch (err) {
         logger.error('[formulator] Translation FAILED:', err.message);
-
-        // Estado 'failed' en BD — el cliente React mostrará fallback a payload_es
         await runSql(
           "UPDATE projects SET translation_status = 'failed', updated_at = NOW() WHERE id = $1",
           [proyectoId]
         ).catch(() => {});
-
         return {
           version:            '2.0',
           language:           'en',
@@ -400,35 +508,21 @@ REGLAS ABSOLUTAS:
       }
     });
 
-    // ── Paso 7: Persistencia bifásica — supabaseAdmin bypasea RLS ────────────
+    // ── Paso 7: [SEC-1] Persistencia con RLS — supabaseAdmin ELIMINADO ────────
+    // withTenant() inyecta app.org_id en la transacción PostgreSQL.
+    // El RLS de Supabase usa current_setting('app.org_id') para filtrar filas.
+    // WHERE id=$4 AND tenant_id=$5 actúa como segunda barrera (defensa en profundidad).
+    // persistence_method='rls_pool' en el retorno es el audit trail que confirma
+    // que service_role key NO fue usada en esta operación.
     await step.run('persist-bilingual', async () => {
-      const { supabaseAdmin }  = await import('../config/supabase.config.js');
-      const { runSql, getRow } = await import('../config/database.config.js');
+      const { withTenant, getRow } = await import('../config/database.config.js');
       const { sendEmail, APP_URL } = await import('../config/resend.config.js');
 
       const finalStatus = payloadEn.translation_status || 'failed';
 
-      if (supabaseAdmin) {
-        // ── Ruta Supabase: service_role key bypasea RLS — no requiere contexto de tenant ──
-        const { error } = await supabaseAdmin
-          .from('projects')
-          .update({
-            payload_es:         payloadEs,
-            payload_en:         payloadEn,
-            translation_status: finalStatus,
-            status:             'in_review',
-            updated_at:         new Date().toISOString(),
-          })
-          .eq('id', proyectoId)
-          .eq('tenant_id', tenantId);
-
-        if (error) {
-          logger.error('[formulator] supabaseAdmin update error:', error.message);
-          throw new Error(`persist-bilingual failed: ${error.message}`);
-        }
-      } else {
-        // ── Ruta fallback: pg Pool directo (Neon / Railway sin Supabase) ──────────
-        await runSql(
+      // Persistencia dentro de transacción con contexto RLS inyectado
+      await withTenant(tenantId, async (client) => {
+        await client.query(
           `UPDATE projects
            SET payload_es         = $1,
                payload_en         = $2,
@@ -436,15 +530,19 @@ REGLAS ABSOLUTAS:
                status             = 'in_review',
                updated_at         = NOW()
            WHERE id = $4 AND tenant_id = $5`,
-          [JSON.stringify(payloadEs), JSON.stringify(payloadEn), finalStatus, proyectoId, tenantId]
+          [
+            JSON.stringify(payloadEs),
+            JSON.stringify(payloadEn),
+            finalStatus,
+            proyectoId,
+            tenantId,
+          ]
         );
-      }
+      });
 
       logger.info(`[formulator] Bilingual payloads persisted — project ${proyectoId} status=${finalStatus}`);
 
-      logger.info(`[formulator] Bilingual payloads saved — project ${proyectoId}`);
-
-      // Notificar al usuario
+      // Email de notificación fuera de transacción (fire-and-forget)
       const user = await getRow(
         'SELECT email, full_name AS nombre FROM users WHERE id = $1',
         [userId]
@@ -470,9 +568,10 @@ REGLAS ABSOLUTAS:
       }
 
       return {
-        payload_es_nodes:        (payloadEs.arbol_objetivos || []).length,
-        payload_en_status:       payloadEn.translation_status,
-        project_status_updated:  'in_review',
+        payload_es_nodes:       (payloadEs.arbol_objetivos || []).length,
+        payload_en_status:      payloadEn.translation_status,
+        project_status_updated: 'in_review',
+        persistence_method:     'rls_pool',  // audit trail: service_role NO usado
       };
     });
 
@@ -482,6 +581,7 @@ REGLAS ABSOLUTAS:
       proyectoId,
       tenantId,
       status:       'formulado',
+      cache_hit:    !!cacheHit,
       payload_es:   { nodes: (payloadEs.arbol_objetivos || []).length },
       payload_en:   { status: payloadEn.translation_status },
       completed_at: new Date().toISOString(),

@@ -14,7 +14,6 @@ import TopNavBar from './components/TopNavBar';
 import AuthGuard from './components/AuthGuard';
 import { FavoritosProvider } from './contexts/FavoritosContext';
 import LandingPage from './pages/LandingPage';
-import { PestañaRadar } from './features/radar-fondos/presentation/components/PestañaRadar';
 import FormuladorPage from './pages/FormuladorPage';
 import PlanesPage from './pages/PlanesPage';
 import FavoritosPage from './pages/FavoritosPage';
@@ -27,6 +26,12 @@ import { LanguageProvider } from './contexts/LanguageContext';
 import { RadarProvider } from './contexts/RadarContext';
 import { SearchProvider } from './contexts/SearchContext';
 import FormulacionViewer from './components/FormulacionViewer';
+import LogisticaPage from './pages/LogisticaPage';
+import RadarCalcoPage from './pages/RadarCalcoPage';
+import CalendarioPage from './pages/CalendarioPage';
+import EntradaPage from './pages/EntradaPage';
+import DialecticaPage from './pages/DialecticaPage';
+import PopulationObjectiveWizard from './components/formulador/PopulationObjectiveWizard';
 import './index.css';
 import 'leaflet/dist/leaflet.css';
 import { validateEnv } from './utils/envValidator';
@@ -167,6 +172,9 @@ function OAuthParamCleaner() {
 function PlanGate({ require: plan, children }: { require: 'radar' | 'formulador'; children: React.ReactNode }) {
   const { subscription, loading } = useSubscription();
 
+  // En modo desarrollo, todos los módulos son accesibles sin suscripción
+  if (import.meta.env.DEV) return <>{children}</>;
+
   if (loading) {
     return (
       <div style={{
@@ -240,7 +248,7 @@ function AppRoutes() {
       {/* Única ruta sin requisito de auth — todo lo demás pasa por AuthContextNew */}
       <Route element={<AuthGuard mode="public-demo"><AppLayout /></AuthGuard>}>
         <Route path="/"            element={<LandingPage />} />
-        <Route path="/radar"       element={<PestañaRadar />} />
+        <Route path="/radar"       element={<RadarCalcoPage />} />
         <Route path="/directorio"  element={<DirectoryPage />} />
         <Route path="/planes"      element={<PlanesPage />} />
         <Route path="/panel"       element={<PanelPage />} />
@@ -253,51 +261,27 @@ function AppRoutes() {
           <PlanGate require="radar"><FavoritosPage /></PlanGate>
         } />
         <Route path="/calendario" element={
-          <PlanGate require="radar">
-            <ModuloProximamente
-              nombre="Calendario de Favoritos"
-              icono="◈"
-              descripcion="Control de fechas críticas y vencimientos de convocatorias guardadas. Alertas automáticas configurables."
-            />
-          </PlanGate>
+          <PlanGate require="radar"><CalendarioPage /></PlanGate>
         } />
       </Route>
 
-      {/* ── Pilar B (Ejecución IA 7.0) — auth + plan formulador ──────────── */}
-      {/* Token sin access_formulador → interceptado → /planes               */}
-      <Route element={<AuthGuard mode="require-auth"><AppLayout /></AuthGuard>}>
+      {/* ── Pilar B (Ejecución IA 7.0) — acceso libre con demo mode ─────── */}
+      {/* PlanGate en DEV es bypass; en prod requiere access_formulador      */}
+      <Route element={<AuthGuard mode="public-demo"><AppLayout /></AuthGuard>}>
         <Route path="/formulador" element={
           <PlanGate require="formulador"><FormuladorPage /></PlanGate>
         } />
         <Route path="/entrada"    element={
-          <PlanGate require="formulador">
-            <ModuloProximamente
-              nombre="Entrada · M1–M9"
-              icono="①"
-              descripcion="Punto de acceso centralizado al pipeline de formulación. Gestiona los módulos M1 a M9 del Formulador AI."
-            />
-          </PlanGate>
+          <PlanGate require="formulador"><EntradaPage /></PlanGate>
         } />
         <Route path="/anexos"     element={
           <PlanGate require="formulador"><AnexosPage /></PlanGate>
         } />
         <Route path="/logistica"  element={
-          <PlanGate require="formulador">
-            <ModuloProximamente
-              nombre="Logística"
-              icono="◧"
-              descripcion="Gestión operativa y seguimiento de la ejecución del proyecto. Cronograma, APU y cadena logística."
-            />
-          </PlanGate>
+          <PlanGate require="formulador"><LogisticaPage /></PlanGate>
         } />
         <Route path="/dialectica" element={
-          <PlanGate require="formulador">
-            <ModuloProximamente
-              nombre="Dialéctica"
-              icono="◨"
-              descripcion="Motor de argumentación y validación técnica. Contraste de hipótesis con el marco normativo vigente."
-            />
-          </PlanGate>
+          <PlanGate require="formulador"><DialecticaPage /></PlanGate>
         } />
         <Route path="/ficha"      element={
           <PlanGate require="formulador">
@@ -325,6 +309,25 @@ function AppRoutes() {
         <Route path="/dev/dashboard"   element={<RadarProvider><Dashboard /></RadarProvider>} />
         <Route path="/dev/formulacion" element={<FormulacionViewer />} />
       </Route>
+
+      {/* ── Rutas de preview DEV — sin auth (solo import.meta.env.DEV) ────── */}
+      {import.meta.env.DEV && (
+        <Route element={<AppLayout />}>
+          <Route path="/dev/logistica"  element={<LogisticaPage />} />
+          <Route path="/dev/calendario" element={<CalendarioPage />} />
+          <Route path="/dev/entrada"    element={<EntradaPage />} />
+          <Route path="/dev/dialectica" element={<DialecticaPage />} />
+          <Route path="/dev/anexos"     element={<AnexosPage />} />
+          <Route path="/dev/poblacion"  element={
+            <div style={{ padding: 0 }}>
+              <PopulationObjectiveWizard
+                onSubmit={(data) => { console.log('[DEV] poblacion payload:', data); alert(JSON.stringify(data.poblacion, null, 2)); }}
+                onBack={() => window.history.back()}
+              />
+            </div>
+          } />
+        </Route>
+      )}
 
       {/* Catch-all → home */}
       <Route path="*" element={<Navigate to="/" replace />} />

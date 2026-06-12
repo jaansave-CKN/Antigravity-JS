@@ -36,9 +36,9 @@ const isLocalhost = process.env.DATABASE_URL?.match(/localhost|127\.0\.0\.1/);
 export const pool = new Pool({
   connectionString: buildConnectionString(process.env.DATABASE_URL),
   ssl: isLocalhost ? false : { rejectUnauthorized: false },
-  // Fuerza schema public en Supabase (el user 'postgres' puede tener $user=postgres en search_path,
-  // haciendo que las tablas sin prefijo se creen/busquen en un schema diferente a public)
-  options: '-c search_path=public',
+  // Fuerza schema public en Supabase + lock_timeout global para evitar bloqueos
+  // en migraciones ALTER TABLE cuando la sesión anterior fue terminada abruptamente
+  options: '-c search_path=public -c lock_timeout=5000 -c statement_timeout=15000',
 
   // Pool sizing: max 20 para no saturar Supabase en tier base
   max: parseInt(process.env.PG_POOL_MAX || '20', 10),

@@ -21,8 +21,10 @@ RUN npm run build
 RUN mkdir -p /app/backend
 
 # ── Puerto y modo ─────────────────────────────────────────────────────────────
+# Railway asigna PORT dinámicamente. El default local es 3000.
 EXPOSE 3000
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    PORT=3000
 
 # ── Arranque ──────────────────────────────────────────────────────────────────
 CMD ["node", "server.js"]

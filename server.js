@@ -12,6 +12,7 @@ import rateLimit from 'express-rate-limit';
 import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter } from './backend/middlewares/SecurityMiddleware.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
 import { startScheduler, runManualIngest } from './backend/pipeline/CronScheduler.js';
+import { ingestDirectorioConvocatorias } from './backend/pipeline/EntityScraper.js';
 import { parseFileBuffer, importToDirectorio, importToConvocatorias } from './backend/pipeline/FileImporter.js';
 import { encryptKey, decryptKey } from './backend/pipeline/CryptoHelper.js';
 import {
@@ -42,6 +43,7 @@ import { registerConfigLogisticaRoutes } from './backend/routes/configLogistica.
 import { registerMarcoNormativoRoutes }  from './backend/routes/marcoNormativo.routes.js';
 import { registerComplianceRoutes }      from './backend/routes/compliance.routes.js';
 import { registerFichaTecnicaRoutes }    from './backend/routes/fichaTecnica.routes.js';
+import { registerScraperRoutes }         from './backend/routes/scraper.routes.js';
 
 const require = createRequire(import.meta.url);
 loadEnv();
@@ -375,6 +377,22 @@ async function initDb() {
   // Backfill: registros anteriores heredan user_id como org_id
   try { await runSql(`UPDATE proyectos SET org_id = user_id WHERE org_id = ''`); } catch {}
 
+  // Migraciones de integridad referencial Convocatorias ↔ Directorio
+  try { await runSql(`ALTER TABLE convocatorias ADD COLUMN entidad_id TEXT`); } catch {}
+  try { await runSql(`ALTER TABLE directorio_entidades ADD COLUMN status TEXT DEFAULT 'active'`); } catch {}
+  // Backfill: enlaza convocatorias existentes a entidades por nombre exacto del donante
+  try {
+    await runSql(`
+      UPDATE convocatorias SET entidad_id = (
+        SELECT id FROM directorio_entidades
+        WHERE LOWER(nombre) = LOWER(convocatorias.donante)
+           OR LOWER(sigla)  = LOWER(convocatorias.donante)
+        LIMIT 1
+      )
+      WHERE entidad_id IS NULL AND donante != ''
+    `);
+  } catch {}
+
   // M4 APU — catalogo de rendimientos (SQLite fallback)
   await runSql(`CREATE TABLE IF NOT EXISTS catalogo_rendimientos (
     id TEXT PRIMARY KEY, clave TEXT UNIQUE NOT NULL, descripcion TEXT NOT NULL,
@@ -513,6 +531,12 @@ async function initDb() {
     FOREIGN KEY (user_id) REFERENCES usuarios(id)
   )`);
 
+  // lock_timeout global: evita que ALTER TABLE / CREATE INDEX queden bloqueados
+  // por sesiones anteriores que no cerraron correctamente
+  if (process.env.DATABASE_URL) {
+    try { await runSql("SET lock_timeout = '5s'"); } catch {}
+  }
+
   // Migraciones idempotentes para columnas nuevas
   try { await runSql('ALTER TABLE proyectos ADD COLUMN embedding TEXT DEFAULT NULL'); } catch {}
   try { await runSql('ALTER TABLE convocatorias ADD COLUMN embedding TEXT DEFAULT NULL'); } catch {}
@@ -529,6 +553,8 @@ async function initDb() {
     try { await runSql("UPDATE proyectos     SET embedding_vec = embedding::vector WHERE embedding IS NOT NULL AND embedding_vec IS NULL"); } catch {}
     console.log('[DB] pgvector: columnas vector(768) e índices HNSW listos');
   }
+  // lock_timeout evita que las migraciones queden bloqueadas indefinidamente si hay locks activos
+  try { await runSql("SET lock_timeout = '3s'"); } catch {}
   try { await runSql("ALTER TABLE match_scores ADD COLUMN org_id TEXT DEFAULT ''"); } catch {}
   // Migración Google OAuth: columnas faltantes en user_credentials
   try { await runSql("ALTER TABLE user_credentials ADD COLUMN service TEXT DEFAULT 'api_key'"); } catch {}
@@ -619,6 +645,35 @@ async function start() {
   await initDb();
   await seedPredios();
   await seedDirectorio();
+
+  // Seed WePropel — idempotente (solo inserta si no existe)
+  try {
+    const existsWP = await getRow("SELECT id FROM directorio_entidades WHERE sigla = 'WePropel' AND deleted_at IS NULL");
+    if (!existsWP) {
+      const now = new Date().toISOString();
+      await runSql(
+        `INSERT INTO directorio_entidades
+         (id, nombre, sigla, tipo, pais, sitio_web, url_convocatorias,
+          telefono, email, alcance, validation_status, fuente, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          'seed-wepropel',
+          'WePropel',
+          'WePropel',
+          'ONG',
+          'Internacional',
+          'https://www.wepropel.org',
+          'https://www.wepropel.org/oportunidades',
+          '', '',
+          'Internacional',
+          'VALIDADO',
+          'seed',
+          now, now,
+        ]
+      );
+      console.log('[Seed] WePropel agregado al Directorio');
+    }
+  } catch (e) { console.warn('[Seed] WePropel:', e.message); }
 
   const app = express();
   app.use(helmet({ contentSecurityPolicy: false }));
@@ -891,16 +946,78 @@ async function start() {
 
   // GET /api/convocatorias
   app.get('/api/convocatorias', radarCacheMiddleware, tryCatch(async (req, res) => {
-    const { q, estado, sector, page = 1, limit = 50 } = req.query;
-    let sql = 'SELECT * FROM convocatorias WHERE deleted_at IS NULL';
+    const { q, estado, sector, pais, entidad_id, rastreo, page = 1, limit = 50 } = req.query;
+
+    // Construir cláusula WHERE compartida para datos y COUNT
+    let where = 'WHERE c.deleted_at IS NULL';
     const params = [];
-    if (q) { sql += ' AND (titulo LIKE ? OR donante LIKE ? OR descripcion LIKE ?)'; const like = `%${q}%`; params.push(like, like, like); }
-    if (estado && estado !== 'todos') { sql += ' AND estado = ?'; params.push(estado); }
-    if (sector && sector !== 'Todas') { sql += ' AND sectores LIKE ?'; params.push(`%${sector}%`); }
-    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(Number(limit), (Number(page) - 1) * Number(limit));
-    const rows = await getRows(sql, params);
-    res.json({ success: true, data: rows, page: Number(page), limit: Number(limit) });
+    if (rastreo === '1') { where += " AND c.fuente = 'RASTREO_DIRECTORIO'"; }
+    if (rastreo === '2') { where += " AND c.fuente = 'RASTREO_WEB_EXTERNO'"; }
+    if (q)          { where += ' AND (c.titulo ILIKE ? OR c.donante ILIKE ? OR c.descripcion ILIKE ?)'; const like = `%${q}%`; params.push(like, like, like); }
+    if (entidad_id) { where += ' AND c.entidad_id = ?'; params.push(entidad_id); }
+    // Siempre ocultar cerradas. Reglas:
+    //   · Con fecha_limite: solo si no ha vencido
+    //   · Sin fecha_limite: solo si fue ingresada en el último año (evita registros viejos sin fecha)
+    const hoy = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
+    const baseAbierta = ` AND c.estado = 'abierta' AND (
+      (COALESCE(c.fecha_limite,'') != '' AND c.fecha_limite >= '${hoy}')
+      OR
+      (COALESCE(c.fecha_limite,'') = '' AND c.created_at >= NOW() - INTERVAL '1 year')
+    )`;
+    if (estado === 'nueva') {
+      // Nueva = abierta + ingresada en los últimos 7 días
+      where += baseAbierta + ` AND c.created_at >= NOW() - INTERVAL '7 days'`;
+    } else {
+      // 'abierta', 'todos' o sin estado → todas las abiertas no vencidas
+      where += baseAbierta;
+    }
+    if (sector && sector !== 'Todos') {
+      // Acepta un valor único o lista separada por comas (multi-selección)
+      const sectorList = String(sector).split(',').map(s => s.trim()).filter(Boolean);
+      if (sectorList.length === 1) {
+        where += ' AND c.sectores ILIKE ?'; params.push(`%${sectorList[0]}%`);
+      } else if (sectorList.length > 1) {
+        where += ` AND (${sectorList.map(() => 'c.sectores ILIKE ?').join(' OR ')})`;
+        sectorList.forEach(s => params.push(`%${s}%`));
+      }
+    }
+    if (pais   && pais   !== 'Todos') { where += ' AND (c.paises_elegibles ILIKE ? OR de.pais ILIKE ?)'; params.push(`%${pais}%`, `%${pais}%`); }
+
+    // COUNT total sin LIMIT
+    const countSql = `SELECT COUNT(*) AS cnt FROM convocatorias c LEFT JOIN directorio_entidades de ON de.id = c.entidad_id ${where}`;
+    const totalRow = await getRow(countSql, params);
+    const total = Number(totalRow?.cnt ?? 0);
+
+    // Query de datos con ORDER + LIMIT + OFFSET
+    const dataSql = `SELECT c.*, de.nombre AS entidad_nombre, de.sigla AS entidad_sigla, de.tipo AS entidad_tipo, de.pais AS entidad_pais FROM convocatorias c LEFT JOIN directorio_entidades de ON de.id = c.entidad_id ${where} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`;
+    const dataParams = [...params, Number(limit), (Number(page) - 1) * Number(limit)];
+    const rows = await getRows(dataSql, dataParams);
+    res.json({ success: true, data: rows, total, page: Number(page), limit: Number(limit) });
+  }));
+
+  // GET /api/convocatorias/meta — valores distintos de pais y sector para filtros
+  app.get('/api/convocatorias/meta', tryCatch(async (req, res) => {
+    const sectoresRows = await getRows(
+      `SELECT DISTINCT sectores FROM convocatorias WHERE deleted_at IS NULL AND sectores != '[]' AND sectores != '' LIMIT 200`,
+      []
+    );
+    const paisesRows = await getRows(
+      `SELECT DISTINCT paises_elegibles FROM convocatorias WHERE deleted_at IS NULL AND paises_elegibles != '[]' AND paises_elegibles != '' LIMIT 200`,
+      []
+    );
+    const sectoresSet = new Set();
+    for (const r of sectoresRows) {
+      try { for (const s of JSON.parse(r.sectores)) sectoresSet.add(String(s).trim()); } catch {}
+    }
+    const paisesSet = new Set();
+    for (const r of paisesRows) {
+      try { for (const p of JSON.parse(r.paises_elegibles)) paisesSet.add(String(p).trim()); } catch {}
+    }
+    res.json({
+      success: true,
+      sectores: [...sectoresSet].filter(Boolean).sort(),
+      paises:   [...paisesSet].filter(Boolean).sort(),
+    });
   }));
 
   // GET /api/estadisticas
@@ -916,15 +1033,19 @@ async function start() {
   // DIRECTORIO / ENTIDADES
   // ════════════════════════════════════════════════════════════════════════════
 
-  // GET /api/entidades
+  // GET /api/entidades — incluye convocatorias_count por entidad
   app.get('/api/entidades', tryCatch(async (req, res) => {
     const { q, tipo, pais, page = 1, limit = 50 } = req.query;
-    let sql = 'SELECT * FROM directorio_entidades WHERE deleted_at IS NULL';
+    let sql = `SELECT de.*,
+      (SELECT COUNT(*) FROM convocatorias c
+       WHERE c.entidad_id = de.id AND c.deleted_at IS NULL) AS convocatorias_count
+      FROM directorio_entidades de
+      WHERE de.deleted_at IS NULL`;
     const params = [];
-    if (q) { sql += ' AND (nombre LIKE ? OR sigla LIKE ?)'; const like = `%${q}%`; params.push(like, like); }
-    if (tipo) { sql += ' AND tipo = ?'; params.push(tipo); }
-    if (pais) { sql += ' AND pais = ?'; params.push(pais); }
-    sql += ' ORDER BY nombre ASC LIMIT ? OFFSET ?';
+    if (q) { sql += ' AND (de.nombre LIKE ? OR de.sigla LIKE ?)'; const like = `%${q}%`; params.push(like, like); }
+    if (tipo) { sql += ' AND de.tipo = ?'; params.push(tipo); }
+    if (pais) { sql += ' AND de.pais = ?'; params.push(pais); }
+    sql += ' ORDER BY de.nombre ASC LIMIT ? OFFSET ?';
     params.push(Number(limit), (Number(page) - 1) * Number(limit));
     const rows = await getRows(sql, params);
     res.json({ success: true, data: rows });
@@ -938,6 +1059,56 @@ async function start() {
       [id]
     );
     res.json({ success: true });
+  }));
+
+  // GET /api/entidades/:id/convocatorias — convocatorias vinculadas a una entidad
+  app.get('/api/entidades/:id/convocatorias', tryCatch(async (req, res) => {
+    const { id } = req.params;
+    const { page = 1, limit = 50 } = req.query;
+    const rows = await getRows(
+      `SELECT c.*, de.nombre AS entidad_nombre, de.sigla AS entidad_sigla
+       FROM convocatorias c
+       LEFT JOIN directorio_entidades de ON de.id = c.entidad_id
+       WHERE c.entidad_id = ? AND c.deleted_at IS NULL
+       ORDER BY c.created_at DESC LIMIT ? OFFSET ?`,
+      [id, Number(limit), (Number(page) - 1) * Number(limit)]
+    );
+    const total = await getCount('SELECT COUNT(*) as cnt FROM convocatorias WHERE entidad_id = ? AND deleted_at IS NULL', [id]);
+    res.json({ success: true, data: rows, total });
+  }));
+
+  // POST /api/entidades/:id/rastrear — vincula convocatorias existentes y dispara ingesta (sin auth — ruta pública)
+  app.post('/api/entidades/:id/rastrear', tryCatch(async (req, res) => {
+    const { id } = req.params;
+    const entidad = await getRow('SELECT * FROM directorio_entidades WHERE id = ? AND deleted_at IS NULL', [id]);
+    if (!entidad) return res.status(404).json({ success: false, message: 'Entidad no encontrada' });
+
+    // Vincula convocatorias existentes sin entidad_id que coincidan por donante
+    let vinculadas = 0;
+    if (entidad.nombre) {
+      const r1 = await runSql(
+        `UPDATE convocatorias SET entidad_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE entidad_id IS NULL AND deleted_at IS NULL
+           AND (LOWER(donante) LIKE ? OR LOWER(donante) = LOWER(?))`,
+        [id, `%${entidad.nombre.toLowerCase()}%`, entidad.nombre]
+      );
+      vinculadas += r1?.changes || 0;
+    }
+    if (entidad.sigla) {
+      const r2 = await runSql(
+        `UPDATE convocatorias SET entidad_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE entidad_id IS NULL AND deleted_at IS NULL
+           AND LOWER(donante) = LOWER(?)`,
+        [id, entidad.sigla]
+      );
+      vinculadas += r2?.changes || 0;
+    }
+
+    // Dispara ingesta global en background (no bloquea)
+    runManualIngest().catch(e => console.error('[Rastrear] ingesta:', e.message));
+
+    const total = await getCount('SELECT COUNT(*) as cnt FROM convocatorias WHERE entidad_id = ? AND deleted_at IS NULL', [id]);
+    res.json({ success: true, message: 'Rastreo iniciado', entidad_id: id, convocatorias_count: total, nuevas_vinculadas: vinculadas });
   }));
 
   // PATCH /api/entidades/:id/status — activa o deshabilita una entidad
@@ -1065,7 +1236,17 @@ async function start() {
   }));
   app.post('/api/radar/start',   authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Scheduler de radar no implementado en esta versión.' }));
   app.post('/api/radar/stop',    authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Scheduler de radar no implementado en esta versión.' }));
-  app.post('/api/radar/trigger', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Trigger manual no implementado. Usa POST /api/scheduler/now.' }));
+  app.post('/api/radar/trigger', tryCatch(async (req, res) => {
+    runManualIngest().catch(e => console.error('[Radar/trigger]', e.message));
+    res.json({ success: true, message: 'Rastreo 2 iniciado — portales web externos al Directorio. Los resultados aparecerán en segundos.' });
+  }));
+
+  // Rastreo 1: escaneo de convocatorias desde cada entidad del Directorio
+  app.post('/api/radar/rastreo1', tryCatch(async (req, res) => {
+    ingestDirectorioConvocatorias().catch(e => console.error('[Radar/rastreo1]', e.message));
+    res.json({ success: true, message: 'Rastreo 1 iniciado — visitando entidades del Directorio. Los resultados aparecerán en segundos.' });
+  }));
+
   app.post('/api/radar/barrido', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Usa POST /api/radar/barrido-masivo con { texto } para búsqueda vectorial.' }));
   app.post('/api/radar/buscar-masivo', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
     const { texto, limit = 20, threshold = 0.30 } = req.body;
@@ -1144,7 +1325,7 @@ async function start() {
   app.post('/api/triggers/run-with-context', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Triggers contextuales no implementados.' }));
   app.post('/api/configuracion/guardar',    authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Configuración persistente no implementada.' }));
   app.post('/api/radar/barrido-masivo', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
-    const { texto, proyectoId, limit = 30, threshold = 0.25 } = req.body;
+    const { texto, proyectoId, limit = 50, threshold = 0.25 } = req.body;
     if (!texto?.trim() && !proyectoId) return res.status(400).json({ success: false, message: 'texto o proyectoId requerido' });
     let qVec;
     if (proyectoId) {
@@ -1158,7 +1339,7 @@ async function start() {
     }
     const vecStr = JSON.stringify(qVec);
     const usePg  = !!process.env.DATABASE_URL;
-    const lim    = Math.min(Number(limit) || 30, 100);
+    const lim    = Math.min(Number(limit) || 50, 500);
     const thr    = Number(threshold) || 0.25;
     let resultados = [];
     if (usePg) {
@@ -1305,6 +1486,9 @@ async function start() {
 
   // V8.0 — Formulador: M12 Ficha Técnica Maestra (Hash SHA-256)
   registerFichaTecnicaRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch });
+
+  // Scraping portales oficiales (Minciencias, etc.)
+  registerScraperRoutes(app, authenticateToken);
 
   // Proyectos CRUD con RLS por org_id
   registerProyectosRoutes(app, { authenticateToken, runSql, getRow, getRows });

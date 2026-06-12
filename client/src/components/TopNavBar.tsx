@@ -226,6 +226,10 @@ function Divider() {
   );
 }
 
+// ── Rutas de cada pilar ───────────────────────────────────────────────────────
+const PILAR_A_PATHS = ['/radar', '/panel', '/directorio', '/favoritos', '/calendario'];
+const PILAR_B_PATHS = ['/formulador', '/entrada', '/modulo10', '/anexos', '/logistica', '/dialectica', '/ficha'];
+
 // ── TOPNAVBAR PRINCIPAL ───────────────────────────────────────────────────────
 export default function TopNavBar() {
   const { token, user }                    = useAuth();
@@ -234,6 +238,20 @@ export default function TopNavBar() {
   const rootStatus = useRootStatus();
   const isLanding  = location.pathname === '/';
   const isAuth     = !!(user && user.role !== 'trial');
+  const isDemo     = token === 'demo-mode-token';
+
+  // Pilar que el usuario visita actualmente
+  const currentPilar: 'A' | 'B' | null =
+    PILAR_A_PATHS.some(p => location.pathname.startsWith(p)) ? 'A' :
+    PILAR_B_PATHS.some(p => location.pathname.startsWith(p)) ? 'B' : null;
+
+  // Pilar A bloqueado si: usuario tiene solo plan formulador, O demo en contexto B
+  const pilarALocked = (isAuth && !isDemo && hasFormulador && !hasRadar) ||
+                       (isDemo && currentPilar === 'B');
+
+  // Pilar B bloqueado si: usuario tiene solo plan radar, O demo en contexto A (no aplica en DEV)
+  const pilarBLocked = (!import.meta.env.DEV && isAuth && !isDemo && hasRadar && !hasFormulador) ||
+                       (!import.meta.env.DEV && isDemo && currentPilar === 'A');
 
   return (
     <>
@@ -284,6 +302,20 @@ export default function TopNavBar() {
             marginRight: 4, whiteSpace: 'nowrap',
           }}>A</span>
           {LEFT_LINKS.map(link => {
+            // Bloqueado a nivel de pilar (usuario en contexto B o solo tiene plan formulador)
+            if (pilarALocked) {
+              return (
+                <span key={link.to} title="Módulo A · Radar de Fondos — no activo en este contexto" style={{
+                  padding: '3px 9px', borderRadius: 3, fontSize: 9,
+                  fontFamily: "'JetBrains Mono', monospace", fontWeight: 600,
+                  letterSpacing: '0.06em', textTransform: 'uppercase' as const,
+                  color: '#1a3a50', cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: 4,
+                  userSelect: 'none' as const,
+                }}>
+                  <span style={{ fontSize: 8, opacity: 0.4 }}>⬡</span>{link.label}
+                </span>
+              );
+            }
             // Favoritos y Calendario requieren plan Radar además de auth
             const requiresPlan = link.to === '/favoritos' || link.to === '/calendario';
             const planLocked   = isAuth && link.requireAuth && requiresPlan && !hasRadar;
@@ -312,9 +344,22 @@ export default function TopNavBar() {
             marginRight: 4, whiteSpace: 'nowrap',
           }}>B</span>
           {RIGHT_LINKS.map(link => {
-            // Formulación AI tiene jerarquía visual máxima
-            const isMotor    = link.to === '/formulador';
-            const planLocked = isAuth && link.requireAuth && !hasFormulador;
+            const isMotor = link.to === '/formulador';
+            // Bloqueado a nivel de pilar (usuario en contexto A o solo tiene plan radar)
+            if (pilarBLocked) {
+              return (
+                <span key={link.to} title="Módulo B · Formulación IA — no activo en este contexto" style={{
+                  padding: '3px 9px', borderRadius: 3, fontSize: 9,
+                  fontFamily: "'JetBrains Mono', monospace", fontWeight: 600,
+                  letterSpacing: '0.06em', textTransform: 'uppercase' as const,
+                  color: '#2a1a4a', cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: 4,
+                  userSelect: 'none' as const,
+                }}>
+                  <span style={{ fontSize: 8, opacity: 0.4 }}>⬡</span>{link.label}
+                </span>
+              );
+            }
+            const planLocked = !import.meta.env.DEV && isAuth && link.requireAuth && !hasFormulador;
             return (
               <span key={link.to} style={isMotor ? { background: 'rgba(189,194,255,0.06)', borderRadius: 4, padding: '0 2px' } : undefined}>
                 <NavItem {...link} isAuthenticated={isAuth} planLocked={planLocked} />

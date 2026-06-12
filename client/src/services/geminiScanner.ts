@@ -18,7 +18,7 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ── Caché semántico — evita relanzar búsquedas idénticas en las últimas 12h ───
 // Latencia y costo cero para repeticiones (Map en memoria, vive con la pestaña).
-const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 const searchCache = new Map<string, { timestamp: number; data: GeminiResult[] }>();
 
 function getCached(key: string): GeminiResult[] | null {
@@ -52,6 +52,36 @@ async function withExponentialBackoff<T>(fn: () => Promise<T>): Promise<T> {
     }
   }
   throw lastErr;
+}
+
+// Patrones de URL que indican un directorio/listado — no una convocatoria específica
+const LISTING_URL_PATTERNS = [
+  /\/convocatorias?\/?(\?|$)/i,
+  /\/grants?\/?(\?|$)/i,
+  /\/funding\/?(\?|$)/i,
+  /\/fondos?\/?(\?|$)/i,
+  /\/oportunidades?\/?(\?|$)/i,
+  /\/opportunities?\/?(\?|$)/i,
+  /\/becas?\/?(\?|$)/i,
+  /\/calls?\/?(\?|$)/i,
+  /\/subvenciones?\/?(\?|$)/i,
+  /[?&](page|p|pagina)=\d+/i,
+];
+
+// Patrones de título que indican documentos/reportes institucionales, no convocatorias
+const DOC_TITLE_PATTERNS = [
+  /^resoluci[oó]n\b/i, /^decreto\b/i, /^circular\b/i,
+  /^informe\b/i, /^reporte\b/i, /^bolet[íi]n\b/i,
+  /^nota de prensa/i, /^comunicado\b/i, /^plan de\b/i,
+  /^documento\b/i, /^gu[íi]a de\b/i, /^manual de\b/i,
+];
+
+function isBadResult(r: GeminiResult): boolean {
+  if (!r.titulo || !r.enlace_oficial || r.enlace_oficial === '#') return true;
+  if (r.estado === 'Cerrada') return true;
+  if (LISTING_URL_PATTERNS.some(p => p.test(r.enlace_oficial))) return true;
+  if (DOC_TITLE_PATTERNS.some(p => p.test(r.titulo))) return true;
+  return false;
 }
 
 // Sanitización Extrema con Regex — elimina markdown y extrae el array JSON
@@ -118,7 +148,15 @@ export async function barridoMasivoLigero(sector: string, total: number = 50): P
   const results: GeminiResult[] = [];
 
   for (let i = 0; i < batches; i++) {
-    const prompt = `Busca ${batchSize} convocatorias de financiamiento actuales para Colombia en el sector "${sector}". Devuelve un array JSON donde cada elemento tenga exactamente estos campos: titulo, descripcion_corta, fuente, enlace_oficial, estado (uno de: "Abierta", "Próxima", "Cerrada").`;
+    const prompt = `Usa Google Search para encontrar ${batchSize} convocatorias de financiamiento ABIERTAS o PRÓXIMAS A ABRIR en Colombia o Latinoamérica${sector !== 'General' ? ` (sector: ${sector})` : ''}.
+
+REGLAS ESTRICTAS:
+1. Solo convocatorias que aceptan postulaciones AHORA o las abrirán pronto — NO convocatorias cerradas.
+2. "enlace_oficial" DEBE ser la URL DIRECTA de la página específica de esa convocatoria — NO un directorio tipo /convocatorias/, /grants/, /funding/, ni un artículo de noticias.
+3. EXCLUIR: artículos periodísticos, documentos de política, informes, resoluciones, decretos, listados de múltiples convocatorias.
+4. Cada elemento debe ser UNA CONVOCATORIA REAL con página de aterrizaje propia.
+
+Devuelve SOLO un array JSON válido. Cada objeto: titulo (nombre exacto), descripcion_corta (máx 120 chars: qué financia y para quién), fuente (organización convocante), enlace_oficial (URL directa de esa convocatoria específica), estado ("Abierta" o "Próxima").`;
 
     let raw = '';
     for (const modelo of MODELS) {
@@ -135,7 +173,14 @@ export async function barridoMasivoLigero(sector: string, total: number = 50): P
     try {
       const sanitized = sanitizeJSON(raw);
       const parsed = JSON.parse(sanitized) as GeminiResult[];
-      if (Array.isArray(parsed)) results.push(...parsed);
+      if (Array.isArray(parsed)) {
+        // Filtrar: solo convocatorias reales con URL específica, estado abierto/próximo
+        const valid = parsed.filter(r => !isBadResult(r));
+        results.push(...valid);
+        if (valid.length < parsed.length) {
+          console.log(`[geminiScanner] Filtradas ${parsed.length - valid.length} entradas (docs, directorios, cerradas)`);
+        }
+      }
     } catch (e) {
       console.warn('Error de parseo. Crudo recibido:', raw);
       captureError(e, { stage: 'parseo-respuesta-gemini', sector, raw: raw.slice(0, 500) });

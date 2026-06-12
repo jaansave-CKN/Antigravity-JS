@@ -1,5 +1,5 @@
-import AnexosView from '../components/AnexosView';
+import AnexosCalcoView from '../components/AnexosCalcoView';
 
 export default function AnexosPage() {
-  return <AnexosView />;
+  return <AnexosCalcoView />;
 }

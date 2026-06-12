@@ -1,31 +1,142 @@
-version: '3.8'
+# ═══════════════════════════════════════════════════════════════════════════════
+# RadarFondos 360 — Fase 3: Autonomía Institucional
+# docker-compose.yml — Orquestación local para desarrollo y staging
+#
+# Servicios:
+#   backend     Node.js monolito (server.js) — puerto 3000
+#   ai_service  Python FastAPI + LangGraph   — puerto 8100
+#   frontend    React/Vite (solo dev local)  — puerto 5173
+#
+# Arranque completo:
+#   docker compose up --build
+#
+# Solo backend + IA (sin frontend Vite):
+#   docker compose up --build backend ai_service
+#
+# Variables de entorno:
+#   Copia .env.example → .env y completa los valores.
+#   NUNCA uses SUPABASE_SERVICE_KEY en ningún servicio (RLS con withTenant).
+# ═══════════════════════════════════════════════════════════════════════════════
 
 services:
-  backend:
-    build: .
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend:/app/backend
-      - ./data:/app/data
-      - ./radar.db:/app/backend/radar.db
-    environment:
-      - PYTHONUNBUFFERED=1
-      - JWT_SECRET=radarfondos_jwt_secret_change_in_production
-    command: python -m uvicorn backend.server_fastapi:app --host 0.0.0.0 --port 8000
-    restart: unless-stopped
 
+  # ── AI Microservice (arranca primero — backend depende de su health) ─────────
+  ai_service:
+    build:
+      context: .
+      dockerfile: ai_service/Dockerfile
+    image: radarfondos-ai-service:latest
+    container_name: radarfondos_ai
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    environment:
+      # Gemini — usar variable de entorno, nunca valor hardcoded
+      GOOGLE_API_KEY:    ${GOOGLE_API_KEY}
+      # PostgreSQL (solo lectura, para benchmark regional)
+      # Usar URL sin sslmode= — asyncpg gestiona ssl directamente
+      DATABASE_URL:      ${DATABASE_URL}
+      # CORS — en producción, reemplazar * por la URL exacta del backend
+      ALLOWED_ORIGINS:   ${AI_ALLOWED_ORIGINS:-http://localhost:3000}
+      PYTHONUNBUFFERED:  "1"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout:  5s
+      retries:  3
+      start_period: 20s
+    networks:
+      - radarfondos_net
+    # Sin volúmenes: el microservicio es STATELESS por diseño.
+    # No monta ni escribe nada en disco.
+
+  # ── Node.js Backend ──────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: radarfondos-backend:latest
+    container_name: radarfondos_backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV:          production
+      PORT:              "3000"
+
+      # ── Supabase (NUNCA incluir SERVICE_KEY — usar RLS + withTenant) ─────────
+      SUPABASE_URL:      ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      # SUPABASE_SERVICE_KEY → PROHIBIDO. Ver backend/config/supabase.config.js
+
+      # ── Base de datos directa (pgvector) ─────────────────────────────────────
+      DATABASE_URL:      ${DATABASE_URL}
+
+      # ── Bóveda de Credenciales (AES-256-GCM) ─────────────────────────────────
+      ENCRYPTION_KEY:    ${ENCRYPTION_KEY}
+
+      # ── Auth ──────────────────────────────────────────────────────────────────
+      JWT_SECRET:        ${JWT_SECRET}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+
+      # ── AI Microservice URL ───────────────────────────────────────────────────
+      # Backend llama a este endpoint para ejecutar el pipeline LangGraph.
+      # En Railway/Render: reemplazar por la URL pública del ai_service.
+      AI_SERVICE_URL:    ${AI_SERVICE_URL:-http://ai_service:8100}
+
+      # ── Pagos ─────────────────────────────────────────────────────────────────
+      STRIPE_SECRET_KEY:        ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET:    ${STRIPE_WEBHOOK_SECRET}
+
+      # ── Email ─────────────────────────────────────────────────────────────────
+      RESEND_API_KEY:    ${RESEND_API_KEY}
+      APP_URL:           ${APP_URL:-http://localhost:3000}
+
+      # ── Inngest ───────────────────────────────────────────────────────────────
+      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
+      INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
+
+    depends_on:
+      ai_service:
+        condition: service_healthy   # espera que /health en 8100 responda OK
+    networks:
+      - radarfondos_net
+    volumes:
+      # Logs persistentes (opcional — Railway los expone via dashboard)
+      - backend_logs:/app/logs
+
+  # ── Frontend React/Vite — solo para desarrollo local ─────────────────────────
+  # En producción, Render sirve el build estático con Nginx (Dockerfile.frontend).
+  # Para staging en Railway: deshabilitar este servicio y usar el build de Nginx.
   frontend:
     image: node:20-alpine
+    container_name: radarfondos_frontend
+    profiles: ["dev"]       # solo arranca con: docker compose --profile dev up
+    restart: unless-stopped
     ports:
       - "5173:5173"
-    volumes:
-      - ./:/app
-      - /app/node_modules
     working_dir: /app
+    volumes:
+      - .:/app
+      - /app/node_modules   # anonymous volume para evitar sobreescribir node_modules del host
     environment:
-      - VITE_API_URL=http://localhost:8000/api
-    command: npm run dev -- --host
-    restart: unless-stopped
+      VITE_API_URL:  ${VITE_API_URL:-http://localhost:3000}
+      VITE_SUPABASE_URL:      ${SUPABASE_URL}
+      VITE_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+    command: npm run dev -- --host 0.0.0.0 --port 5173
     depends_on:
       - backend
+    networks:
+      - radarfondos_net
+
+# ── Red interna ───────────────────────────────────────────────────────────────
+# Los servicios se comunican por nombre de servicio (ai_service, backend).
+# Ningún secreto viaja fuera de esta red salvo por los puertos expuestos.
+networks:
+  radarfondos_net:
+    driver: bridge
+
+# ── Volúmenes ─────────────────────────────────────────────────────────────────
+volumes:
+  backend_logs:
+    driver: local

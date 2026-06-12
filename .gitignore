@@ -22,6 +22,9 @@ SIA_Radar/
 __pycache__/
 backend/__pycache__/
 
+# Claves privadas locales (nunca subir a git)
+claves_privadas.txt
+
 # Cloudflare Tunnel binary (large, platform-specific)
 cloudflared.exe
 tools/cloudflared.exe

@@ -280,7 +280,7 @@ export default function ImportPage() {
                     {
                       step: '01',
                       title: 'Obtener datos oficiales',
-                      desc: 'Descargue el archivo CSV o Excel directamente desde los portales de transparencia (datos.gov.co, cooperación internacional, SECOP II, etc.)',
+                      desc: 'Descargue el archivo CSV o Excel directamente desde los portales de fondos y cooperación internacional (Minciencias, APC-Colombia, Banco Mundial, etc.)',
                     },
                     {
                       step: '02',
@@ -317,11 +317,11 @@ export default function ImportPage() {
               </p>
               <div className="flex flex-col gap-xs">
                 {[
-                  { label: 'datos.gov.co',               desc: 'Portal de Datos Abiertos Colombia'     },
-                  { label: 'secop.gov.co',                desc: 'SECOP II · Contratación pública'       },
-                  { label: 'apccolombia.gov.co',          desc: 'Cooperación Internacional APC'         },
-                  { label: 'minciencias.gov.co',          desc: 'Convocatorias Ciencia y Tecnología'     },
-                  { label: 'projects.worldbank.org',      desc: 'Banco Mundial · Proyectos activos'     },
+                  { label: 'minciencias.gov.co',          desc: 'Convocatorias CTI — Ciencia y Tecnología'  },
+                  { label: 'apccolombia.gov.co',          desc: 'Cooperación Internacional APC-Colombia'    },
+                  { label: 'projects.worldbank.org',      desc: 'Banco Mundial · Proyectos activos'         },
+                  { label: 'procurement-notices.undp.org', desc: 'PNUD · Convocatorias de cooperación'      },
+                  { label: 'innpulsacolombia.com',        desc: 'Innpulsa · Fondos para emprendimiento'     },
                 ].map(({ label, desc }) => (
                   <div key={label} className="flex items-center gap-sm text-[12px] font-mono py-1 border-b border-[#f2f4f6] last:border-0">
                     <span className="w-1.5 h-1.5 rounded-full bg-secondary shrink-0" />

@@ -274,8 +274,8 @@ export default function FormuladorPage() {
   const completedSteps = STEPS.filter(s => isStepComplete(s.id, data)).map(s => s.id);
   const progress = Math.round((completedSteps.length / STEPS.length) * 100);
 
-  // ── Gate de suscripción: free sin trial → muro de upgrade ──────────────────
-  if (!isTrialMode && !hasFormulador) {
+  // ── Gate de suscripción: free sin trial → muro de upgrade (desactivado en DEV) ──
+  if (!import.meta.env.DEV && !isTrialMode && !hasFormulador) {
     return <FormuladorUpgradeWall />;
   }
 
