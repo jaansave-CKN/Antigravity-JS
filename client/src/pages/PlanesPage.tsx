@@ -80,7 +80,7 @@ export default function PlanesPage() {
       await activatePlan(planId);
       setExitoId(planId);
       setTimeout(() => {
-        if (planId === 'formulador' || planId === 'suite') navigate('/formulador');
+        if (planId === 'formulador' || planId === 'suite') navigate('/checklist');
         else navigate('/radar');
       }, 1400);
     } catch (e: any) {

@@ -1,0 +1,415 @@
+<!DOCTYPE html><html class="light" lang="es"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Radar Formulador 360 - Subvenciones Favoritas</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-container": "#4f5d71",
+                        "surface-container-lowest": "#ffffff",
+                        "secondary-fixed": "#dbe1ff",
+                        "on-error": "#ffffff",
+                        "tertiary-fixed-dim": "#b9c7df",
+                        "surface-container-highest": "#e0e3e5",
+                        "error-container": "#ffdad6",
+                        "on-primary-fixed-variant": "#0039b5",
+                        "surface-tint": "#2151da",
+                        "on-secondary-container": "#2f4686",
+                        "surface-variant": "#e0e3e5",
+                        "secondary-fixed-dim": "#b4c5ff",
+                        "on-primary-fixed": "#001551",
+                        "on-tertiary-fixed-variant": "#3a485b",
+                        "on-background": "#191c1e",
+                        "secondary": "#455b9d",
+                        "primary": "#0037b0",
+                        "primary-fixed": "#dce1ff",
+                        "on-primary": "#ffffff",
+                        "error": "#ba1a1a",
+                        "surface-container-high": "#e6e8ea",
+                        "surface-bright": "#f7f9fb",
+                        "on-secondary-fixed": "#00174b",
+                        "surface-dim": "#d8dadc",
+                        "on-error-container": "#93000a",
+                        "on-tertiary": "#ffffff",
+                        "background": "#f7f9fb",
+                        "surface": "#f7f9fb",
+                        "secondary-container": "#a0b6fe",
+                        "primary-fixed-dim": "#b7c4ff",
+                        "inverse-surface": "#2d3133",
+                        "tertiary-fixed": "#d5e3fc",
+                        "surface-container-low": "#f2f4f6",
+                        "outline-variant": "#c4c5d7",
+                        "inverse-primary": "#b7c4ff",
+                        "on-tertiary-fixed": "#0d1c2e",
+                        "on-surface-variant": "#434655",
+                        "tertiary": "#374559",
+                        "on-surface": "#191c1e",
+                        "outline": "#747686",
+                        "on-tertiary-container": "#c7d6ee",
+                        "on-secondary-fixed-variant": "#2c4383",
+                        "on-secondary": "#ffffff",
+                        "surface-container": "#eceef0",
+                        "on-primary-container": "#cad3ff",
+                        "primary-container": "#1d4ed8",
+                        "inverse-on-surface": "#eff1f3"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Public Sans"],
+                        "display": ["Public Sans"],
+                        "body": ["Public Sans"],
+                        "label": ["Public Sans"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #f7f9fb; color: #191c1e; font-family: 'Public Sans', sans-serif; }
+        .list-row {
+            transition: all 0.2s ease;
+            border-bottom: 1px solid #e0e3e5;
+        }
+        .list-row:hover {
+            background-color: #f2f4f6;
+        }
+    </style>
+</head>
+<body class="min-h-screen pt-16">
+<!-- TopNavBar -->
+<nav class="bg-surface-container-lowest border-b border-outline-variant fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 h-16">
+<div class="flex items-center gap-8">
+<div class="text-xl font-bold text-primary tracking-tight">
+                Radar Formulador 360
+            </div>
+<div class="hidden md:flex items-center gap-6">
+<a class="text-on-surface-variant hover:text-primary transition-colors text-sm font-medium" href="#">Inicio</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors text-sm font-medium" href="#">Panel</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors text-sm font-medium" href="#">Radar</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors text-sm font-medium" href="#">Directorio</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors text-sm font-medium" href="#">Entrada</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors text-sm font-medium" href="#">Anexos</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative bg-surface-container-low border border-outline-variant rounded-full flex items-center px-4 py-1.5 w-64 focus-within:ring-2 focus-within:ring-primary/20">
+<span class="material-symbols-outlined text-outline text-lg mr-2">search</span>
+<input class="bg-transparent border-none outline-none text-on-surface w-full text-sm placeholder-outline focus:ring-0" placeholder="Buscar subvenciones..." type="text">
+</div>
+<button class="text-on-surface-variant hover:text-primary transition-colors p-2 rounded-full hover:bg-surface-container">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors p-2 rounded-full hover:bg-surface-container">
+<span class="material-symbols-outlined">account_circle</span>
+</button>
+</div>
+</nav>
+<!-- Main Content -->
+<main class="max-w-[1440px] mx-auto px-6 py-10">
+<!-- Header Section -->
+<div class="mb-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+<div>
+<h1 class="text-3xl font-bold text-on-surface mb-1">DIRECTORIO</h1>
+<p class="text-sm font-medium text-outline uppercase tracking-wider">6 elementos guardados</p>
+</div>
+<div class="flex gap-3">
+<button class="bg-surface-container-low text-on-surface px-4 py-2 rounded flex items-center gap-2 border border-outline-variant hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined text-xl">filter_list</span>
+<span class="text-sm font-semibold">Filtrar</span>
+</button>
+<button class="bg-surface-container-low text-on-surface px-4 py-2 rounded flex items-center gap-2 border border-outline-variant hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined text-xl">sort</span>
+<span class="text-sm font-semibold">Ordenar</span>
+</button>
+</div>
+</div>
+<!-- List Layout Container -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden shadow-sm">
+<!-- Table Header -->
+<div class="hidden lg:grid grid-cols-12 gap-4 px-6 py-4 bg-surface-container-low border-b border-outline-variant text-xs font-bold text-outline uppercase tracking-wider">
+<div class="col-span-4">Organización</div>
+<div class="col-span-2 text-center">Categoría</div>
+<div class="col-span-4">Información de contacto</div>
+<div class="col-span-2 text-right">Acciones</div>
+</div>
+<!-- List Rows -->
+<!-- Row 1 -->
+<div class="list-row grid grid-cols-1 lg:grid-cols-12 gap-4 items-center px-6 py-6">
+<div class="col-span-1 lg:col-span-4 flex items-center gap-4">
+<div class="w-10 h-10 bg-primary-fixed text-on-primary-fixed font-bold rounded flex items-center justify-center shrink-0">
+                        CC
+                    </div>
+<div>
+<h2 class="font-bold text-on-surface hover:text-primary transition-colors">Coca-Cola Foundation</h2>
+<div class="lg:hidden mt-1">
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant text-[10px] font-bold rounded uppercase">Privado</span>
+</div>
+</div>
+</div>
+<div class="hidden lg:flex col-span-2 justify-center">
+<span class="px-2 py-1 bg-surface-variant text-on-surface-variant text-[11px] font-bold rounded uppercase">Privado</span>
+</div>
+<div class="col-span-1 lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">language</span>
+<span class="truncate">coca-colacompany.com</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">call</span>
+<span class="">+1 800 438 2653</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">mail</span>
+<span class="truncate">grants@coca-cola.com</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">location_on</span>
+<span class="">Global / Atlanta, GA</span>
+</div>
+</div>
+<div class="col-span-1 lg:col-span-2 flex items-center justify-end gap-3 mt-4 lg:mt-0">
+<button class="p-2 text-primary hover:bg-primary-fixed rounded-full transition-colors" title="Favorito">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">star</span>
+</button>
+<button class="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary text-xs font-bold rounded-full hover:bg-primary/90 transition-all active:scale-95 shadow-sm">
+<span class="">SITIO WEB</span>
+<span class="material-symbols-outlined text-xs">open_in_new</span>
+</button>
+</div>
+</div>
+<!-- Row 2 -->
+<div class="list-row grid grid-cols-1 lg:grid-cols-12 gap-4 items-center px-6 py-6">
+<div class="col-span-1 lg:col-span-4 flex items-center gap-4">
+<div class="w-10 h-10 bg-primary-fixed text-on-primary-fixed font-bold rounded flex items-center justify-center shrink-0">
+                        AS
+                    </div>
+<div>
+<h2 class="font-bold text-on-surface hover:text-primary transition-colors">Ascenso</h2>
+<div class="lg:hidden mt-1">
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant text-[10px] font-bold rounded uppercase">Crowdfunding</span>
+</div>
+</div>
+</div>
+<div class="hidden lg:flex col-span-2 justify-center">
+<span class="px-2 py-1 bg-surface-variant text-on-surface-variant text-[11px] font-bold rounded uppercase">Crowdfunding</span>
+</div>
+<div class="col-span-1 lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">language</span>
+<span class="">ascenso.com</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">call</span>
+<span class="">+57 601 319 9000</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">mail</span>
+<span class="">contacto@ascenso.com</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">location_on</span>
+<span class="">Colombia</span>
+</div>
+</div>
+<div class="col-span-1 lg:col-span-2 flex items-center justify-end gap-3 mt-4 lg:mt-0">
+<button class="p-2 text-primary hover:bg-primary-fixed rounded-full transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">star</span>
+</button>
+<button class="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary text-xs font-bold rounded-full hover:bg-primary/90 transition-all active:scale-95 shadow-sm">
+<span class="">ACCEDER</span>
+<span class="material-symbols-outlined text-xs">login</span>
+</button>
+</div>
+</div>
+<!-- Row 3 -->
+<div class="list-row grid grid-cols-1 lg:grid-cols-12 gap-4 items-center px-6 py-6">
+<div class="col-span-1 lg:col-span-4 flex items-center gap-4">
+<div class="w-10 h-10 bg-primary-fixed text-on-primary-fixed font-bold rounded flex items-center justify-center shrink-0">
+                        SX
+                    </div>
+<div>
+<h2 class="font-bold text-on-surface hover:text-primary transition-colors">Santander X</h2>
+<div class="lg:hidden mt-1">
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant text-[10px] font-bold rounded uppercase">Financiero</span>
+</div>
+</div>
+</div>
+<div class="hidden lg:flex col-span-2 justify-center">
+<span class="px-2 py-1 bg-surface-variant text-on-surface-variant text-[11px] font-bold rounded uppercase">Financiero</span>
+</div>
+<div class="col-span-1 lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">language</span>
+<span class="">santanderx.com</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">call</span>
+<span class="">No disponible</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">mail</span>
+<span class="">support@santanderx.com</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">location_on</span>
+<span class="">Global</span>
+</div>
+</div>
+<div class="col-span-1 lg:col-span-2 flex items-center justify-end gap-3 mt-4 lg:mt-0">
+<button class="p-2 text-primary hover:bg-primary-fixed rounded-full transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">star</span>
+</button>
+<button class="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary text-xs font-bold rounded-full hover:bg-primary/90 transition-all active:scale-95 shadow-sm">
+<span class="">ACCEDER</span>
+<span class="material-symbols-outlined text-xs">login</span>
+</button>
+</div>
+</div>
+<!-- Row 4 -->
+<div class="list-row grid grid-cols-1 lg:grid-cols-12 gap-4 items-center px-6 py-6">
+<div class="col-span-1 lg:col-span-4 flex items-center gap-4">
+<div class="w-10 h-10 bg-primary-fixed text-on-primary-fixed font-bold rounded flex items-center justify-center shrink-0">
+                        FF
+                    </div>
+<div>
+<h2 class="font-bold text-on-surface hover:text-primary transition-colors">Fundación FORD</h2>
+<div class="lg:hidden mt-1">
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant text-[10px] font-bold rounded uppercase">Filantrópico</span>
+</div>
+</div>
+</div>
+<div class="hidden lg:flex col-span-2 justify-center">
+<span class="px-2 py-1 bg-surface-variant text-on-surface-variant text-[11px] font-bold rounded uppercase">Filantrópico</span>
+</div>
+<div class="col-span-1 lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">language</span>
+<span class="truncate">fordfoundation.org</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">call</span>
+<span class="">+1 212 573 5000</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">mail</span>
+<span class="truncate">office@fordfoundation.org</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">location_on</span>
+<span class="">Latam / Global</span>
+</div>
+</div>
+<div class="col-span-1 lg:col-span-2 flex items-center justify-end gap-3 mt-4 lg:mt-0">
+<button class="p-2 text-primary hover:bg-primary-fixed rounded-full transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">star</span>
+</button>
+<button class="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary text-xs font-bold rounded-full hover:bg-primary/90 transition-all active:scale-95 shadow-sm">
+<span class="">SITIO WEB</span>
+<span class="material-symbols-outlined text-xs">open_in_new</span>
+</button>
+</div>
+</div>
+<!-- Row 5 -->
+<div class="list-row grid grid-cols-1 lg:grid-cols-12 gap-4 items-center px-6 py-6">
+<div class="col-span-1 lg:col-span-4 flex items-center gap-4">
+<div class="w-10 h-10 bg-primary-fixed text-on-primary-fixed font-bold rounded flex items-center justify-center shrink-0">
+                        FC
+                    </div>
+<div>
+<h2 class="font-bold text-on-surface hover:text-primary transition-colors">Fondo Canadiense</h2>
+<div class="lg:hidden mt-1">
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant text-[10px] font-bold rounded uppercase">Cooperación Int.</span>
+</div>
+</div>
+</div>
+<div class="hidden lg:flex col-span-2 justify-center">
+<span class="px-2 py-1 bg-surface-variant text-on-surface-variant text-[11px] font-bold rounded uppercase">Cooperación Int.</span>
+</div>
+<div class="col-span-1 lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">language</span>
+<span class="">international.gc.ca</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">call</span>
+<span class="">+57 601 657 9800</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">mail</span>
+<span class="">bgota@international.gc.ca</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">location_on</span>
+<span class="">Colombia</span>
+</div>
+</div>
+<div class="col-span-1 lg:col-span-2 flex items-center justify-end gap-3 mt-4 lg:mt-0">
+<button class="p-2 text-primary hover:bg-primary-fixed rounded-full transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">star</span>
+</button>
+<button class="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary text-xs font-bold rounded-full hover:bg-primary/90 transition-all active:scale-95 shadow-sm">
+<span class="">SITIO WEB</span>
+<span class="material-symbols-outlined text-xs">open_in_new</span>
+</button>
+</div>
+</div>
+<!-- Row 6 -->
+<div class="list-row grid grid-cols-1 lg:grid-cols-12 gap-4 items-center px-6 py-6 border-b-0">
+<div class="col-span-1 lg:col-span-4 flex items-center gap-4">
+<div class="w-10 h-10 bg-primary-fixed text-on-primary-fixed font-bold rounded flex items-center justify-center shrink-0">
+                        BL
+                    </div>
+<div>
+<h2 class="font-bold text-on-surface hover:text-primary transition-colors">BID Lab</h2>
+<div class="lg:hidden mt-1">
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant text-[10px] font-bold rounded uppercase">Multilateral</span>
+</div>
+</div>
+</div>
+<div class="hidden lg:flex col-span-2 justify-center">
+<span class="px-2 py-1 bg-surface-variant text-on-surface-variant text-[11px] font-bold rounded uppercase">Multilateral</span>
+</div>
+<div class="col-span-1 lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4">
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">language</span>
+<span class="">bidlab.org</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">call</span>
+<span class="">+1 202 623 1000</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">mail</span>
+<span class="">bidlab@iadb.org</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span class="material-symbols-outlined text-outline text-base">location_on</span>
+<span class="">Latinoamérica</span>
+</div>
+</div>
+<div class="col-span-1 lg:col-span-2 flex items-center justify-end gap-3 mt-4 lg:mt-0">
+<button class="p-2 text-primary hover:bg-primary-fixed rounded-full transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">star</span>
+</button>
+<button class="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary text-xs font-bold rounded-full hover:bg-primary/90 transition-all active:scale-95 shadow-sm">
+<span class="">ACCEDER</span>
+<span class="material-symbols-outlined text-xs">login</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+
+
+</body></html>

@@ -1,6 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
+import { http } from '../lib/apiClient';
+
+const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
+
+interface ComplianceApi {
+  riesgos?: string; sostenibilidad_ambiental?: string; sostenibilidad_social?: string;
+  ods_alineados?: string; enfoque_genero?: number; enfoque_genero_texto?: string;
+}
 
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Hanken+Grotesk:wght@400;600;700&display=swap');
@@ -58,13 +66,47 @@ const textareaStyle: React.CSSProperties = { ...inputStyle, resize: 'vertical', 
 export default function Modulo10Page() {
   const navigate  = useNavigate();
   const { token } = useAuth();
+  const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
 
   const [data, setData]     = useState<ComplianceData>(INITIAL);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
+  const [cargando, setCargando] = useState(!!proyectoId);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
   const [normas, setNormas] = useState<any[]>([]);
   const [genNormas, setGenNormas] = useState(false);
   const [normasErr, setNormasErr] = useState<string | null>(null);
+
+  // Hidrata desde el servidor real — antes esta pantalla no tenía ningún
+  // fetch: "Guardar M10" solo simulaba un delay de 500ms y no persistía nada,
+  // pese a que GET/POST /api/m10/compliance/:proyectoId ya existían.
+  useEffect(() => {
+    if (!proyectoId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const body = await http.get<{ success: boolean; data?: ComplianceApi }>(`/api/m10/compliance/${proyectoId}`);
+        const row = body.data;
+        if (!cancelled && row) {
+          let riesgosArr: Array<{ identificados?: string; mitigacion?: string }> = [];
+          try { riesgosArr = JSON.parse(row.riesgos || '[]'); } catch { /* noop */ }
+          let ods: number[] = [];
+          try { ods = JSON.parse(row.ods_alineados || '[]'); } catch { /* noop */ }
+          setData({
+            sostenibilidadAmbiental: row.sostenibilidad_ambiental || '',
+            sostenibilidadSocial: row.sostenibilidad_social || '',
+            odsAlineados: ods,
+            enfoqueGenero: !!row.enfoque_genero,
+            enfoqueGeneroTexto: row.enfoque_genero_texto || '',
+            riesgosIdentificados: riesgosArr[0]?.identificados || '',
+            medidasMitigacion: riesgosArr[0]?.mitigacion || '',
+          });
+        }
+      } catch { /* sin datos previos — se queda en INITIAL */ }
+      finally { if (!cancelled) setCargando(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [proyectoId]);
 
   const update = <K extends keyof ComplianceData>(key: K, value: ComplianceData[K]) => {
     setData(prev => ({ ...prev, [key]: value }));
@@ -77,11 +119,25 @@ export default function Modulo10Page() {
   };
 
   const handleSave = async () => {
+    if (!proyectoId) { setSaveErr('No hay proyecto activo — completa Entrada primero.'); return; }
     setSaving(true);
-    await new Promise(r => setTimeout(r, 500));
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    setSaveErr(null);
+    try {
+      await http.post(`/api/m10/compliance/${proyectoId}`, {
+        sostenibilidad_ambiental: data.sostenibilidadAmbiental,
+        sostenibilidad_social: data.sostenibilidadSocial,
+        ods_alineados: data.odsAlineados,
+        enfoque_genero: data.enfoqueGenero,
+        enfoque_genero_texto: data.enfoqueGeneroTexto,
+        riesgos: [{ identificados: data.riesgosIdentificados, mitigacion: data.medidasMitigacion }],
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch {
+      setSaveErr('No se pudo guardar en el servidor — inténtalo de nuevo.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleGenerarNormas = async () => {
@@ -89,13 +145,20 @@ export default function Modulo10Page() {
       setNormasErr('Inicia sesión para generar el marco normativo automático.');
       return;
     }
+    if (!proyectoId) {
+      setNormasErr('No hay proyecto activo — completa Entrada primero.');
+      return;
+    }
     setGenNormas(true);
     setNormasErr(null);
     try {
+      // El backend exige proyecto_id (server.js: "proyecto_id y sector son
+      // requeridos") — esta llamada nunca lo enviaba y por lo tanto SIEMPRE
+      // fallaba con 400, sin importar quién estuviera logueado.
       const r = await fetch('/api/m8/normas/generar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ sector: 'General', municipio: 'Colombia' }),
+        body: JSON.stringify({ proyecto_id: proyectoId, sector: 'General', municipio: 'Colombia' }),
       });
       const d = await r.json();
       if (d.success) setNormas(d.data?.normas_aplicables || []);
@@ -125,10 +188,10 @@ export default function Modulo10Page() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <button
-              onClick={() => navigate('/formulador')}
+              onClick={() => navigate('/checklist')}
               style={{ background: 'transparent', border: '1px solid #1a3a50', borderRadius: 6, padding: '5px 10px', color: '#557997', fontSize: 10, fontFamily: "'JetBrains Mono', monospace", cursor: 'pointer', letterSpacing: '0.08em', textTransform: 'uppercase' }}
             >
-              ← Formulador
+              ← Check-List
             </button>
             <div>
               <p style={{ fontSize: 7, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: '#254b67', letterSpacing: '0.14em', textTransform: 'uppercase', margin: '0 0 3px' }}>
@@ -177,6 +240,12 @@ export default function Modulo10Page() {
               <strong style={{ color: '#bdc2ff' }}>M10 — Compliance</strong> valida la sostenibilidad del proyecto, alinea los ODS de la ONU, identifica riesgos y genera el Marco Normativo aplicable según sector y territorio.
             </p>
           </div>
+
+          {(cargando || saveErr) && (
+            <p style={{ fontSize: 11, color: saveErr ? '#f87171' : '#557997', fontFamily: "'JetBrains Mono', monospace", marginBottom: '1rem' }}>
+              {saveErr || 'Cargando compliance guardado…'}
+            </p>
+          )}
 
           {/* Sección: Sostenibilidad ambiental */}
           <Section label="Sostenibilidad Ambiental" icon="🌱" color="#22c55e">

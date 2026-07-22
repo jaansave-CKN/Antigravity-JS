@@ -1,0 +1,236 @@
+/**
+ * anexos.routes.js — CRUD real de Anexos contra project_anexos (migración 013)
+ * Reemplaza el almacenamiento en localStorage de AnexosView.tsx (radar360_anexos_data).
+ *
+ * GET    /api/proyectos/:id/anexos                    — lista los anexos reales del proyecto
+ * POST   /api/proyectos/:id/anexos                    — sube un archivo real (multipart/form-data, campo "file")
+ * GET    /api/proyectos/:id/anexos/:anexoId/download  — URL firmada temporal para descargar el archivo
+ * DELETE /api/proyectos/:id/anexos/:anexoId           — elimina el anexo (fila en BD + objeto en Supabase Storage)
+ *
+ * FIX AUDITORÍA (Pilar 2 — pérdida de datos en contenedores efímeros):
+ * Railway reconstruye el contenedor en cada deploy — cualquier archivo escrito
+ * en el disco local (fs.writeFileSync) se pierde permanentemente. Se elimina
+ * por completo la dependencia de disco: los archivos ahora viven en Supabase
+ * Storage (bucket privado "anexos"), subidos/leídos/borrados vía el cliente
+ * admin (service_role key, bypasea RLS — igual que el resto de la app).
+ */
+import crypto from 'crypto';
+import { supabaseAdmin } from '../config/supabase.config.js';
+
+const ANEXOS_BUCKET = 'anexos';
+
+// ── Whitelist de tipos permitidos (documentos de soporte del proyecto) ───────
+const ALLOWED_ANEXO_TYPES = {
+  pdf:  { mimes: ['application/pdf'],                                                                        maxBytes: 15 * 1024 * 1024 },
+  doc:  { mimes: ['application/msword'],                                                                      maxBytes: 15 * 1024 * 1024 },
+  docx: { mimes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip'], maxBytes: 15 * 1024 * 1024 },
+  xls:  { mimes: ['application/vnd.ms-excel'],                                                                 maxBytes: 15 * 1024 * 1024 },
+  xlsx: { mimes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip'],       maxBytes: 15 * 1024 * 1024 },
+  jpg:  { mimes: ['image/jpeg'], maxBytes: 8 * 1024 * 1024 },
+  jpeg: { mimes: ['image/jpeg'], maxBytes: 8 * 1024 * 1024 },
+  png:  { mimes: ['image/png'],  maxBytes: 8 * 1024 * 1024 },
+};
+
+const CATEGORIAS_VALIDAS = new Set(['legal', 'financiero', 'tecnico', 'institucional', 'otro']);
+
+function safeExt(filename) {
+  return (filename || '').split('.').pop().toLowerCase();
+}
+
+function validateAnexoFile(file) {
+  const safeName = /^[\w\-. ]{1,200}$/.test(file.originalname);
+  if (!safeName) return 'Nombre de archivo no permitido';
+
+  const ext = safeExt(file.originalname);
+  const rule = ALLOWED_ANEXO_TYPES[ext];
+  if (!rule) return `Extensión ".${ext}" no permitida. Solo: ${Object.keys(ALLOWED_ANEXO_TYPES).join(', ')}`;
+  if (file.size > rule.maxBytes) return `Archivo demasiado grande (máx ${rule.maxBytes / 1024 / 1024} MB para .${ext})`;
+
+  return null;
+}
+
+function wrap(fn) {
+  return async (req, res, next) => {
+    try { await fn(req, res, next); }
+    catch (err) {
+      console.error('[anexos]', err.message);
+      res.status(500).json({ success: false, message: err.message });
+    }
+  };
+}
+
+export async function registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows }) {
+  if (!supabaseAdmin) {
+    console.error('[anexos] SUPABASE_URL/SUPABASE_SERVICE_KEY no configurados — subida de anexos desactivada');
+  } else {
+    // Idempotente: si el bucket ya existe, Supabase devuelve un error que se ignora.
+    const { error } = await supabaseAdmin.storage.createBucket(ANEXOS_BUCKET, {
+      public: false,
+      fileSizeLimit: 15 * 1024 * 1024,
+    });
+    if (error && !/already exists/i.test(error.message || '')) {
+      console.warn('[anexos] No se pudo confirmar el bucket de Storage:', error.message);
+    }
+  }
+
+  const multer = (await import('multer')).default;
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const ext = safeExt(file.originalname);
+      if (!ALLOWED_ANEXO_TYPES[ext]) return cb(new Error(`Extensión ".${ext}" no permitida`));
+      cb(null, true);
+    },
+  });
+
+  async function checkOwnership(proyectoId, userId) {
+    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+  }
+
+  /**
+   * GET /api/proyectos/:id/anexos
+   */
+  app.get('/api/proyectos/:id/anexos', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const anexos = await getRows(
+      'SELECT id, project_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at FROM project_anexos WHERE project_id = ? ORDER BY created_at DESC',
+      [req.params.id]
+    );
+    res.json({ success: true, data: anexos });
+  }));
+
+  /**
+   * POST /api/proyectos/:id/anexos
+   * multipart/form-data: file=<archivo opcional>, categoria, descripcion, texto, link
+   * El archivo es opcional — una fila puramente narrativa (descripcion/texto/link
+   * sin adjunto real) también es válida, siempre que no esté completamente vacía.
+   */
+  app.post('/api/proyectos/:id/anexos', authenticateToken, upload.single('file'), wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const descripcion = String(req.body?.descripcion || '').slice(0, 500);
+    const texto       = String(req.body?.texto || '').slice(0, 500);
+    const link        = String(req.body?.link || '').slice(0, 500);
+
+    if (!req.file && !descripcion.trim() && !texto.trim() && !link.trim()) {
+      return res.status(400).json({ success: false, message: 'Adjunta un archivo o completa descripción/texto/link' });
+    }
+
+    if (req.file) {
+      const error = validateAnexoFile(req.file);
+      if (error) return res.status(422).json({ success: false, message: error });
+      if (!supabaseAdmin) return res.status(503).json({ success: false, message: 'Almacenamiento de archivos no disponible — Supabase no configurado' });
+    }
+
+    const categoriaRaw = String(req.body?.categoria || 'otro').toLowerCase();
+    const categoria = CATEGORIAS_VALIDAS.has(categoriaRaw) ? categoriaRaw : 'otro';
+
+    const id = crypto.randomUUID();
+    let nombreArchivo = '', rutaStorage = '', tipoMime = '', tamanoBytes = 0;
+
+    if (req.file) {
+      const ext = safeExt(req.file.originalname);
+      const storedName = `${id}.${ext}`;
+      const storagePath = `${req.params.id}/${storedName}`;
+
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from(ANEXOS_BUCKET)
+        .upload(storagePath, req.file.buffer, { contentType: req.file.mimetype, upsert: false });
+      if (uploadError) {
+        return res.status(502).json({ success: false, message: `No se pudo subir el archivo a Storage: ${uploadError.message}` });
+      }
+
+      rutaStorage   = storagePath;
+      nombreArchivo = req.file.originalname.slice(0, 200);
+      tipoMime      = req.file.mimetype;
+      tamanoBytes   = req.file.size;
+    }
+
+    await runSql(
+      `INSERT INTO project_anexos
+       (id, project_id, tenant_id, nombre_archivo, ruta_storage, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [id, req.params.id, req.userId, nombreArchivo, rutaStorage, tipoMime, tamanoBytes, categoria, descripcion, texto, link, new Date().toISOString()]
+    );
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id, project_id: req.params.id, nombre_archivo: nombreArchivo,
+        tipo_mime: tipoMime, tamano_bytes: tamanoBytes, categoria, descripcion, texto, link,
+        created_at: new Date().toISOString(),
+      },
+    });
+  }));
+
+  /**
+   * PATCH /api/proyectos/:id/anexos/:anexoId — edita solo los campos narrativos
+   * (descripcion/texto/link), sin tocar el archivo ya adjunto.
+   */
+  app.patch('/api/proyectos/:id/anexos/:anexoId', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const descripcion = String(req.body?.descripcion ?? '').slice(0, 500);
+    const texto        = String(req.body?.texto ?? '').slice(0, 500);
+    const link         = String(req.body?.link ?? '').slice(0, 500);
+
+    await runSql(
+      'UPDATE project_anexos SET descripcion = ?, texto = ?, link = ? WHERE id = ? AND project_id = ?',
+      [descripcion, texto, link, req.params.anexoId, req.params.id]
+    );
+    res.json({ success: true, message: 'Anexo actualizado' });
+  }));
+
+  /**
+   * GET /api/proyectos/:id/anexos/:anexoId/download
+   * Devuelve una URL firmada de corta duración (5 min) — el bucket es privado,
+   * así que no hay forma de acceder al archivo sin pasar por este endpoint
+   * autenticado y con ownership verificado.
+   */
+  app.get('/api/proyectos/:id/anexos/:anexoId/download', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const anexo = await getRow(
+      'SELECT ruta_storage, nombre_archivo FROM project_anexos WHERE id = ? AND project_id = ?',
+      [req.params.anexoId, req.params.id]
+    );
+    if (!anexo || !anexo.ruta_storage) return res.status(404).json({ success: false, message: 'Anexo no encontrado o sin archivo adjunto' });
+    if (!supabaseAdmin) return res.status(503).json({ success: false, message: 'Almacenamiento de archivos no disponible' });
+
+    const { data, error } = await supabaseAdmin.storage
+      .from(ANEXOS_BUCKET)
+      .createSignedUrl(anexo.ruta_storage, 300, { download: anexo.nombre_archivo });
+    if (error) return res.status(502).json({ success: false, message: `No se pudo generar el enlace de descarga: ${error.message}` });
+
+    res.json({ success: true, data: { url: data.signedUrl, expiresIn: 300 } });
+  }));
+
+  /**
+   * DELETE /api/proyectos/:id/anexos/:anexoId
+   */
+  app.delete('/api/proyectos/:id/anexos/:anexoId', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const anexo = await getRow(
+      'SELECT id, ruta_storage FROM project_anexos WHERE id = ? AND project_id = ?',
+      [req.params.anexoId, req.params.id]
+    );
+    if (!anexo) return res.status(404).json({ success: false, message: 'Anexo no encontrado' });
+
+    await runSql('DELETE FROM project_anexos WHERE id = ?', [req.params.anexoId]);
+
+    // Best-effort: un fallo al borrar el objeto en Storage no bloquea la respuesta.
+    if (anexo.ruta_storage && supabaseAdmin) {
+      supabaseAdmin.storage.from(ANEXOS_BUCKET).remove([anexo.ruta_storage]).catch(() => {});
+    }
+
+    res.json({ success: true, message: 'Anexo eliminado' });
+  }));
+}

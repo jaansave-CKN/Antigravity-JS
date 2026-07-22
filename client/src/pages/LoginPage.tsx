@@ -188,7 +188,7 @@ export default function LoginPage() {
       } else if (sub?.access_radar && sub?.access_formulador) {
         navigate('/', { replace: true }); // suite: elige pilar en SelectionPage
       } else if (sub?.access_formulador) {
-        navigate('/formulador', { replace: true });
+        navigate('/checklist', { replace: true });
       } else if (sub?.access_radar) {
         navigate('/radar', { replace: true });
       } else {
@@ -222,10 +222,10 @@ export default function LoginPage() {
   function handleDemo() {
     enterDemoMode();
     // Pilar B: rutas que pertenecen al módulo Formulador IA
-    const PILAR_B = ['/formulador', '/entrada', '/modulo10', '/anexos', '/logistica', '/dialectica', '/ficha'];
+    const PILAR_B = ['/checklist', '/entrada', '/modulo10', '/anexos', '/logistica', '/dialectica', '/ficha'];
     const isFromB = from && PILAR_B.some(p => from.startsWith(p));
-    // Respetar el pilar de origen: B → /formulador, A o sin origen → /radar
-    const target = isFromB ? '/formulador' : '/radar';
+    // Respetar el pilar de origen: B → /checklist, A o sin origen → /radar
+    const target = isFromB ? '/checklist' : '/radar';
     navigate(target, { replace: true });
   }
 

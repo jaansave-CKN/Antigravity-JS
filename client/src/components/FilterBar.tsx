@@ -126,11 +126,10 @@ export default function FilterBar({ filtros, onFiltroChange, totalResultados, co
   };
 
   const toggleSector = (sector: Sector) => {
-    if (filtros.sectores.includes(sector)) {
-      onFiltroChange({ sectores: [] });
-    } else {
-      onFiltroChange({ sectores: [sector] });
-    }
+    const newSectores = filtros.sectores.includes(sector)
+      ? filtros.sectores.filter(s => s !== sector)
+      : [...filtros.sectores, sector];
+    onFiltroChange({ sectores: newSectores });
   };
 
   const toggleFuente = (fuente: Fuente) => {

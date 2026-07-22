@@ -42,6 +42,9 @@ backend/radar.db
 *.db
 *.sqlite
 
+# Archivos subidos por usuarios (Anexos) — nunca versionar contenido de usuarios
+backend/uploads/
+
 # Archivos de documentación / capturas locales (no son código)
 FOTOS PROY3/
 file_list.txt

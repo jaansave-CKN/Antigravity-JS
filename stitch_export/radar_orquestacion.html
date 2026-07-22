@@ -1,0 +1,254 @@
+<!DOCTYPE html><html class="light" lang="es"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Control Panel</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-tertiary-fixed-variant": "#3a485b",
+            "surface-variant": "#e0e3e5",
+            "secondary-fixed-dim": "#b4c5ff",
+            "on-primary-fixed": "#001551",
+            "on-background": "#191c1e",
+            "secondary": "#455b9d",
+            "primary": "#0041a3",
+            "primary-fixed": "#dce1ff",
+            "on-primary": "#ffffff",
+            "error": "#ba1a1a",
+            "surface-bright": "#f7f9fb",
+            "on-secondary-fixed": "#00174b",
+            "surface-container-high": "#e6e8ea",
+            "tertiary-container": "#4f5d71",
+            "secondary-fixed": "#dbe1ff",
+            "on-error": "#ffffff",
+            "surface-container-lowest": "#ffffff",
+            "on-primary-fixed-variant": "#0039b5",
+            "tertiary-fixed-dim": "#b9c7df",
+            "surface-container-highest": "#e0e3e5",
+            "error-container": "#ffdad6",
+            "surface-tint": "#0041a3",
+            "on-secondary-container": "#2f4686",
+            "on-surface-variant": "#434655",
+            "tertiary": "#374559",
+            "outline": "#747686",
+            "on-tertiary-container": "#c7d6ee",
+            "on-surface": "#191c1e",
+            "on-secondary": "#ffffff",
+            "on-secondary-fixed-variant": "#2c4383",
+            "surface-container": "#eceef0",
+            "on-primary-container": "#cad3ff",
+            "primary-container": "#0041a3",
+            "inverse-on-surface": "#eff1f3",
+            "surface-dim": "#d8dadc",
+            "on-tertiary": "#ffffff",
+            "on-error-container": "#93000a",
+            "background": "#f7f9fb",
+            "primary-fixed-dim": "#b7c4ff",
+            "inverse-surface": "#2d3133",
+            "surface": "#f7f9fb",
+            "secondary-container": "#a0b6fe",
+            "surface-container-low": "#f2f4f6",
+            "outline-variant": "#c4c5d7",
+            "inverse-primary": "#b7c4ff",
+            "tertiary-fixed": "#d5e3fc",
+            "on-tertiary-fixed": "#0d1c2e"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "fontFamily": {
+            "headline": ["Public Sans"],
+            "display": ["Public Sans"],
+            "body": ["Public Sans"],
+            "label": ["Public Sans"]
+          }
+        },
+      },
+    }
+  </script>
+<style data-purpose="custom-utilities">
+    body {
+      background-color: #f7f9fb;
+    }
+    
+    .status-light {
+      width: 0.75rem;
+      height: 0.75rem;
+      border-radius: 9999px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.05);
+    }
+    .status-light.red { background-color: #ffdad6; }
+    .status-light.yellow { background-color: #dbe1ff; }
+    .status-light.green { background-color: #0041a3; }
+
+    .control-btn {
+      transition: all 0.2s ease;
+      color: #434655;
+    }
+    .control-btn:hover {
+      background-color: #f2f4f6;
+    }
+    .control-btn.active {
+      background-color: #cad3ff;
+      color: #0041a3;
+      border-color: #0041a3;
+      box-shadow: 0 0 0 1px #0041a3;
+    }
+
+    .special-btn {
+      background: linear-gradient(135deg, #0041a3 0%, #001a43 100%);
+      color: #ffffff;
+      transition: all 0.2s ease;
+    }
+    .special-btn:hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body class="antialiased min-h-screen p-4 md:p-8 flex justify-center items-start text-on-background font-body">
+<!-- BEGIN: MainControlPanel -->
+<main class="w-full max-w-5xl bg-surface-container-lowest rounded-xl border border-surface-variant shadow-2xl overflow-hidden flex flex-col gap-6 p-6">
+<!-- Category: Interlocutor -->
+<section class="flex flex-col gap-2">
+<header class="bg-surface-container text-center py-2 rounded-t-md border-b border-surface-variant font-bold tracking-wider text-sm text-on-surface">
+      INTERLOCUTOR
+    </header>
+<div class="flex items-stretch gap-2 h-12">
+<div class="bg-surface-container-lowest px-4 rounded flex items-center gap-2 border border-surface-variant">
+<div class="status-light red"></div>
+<div class="status-light yellow"></div>
+<div class="status-light green"></div>
+</div>
+<div class="flex-1 grid grid-cols-2 md:grid-cols-5 gap-2">
+<button class="control-btn active bg-surface-container-lowest border border-surface-variant rounded text-sm font-semibold flex items-center justify-center">Municipal</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Embajada</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">ONG</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Corporativo</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Multilateral</button>
+</div>
+</div>
+</section>
+<!-- Category: Tono -->
+<section class="flex flex-col gap-2">
+<header class="bg-surface-container text-center py-2 rounded-t-md border-b border-surface-variant font-bold tracking-wider text-sm text-on-surface">
+      TONO
+    </header>
+<div class="flex items-stretch gap-2 h-12">
+<div class="bg-surface-container-lowest px-4 rounded flex items-center gap-2 border border-surface-variant">
+<div class="status-light red"></div>
+<div class="status-light yellow"></div>
+<div class="status-light green"></div>
+</div>
+<div class="flex-1 grid grid-cols-2 md:grid-cols-5 gap-2">
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Directo</button>
+<button class="control-btn active bg-surface-container-lowest border border-surface-variant rounded text-sm font-semibold flex items-center justify-center">Diplomatico</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Inspirador</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Analitico</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Negociador</button>
+</div>
+</div>
+</section>
+<!-- Category: Enfoque -->
+<section class="flex flex-col gap-2">
+<header class="bg-surface-container text-center py-2 rounded-t-md border-b border-surface-variant font-bold tracking-wider text-sm text-on-surface">
+      ENFOQUE
+    </header>
+<div class="flex items-stretch gap-2 h-12">
+<div class="bg-surface-container-lowest px-4 rounded flex items-center gap-2 border border-surface-variant">
+<div class="status-light red"></div>
+<div class="status-light yellow"></div>
+<div class="status-light green"></div>
+</div>
+<div class="flex-1 grid grid-cols-2 md:grid-cols-5 gap-2">
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Directo</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Diplomatico</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Inspirador</button>
+<button class="control-btn active bg-surface-container-lowest border border-surface-variant rounded text-sm font-semibold flex items-center justify-center">Analitico</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Negociador</button>
+</div>
+</div>
+</section>
+<!-- Category: Humanizacion -->
+<section class="flex flex-col gap-2">
+<header class="bg-surface-container text-center py-2 rounded-t-md border-b border-surface-variant font-bold tracking-wider text-sm text-on-surface">
+      HUMANIZACION
+    </header>
+<div class="flex items-stretch gap-2 h-12">
+<div class="bg-surface-container-lowest px-4 rounded flex items-center gap-2 border border-surface-variant">
+<div class="status-light red"></div>
+<div class="status-light yellow"></div>
+<div class="status-light green"></div>
+</div>
+<div class="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2">
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Formal</button>
+<button class="control-btn active bg-surface-container-lowest border border-surface-variant rounded text-sm font-semibold flex items-center justify-center">Conversacional</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Relatable</button>
+<button class="control-btn bg-surface-container-lowest border border-surface-variant rounded text-sm font-medium flex items-center justify-center">Indetectable</button>
+</div>
+</div>
+</section>
+<!-- Special Modes -->
+<section class="grid grid-cols-1 gap-4 pt-4 border-t border-surface-variant md:grid-cols-4">
+<button class="special-btn rounded-lg p-6 font-bold flex flex-col items-center justify-center text-center shadow-md">
+<span class="text-xs opacity-90 uppercase tracking-tighter mb-1">(ODS)</span>
+<span class="text-sm">Objetivos de desarrollo sostenible</span>
+</button>
+<button class="special-btn rounded-lg p-6 font-bold flex items-center justify-center text-center shadow-md text-sm">
+      Economía Verde
+    </button>
+<button class="special-btn rounded-lg p-6 font-bold flex items-center justify-center text-center shadow-md text-sm">
+      Reglas de oro
+    </button>
+<button class="special-btn rounded-lg p-6 flex flex-col items-center justify-center text-center gap-2 shadow-md">
+<div class="font-bold text-sm leading-tight">
+        Economía Circular
+      </div>
+</button>
+</section>
+<!-- Lists Section -->
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+<!-- Lista de Oro -->
+<div class="bg-surface-container-lowest border border-surface-variant rounded-lg overflow-hidden flex flex-col h-48">
+<div class="bg-surface-container px-4 py-2 flex justify-between items-center border-b border-surface-variant">
+<h3 class="font-bold text-xs tracking-widest text-on-surface uppercase">LISTA DE ORO</h3>
+<div class="flex gap-2">
+<button class="bg-primary text-on-primary text-xs font-bold px-4 py-1.5 rounded shadow-sm hover:brightness-110 transition-all">Add</button>
+<button class="bg-surface-container-lowest hover:bg-surface-container-low text-on-surface-variant text-xs font-semibold px-4 py-1.5 rounded border border-outline-variant shadow-sm transition-colors">View chips</button>
+</div>
+</div>
+<div class="flex-1 p-4 overflow-y-auto">
+<div class="flex flex-wrap gap-2">
+<!-- Chips container -->
+</div>
+</div>
+</div>
+<!-- Lista Negra -->
+<div class="bg-surface-container-lowest border border-surface-variant rounded-lg overflow-hidden flex flex-col h-48">
+<div class="bg-surface-container px-4 py-2 flex justify-between items-center border-b border-surface-variant">
+<h3 class="font-bold text-xs tracking-widest text-on-surface uppercase">LISTA NEGRA</h3>
+<div class="flex gap-2">
+<button class="bg-primary text-on-primary text-xs font-bold px-4 py-1.5 rounded shadow-sm hover:brightness-110 transition-all">Add</button>
+<button class="bg-surface-container-lowest hover:bg-surface-container-low text-on-surface-variant text-xs font-semibold px-4 py-1.5 rounded border border-outline-variant shadow-sm transition-colors">View chips</button>
+</div>
+</div>
+<div class="flex-1 p-4 overflow-y-auto">
+<div class="flex flex-wrap gap-2">
+<!-- Chips container -->
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- END: MainControlPanel -->
+</body></html>

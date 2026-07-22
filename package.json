@@ -41,6 +41,8 @@
     "helmet": "^8.2.0",
     "inngest": "^3.29.0",
     "jsonwebtoken": "^9.0.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.525.0",
     "multer": "^2.1.1",

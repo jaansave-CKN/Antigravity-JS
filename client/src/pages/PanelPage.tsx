@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../contexts/AuthContextNew';
+import { http } from '../lib/apiClient';
 
 // ── Stitch scr_panel_control_360 — Dark-mode token map (source: index.css :root)
 // Light token → CSS var → resolved hex
@@ -95,6 +97,194 @@ const inputStyle: React.CSSProperties = {
   fontFamily: 'inherit',
 };
 
+// ── QuotaTelemetry — Widget de Telemetría Gemini ─────────────────────────────
+interface QuotaData {
+  operating_mode: 'IA Avanzada' | 'Respaldo';
+  circuit_state: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+  current_usage: { daily: number; rpm_last_minute: number };
+  limit_daily: number;
+  limit_rpm: number;
+  daily_pct: number;
+  rpm_pct: number;
+  reset_time_countdown: string;
+  reset_at: string;
+  last_quota_error: string | null;
+}
+
+function QuotaTelemetry() {
+  const { token } = useAuth();
+  const [data, setData]       = useState<QuotaData | null>(null);
+  const [error, setError]     = useState('');
+  const [countdown, setCountdown] = useState('--:--:--');
+  const resetAtRef = useRef<string | null>(null);
+
+  // Actualiza el reloj cada segundo de forma local (sin re-fetch)
+  useEffect(() => {
+    const tick = setInterval(() => {
+      if (!resetAtRef.current) return;
+      const ms = Math.max(0, new Date(resetAtRef.current).getTime() - Date.now());
+      const hh = String(Math.floor(ms / 3_600_000)).padStart(2, '0');
+      const mm = String(Math.floor((ms % 3_600_000) / 60_000)).padStart(2, '0');
+      const ss = String(Math.floor((ms % 60_000) / 1_000)).padStart(2, '0');
+      setCountdown(`${hh}:${mm}:${ss}`);
+    }, 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  // Fetch cada 30 s
+  useEffect(() => {
+    async function fetchQuota() {
+      try {
+        const res  = await fetch('/api/admin/quota-status', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const json = await res.json();
+        if (json.success) {
+          setData(json.data);
+          resetAtRef.current = json.data.reset_at;
+          setError('');
+        }
+      } catch { setError('No se pudo conectar al servidor de cuotas.'); }
+    }
+    fetchQuota();
+    const interval = setInterval(fetchQuota, 30_000);
+    return () => clearInterval(interval);
+  }, [token]);
+
+  const isIA      = data?.operating_mode === 'IA Avanzada';
+  const modeColor = isIA ? T.tertiary : '#fb923c';
+  const modeBg    = isIA ? 'rgba(82,232,124,0.10)' : 'rgba(251,146,60,0.10)';
+  const modeBorder= isIA ? 'rgba(82,232,124,0.25)' : 'rgba(251,146,60,0.25)';
+  const dailyPct  = data?.daily_pct ?? 0;
+  const barColor  = dailyPct >= 90 ? '#f87171' : dailyPct >= 70 ? '#fb923c' : T.tertiary;
+
+  return (
+    <div style={{
+      background: T.surface,
+      borderRadius: '12px',
+      padding: '24px',
+      border: `1px solid ${T.outline}`,
+      boxShadow: '0 4px 6px -1px rgba(0,0,0,0.30)',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '16px',
+    }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <p style={{ fontSize: 9, fontWeight: 700, color: T.textDim, letterSpacing: '0.14em', textTransform: 'uppercase', margin: 0 }}>
+          📡 Telemetría — Motor de IA
+        </p>
+        {/* Badge de modo */}
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          background: modeBg, border: `1px solid ${modeBorder}`,
+          borderRadius: 9999, padding: '4px 10px',
+          fontSize: 11, fontWeight: 700, color: modeColor,
+          fontFamily: "'JetBrains Mono', monospace",
+          letterSpacing: '0.04em',
+        }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: modeColor,
+            boxShadow: `0 0 6px ${modeColor}`, flexShrink: 0,
+            animation: isIA ? 'none' : undefined,
+          }} />
+          {data?.operating_mode ?? '—'}
+        </span>
+      </div>
+
+      {error && (
+        <p style={{ fontSize: 11, color: '#f87171', margin: 0, fontFamily: "'JetBrains Mono', monospace" }}>
+          ⚠ {error}
+        </p>
+      )}
+
+      {data && (
+        <>
+          {/* Barra — consumo diario */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 600 }}>Consumo Diario</span>
+              <span style={{ fontSize: 11, color: barColor, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>
+                {data.current_usage.daily} / {data.limit_daily} req ({data.daily_pct}%)
+              </span>
+            </div>
+            <div style={{ height: 8, background: T.surfaceVar, borderRadius: 9999, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', borderRadius: 9999,
+                width: `${data.daily_pct}%`,
+                background: barColor,
+                transition: 'width 0.6s ease, background-color 0.4s',
+                boxShadow: dailyPct >= 70 ? `0 0 8px ${barColor}88` : 'none',
+              }} />
+            </div>
+          </div>
+
+          {/* Barra — RPM */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 600 }}>Peticiones / Minuto</span>
+              <span style={{ fontSize: 11, color: T.textDim, fontFamily: "'JetBrains Mono', monospace" }}>
+                {data.current_usage.rpm_last_minute} / {data.limit_rpm} RPM
+              </span>
+            </div>
+            <div style={{ height: 5, background: T.surfaceVar, borderRadius: 9999, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', borderRadius: 9999,
+                width: `${data.rpm_pct}%`,
+                background: T.primary,
+                transition: 'width 0.6s ease',
+              }} />
+            </div>
+          </div>
+
+          {/* Reloj cuenta regresiva */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: T.surfaceVar, borderRadius: 8, padding: '10px 14px',
+          }}>
+            <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 600 }}>Reset diario en</span>
+            <span style={{
+              fontSize: 18, fontWeight: 700, color: T.primary,
+              fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.05em',
+            }}>
+              {countdown}
+            </span>
+          </div>
+
+          {/* Estado circuito + último error */}
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, background: T.inputBg, borderRadius: 8, padding: '8px 12px' }}>
+              <p style={{ fontSize: 9, color: T.textDim, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>
+                Estado Circuito
+              </p>
+              <p style={{ fontSize: 12, color: isIA ? T.tertiary : '#fb923c', fontFamily: "'JetBrains Mono', monospace", margin: 0, fontWeight: 700 }}>
+                {data.circuit_state}
+              </p>
+            </div>
+            {data.last_quota_error && (
+              <div style={{ flex: 1, background: T.inputBg, borderRadius: 8, padding: '8px 12px' }}>
+                <p style={{ fontSize: 9, color: T.textDim, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 4px' }}>
+                  Último Error 429
+                </p>
+                <p style={{ fontSize: 11, color: '#f87171', fontFamily: "'JetBrains Mono', monospace", margin: 0 }}>
+                  {new Date(data.last_quota_error).toLocaleTimeString('es-CO')}
+                </p>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {!data && !error && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: T.textDim, fontSize: 12 }}>
+          <span style={{ width: 12, height: 12, borderRadius: '50%', border: `2px solid ${T.primary}`, borderTopColor: 'transparent',
+            display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />
+          Cargando telemetría...
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 export default function PanelPage() {
   // Contenedor A state
@@ -106,19 +296,26 @@ export default function PanelPage() {
   const [savedOk, setSavedOk]     = useState(false);
 
   // Contenedor B state
-  const [gemini, setGemini]         = useState('');
-  const [pplx, setPplx]             = useState('');
   const [credsOk, setCredsOk]       = useState(false);
-  const [geminiClip, setGeminiClip] = useState<'idle'|'ok'|'err'>('idle');
-  const [pplxClip, setPplxClip]     = useState<'idle'|'ok'|'err'>('idle');
 
   // Keywords state
   const [keywords, setKeywords] = useState<SearchKeyword[]>(loadKeywords);
+
+  // Al montar: localStorage es la fuente de verdad para la UI.
+  // El backend (DB) es solo para que el rastreo R2 conozca las keywords activas.
+  // → Siempre empujamos localStorage → DB (nunca al revés), para evitar reset en F5.
+  useEffect(() => {
+    const local = loadKeywords();
+    // Solo admins pueden escribir esta config global (server.js exige rol admin) —
+    // para no-admins el 403 es esperado y se ignora silenciosamente aquí.
+    http.put('/api/panel/keywords', { keywords: local }).catch(() => {});
+  }, []);
 
   function updateKeyword(id: number, changes: Partial<SearchKeyword>) {
     setKeywords(prev => {
       const next = prev.map(k => k.id === id ? { ...k, ...changes } : k);
       try { localStorage.setItem(KEYWORDS_KEY, JSON.stringify(next)); } catch {}
+      http.put('/api/panel/keywords', { keywords: next }).catch(() => {});
       return next;
     });
   }
@@ -128,12 +325,8 @@ export default function PanelPage() {
     try { const c = JSON.parse(localStorage.getItem(CREDS_KEY) || '{}'); return c.isGeminiEnabled !== false; }
     catch { return true; }
   });
-  const [isPerplexityEnabled, setIsPerplexityEnabled] = useState<boolean>(() => {
-    try { const c = JSON.parse(localStorage.getItem(CREDS_KEY) || '{}'); return c.isPerplexityEnabled !== false; }
-    catch { return true; }
-  });
 
-  function persistEngineFlag(key: 'isGeminiEnabled' | 'isPerplexityEnabled', val: boolean) {
+  function persistEngineFlag(key: 'isGeminiEnabled', val: boolean) {
     try {
       const prev = JSON.parse(localStorage.getItem(CREDS_KEY) || '{}');
       localStorage.setItem(CREDS_KEY, JSON.stringify({ ...prev, [key]: val, updatedAt: new Date().toISOString() }));
@@ -172,32 +365,13 @@ export default function PanelPage() {
   function updateCreds() {
     try {
       localStorage.setItem(CREDS_KEY, JSON.stringify({
-        googleGeminiToken:  gemini,
-        perplexityToken:    pplx,
         isGeminiEnabled,
-        isPerplexityEnabled,
-        updatedAt:          new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       }));
       window.dispatchEvent(new StorageEvent('storage', { key: CREDS_KEY }));
     } catch {}
     setCredsOk(true);
     setTimeout(() => setCredsOk(false), 2000);
-  }
-
-  async function pasteFromClipboard(
-    setter: (v: string) => void,
-    setStatus: (s: 'idle'|'ok'|'err') => void,
-  ) {
-    try {
-      const text = (await navigator.clipboard.readText()).trim();
-      if (text.length < 8) { setStatus('err'); setTimeout(() => setStatus('idle'), 2500); return; }
-      setter(text);
-      setStatus('ok');
-      setTimeout(() => setStatus('idle'), 2500);
-    } catch {
-      setStatus('err');
-      setTimeout(() => setStatus('idle'), 2500);
-    }
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -366,7 +540,7 @@ export default function PanelPage() {
             ⚿ Búnker de Conexiones — APIs
           </p>
 
-          {/* ── Instrucción dummy ── */}
+          {/* ── Instrucción: la key ya no se gestiona desde el cliente ── */}
           <div style={{
             background: 'rgba(56,189,248,0.06)',
             border: '1px solid rgba(56,189,248,0.18)',
@@ -376,14 +550,15 @@ export default function PanelPage() {
             alignItems: 'flex-start',
             gap: 8,
           }}>
-            <span style={{ fontSize: 14, flexShrink: 0 }}>💡</span>
+            <span style={{ fontSize: 14, flexShrink: 0 }}>🔒</span>
             <p style={{ fontSize: 11, color: T.textMuted, margin: 0, lineHeight: 1.5 }}>
-              Haz clic en el enlace, copia tu código y vuelve aquí para presionar{' '}
-              <span style={{ color: T.primary, fontWeight: 700 }}>"Autocompletar"</span> — ¡Listo!
+              La API Key de Google Gemini se gestiona de forma segura en el servidor
+              (variable de entorno <code>GOOGLE_API_KEY</code>) — nunca se almacena ni se
+              transmite desde el navegador.
             </p>
           </div>
 
-          {/* ── Google Gemini ── */}
+          {/* ── Google Gemini — solo activación del motor, sin credencial en cliente ── */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               {/* Toggle + label */}
@@ -405,126 +580,15 @@ export default function PanelPage() {
                   }} />
                 </button>
                 <label style={{ ...labelStyle, margin: 0, color: isGeminiEnabled ? T.textMuted : T.textDim }}>
-                  Google Gemini API Key
+                  Motor Gemini (gestionado por servidor)
                 </label>
               </div>
-              <button
-                type="button"
-                onClick={() => window.open('https://aistudio.google.com/app/apikey', '_blank', 'noopener')}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  fontSize: 11, color: isGeminiEnabled ? T.primary : T.textDim, fontWeight: 700,
-                  letterSpacing: '0.04em', textDecoration: 'underline',
-                  padding: 0, display: 'flex', alignItems: 'center', gap: 4,
-                  transition: 'opacity 0.15s',
-                }}
-              >
-                🔗 Obtener Token
-              </button>
             </div>
-            <div style={{ display: 'flex', gap: 8, opacity: isGeminiEnabled ? 1 : 0.35, transition: 'opacity 0.2s' }}>
-              <input
-                type="password"
-                value={gemini}
-                onChange={e => setGemini(e.target.value)}
-                placeholder="AIzaSy... o Bearer eyJhbGciOi..."
-                disabled={!isGeminiEnabled}
-                style={{ ...inputStyle, fontFamily: "'JetBrains Mono', monospace", flex: 1,
-                  cursor: isGeminiEnabled ? 'text' : 'not-allowed' }}
-              />
-              <button
-                type="button"
-                onClick={() => pasteFromClipboard(setGemini, setGeminiClip)}
-                disabled={!isGeminiEnabled}
-                style={{
-                  flexShrink: 0,
-                  background: geminiClip === 'ok'  ? 'rgba(82,232,124,0.15)'
-                            : geminiClip === 'err' ? 'rgba(248,113,113,0.15)'
-                            : 'rgba(56,189,248,0.10)',
-                  border: `1px solid ${geminiClip === 'ok'  ? 'rgba(82,232,124,0.45)'
-                                      : geminiClip === 'err' ? 'rgba(248,113,113,0.45)'
-                                      : 'rgba(56,189,248,0.30)'}`,
-                  color: geminiClip === 'ok' ? T.tertiary : geminiClip === 'err' ? '#f87171' : T.primary,
-                  borderRadius: '6px', padding: '0 12px',
-                  fontSize: 11, fontWeight: 700, cursor: isGeminiEnabled ? 'pointer' : 'not-allowed',
-                  letterSpacing: '0.04em', whiteSpace: 'nowrap', transition: 'all 0.15s',
-                }}
-              >
-                {geminiClip === 'ok' ? '✓ Pegado' : geminiClip === 'err' ? '✗ Error' : '📋 Autocompletar'}
-              </button>
-            </div>
-          </div>
-
-          {/* ── Perplexity ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              {/* Toggle + label */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button
-                  type="button" role="switch" aria-checked={isPerplexityEnabled}
-                  onClick={() => { const v = !isPerplexityEnabled; setIsPerplexityEnabled(v); persistEngineFlag('isPerplexityEnabled', v); }}
-                  style={{
-                    width: 36, height: 20, borderRadius: 9999, padding: 0, border: 'none',
-                    background: isPerplexityEnabled ? T.tertiaryCont : T.surfaceHigh,
-                    cursor: 'pointer', position: 'relative', flexShrink: 0,
-                    transition: 'background 0.2s', boxShadow: isPerplexityEnabled ? `0 0 6px ${T.tertiaryCont}88` : 'none',
-                  }}
-                >
-                  <span style={{
-                    position: 'absolute', top: 2, left: isPerplexityEnabled ? 18 : 2,
-                    width: 16, height: 16, borderRadius: '50%', background: '#fff',
-                    transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
-                  }} />
-                </button>
-                <label style={{ ...labelStyle, margin: 0, color: isPerplexityEnabled ? T.textMuted : T.textDim }}>
-                  Perplexity API — Engine Token
-                </label>
-              </div>
-              <button
-                type="button"
-                onClick={() => window.open('https://www.perplexity.ai/settings/api', '_blank', 'noopener')}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  fontSize: 11, color: isPerplexityEnabled ? '#bdc2ff' : T.textDim, fontWeight: 700,
-                  letterSpacing: '0.04em', textDecoration: 'underline',
-                  padding: 0, display: 'flex', alignItems: 'center', gap: 4,
-                  transition: 'opacity 0.15s',
-                }}
-              >
-                🔗 Obtener Token
-              </button>
-            </div>
-            <div style={{ display: 'flex', gap: 8, opacity: isPerplexityEnabled ? 1 : 0.35, transition: 'opacity 0.2s' }}>
-              <input
-                type="password"
-                value={pplx}
-                onChange={e => setPplx(e.target.value)}
-                placeholder="pplx-xxxxxxxxxxxxxxxxxxxxxxxx"
-                disabled={!isPerplexityEnabled}
-                style={{ ...inputStyle, fontFamily: "'JetBrains Mono', monospace", flex: 1,
-                  cursor: isPerplexityEnabled ? 'text' : 'not-allowed' }}
-              />
-              <button
-                type="button"
-                onClick={() => pasteFromClipboard(setPplx, setPplxClip)}
-                disabled={!isPerplexityEnabled}
-                style={{
-                  flexShrink: 0,
-                  background: pplxClip === 'ok'  ? 'rgba(82,232,124,0.15)'
-                            : pplxClip === 'err' ? 'rgba(248,113,113,0.15)'
-                            : 'rgba(189,194,255,0.10)',
-                  border: `1px solid ${pplxClip === 'ok'  ? 'rgba(82,232,124,0.45)'
-                                      : pplxClip === 'err' ? 'rgba(248,113,113,0.45)'
-                                      : 'rgba(189,194,255,0.30)'}`,
-                  color: pplxClip === 'ok' ? T.tertiary : pplxClip === 'err' ? '#f87171' : '#bdc2ff',
-                  borderRadius: '6px', padding: '0 12px',
-                  fontSize: 11, fontWeight: 700, cursor: isPerplexityEnabled ? 'pointer' : 'not-allowed',
-                  letterSpacing: '0.04em', whiteSpace: 'nowrap', transition: 'all 0.15s',
-                }}
-              >
-                {pplxClip === 'ok' ? '✓ Pegado' : pplxClip === 'err' ? '✗ Error' : '📋 Autocompletar'}
-              </button>
-            </div>
+            <p style={{ fontSize: 10, color: T.textDim, margin: 0, lineHeight: 1.5 }}>
+              {isGeminiEnabled
+                ? 'Activo — el barrido autónomo usará Google Search Grounding vía el proxy del backend.'
+                : 'Desactivado — el barrido autónomo no invocará Gemini.'}
+            </p>
           </div>
 
           {/* ── Matriz de Palabras Clave — Barrido Gemini ── */}
@@ -614,6 +678,13 @@ export default function PanelPage() {
         </div>
 
       </div>
+
+      {/* ─── CONTENEDOR C — Telemetría Motor de IA ───────────────────────────── */}
+      <QuotaTelemetry />
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   );
 }

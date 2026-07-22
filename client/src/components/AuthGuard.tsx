@@ -37,7 +37,7 @@ function Spinner({ message }: { message: string }) {
  *
  * 'normal'       → /importar, /settings, /apis: demo mode + chequeo de credenciales.
  *
- * 'require-auth' → /formulador: requiere JWT real (no demo-mode-token).
+ * 'require-auth' → /favoritos, /calendario: requiere JWT real (no demo-mode-token).
  *                  Sin auth válida → redirige a /login con estado de retorno.
  */
 export default function AuthGuard({

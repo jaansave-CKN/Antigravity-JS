@@ -1,4 +1,5 @@
 import { captureError } from '../lib/sentry';
+import { getAuthHeaders } from '../lib/apiClient';
 
 // Tipo canónico usado en toda la aplicación (PestañaRadar, mapeo, estado)
 export interface GeminiResult {
@@ -11,8 +12,6 @@ export interface GeminiResult {
 
 // Alias de compatibilidad — apunta al mismo tipo
 export type LightweightResult = GeminiResult;
-
-const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash-lite', 'gemini-2.0-flash'];
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -100,7 +99,12 @@ function sanitizeJSON(rawText: string): string {
   return stripped.substring(first, last + 1);
 }
 
-async function callGeminiREST(apiKey: string, model: string, prompt: string): Promise<string> {
+// ── Proxy seguro — la API key de Gemini vive EXCLUSIVAMENTE en el backend ────
+// (GOOGLE_API_KEY, server.js:/api/radar/barrido-gemini). El cliente nunca la
+// ve ni la envía: solo manda el prompt ya construido y recibe el texto crudo.
+// El backend resuelve el fallback entre modelos y aplica el circuit breaker
+// de cuota (geminiCB) antes de llamar a Google.
+async function callGeminiViaBackend(prompt: string): Promise<string> {
   const CRITICAL_RULE =
     'REGLA CRÍTICA: TU RESPUESTA DEBE SER EXCLUSIVAMENTE UN ARRAY JSON VÁLIDO. ' +
     'NO INCLUYAS TEXTO CONVERSACIONAL, NO USES FORMATO MARKDOWN, NO USES TILDES INVERSAS. ' +
@@ -109,26 +113,20 @@ async function callGeminiREST(apiKey: string, model: string, prompt: string): Pr
 
   const fullPrompt = `${prompt}\n\n${CRITICAL_RULE}`;
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  const body = {
-    contents: [{ parts: [{ text: fullPrompt }] }],
-    tools: [{ googleSearch: {} }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
-  };
-
-  const res = await fetch(endpoint, {
+  const res = await fetch('/api/radar/barrido-gemini', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    credentials: 'include',
+    body: JSON.stringify({ prompt: fullPrompt }),
   });
 
-  if (!res.ok) {
-    const err = (await res.text()).substring(0, 200);
-    throw new Error(`[${res.status}] ${err}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.success) {
+    const code = data?.code ? ` ${data.code}` : '';
+    throw new Error(`[${res.status}]${code} ${data?.message ?? 'Error al contactar el proxy de Gemini.'}`);
   }
 
-  const data = await res.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  return data.result ?? '';
 }
 
 export async function barridoMasivoLigero(sector: string, total: number = 50): Promise<GeminiResult[]> {
@@ -138,10 +136,6 @@ export async function barridoMasivoLigero(sector: string, total: number = 50): P
     console.log(`[geminiScanner] Caché semántico HIT (${cacheKey}) — latencia/costo cero`);
     return cached;
   }
-
-  const creds = JSON.parse(localStorage.getItem('rf360_credentials_v1') || '{}');
-  const apiKey = (creds.googleGeminiToken || '').replace(/^Bearer\s+/i, '').trim();
-  if (!apiKey) throw new Error('API Key de Gemini no disponible.');
 
   const batchSize = 10;
   const batches = Math.ceil(total / batchSize);
@@ -159,14 +153,16 @@ REGLAS ESTRICTAS:
 Devuelve SOLO un array JSON válido. Cada objeto: titulo (nombre exacto), descripcion_corta (máx 120 chars: qué financia y para quién), fuente (organización convocante), enlace_oficial (URL directa de esa convocatoria específica), estado ("Abierta" o "Próxima").`;
 
     let raw = '';
-    for (const modelo of MODELS) {
-      try {
-        raw = await withExponentialBackoff(() => callGeminiREST(apiKey, modelo, prompt));
+    try {
+      raw = await withExponentialBackoff(() => callGeminiViaBackend(prompt));
+    } catch (e: any) {
+      if (e.message?.includes('AI_LIMIT_EXCEEDED') || e.message?.includes('[503]')) {
+        // Circuit breaker abierto / cuota agotada — degradar con gracia:
+        // no tumbar el barrido completo, devolver lo acumulado hasta ahora.
+        console.warn('[geminiScanner] Cuota de Gemini agotada — deteniendo barrido con resultados parciales.');
         break;
-      } catch (e: any) {
-        if (e.message?.includes('429')) continue;
-        throw e;
       }
+      throw e;
     }
 
     // Try-Catch Silencioso — la UI nunca se rompe por un error de sintaxis de la IA

@@ -15,9 +15,16 @@ export const RadarGridRealTime: React.FC = () => {
   useEffect(() => {
     async function obtenerFlujoReal() {
     try {
-      const response = await fetch('/api/radar/v1/stream-convocatorias');
+      // NOTA: /api/radar/v1/stream-convocatorias nunca existió en el backend —
+      // este componente quedó huérfano apuntando a un endpoint fantasma. Se
+      // corrige al endpoint real de convocatorias (el mismo que usa PestañaRadar).
+      const response = await fetch('/api/convocatorias?limit=50');
       const respText = await response.text();
-      const datos = response.ok ? JSON.parse(respText) : [];
+      const body = response.ok ? JSON.parse(respText) : { data: [] };
+      const datos = Array.isArray(body?.data) ? body.data.map((c: any) => ({
+        id: c.id, titulo: c.titulo, oferente: c.donante || c.fuente || 'Desconocido',
+        descripcion: c.descripcion || '', link: c.url_convocatoria || c.url_fuente || '#',
+      })) : [];
         setConvocatorias(datos);
       } catch (err) {
         console.error("Error en el flujo de datos reales:", err);

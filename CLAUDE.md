@@ -1,6 +1,6 @@
 # CLAUDE.md — RadarFondos 360
 
-## DIRECTIVA DE CALCO ESTRICTO — Stitch MCP (PRIORIDAD MÁXIMA)
+## CALCO — Stitch MCP (PRIORIDAD MÁXIMA)
 
 **Esta directiva tiene precedencia sobre cualquier otra instrucción de estilo.**
 

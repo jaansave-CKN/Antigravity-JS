@@ -1,0 +1,345 @@
+<!DOCTYPE html><html class="light" lang="es"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Calendario de favoritos - Radar Formulador 360</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "secondary-fixed": "#dbe1ff",
+                      "surface-container-highest": "#e0e3e5",
+                      "secondary": "#455b9d",
+                      "error-container": "#ffdad6",
+                      "on-error-container": "#93000a",
+                      "tertiary": "#374559",
+                      "on-tertiary-fixed-variant": "#3a485b",
+                      "primary-fixed-dim": "#b7c4ff",
+                      "outline": "#747686",
+                      "surface-container-lowest": "#ffffff",
+                      "surface-variant": "#e0e3e5",
+                      "primary-container": "#1d4ed8",
+                      "on-primary-container": "#cad3ff",
+                      "inverse-primary": "#b7c4ff",
+                      "tertiary-container": "#4f5d71",
+                      "on-error": "#ffffff",
+                      "background": "#f7f9fb",
+                      "tertiary-fixed-dim": "#b9c7df",
+                      "inverse-on-surface": "#eff1f3",
+                      "error": "#ba1a1a",
+                      "surface-dim": "#d8dadc",
+                      "secondary-fixed-dim": "#b4c5ff",
+                      "on-background": "#191c1e",
+                      "primary-fixed": "#dce1ff",
+                      "on-surface": "#191c1e",
+                      "on-secondary-container": "#2f4686",
+                      "outline-variant": "#c4c5d7",
+                      "on-primary-fixed": "#001551",
+                      "on-secondary-fixed-variant": "#2c4383",
+                      "on-primary-fixed-variant": "#0039b5",
+                      "surface-container-low": "#f2f4f6",
+                      "on-surface-variant": "#434655",
+                      "secondary-container": "#a0b6fe",
+                      "inverse-surface": "#2d3133",
+                      "surface-bright": "#f7f9fb",
+                      "surface-container": "#eceef0",
+                      "on-secondary-fixed": "#00174b",
+                      "on-tertiary": "#ffffff",
+                      "primary": "#0037b0",
+                      "on-tertiary-container": "#c7d6ee",
+                      "surface": "#f7f9fb",
+                      "on-primary": "#ffffff",
+                      "on-secondary": "#ffffff",
+                      "surface-tint": "#2151da",
+                      "tertiary-fixed": "#d5e3fc",
+                      "on-tertiary-fixed": "#0d1c2e",
+                      "surface-container-high": "#e6e8ea"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "stack-md": "1.5rem",
+                      "stack-lg": "3rem",
+                      "gutter": "1.5rem",
+                      "margin-mobile": "1rem",
+                      "margin-desktop": "2.5rem",
+                      "stack-xs": "0.5rem",
+                      "container-max": "1440px"
+              },
+              "fontFamily": {
+                      "headline": ["Public Sans"],
+                      "display": ["Public Sans"],
+                      "body": ["Public Sans"],
+                      "label": ["Public Sans"],
+                      "status-pill": ["Public Sans"],
+                      "headline-lg": ["Public Sans"],
+                      "headline-md": ["Public Sans"],
+                      "body-lg": ["Public Sans"],
+                      "body-sm": ["Public Sans"],
+                      "label-technical": ["Public Sans"]
+              },
+              "fontSize": {
+                      "status-pill": ["11px", {"lineHeight": "12px", "fontWeight": "600"}],
+                      "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                      "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                      "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "label-technical": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500"}]
+              }
+            },
+          },
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background font-body min-h-screen overflow-hidden selection:bg-primary/20 relative">
+<!-- Subtle Atmospheric Accents -->
+<div class="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-primary/5 blur-[120px] pointer-events-none -z-10"></div>
+<!-- TopNavBar (Mobile Only) -->
+<header class="md:hidden fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-outline-variant flex justify-between items-center px-6 h-16">
+<div class="font-display text-headline-md font-bold text-primary tracking-tight">Radar Formulador 360</div>
+<div class="flex items-center gap-4 text-on-surface-variant">
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors">notifications</span>
+<div class="w-8 h-8 rounded-full bg-surface-variant overflow-hidden border border-outline-variant">
+<img alt="User" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCn1QXGBHHVzxl-jN2F2jRI0S0SR2ECcH3i5sN0stED-z-La02gommEUt5GVmpk8ALxiIcce10BPy6nbELkT8h09Nf6wjKZcRucsh5mWjBQrS8-C85euGMUJ606ptoECRICfVRNgZowirG80H7GmGxgm06jOMIzMlD46BJfKuqtxMqZSvf5i2VmEjF_HQtpL9jcteRU5uq3CRVjV_JDJHsxE2X7YEwjBAsPwiyKA2aZ0qrUINvOATnTJ12kwpHPhCPGdkcafrgeYoE">
+</div>
+</div>
+</header>
+<div class="flex h-screen w-full">
+<!-- SideNavBar (Desktop) -->
+<nav class="hidden md:flex fixed left-0 top-0 h-full w-64 z-40 bg-white border-r border-outline-variant flex-col p-gutter pt-8 gap-stack-xs">
+<div class="mb-8 px-4">
+<div class="w-12 h-12 rounded-xl bg-primary flex items-center justify-center mb-4 shadow-sm">
+<span class="material-symbols-outlined text-white text-2xl">radar</span>
+</div>
+<h1 class="font-headline text-xl font-bold text-on-surface">Mission Control</h1>
+<p class="font-label-technical text-xs text-on-surface-variant mt-1 uppercase tracking-wider">Strategic Grants Intel</p>
+</div>
+<div class="flex-1 flex flex-col gap-1 px-2 overflow-y-auto">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container hover:text-on-surface rounded-lg transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-xl">home</span>
+<span class="font-body-sm">Inicio</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container hover:text-on-surface rounded-lg transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-xl">dashboard</span>
+<span class="font-body-sm">Panel</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container hover:text-on-surface rounded-lg transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-xl">radar</span>
+<span class="font-body-sm">Radar</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container hover:text-on-surface rounded-lg transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-xl">group</span>
+<span class="font-body-sm">Directorio</span>
+</a>
+<div class="h-px w-full bg-outline-variant my-2 mx-4 opacity-50"></div>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container hover:text-on-surface rounded-lg transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-xl">calendar_today</span>
+<span class="font-body-sm">Calendario</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 bg-primary-container/10 text-primary rounded-lg font-bold transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="font-body-sm">Favoritos</span>
+</a>
+</div>
+<div class="mt-auto px-2 pb-6">
+<button class="w-full py-3 px-4 bg-primary text-white font-semibold rounded-lg hover:bg-primary-container transition-all shadow-md active:scale-[0.98]">
+                Export Intelligence
+            </button>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 w-full md:pl-64 h-full overflow-y-auto pt-16 md:pt-0">
+<!-- Content Header -->
+<div class="sticky top-0 z-30 bg-background/90 backdrop-blur-md border-b border-outline-variant px-margin-desktop py-8 flex justify-between items-center">
+<div>
+<h2 class="font-display text-3xl font-bold text-on-surface tracking-tight">Calendario convocatorias</h2>
+<p class="font-body-sm text-on-surface-variant mt-1">Fechas críticas para sus convocatorias seleccionadas</p>
+</div>
+<div class="flex items-center gap-3">
+<button class="w-10 h-10 rounded-lg border border-outline-variant flex items-center justify-center text-on-surface-variant hover:bg-white hover:text-primary transition-all">
+<span class="material-symbols-outlined">filter_list</span>
+</button>
+<button class="w-10 h-10 rounded-lg border border-outline-variant flex items-center justify-center text-on-surface-variant hover:bg-white hover:text-primary transition-all">
+<span class="material-symbols-outlined">download</span>
+</button>
+</div>
+</div>
+<!-- Calendar Container -->
+<div class="p-margin-mobile md:p-margin-desktop max-w-container-max mx-auto h-[calc(100vh-140px)] flex flex-col">
+<!-- Calendar Controls -->
+<div class="flex justify-between items-center mb-6">
+<div class="flex items-center gap-4">
+<button class="p-2 border border-outline-variant rounded-lg hover:bg-white text-on-surface-variant hover:text-primary transition-all flex items-center justify-center">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<h3 class="font-headline text-xl font-bold text-on-surface uppercase tracking-widest w-48 text-center">Marzo 2024</h3>
+<button class="p-2 border border-outline-variant rounded-lg hover:bg-white text-on-surface-variant hover:text-primary transition-all flex items-center justify-center">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+<div class="flex bg-surface-container-high rounded-lg p-1 border border-outline-variant">
+<button class="px-5 py-1.5 rounded-md bg-white text-primary font-semibold shadow-sm border border-outline-variant">Mes</button>
+<button class="px-5 py-1.5 rounded-md text-on-surface-variant hover:text-on-surface font-semibold">Semana</button>
+</div>
+</div>
+<!-- Calendar Grid -->
+<div class="flex-1 bg-white border border-outline-variant rounded-xl flex flex-col overflow-hidden shadow-sm">
+<!-- Days Header -->
+<div class="grid grid-cols-7 border-b border-outline-variant bg-surface-container-low">
+<div class="py-3 text-center font-label-technical text-on-surface-variant text-xs font-bold uppercase tracking-tighter">Dom</div>
+<div class="py-3 text-center font-label-technical text-on-surface-variant text-xs font-bold uppercase tracking-tighter border-l border-outline-variant/30">Lun</div>
+<div class="py-3 text-center font-label-technical text-on-surface-variant text-xs font-bold uppercase tracking-tighter border-l border-outline-variant/30">Mar</div>
+<div class="py-3 text-center font-label-technical text-on-surface-variant text-xs font-bold uppercase tracking-tighter border-l border-outline-variant/30">Mié</div>
+<div class="py-3 text-center font-label-technical text-on-surface-variant text-xs font-bold uppercase tracking-tighter border-l border-outline-variant/30">Jue</div>
+<div class="py-3 text-center font-label-technical text-on-surface-variant text-xs font-bold uppercase tracking-tighter border-l border-outline-variant/30">Vie</div>
+<div class="py-3 text-center font-label-technical text-on-surface-variant text-xs font-bold uppercase tracking-tighter border-l border-outline-variant/30">Sáb</div>
+</div>
+<!-- Grid Content -->
+<div class="flex-1 grid grid-cols-7 grid-rows-5">
+<!-- Row 1 (Previous month days) -->
+<div class="border-b border-outline-variant/30 p-3 bg-surface-container-lowest/40">
+<span class="text-xs font-bold text-on-surface-variant/40">25</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 bg-surface-container-lowest/40">
+<span class="text-xs font-bold text-on-surface-variant/40">26</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 bg-surface-container-lowest/40">
+<span class="text-xs font-bold text-on-surface-variant/40">27</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 bg-surface-container-lowest/40">
+<span class="text-xs font-bold text-on-surface-variant/40">28</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 bg-surface-container-lowest/40">
+<span class="text-xs font-bold text-on-surface-variant/40">29</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">1</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">2</span>
+</div>
+<!-- Row 2 -->
+<div class="border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">3</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">4</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors">
+<span class="text-xs font-bold text-on-surface">5</span>
+<div class="mt-2 bg-primary/10 border border-primary/20 rounded-md px-2 py-1 flex items-center gap-2">
+<div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+<span class="text-[10px] font-bold text-primary truncate uppercase">USAID Local - 12:00</span>
+</div>
+</div>
+<!-- Today Indicator -->
+<div class="border-l border-b border-outline-variant/30 p-3 bg-primary/5 relative">
+<div class="absolute top-0 left-0 w-full h-1 bg-primary"></div>
+<span class="text-xs font-bold text-primary">6</span>
+<div class="mt-2 bg-primary text-white rounded px-2 py-1 text-[10px] font-bold shadow-sm border border-primary truncate uppercase">
+                            Fundación FORD - 15:00
+                        </div>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">7</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">8</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">9</span>
+</div>
+<!-- Row 3 -->
+<div class="border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">10</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">11</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">12</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">13</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors flex flex-col gap-1">
+<span class="text-xs font-bold text-on-surface">14</span>
+<div class="bg-surface-container-high border border-outline-variant rounded px-2 py-1 flex items-center gap-2">
+<div class="w-1.5 h-1.5 rounded-full bg-green-600"></div>
+<span class="text-[10px] font-bold text-on-surface truncate uppercase">MinCiencias - 17:00</span>
+</div>
+<div class="bg-surface-container-high border border-outline-variant rounded px-2 py-1 flex items-center gap-2">
+<div class="w-1.5 h-1.5 rounded-full bg-secondary"></div>
+<span class="text-[10px] font-bold text-on-surface truncate uppercase">SENA Fondo Emprender</span>
+</div>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">15</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">16</span>
+</div>
+<!-- Row 4 -->
+<div class="border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">17</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">18</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">19</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors">
+<span class="text-xs font-bold text-on-surface">20</span>
+<div class="mt-2 bg-error-container border border-error/20 rounded px-2 py-1 flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-error">warning</span>
+<span class="text-[10px] font-bold text-error truncate uppercase">Cierre CAF - 23:59</span>
+</div>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">21</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">22</span>
+</div>
+<div class="border-l border-b border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">23</span>
+</div>
+<!-- Row 5 -->
+<div class="p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">24</span>
+</div>
+<div class="border-l border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">25</span>
+</div>
+<div class="border-l border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">26</span>
+</div>
+<div class="border-l border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">27</span>
+</div>
+<div class="border-l border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">28</span>
+</div>
+<div class="border-l border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">29</span>
+</div>
+<div class="border-l border-outline-variant/30 p-3 hover:bg-surface-container-low transition-colors group">
+<span class="text-xs font-bold text-on-surface group-hover:text-primary">30</span>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+
+
+</body></html>

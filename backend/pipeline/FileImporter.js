@@ -92,14 +92,54 @@ export function parseXLSXBuffer(buffer) {
   return records.map(sanitizeRow);
 }
 
+// ── Parse JSON desde Buffer ────────────────────────────────────────────────────
+// Acepta: un array de objetos [{...}, {...}], o un objeto envoltorio { data: [...] }.
+// Cualquier otra forma (objeto único, array de primitivos, JSON inválido) se
+// rechaza explícitamente — nunca se intenta "adivinar" una estructura.
+export function parseJSONBuffer(buffer) {
+  const text = buffer.toString('utf-8').replace(/^﻿/, ''); // strip BOM
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    const err = new Error(`JSON inválido: ${e.message}`);
+    err.code = 'INVALID_JSON';
+    throw err;
+  }
+
+  const records = Array.isArray(parsed)
+    ? parsed
+    : (Array.isArray(parsed?.data) ? parsed.data : null);
+
+  if (!records) {
+    const err = new Error('El JSON debe ser un array de objetos, o un objeto con la forma { "data": [...] }');
+    err.code = 'INVALID_JSON_SHAPE';
+    throw err;
+  }
+  if (!records.every(r => r && typeof r === 'object' && !Array.isArray(r))) {
+    const err = new Error('Cada elemento del array JSON debe ser un objeto (fila de datos)');
+    err.code = 'INVALID_JSON_SHAPE';
+    throw err;
+  }
+
+  return records.map(sanitizeRow);
+}
+
 // ── Auto-detectar formato por extensión ───────────────────────────────────────
+// Sin fallback ciego: una extensión no reconocida es un error explícito de
+// validación, no un intento silencioso de parsearla como CSV/Excel (eso
+// producía basura o excepciones crípticas para XML, PDF y cualquier otro
+// formato que pasara la whitelist de subida pero no tuviera parser real).
 export async function parseFileBuffer(buffer, filename) {
   const ext = (filename || '').split('.').pop().toLowerCase();
   if (ext === 'csv') return parseCSVBuffer(buffer);
   if (['xlsx', 'xls'].includes(ext)) return parseXLSXBuffer(buffer);
-  // Intentar CSV como fallback
-  try { return await parseCSVBuffer(buffer); }
-  catch { return parseXLSXBuffer(buffer); }
+  if (ext === 'json') return parseJSONBuffer(buffer);
+
+  const err = new Error(`Formato de archivo no soportado para importación: ".${ext}". Formatos con parser real: CSV, XLSX, XLS, JSON.`);
+  err.code = 'UNSUPPORTED_FILE_FORMAT';
+  throw err;
 }
 
 // ── Importar al Directorio ────────────────────────────────────────────────────

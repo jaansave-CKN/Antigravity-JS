@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { barridoMasivoLigero, type GeminiResult } from '../../../../services/geminiScanner';
+import { http } from '../../../../lib/apiClient';
 
 // ── Stitch Design Tokens — Global Grant Nexus (dark) ──────────────────────────
 // Fuente: proyecto 3791086755596777919 · frame "Directorio de Subvenciones"
@@ -103,7 +104,7 @@ function mapGeminiResult(r: GeminiResult, i: number): Convocatoria {
 
 async function fetchConvocatorias(opts: { sector?: string; estado?: string; q?: string; limit?: number }) {
   const p = new URLSearchParams({ limit: String(opts.limit ?? 50) });
-  if (opts.sector && opts.sector !== 'Todas') p.set('sector', opts.sector);
+  if (opts.sector && opts.sector !== 'Todos') p.set('sector', opts.sector);
   if (opts.estado) p.set('estado', opts.estado);
   if (opts.q?.trim()) p.set('q', opts.q.trim());
   const r = await fetch(`/api/convocatorias?${p}`);
@@ -111,6 +112,13 @@ async function fetchConvocatorias(opts: { sector?: string; estado?: string; q?: 
   const d = await r.json();
   if (!d?.success || !Array.isArray(d.data)) return { data: [] as Convocatoria[], total: 0 };
   return { data: d.data.map(mapConvocatoria), total: d.data.length };
+}
+
+async function fetchSectores(): Promise<string[]> {
+  try {
+    const body = await http.get<{ success: boolean; sectores?: string[] }>('/api/convocatorias/meta');
+    return body.sectores || [];
+  } catch { return []; }
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -354,12 +362,9 @@ const CREDS_KEY = 'rf360_credentials_v1';
 function readEngineFlags() {
   try {
     const c = JSON.parse(localStorage.getItem(CREDS_KEY) || '{}');
-    return {
-      isGeminiEnabled:     c.isGeminiEnabled     !== false,
-      isPerplexityEnabled: c.isPerplexityEnabled !== false,
-    };
+    return { isGeminiEnabled: c.isGeminiEnabled !== false };
   } catch {
-    return { isGeminiEnabled: true, isPerplexityEnabled: true };
+    return { isGeminiEnabled: true };
   }
 }
 
@@ -377,6 +382,27 @@ export const PestañaRadar: React.FC = () => {
   const [rawResults,  setRawResults] = useState<GeminiResult[]>([]);
   const [page,        setPage]       = useState(1);
 
+  // ── Filtros reales (Fase 4) — conectados a los mismos params que el backend
+  // ya soporta en GET /api/convocatorias (antes esta pestaña no tenía UI de
+  // filtro alguna, pese a que fetchConvocatorias ya los aceptaba). ──────────
+  const [sectorSel,   setSectorSel]   = useState('Todos');
+  const [estadoSel,   setEstadoSel]   = useState('');
+  const [query,       setQuery]       = useState('');
+  const [sectores,    setSectores]    = useState<string[]>([]);
+  const [favIds,      setFavIds]      = useState<Set<string>>(new Set());
+  const [guardandoBarrido, setGuardandoBarrido] = useState(false);
+  const [barridoGuardado,  setBarridoGuardado]  = useState<string | null>(null);
+
+  useEffect(() => { fetchSectores().then(setSectores); }, []);
+
+  // Hidrata qué convocatorias ya son favoritas del usuario — antes el ★
+  // siempre arrancaba vacío al recargar aunque el dato ya estuviera guardado.
+  useEffect(() => {
+    http.get<{ success: boolean; data?: Array<{ grant_id: string }> }>('/api/favorites')
+      .then(body => setFavIds(new Set((body.data || []).map(f => f.grant_id))))
+      .catch(() => {});
+  }, []);
+
   // Sincronizar flags de motores cuando PanelPage los cambia
   useEffect(() => {
     const handler = (e: StorageEvent) => {
@@ -386,17 +412,24 @@ export const PestañaRadar: React.FC = () => {
     return () => window.removeEventListener('storage', handler);
   }, []);
 
-  const noEnginesActive = !engines.isGeminiEnabled && !engines.isPerplexityEnabled;
+  const noEnginesActive = !engines.isGeminiEnabled;
   const busy = init || scanning;
 
-  // Carga inicial — base de datos existente
+  // Carga inicial + recarga cuando cambian los filtros (debounced para búsqueda)
   useEffect(() => {
     setInit(true);
-    fetchConvocatorias({ limit: 50 })
-      .then(({ data: d, total: t }) => { setData(d); setTotal(t); })
-      .catch(() => {})
-      .finally(() => setInit(false));
-  }, []);
+    const t = setTimeout(() => {
+      fetchConvocatorias({ limit: 50, sector: sectorSel, estado: estadoSel || undefined, q: query })
+        .then(({ data: d, total: total_ }) => {
+          setData(d.map((c: Convocatoria) => ({ ...c, esFavorito: favIds.has(c.id) })));
+          setTotal(total_); setPage(1);
+        })
+        .catch(() => {})
+        .finally(() => setInit(false));
+    }, query ? 400 : 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectorSel, estadoSel, query, favIds]);
 
   const runScan = useCallback(async () => {
     if (noEnginesActive) return;
@@ -407,7 +440,7 @@ export const PestañaRadar: React.FC = () => {
     setScanning(true);
 
     try {
-      // ── Motor Client-Side: Gemini Search Grounding directo ───────────────
+      // ── Barrido Gemini Search Grounding — vía proxy seguro del backend ───
         const resultados = await barridoMasivoLigero('General', 50);
       console.log('🔥 CARGA ÚTIL RECIBIDA:', resultados);          // Auditoría
 
@@ -444,9 +477,38 @@ export const PestañaRadar: React.FC = () => {
     }
   }, [noEnginesActive]);
 
-  const toggleFav = useCallback((id: string) =>
-    setData(prev => prev.map(c => c.id === id ? { ...c, esFavorito: !c.esFavorito } : c)),
-  []);
+  const toggleFav = useCallback((id: string) => {
+    setData(prev => prev.map(c => c.id === id ? { ...c, esFavorito: !c.esFavorito } : c));
+    // Persistencia real — antes esto solo cambiaba el estado local en memoria.
+    http.post<{ success: boolean; favorito?: boolean }>(`/api/convocatorias/${id}/favorito`)
+      .then(resp => {
+        setFavIds(prev => {
+          const next = new Set(prev);
+          resp.favorito ? next.add(id) : next.delete(id);
+          return next;
+        });
+      })
+      .catch(() => {
+        // revertir en caso de fallo de red/auth
+        setData(prev => prev.map(c => c.id === id ? { ...c, esFavorito: !c.esFavorito } : c));
+      });
+  }, []);
+
+  const guardarResultadosBarrido = useCallback(async () => {
+    if (rawResults.length === 0) return;
+    setGuardandoBarrido(true);
+    setBarridoGuardado(null);
+    try {
+      const body = await http.post<{ success: boolean; insertadas: number; duplicadas: number }>(
+        '/api/radar/persistir-barrido', { resultados: rawResults }
+      );
+      setBarridoGuardado(`${body.insertadas} convocatoria(s) guardada(s) permanentemente (${body.duplicadas} ya existían).`);
+    } catch (e: any) {
+      setBarridoGuardado(`Error al guardar: ${e?.message ?? 'desconocido'}`);
+    } finally {
+      setGuardandoBarrido(false);
+    }
+  }, [rawResults]);
 
   // Paginación — fuente activa: rawResults (Gemini) o data (BD)
   const activeList   = rawResults.length > 0 ? rawResults : data;
@@ -551,8 +613,61 @@ export const PestañaRadar: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Counter ── */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+      {/* ── Filtros reales (sector/estado/búsqueda) — Fase 4 ── */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Buscar por título o donante…"
+          style={{
+            flex: '1 1 220px', minWidth: 180, padding: '8px 12px', borderRadius: 7,
+            background: T.inputBg, border: `1px solid ${T.inputBorder}`, color: T.textPrimary,
+            fontSize: 12, fontFamily: T.font, outline: 'none',
+          }}
+        />
+        <select
+          value={sectorSel}
+          onChange={e => setSectorSel(e.target.value)}
+          style={{
+            padding: '8px 12px', borderRadius: 7, background: T.inputBg,
+            border: `1px solid ${T.inputBorder}`, color: T.textPrimary, fontSize: 12, fontFamily: T.font,
+          }}
+        >
+          <option value="Todos">Todos los sectores</option>
+          {sectores.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select
+          value={estadoSel}
+          onChange={e => setEstadoSel(e.target.value)}
+          style={{
+            padding: '8px 12px', borderRadius: 7, background: T.inputBg,
+            border: `1px solid ${T.inputBorder}`, color: T.textPrimary, fontSize: 12, fontFamily: T.font,
+          }}
+        >
+          <option value="">Todas (abiertas)</option>
+          <option value="nueva">Nuevas (≤7 días)</option>
+          <option value="abierta">Abiertas (&gt;7 días)</option>
+        </select>
+      </div>
+
+      {/* ── Counter + guardar resultados del barrido en BD (antes se perdían al recargar) ── */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        {barridoGuardado && (
+          <span style={{ fontSize: 9, color: T.green, fontFamily: T.mono }}>{barridoGuardado}</span>
+        )}
+        {rawResults.length > 0 && !busy && (
+          <button
+            onClick={guardarResultadosBarrido}
+            disabled={guardandoBarrido}
+            style={{
+              padding: '4px 12px', borderRadius: 6, border: `1px solid ${T.cyanBorder}`,
+              background: T.cyanGlow, color: T.cyan, fontSize: 9, fontWeight: 700, fontFamily: T.mono,
+              letterSpacing: '0.05em', textTransform: 'uppercase', cursor: guardandoBarrido ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {guardandoBarrido ? 'Guardando…' : '💾 Guardar resultados permanentemente'}
+          </button>
+        )}
         <span style={{ fontSize: 10, color: T.textMuted, fontFamily: T.mono }}>
           {busy ? '…' : `${activeList.length} resultado${activeList.length !== 1 ? 's' : ''} indexados`}
         </span>
@@ -564,7 +679,7 @@ export const PestañaRadar: React.FC = () => {
       {/* ── Results ── */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {busy ? (
-          <EmptyState scanning={true} query="" />
+          <EmptyState scanning={scanning} query={query} />
         ) : pageRaw.length > 0 ? (
           /* ── Renderizado directo de GeminiResult (sin mapeo) ── */
           pageRaw.map((r, i) => (
@@ -613,7 +728,7 @@ export const PestañaRadar: React.FC = () => {
         ) : pageData.length > 0 ? (
           pageData.map(c => <ConvocatoriaCard key={c.id} c={c} onToggleFav={toggleFav} />)
         ) : (
-          <EmptyState scanning={false} query="" />
+          <EmptyState scanning={false} query={query} />
         )}
       </div>
 

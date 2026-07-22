@@ -1,3 +1,5 @@
+import type { ViabilidadIAResultado } from './agents/NN_Viability_Agent';
+
 export type EstadoConvocatoria = 'abierta' | 'proxima' | 'cerrada' | 'pendiente_revision';
 
 export type CategoriaGestion = 
@@ -336,6 +338,39 @@ export interface Proyecto {
   actualizado_en?: string;
 }
 
+// ============================================================
+// PROYECTO DEL FORMULADOR — esquema real de la tabla `proyectos`
+// (backend/routes/proyectos.routes.js). IDs son TEXT en la BD real, nunca
+// number — nunca castear proyectoId/userId/orgId a number en este flujo.
+// ============================================================
+
+/** ficha_tecnica es una columna JSON de forma libre en el backend — los
+ * campos conocidos están tipados; cualquier otro campo adicional es válido. */
+export interface FichaTecnicaProyecto {
+  metaFisicaTotal?: number;
+  descripcion?: string;
+  municipio?: string;
+  beneficiarios?: number;
+  /** Resultado real de POST /api/proyectos/:id/viabilidad-ia, persistido
+   * dentro de esta misma columna (ver backend/services/viabilidadAgent.js). */
+  viabilidad_ia?: ViabilidadIAResultado;
+  [campoAdicional: string]: unknown;
+}
+
+export interface ProyectoFormulador {
+  id: string;
+  user_id: string;
+  org_id: string;
+  nombre: string;
+  estado: string;
+  bloqueo_razon?: string | null;
+  ficha_tecnica: FichaTecnicaProyecto;
+  presupuesto: Record<string, unknown>;
+  crosscheck_sello?: unknown;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface DocumentoContexto {
   id: string;
   proyecto_id: string;
@@ -642,7 +677,7 @@ export const DEFAULT_AI_CONFIG: AIOrchestratorConfig = {
 // FASE 4 - CENTRO DE COMANDO C3
 // ============================================================
 
-export type APICredentialType = 'google' | 'notebooklm' | 'perplexity' | 'openai' | 'gemini';
+export type APICredentialType = 'google' | 'notebooklm' | 'openai' | 'gemini';
 
 export interface APICredential {
   id?: string;
@@ -658,7 +693,6 @@ export interface APICredential {
 export interface APICredentialInput {
   google?: string;
   notebooklm?: string;
-  perplexity?: string;
   openai?: string;
   gemini?: string;
 }

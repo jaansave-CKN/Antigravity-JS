@@ -167,23 +167,38 @@ class OpenCodeTaskQueue {
         agentContext.currentTask = undefined;
         agentContext.pendingTasks = Math.max(0, agentContext.pendingTasks - 1);
       }
+      // Purgar del Map después de 60s para evitar acumulación indefinida
+      setTimeout(() => this.queue.delete(task.id), 60_000);
     }
   }
 
   private sortQueue(): void {
     const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-    const sorted = Array.from(this.queue.values())
-      .filter(t => t.status === 'pending')
-      .sort((a, b) => {
+    // Solo operar sobre pendientes — no re-insertar completed/failed
+    const pending = Array.from(this.queue.entries())
+      .filter(([, t]) => t.status === 'pending')
+      .sort(([, a], [, b]) => {
         const pDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
-        if (pDiff !== 0) return pDiff;
-        return a.createdAt.getTime() - b.createdAt.getTime();
+        return pDiff !== 0 ? pDiff : a.createdAt.getTime() - b.createdAt.getTime();
       });
 
-    for (const task of sorted) {
-      this.queue.delete(task.id);
-      this.queue.set(task.id, task);
+    for (const [id, task] of pending) {
+      this.queue.delete(id);
+      this.queue.set(id, task);
     }
+  }
+
+  /** Purga tareas terminadas con más de maxAgeMs de antigüedad. */
+  purge(maxAgeMs = 60_000): number {
+    const cutoff = Date.now() - maxAgeMs;
+    let removed = 0;
+    for (const [id, task] of this.queue) {
+      if (task.status !== 'pending' && task.completedAt && task.completedAt.getTime() < cutoff) {
+        this.queue.delete(id);
+        removed++;
+      }
+    }
+    return removed;
   }
 
   on(event: string, callback: Function): void {

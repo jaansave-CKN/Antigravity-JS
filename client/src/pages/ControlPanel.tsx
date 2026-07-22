@@ -63,7 +63,7 @@ export default function ControlPanel() {
   const navigate = useNavigate();
 
   // Estado de motores SIE
-  const [engines, setEngines] = useState({ perplexity: true, gemini: true });
+  const [engines, setEngines] = useState({ gemini: true });
 
   // Estado de validación de sesión administrativa
   const [sessionValidated, setSessionValidated]   = useState(false);
@@ -96,8 +96,8 @@ export default function ControlPanel() {
   const MONTHLY_LIMIT = 500;
   const progressPct   = Math.round((MONTHLY_USED / MONTHLY_LIMIT) * 100);
 
-  const bothActive = engines.perplexity && engines.gemini;
-  const oneActive  = engines.perplexity || engines.gemini;
+  const bothActive = engines.gemini;
+  const oneActive  = engines.gemini;
 
   return (
     <div className="min-h-screen bg-[#f7f9fb] p-4 md:p-8">
@@ -270,8 +270,7 @@ export default function ControlPanel() {
 
             {/* Filas de SIE — habilitadas solo tras validación */}
             {([
-              { id: 'perplexity' as const, label: 'SIE-01 · PERPLEXITY AI',  desc: 'Búsqueda en tiempo real de convocatorias y financiamiento internacional' },
-              { id: 'gemini'     as const, label: 'SIE-02 · GEMINI 1.5 PRO', desc: 'Análisis semántico, clasificación de fondos y scoring de oportunidades' },
+              { id: 'gemini' as const, label: 'SIE-01 · GEMINI 1.5 PRO', desc: 'Rastreo, análisis semántico, clasificación de fondos y scoring de oportunidades' },
             ]).map(({ id, label, desc }) => {
               const active = engines[id];
               return (
@@ -328,10 +327,8 @@ export default function ControlPanel() {
                 bothActive ? 'text-[#065f46]' : 'text-[#76777d]'
               }`}>
                 {bothActive
-                  ? 'SIE PERPLEXITY AI Y GEMINI 1.5 PRO OPERATIVOS · CANAL SEGURO ACTIVO'
-                  : oneActive
-                  ? `SISTEMA PARCIAL · SOLO ${engines.perplexity ? 'SIE-01 PERPLEXITY AI' : 'SIE-02 GEMINI 1.5 PRO'} OPERATIVO`
-                  : 'TODOS LOS SISTEMAS DE INTELIGENCIA SUSPENDIDOS'}
+                  ? 'SIE-01 GEMINI 1.5 PRO OPERATIVO · CANAL SEGURO ACTIVO'
+                  : 'SISTEMA DE INTELIGENCIA SUSPENDIDO'}
               </p>
               <span className={`shrink-0 ml-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-mono font-bold border uppercase tracking-wider ${
                 bothActive

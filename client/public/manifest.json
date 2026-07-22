@@ -1,0 +1,12 @@
+{
+  "name": "RadarFondos 360",
+  "short_name": "RadarFondos",
+  "description": "Radar de Fondos y Subvenciones inteligente para Colombia — Global Grant Intelligence Engine",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#001c2e",
+  "theme_color": "#001c2e",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

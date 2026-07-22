@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { getAuthHeaders } from '../lib/apiClient';
+import ProyectoSelectorModal from '../components/ProyectoSelectorModal';
 import {
   LayoutDashboard, FileText, Target, Paperclip, ShieldAlert,
   Lightbulb, Wallet, BarChart2, ArrowLeftRight, Settings,
@@ -7,6 +10,7 @@ import {
   TrendingDown, Scale, Cog, Droplets, RefreshCw, TreePine,
   DollarSign, Percent, Cpu, HelpCircle, User, AlertTriangle,
   Clock, Activity, Zap, CheckCircle2, Heart, Globe, Network,
+  BookOpen, Building2, Waves, Equal, Utensils,
 } from 'lucide-react';
 
 // ── Paleta light mode — fondo blanco, texto oscuro ───────────────────────────
@@ -47,15 +51,34 @@ interface ImpactSection {
   title: string;
   weight: number;
   score: number;
+  pendiente?: boolean;
+  fuente?: string | null;
   color: string;
   icon: React.ReactNode;
   indicators: Indicator[];
 }
+
+// ── Scoring dinámico — GET /api/proyectos/:id/scoring-dinamico ──────────────
+interface DimensionScore { score: number | null; pendiente: boolean; fuente: string | null }
+interface ScoringDinamico {
+  proyectoId: string;
+  calculadoEn: string;
+  dimensiones: {
+    ambiental: DimensionScore;
+    social: DimensionScore;
+    economico: DimensionScore;
+    normativo: DimensionScore;
+    operativo: DimensionScore;
+  };
+}
 interface Risk    { level: RiskLevel; title: string; description: string; section: string }
-interface Action  { title: string; section: string; priority: 'Alta'|'Media'|'Baja'; progress: number; due: string }
+interface Action  { title: string; section: string; priority?: 'Alta'|'Media'|'Baja'; progress?: number; due?: string }
 interface LogEntry{ date: string; time: string; user: string; action: string }
 
-// ── Datos estáticos ───────────────────────────────────────────────────────────
+// ── Datos estáticos — pesos e indicadores ilustrativos de UI por dimensión.
+// Los SCORES vienen siempre del backend real (mergeScoring); estos indicadores
+// individuales (nombre/valor/usuario) son marcadores de layout, no datos reales
+// — no existe todavía una fuente de verdad backend por indicador atómico.
 const SECTIONS: ImpactSection[] = [
   {
     id: 'ambiental', roman: 'I', title: 'IMPACTO AMBIENTAL',
@@ -109,37 +132,26 @@ const SECTIONS: ImpactSection[] = [
   },
 ];
 
-const RISKS: Risk[] = [
-  { level:'CRÍTICO', title:'Sensibilidad (Esc. Pesimista)',    description:'El VAN cae -12.4% en escenario pesimista. Verificar supuestos.',                section:'III. Impacto Económico' },
-  { level:'ALTO',    title:'Impacto Ecosistémico (72)',         description:'Índice bajo. Requiere medidas adicionales de mitigación.',                      section:'I. Impacto Ambiental' },
-  { level:'ALTO',    title:'Autonomía Tecnológica (65%)',       description:'Evaluar dependencia tecnológica y planes de contingencia.',                     section:'V. Impacto Operativo' },
-  { level:'MEDIO',   title:'Cumplimiento Regulatorio (88%)',    description:'Falta cargar 2 documentos clave para validación completa.',                    section:'IV. Impacto Normativo' },
-];
-
-const ACTIONS: Action[] = [
-  { title:'Revisar y ajustar supuestos financieros del proyecto', section:'III. Económico', priority:'Alta',  progress:60, due:'25/05/2024' },
-  { title:'Incorporar medidas de compensación ambiental',         section:'I. Ambiental',   priority:'Alta',  progress:30, due:'22/05/2024' },
-  { title:'Actualizar plan de transferencia tecnológica',         section:'V. Operativo',   priority:'Alta',  progress:45, due:'28/05/2024' },
-  { title:'Cargar normativas sectoriales faltantes',             section:'IV. Normativo',  priority:'Media', progress:70, due:'20/05/2024' },
-  { title:'Validar fuentes de datos de línea base social',       section:'II. Social',     priority:'Baja',  progress:80, due:'27/05/2024' },
-];
-
-const LOG: LogEntry[] = [
-  { date:'23/06', time:'09:42', user:'Ana L.',     action:'Actualizó Huella de Carbono' },
-  { date:'22/06', time:'16:15', user:'Juliana R.', action:'Actualizó VAN y TIR' },
-  { date:'21/06', time:'11:30', user:'Carlos M.',  action:'Validó Estabilidad Territorial' },
-  { date:'20/06', time:'14:05', user:'Andrés G.',  action:'Cargó documento regulatorio' },
-];
-
-const ODS = [
-  { num:3,  bg:'#4C9F38', icon:<Heart size={17}/>,      name:'Salud y Bienestar' },
-  { num:6,  bg:'#26BDE2', icon:<Droplets size={17}/>,   name:'Agua Limpia y Saneamiento' },
-  { num:7,  bg:'#FCC30B', icon:<Zap size={17}/>,        name:'Energía Asequible y No Contaminante' },
-  { num:8,  bg:'#A21942', icon:<TrendingUp size={17}/>,  name:'Trabajo Decente y Crecimiento Económico' },
-  { num:9,  bg:'#FD6925', icon:<Cpu size={17}/>,        name:'Industria, Innovación e Infraestructura' },
-  { num:12, bg:'#BF8B2E', icon:<RefreshCw size={17}/>,  name:'Producción y Consumo Responsables' },
-  { num:13, bg:'#3F7E44', icon:<Globe size={17}/>,      name:'Acción por el Clima' },
-  { num:17, bg:'#19486A', icon:<Network size={17}/>,    name:'Alianzas para Lograr los Objetivos' },
+// ── ODS — íconos oficiales recortados de FOTOS PROY3/arq radar formulador 360/ODS.webp
+type OdsEntry = { num: number; name: string };
+const ODS_ALL: OdsEntry[] = [
+  { num:1,  name:'Fin de la Pobreza' },
+  { num:2,  name:'Hambre Cero' },
+  { num:3,  name:'Salud y Bienestar' },
+  { num:4,  name:'Educación de Calidad' },
+  { num:5,  name:'Igualdad de Género' },
+  { num:6,  name:'Agua Limpia y Saneamiento' },
+  { num:7,  name:'Energía Asequible y No Contaminante' },
+  { num:8,  name:'Trabajo Decente y Crecimiento Económico' },
+  { num:9,  name:'Industria, Innovación e Infraestructura' },
+  { num:10, name:'Reducción de las Desigualdades' },
+  { num:11, name:'Ciudades y Comunidades Sostenibles' },
+  { num:12, name:'Producción y Consumo Responsables' },
+  { num:13, name:'Acción por el Clima' },
+  { num:14, name:'Vida Submarina' },
+  { num:15, name:'Vida de Ecosistemas Terrestres' },
+  { num:16, name:'Paz, Justicia e Instituciones Sólidas' },
+  { num:17, name:'Alianzas para Lograr los Objetivos' },
 ];
 
 const NAV_ITEMS = [
@@ -231,59 +243,110 @@ function DonutChart({ value, color, size=110 }: { value:number; color:string; si
 }
 
 // ── Tarjeta de indicador ──────────────────────────────────────────────────────
-function IndicatorCard({ ind, sectionColor }: { ind:Indicator; sectionColor:string }) {
-  const dotColor = ind.status === 'Validado' ? '#22c55e' : '#f59e0b';
+function IndicatorCard({ ind, sectionColor, compact = false, mini = false }: {
+  ind:Indicator; sectionColor:string; compact?: boolean; mini?: boolean
+}) {
+  const dotColor = ind.status === 'Validado' ? '#22c55e' : ind.status === 'Pendiente' ? '#f59e0b' : '#94a3b8';
+
+  /* ── Modo MINI: layout vertical para 4 columnas en panel compact ── */
+  if (mini) {
+    return (
+      <div style={{
+        background:C.bgCard, borderRadius:8,
+        padding:'7px 8px',
+        border:`1px solid ${C.border}`,
+        boxShadow:'0 1px 2px rgba(0,0,0,0.05)',
+        display:'flex', flexDirection:'column', minWidth:0,
+      }}>
+        {/* Fila 1: icono + dot estado */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:5 }}>
+          <div style={{
+            width:20, height:20, borderRadius:'50%', flexShrink:0,
+            background:`${sectionColor}18`, border:`1.5px solid ${sectionColor}55`,
+            display:'flex', alignItems:'center', justifyContent:'center',
+          }}>
+            <span style={{ color:sectionColor, fontSize:10, display:'flex' }}>{ind.icon}</span>
+          </div>
+          <div style={{ width:6, height:6, borderRadius:'50%', background:dotColor, flexShrink:0 }}/>
+        </div>
+        {/* Nombre: altura fija 2 líneas → valor siempre en la misma posición */}
+        <div style={{
+          fontSize:9, color:C.textMuted, fontWeight:500, lineHeight:1.3,
+          overflow:'hidden', height:24, marginBottom:4,
+        }}>{ind.name}</div>
+        {/* Valor */}
+        <div style={{ fontSize:14, fontWeight:700, color:ind.valueColor ?? C.text, lineHeight:1, marginBottom:2 }}>
+          {ind.value}
+        </div>
+        {/* Unidad */}
+        <div style={{ fontSize:8, color:C.textDim, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+          {ind.unit}
+        </div>
+        {/* Separador — anclado al fondo con marginTop:auto */}
+        <div style={{ borderTop:`1px solid ${C.border}`, marginTop:'auto', paddingTop:5, marginBottom:5 }}/>
+        {/* Footer minimalista */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <span style={{ fontSize:8, color:C.textDim }}>{ind.date}</span>
+          <ChevronRight size={8} color={C.textDim} style={{ cursor:'pointer', flexShrink:0 }}/>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Modo normal / compact ── */
   return (
     <div style={{
-      background:C.bgCard, borderRadius:10, padding:'14px 16px',
+      background:C.bgCard, borderRadius:8,
+      padding: compact ? '9px 11px' : '14px 16px',
       border:`1px solid ${C.border}`,
-      boxShadow:'0 1px 4px rgba(0,0,0,0.07)',
+      boxShadow:'0 1px 3px rgba(0,0,0,0.06)',
       display:'flex', flexDirection:'column', gap:0,
     }}>
       {/* Fila principal: icono circular + contenido */}
-      <div style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
+      <div style={{ display:'flex', gap: compact ? 8 : 12, alignItems:'flex-start' }}>
         {/* Icono circular */}
         <div style={{
-          width:46, height:46, borderRadius:'50%', flexShrink:0,
+          width: compact ? 30 : 46, height: compact ? 30 : 46,
+          borderRadius:'50%', flexShrink:0,
           background:`${sectionColor}18`,
           border:`1.5px solid ${sectionColor}55`,
           display:'flex', alignItems:'center', justifyContent:'center',
         }}>
-          <span style={{ color:sectionColor }}>{ind.icon}</span>
+          <span style={{ color:sectionColor, fontSize: compact ? 13 : 16, display:'flex' }}>{ind.icon}</span>
         </div>
 
         {/* Contenido derecho */}
         <div style={{ flex:1, minWidth:0 }}>
           {/* Nombre + badge + dot */}
-          <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:6 }}>
-            <span style={{ fontSize:11, color:C.textMuted, fontWeight:500, lineHeight:1.3, flex:1 }}>{ind.name}</span>
-            <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:4 }}>
+            <span style={{ fontSize: compact ? 10 : 11, color:C.textMuted, fontWeight:500, lineHeight:1.3, flex:1, overflow:'hidden', height: compact ? 26 : 'auto' }}>{ind.name}</span>
+            <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
               <StatusBadge status={ind.status}/>
-              <div style={{ width:7, height:7, borderRadius:'50%', background:dotColor, flexShrink:0 }}/>
+              <div style={{ width:6, height:6, borderRadius:'50%', background:dotColor, flexShrink:0 }}/>
             </div>
           </div>
 
-          {/* Valor grande + unidad */}
-          <div style={{ marginTop:6 }}>
-            <span style={{ fontSize:26, fontWeight:700, color:ind.valueColor ?? C.text, lineHeight:1 }}>
+          {/* Valor + unidad */}
+          <div style={{ marginTop: compact ? 4 : 6 }}>
+            <span style={{ fontSize: compact ? 18 : 26, fontWeight:700, color:ind.valueColor ?? C.text, lineHeight:1 }}>
               {ind.value}
             </span>
           </div>
-          <span style={{ fontSize:10, color:C.textMuted, display:'block', marginTop:3 }}>{ind.unit}</span>
+          <span style={{ fontSize:10, color:C.textMuted, display:'block', marginTop:2 }}>{ind.unit}</span>
         </div>
       </div>
 
-      {/* Separador */}
-      <div style={{ borderTop:`1px solid ${C.border}`, margin:'10px 0 8px' }}/>
+      {/* Separador — anclado al fondo para alinear todos los cards */}
+      <div style={{ borderTop:`1px solid ${C.border}`, marginTop:'auto', marginBottom: compact ? 6 : 8, paddingTop: compact ? 7 : 10 }}/>
 
-      {/* Footer: fecha + usuario + iconos */}
+      {/* Footer */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <span style={{ fontSize:10, color:C.textDim }}>
-          Últ. Act: {ind.date} · <User size={9} style={{ display:'inline', verticalAlign:'middle' }}/> {ind.user}
+          {ind.date} · <User size={9} style={{ display:'inline', verticalAlign:'middle' }}/> {ind.user}
         </span>
-        <div style={{ display:'flex', gap:8, color:C.textDim }}>
-          <Paperclip size={11} style={{ cursor:'pointer' }}/>
-          <ChevronRight size={11} style={{ cursor:'pointer' }}/>
+        <div style={{ display:'flex', gap:6, color:C.textDim }}>
+          <Paperclip size={10} style={{ cursor:'pointer' }}/>
+          <ChevronRight size={10} style={{ cursor:'pointer' }}/>
         </div>
       </div>
     </div>
@@ -291,7 +354,7 @@ function IndicatorCard({ ind, sectionColor }: { ind:Indicator; sectionColor:stri
 }
 
 // ── Sección de impacto ────────────────────────────────────────────────────────
-function ImpactBlock({ section }: { section:ImpactSection }) {
+function ImpactBlock({ section, compact = false }: { section:ImpactSection; compact?: boolean }) {
   const [open, setOpen] = useState(true);
   return (
     <div style={{
@@ -302,45 +365,59 @@ function ImpactBlock({ section }: { section:ImpactSection }) {
       {/* Header acordeón */}
       <button onClick={() => setOpen(o => !o)} style={{
         width:'100%', background:'#ffffff', border:'none', cursor:'pointer',
-        padding:'11px 16px', display:'flex', alignItems:'center', gap:10,
+        padding: compact ? '8px 12px' : '11px 16px',
+        display:'flex', alignItems:'center', gap:8,
       }}>
         <div style={{
-          width:32, height:32, borderRadius:'50%', flexShrink:0,
+          width: compact ? 26 : 32, height: compact ? 26 : 32,
+          borderRadius:'50%', flexShrink:0,
           background:`${section.color}18`, border:`1.5px solid ${section.color}55`,
           display:'flex', alignItems:'center', justifyContent:'center',
         }}>
           <span style={{ color:section.color }}>{section.icon}</span>
         </div>
-        <span style={{ fontSize:13, fontWeight:700, color:C.text, flex:1, textAlign:'left' }}>
+        <span style={{ fontSize: compact ? 11 : 12, fontWeight:700, color:C.text, flex:1, textAlign:'left', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', minWidth:0 }}>
           {section.roman}. {section.title}
         </span>
         <span style={{
-          fontSize:10, fontWeight:600, padding:'3px 10px', borderRadius:12, flexShrink:0,
+          fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:12, flexShrink:0,
           background:`${section.color}18`, color:section.color,
           border:`1px solid ${section.color}50`,
         }}>
-          Peso: {section.weight}%
+          {section.weight}%
         </span>
-        <span style={{ fontSize:11, color:C.textMuted, whiteSpace:'nowrap', flexShrink:0 }}>
-          4 / 4 indicadores completados
+        <span style={{ fontSize:10, color:C.textMuted, whiteSpace:'nowrap', flexShrink:0 }}>
+          {section.indicators.length}/{section.indicators.length} ✓
         </span>
-        <span style={{ fontSize:22, fontWeight:700, color:C.text, whiteSpace:'nowrap', flexShrink:0 }}>
-          {section.score} <span style={{ fontSize:13, fontWeight:400, color:C.textMuted }}>/100</span>
-        </span>
+        {section.pendiente ? (
+          <span style={{ fontSize:10, fontWeight:600, color:C.textDim, whiteSpace:'nowrap', flexShrink:0, fontStyle:'italic' }}>
+            Pendiente de cálculo
+          </span>
+        ) : (
+          <span style={{ fontSize: compact ? 14 : 17, fontWeight:700, color:C.text, whiteSpace:'nowrap', flexShrink:0 }}>
+            {section.score} <span style={{ fontSize:10, fontWeight:400, color:C.textMuted }}>/100</span>
+          </span>
+        )}
         <span style={{ color:C.textDim, flexShrink:0 }}>
-          {open ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
+          {open ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
         </span>
       </button>
 
-      {/* Grid 2×2 */}
+      {/* Grid: tantas columnas como indicadores tiene el pilar */}
       {open && (
         <div style={{
-          display:'grid', gridTemplateColumns:'1fr 1fr', gap:10,
-          padding:'12px 16px 16px', background:C.bgSection,
+          display:'grid',
+          gridTemplateColumns: `repeat(${section.indicators.length}, 1fr)`,
+          gap: compact ? 8 : 10,
+          padding: compact ? '10px 12px 12px' : '12px 16px 16px',
+          background:C.bgSection,
           borderTop:`1px solid ${C.border}`,
         }}>
           {section.indicators.map((ind, i) => (
-            <IndicatorCard key={i} ind={ind} sectionColor={section.color}/>
+            <IndicatorCard
+              key={i} ind={ind} sectionColor={section.color} compact={compact}
+              mini={compact && section.indicators.length >= 4}
+            />
           ))}
         </div>
       )}
@@ -410,73 +487,82 @@ function LeftSidebar() {
 }
 
 // ── Panel derecho ─────────────────────────────────────────────────────────────
-function RightPanel() {
-  const actionColor = (p:string) => p==='Alta' ? '#dc2626' : p==='Media' ? '#d97706' : '#16a34a';
-  const priorityColor = (p:string) => p==='Alta' ? '#dc2626' : p==='Media' ? '#d97706' : '#16a34a';
+interface ResumenProyecto { indicadores: number; anexos: number; pendientes: number; totalDimensiones: number; viabilidadGlobal: number | null }
+
+function RightPanel({ compact = false, riesgos, acciones, bitacora, resumen }: {
+  compact?: boolean; riesgos: Risk[]; acciones: Action[]; bitacora: LogEntry[]; resumen: ResumenProyecto;
+}) {
+  const actionColor = (p?:string) => p==='Alta' ? '#dc2626' : p==='Media' ? '#d97706' : '#16a34a';
+  const priorityColor = (p?:string) => p==='Alta' ? '#dc2626' : p==='Media' ? '#d97706' : '#16a34a';
+  const w = compact ? 220 : 300;
+  const salud = resumen.viabilidadGlobal;
+  const saludColor = salud === null ? '#94a3b8' : salud >= 80 ? '#22c55e' : salud >= 60 ? '#3b82f6' : salud >= 40 ? '#f59e0b' : '#ef4444';
+  const saludLabel = salud === null ? 'Aún sin datos suficientes' : salud >= 80 ? 'Óptimo' : salud >= 60 ? 'Aceptable' : salud >= 40 ? 'En Riesgo Moderado' : 'Crítico';
 
   return (
     <aside style={{
-      width:300, flexShrink:0, background:C.bgSidebar,
+      width:w, flexShrink:0, background:C.bgSidebar,
       borderLeft:`1px solid ${C.border}`,
-      display:'flex', flexDirection:'column', overflow:'hidden', height:'100%',
+      display:'flex', flexDirection:'column', overflow:'hidden',
+      alignSelf:'stretch', minHeight:0,
     }}>
 
       {/* ESTADO DE SALUD DEL PROYECTO — fijo, sin scroll */}
-      <section style={{ padding:'14px 14px 12px', borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
-        <p style={{ fontSize:10, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.07em', textAlign:'center', margin:'0 0 12px' }}>
+      <section style={{ padding: compact ? '10px 10px 8px' : '14px 14px 12px', borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
+        <p style={{ fontSize:10, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.07em', textAlign:'center', margin: compact ? '0 0 8px' : '0 0 12px' }}>
           Estado de Salud del Proyecto
         </p>
-        <div style={{ display:'flex', justifyContent:'center', marginBottom:10 }}>
-          <DonutChart value={72} color="#f59e0b" size={110}/>
+        <div style={{ display:'flex', justifyContent:'center', marginBottom: compact ? 6 : 10 }}>
+          <DonutChart value={salud ?? 0} color={saludColor} size={compact ? 80 : 110}/>
         </div>
-        <p style={{ fontSize:11, fontWeight:600, color:'#f59e0b', textAlign:'center', margin:'0 0 10px' }}>
-          En Riesgo Moderado
+        <p style={{ fontSize:10, fontWeight:600, color:saludColor, textAlign:'center', margin: compact ? '0 0 6px' : '0 0 10px', fontStyle: salud === null ? 'italic' : 'normal' }}>
+          {saludLabel}
         </p>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px 8px' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 6px' }}>
           {[
             { color:'#22c55e', label:'Óptimo (80-100)'   },
             { color:'#3b82f6', label:'Aceptable (60-79)' },
             { color:'#f59e0b', label:'En Riesgo (40-59)' },
             { color:'#ef4444', label:'Crítico (0-39)'    },
           ].map(l => (
-            <div key={l.label} style={{ display:'flex', alignItems:'center', gap:5 }}>
-              <div style={{ width:7, height:7, borderRadius:'50%', background:l.color, flexShrink:0 }}/>
-              <span style={{ fontSize:10, color:C.textMuted }}>{l.label}</span>
+            <div key={l.label} style={{ display:'flex', alignItems:'center', gap:4 }}>
+              <div style={{ width:6, height:6, borderRadius:'50%', background:l.color, flexShrink:0 }}/>
+              <span style={{ fontSize:9, color:C.textMuted }}>{l.label}</span>
             </div>
           ))}
         </div>
       </section>
 
       {/* Contenido scrollable — todo lo de abajo de Estado de Salud */}
-      <div style={{ flex:1, overflowY:'auto' }}>
+      <div style={{ flex:1, overflowY:'auto', minHeight:0 }}>
 
       {/* RESUMEN GENERAL */}
       <section style={{ padding:'14px 14px 12px', borderBottom:`1px solid ${C.border}` }}>
         <h3 style={{ fontSize:11, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.07em', margin:'0 0 10px' }}>
           Resumen General
         </h3>
-        <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <CheckCircle2 size={13} color="#22c55e"/>
-            <span style={{ fontSize:11, color:C.textMuted, flex:1 }}>Indicadores totales</span>
-            <span style={{ fontSize:11, fontWeight:700, color:C.text }}>20 / 20</span>
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <CheckCircle2 size={11} color="#22c55e" style={{ flexShrink:0 }}/>
+            <span style={{ fontSize:10, color:C.textMuted, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>Indicadores</span>
+            <span style={{ fontSize:10, fontWeight:700, color:C.text, flexShrink:0 }}>{resumen.indicadores}</span>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <Paperclip size={13} color={C.textDim}/>
-            <span style={{ fontSize:11, color:C.textMuted, flex:1 }}>Evidencias cargadas</span>
-            <span style={{ fontSize:11, fontWeight:700, color:C.text }}>18 / 20</span>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <Paperclip size={11} color={C.textDim} style={{ flexShrink:0 }}/>
+            <span style={{ fontSize:10, color:C.textMuted, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>Evidencias</span>
+            <span style={{ fontSize:10, fontWeight:700, color:C.text, flexShrink:0 }}>{resumen.anexos}</span>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <Clock size={13} color="#f59e0b"/>
-            <span style={{ fontSize:11, color:C.textMuted, flex:1 }}>Pendientes de validación</span>
-            <span style={{ fontSize:11, fontWeight:700, color:'#f59e0b' }}>6</span>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <Clock size={11} color="#f59e0b" style={{ flexShrink:0 }}/>
+            <span style={{ fontSize:10, color:C.textMuted, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>Pendientes</span>
+            <span style={{ fontSize:10, fontWeight:700, color:'#f59e0b', flexShrink:0 }}>{resumen.pendientes}/{resumen.totalDimensiones}</span>
           </div>
-          <div style={{ marginTop:4 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
-              <span style={{ fontSize:11, color:C.textMuted }}>Índice Global de Viabilidad</span>
-              <span style={{ fontSize:11, fontWeight:700, color:C.text }}>72 / 100</span>
+          <div style={{ marginTop:3 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+              <span style={{ fontSize:10, color:C.textMuted }}>Viabilidad Global</span>
+              <span style={{ fontSize:10, fontWeight:700, color:C.text }}>{resumen.viabilidadGlobal ?? '—'}/100</span>
             </div>
-            <Bar value={72} color="#22c55e"/>
+            <Bar value={resumen.viabilidadGlobal ?? 0} color={saludColor}/>
           </div>
         </div>
       </section>
@@ -488,11 +574,14 @@ function RightPanel() {
             Riesgos Críticos
           </h3>
           <span style={{ background:'#ef4444', color:'#fff', fontSize:9, fontWeight:800, borderRadius:'50%', width:17, height:17, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-            {RISKS.length}
+            {riesgos.length}
           </span>
         </div>
+        {riesgos.length === 0 ? (
+          <p style={{ fontSize:10, color:C.textDim, fontStyle:'italic', margin:0 }}>Sin riesgos identificados por ahora.</p>
+        ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
-          {RISKS.map((r, i) => (
+          {riesgos.map((r, i) => (
             <div key={i} style={{
               borderLeft:`3px solid ${RISK_COLOR[r.level]}`,
               paddingLeft:9, display:'flex', flexDirection:'column', gap:3,
@@ -508,9 +597,7 @@ function RightPanel() {
             </div>
           ))}
         </div>
-        <button style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:C.cyan, marginTop:9, padding:0 }}>
-          Ver todos los riesgos →
-        </button>
+        )}
       </section>
 
       {/* ACCIONES DE MITIGACIÓN */}
@@ -520,31 +607,34 @@ function RightPanel() {
             Acciones de Mitigación
           </h3>
           <span style={{ background:'#f59e0b', color:'#ffffff', fontSize:9, fontWeight:800, borderRadius:'50%', width:17, height:17, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-            {ACTIONS.length}
+            {acciones.length}
           </span>
         </div>
+        {acciones.length === 0 ? (
+          <p style={{ fontSize:10, color:C.textDim, fontStyle:'italic', margin:0 }}>Registra riesgos y medidas de mitigación en el módulo M10 — Compliance.</p>
+        ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
-          {ACTIONS.map((a, i) => (
+          {acciones.map((a, i) => (
             <div key={i} style={{ display:'flex', gap:8 }}>
               <input type="checkbox" readOnly style={{ marginTop:3, flexShrink:0, accentColor:C.cyan }}/>
               <div style={{ flex:1, display:'flex', flexDirection:'column', gap:4 }}>
                 <span style={{ fontSize:11, color:C.text, lineHeight:1.4 }}>{a.title}</span>
                 <div style={{ display:'flex', alignItems:'center', gap:5 }}>
                   <span style={{ fontSize:10, color:C.textDim }}>{a.section}</span>
-                  <span style={{ fontSize:10, color:priorityColor(a.priority), fontWeight:600 }}>· {a.priority}</span>
+                  {a.priority && <span style={{ fontSize:10, color:priorityColor(a.priority), fontWeight:600 }}>· {a.priority}</span>}
                 </div>
-                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <Bar value={a.progress} color={actionColor(a.priority)}/>
-                  <span style={{ fontSize:10, color:C.textDim, whiteSpace:'nowrap' }}>{a.progress}%</span>
-                </div>
-                <span style={{ fontSize:10, color:C.textDim }}>Vence: {a.due}</span>
+                {a.progress !== undefined && (
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    <Bar value={a.progress} color={actionColor(a.priority)}/>
+                    <span style={{ fontSize:10, color:C.textDim, whiteSpace:'nowrap' }}>{a.progress}%</span>
+                  </div>
+                )}
+                {a.due && <span style={{ fontSize:10, color:C.textDim }}>Vence: {a.due}</span>}
               </div>
             </div>
           ))}
         </div>
-        <button style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:C.cyan, marginTop:9, padding:0 }}>
-          Ver todas las acciones →
-        </button>
+        )}
       </section>
 
       {/* BITÁCORA */}
@@ -552,18 +642,22 @@ function RightPanel() {
         <h3 style={{ fontSize:11, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.07em', margin:'0 0 10px' }}>
           Bitácora Reciente
         </h3>
+        {bitacora.length === 0 ? (
+          <p style={{ fontSize:10, color:C.textDim, fontStyle:'italic', margin:0 }}>Aún no hay actividad registrada para este proyecto.</p>
+        ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
-          {LOG.map((l, i) => (
+          {bitacora.map((l, i) => (
             <div key={i} style={{ display:'flex', gap:9, alignItems:'flex-start' }}>
               <div style={{ width:6, height:6, borderRadius:'50%', background:C.cyan, marginTop:4, flexShrink:0 }}/>
               <div style={{ flex:1 }}>
                 <span style={{ fontSize:10, color:C.textDim, fontFamily:'monospace' }}>{l.date} {l.time}</span>
-                <span style={{ fontSize:10, fontWeight:600, color:C.cyan, margin:'0 4px' }}>{l.user}</span>
+                {l.user && <span style={{ fontSize:10, fontWeight:600, color:C.cyan, margin:'0 4px' }}>{l.user}</span>}
                 <span style={{ fontSize:10, color:C.textMuted }}>— {l.action}</span>
               </div>
             </div>
           ))}
         </div>
+        )}
         <button style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:C.cyan, marginTop:9, padding:0 }}>
           Ver bitácora completa →
         </button>
@@ -574,127 +668,369 @@ function RightPanel() {
   );
 }
 
+// ── Scoring dinámico: hook de datos ──────────────────────────────────────────
+// No existe todavía un enrutamiento por proyecto en el módulo Formulador
+// (ninguna ruta bajo FormuladorLayout lleva :proyectoId), así que el id se
+// resuelve en este orden: prop explícita → param de ruta (por si en el futuro
+// se agrega) → última clave usada por el selector de proyectos del Panel.
+// Si ninguno resuelve, todas las dimensiones quedan en "Pendiente de cálculo"
+// — refleja la realidad (no hay proyecto activo conocido) en vez de inventar datos.
+const ACTIVE_PROJECT_KEY      = 'rf360_proyecto_activo';
+const ACTIVE_PROJECT_NAME_KEY = 'rf360_proyecto_nombre';
+
+/** Lee el proyecto activo (id + nombre) y se mantiene sincronizado con
+ * cambios hechos por componentes hermanos (ej. EntradaPage) en la misma
+ * pestaña — EntradaPage despacha un StorageEvent manual al guardar. */
+function useProyectoActivo(proyectoIdProp?: string) {
+  const params = useParams<{ proyectoId?: string }>();
+  const readIds = () => ({
+    id: proyectoIdProp ?? params.proyectoId ?? localStorage.getItem(ACTIVE_PROJECT_KEY) ?? undefined,
+    nombre: localStorage.getItem(ACTIVE_PROJECT_NAME_KEY) ?? undefined,
+  });
+
+  const [state, setState] = useState(readIds);
+
+  useEffect(() => {
+    const handler = (e: StorageEvent) => {
+      if (!e.key || e.key === ACTIVE_PROJECT_KEY || e.key === ACTIVE_PROJECT_NAME_KEY) {
+        setState(readIds());
+      }
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyectoIdProp, params.proyectoId]);
+
+  return state;
+}
+
+function useScoringDinamico(proyectoId: string | undefined) {
+  const [data, setData]       = useState<ScoringDinamico | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!proyectoId) { setData(null); setError(null); return; }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    fetch(`/api/proyectos/${proyectoId}/scoring-dinamico`, {
+      headers: { ...getAuthHeaders() },
+      credentials: 'include',
+    })
+      .then(async res => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || !body?.success) throw new Error(body?.message ?? 'No se pudo calcular el scoring dinámico.');
+        return body.data as ScoringDinamico;
+      })
+      .then(result => { if (!cancelled) setData(result); })
+      .catch(err => { if (!cancelled) setError(err.message ?? 'Error desconocido'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [proyectoId]);
+
+  return { data, loading, error };
+}
+
+/** Combina SECTIONS (pesos + indicadores de UI) con los puntajes reales del backend. */
+function mergeScoring(sections: ImpactSection[], scoring: ScoringDinamico | null): ImpactSection[] {
+  if (!scoring) {
+    return sections.map(s => ({ ...s, pendiente: true, score: 0, fuente: null }));
+  }
+  return sections.map(s => {
+    const dim = (scoring.dimensiones as Record<string, DimensionScore>)[s.id];
+    if (!dim || dim.pendiente || dim.score === null) {
+      return { ...s, pendiente: true, score: 0, fuente: dim?.fuente ?? null };
+    }
+    return { ...s, pendiente: false, score: dim.score, fuente: dim.fuente };
+  });
+}
+
+/** Promedio ponderado real de las dimensiones ya calculadas (ignora las pendientes). */
+function calcularSaludGlobal(sections: ImpactSection[]): { global: number | null; pendientes: number } {
+  const activas = sections.filter(s => !s.pendiente);
+  if (activas.length === 0) return { global: null, pendientes: sections.length };
+  const pesoTotal = activas.reduce((acc, s) => acc + s.weight, 0);
+  const global = pesoTotal > 0
+    ? Math.round(activas.reduce((acc, s) => acc + s.score * s.weight, 0) / pesoTotal)
+    : null;
+  return { global, pendientes: sections.length - activas.length };
+}
+
+/** Riesgos derivados de dimensiones con score real bajo (<60) — sin datos inventados. */
+function derivarRiesgos(sections: ImpactSection[]): Risk[] {
+  return sections
+    .filter(s => !s.pendiente && s.score < 60)
+    .map(s => ({
+      level: s.score < 40 ? 'CRÍTICO' : 'ALTO',
+      title: `${s.title} (${s.score}/100)`,
+      description: s.fuente ? `Puntaje bajo calculado a partir de ${s.fuente}.` : 'Puntaje bajo detectado en el cálculo real de scoring.',
+      section: `${s.roman}. ${s.title}`,
+    }));
+}
+
+// ── Compliance M10 (riesgos/mitigación reales) ───────────────────────────────
+function useComplianceRiesgo(proyectoId: string | undefined) {
+  const [riesgo, setRiesgo] = useState<{ identificados: string; mitigacion: string } | null>(null);
+
+  useEffect(() => {
+    if (!proyectoId) { setRiesgo(null); return; }
+    let cancelled = false;
+    fetch(`/api/m10/compliance/${proyectoId}`, { headers: { ...getAuthHeaders() }, credentials: 'include' })
+      .then(async res => {
+        const body = await res.json().catch(() => ({}));
+        return res.ok && body?.success ? body.data : null;
+      })
+      .then(data => {
+        if (cancelled) return;
+        if (!data?.riesgos) { setRiesgo(null); return; }
+        try {
+          const arr = JSON.parse(data.riesgos);
+          const first = arr?.[0];
+          setRiesgo(first && (first.identificados || first.mitigacion)
+            ? { identificados: first.identificados || '', mitigacion: first.mitigacion || '' }
+            : null);
+        } catch { setRiesgo(null); }
+      })
+      .catch(() => { if (!cancelled) setRiesgo(null); });
+    return () => { cancelled = true; };
+  }, [proyectoId]);
+
+  return riesgo;
+}
+
+// ── Conteos reales de indicadores/anexos + bitácora derivada de cargas de anexos ─
+interface AnexoRow { nombre_archivo: string; created_at: string }
+function useConteosProyecto(proyectoId: string | undefined) {
+  const [indicadores, setIndicadores] = useState(0);
+  const [anexos, setAnexos]           = useState<AnexoRow[]>([]);
+
+  useEffect(() => {
+    if (!proyectoId) { setIndicadores(0); setAnexos([]); return; }
+    let cancelled = false;
+    Promise.all([
+      fetch(`/api/proyectos/${proyectoId}/indicadores`, { headers: { ...getAuthHeaders() }, credentials: 'include' })
+        .then(r => r.json()).catch(() => null),
+      fetch(`/api/proyectos/${proyectoId}/anexos`, { headers: { ...getAuthHeaders() }, credentials: 'include' })
+        .then(r => r.json()).catch(() => null),
+    ]).then(([indBody, anexBody]) => {
+      if (cancelled) return;
+      setIndicadores(Array.isArray(indBody?.data) ? indBody.data.length : 0);
+      setAnexos(Array.isArray(anexBody?.data) ? anexBody.data : []);
+    }).catch(() => { if (!cancelled) { setIndicadores(0); setAnexos([]); } });
+    return () => { cancelled = true; };
+  }, [proyectoId]);
+
+  return { indicadores, anexos };
+}
+
 // ── Página principal ──────────────────────────────────────────────────────────
-export default function DashboardFormuladorPage() {
+export default function DashboardFormuladorPage({ embedded = false, proyectoId: proyectoIdProp }: { embedded?: boolean; proyectoId?: string }) {
+  const { id: proyectoId, nombre: proyectoNombre } = useProyectoActivo(proyectoIdProp);
+  const [selectorAbierto, setSelectorAbierto] = useState(false);
+  const { data: scoring } = useScoringDinamico(proyectoId);
+  const sections = mergeScoring(SECTIONS, scoring);
+  const { global: viabilidadGlobal, pendientes: pendientesCount } = calcularSaludGlobal(sections);
+  const riesgoCompliance = useComplianceRiesgo(proyectoId);
+  const { indicadores: indicadoresCount, anexos } = useConteosProyecto(proyectoId);
+
+  const riesgos: Risk[] = [
+    ...derivarRiesgos(sections),
+    ...(riesgoCompliance?.identificados ? [{
+      level: 'MEDIO' as RiskLevel,
+      title: 'Riesgo registrado en Compliance (M10)',
+      description: riesgoCompliance.identificados,
+      section: 'M10 — Compliance',
+    }] : []),
+  ];
+  const acciones: Action[] = riesgoCompliance?.mitigacion
+    ? [{ title: riesgoCompliance.mitigacion, section: 'M10 — Compliance' }]
+    : [];
+  const bitacora: LogEntry[] = anexos
+    .slice()
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    .slice(0, 6)
+    .map(a => {
+      const d = new Date(a.created_at);
+      const fecha = isNaN(d.getTime()) ? '' : d.toLocaleDateString('es-CO', { day:'2-digit', month:'2-digit' });
+      const hora  = isNaN(d.getTime()) ? '' : d.toLocaleTimeString('es-CO', { hour:'2-digit', minute:'2-digit' });
+      return { date: fecha, time: hora, user: '', action: `Cargó anexo: ${a.nombre_archivo}` };
+    });
+  const resumen: ResumenProyecto = {
+    indicadores: indicadoresCount,
+    anexos: anexos.length,
+    pendientes: pendientesCount,
+    totalDimensiones: sections.length,
+    viabilidadGlobal,
+  };
+  const colorSalud = (v: number | null) => v === null ? '#94a3b8' : v >= 80 ? '#22c55e' : v >= 60 ? '#3b82f6' : v >= 40 ? '#f59e0b' : '#ef4444';
+  const ultimaModifLabel = bitacora[0] ? `${bitacora[0].date} ${bitacora[0].time}` : 'Sin actividad';
+
   return (
     <div style={{
-      display:'flex', height:'calc(100vh - 48px)', overflow:'hidden',
+      display:'flex', height:'100%', overflow:'hidden',
       background:C.bgMain, fontFamily:"'Hanken Grotesk', sans-serif",
     }}>
       {/* Columna central + derecha */}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, overflow:'hidden' }}>
+      <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, overflow:'hidden', minHeight:0, height:'100%' }}>
 
         {/* Barra de proyecto */}
         <header style={{
-          display:'flex', alignItems:'center', gap:14, padding:'0 20px',
-          height:52, flexShrink:0,
+          display:'flex', alignItems:'center', gap:10, padding:'0 14px',
+          height:46, flexShrink:0,
           background:C.bgHeader, borderBottom:`1px solid ${C.border}`,
         }}>
-          <span style={{ fontSize:12, color:C.textMuted, flexShrink:0 }}>Proyecto:</span>
-          <button style={{
-            display:'flex', alignItems:'center', gap:7,
+          <span style={{ fontSize:11, color:C.textMuted, flexShrink:0 }}>Proyecto:</span>
+          <button onClick={() => setSelectorAbierto(true)} style={{
+            display:'flex', alignItems:'center', gap:5, minWidth:0, flex:1,
             background:C.bgSection, border:`1px solid ${C.border}`,
-            borderRadius:7, padding:'5px 12px', cursor:'pointer',
-            color:C.text, fontSize:12, fontWeight:500,
+            borderRadius:6, padding:'4px 10px', cursor:'pointer',
+            color:C.text, fontSize:11, fontWeight:500,
+            overflow:'hidden',
           }}>
-            Desarrollo Productivo Sostenible en la Amazonía
-            <ChevronDown size={12} color={C.textMuted}/>
+            <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, textAlign:'left', fontStyle: proyectoNombre ? 'normal' : 'italic', color: proyectoNombre ? C.text : C.textDim }}>
+              {proyectoNombre || 'Sin proyecto activo — completa "Entrada" (M1)'}
+            </span>
+            <ChevronDown size={11} color={C.textMuted} style={{ flexShrink:0 }}/>
           </button>
-          <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:'auto' }}>
-            <div style={{ width:7, height:7, borderRadius:'50%', background:'#22c55e' }}/>
-            <span style={{ fontSize:11, color:C.textMuted }}>Última actualización: Hoy, 09:42 AM</span>
-          </div>
-          <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
             <div style={{ position:'relative' }}>
-              <Bell size={16} color={C.textMuted} style={{ cursor:'pointer', display:'block' }}/>
+              <Bell size={14} color={C.textMuted} style={{ cursor:'pointer', display:'block' }}/>
               <span style={{
-                position:'absolute', top:-5, right:-5,
-                background:'#ef4444', color:'#fff', fontSize:8, fontWeight:800,
-                borderRadius:'50%', width:14, height:14, display:'flex', alignItems:'center', justifyContent:'center',
+                position:'absolute', top:-4, right:-4,
+                background:'#ef4444', color:'#fff', fontSize:7, fontWeight:800,
+                borderRadius:'50%', width:12, height:12, display:'flex', alignItems:'center', justifyContent:'center',
               }}>3</span>
             </div>
-            <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-              <div style={{ width:26, height:26, borderRadius:'50%', background:'#111827', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <User size={13} color="#ffffff"/>
+            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <div style={{ width:22, height:22, borderRadius:'50%', background:'#111827', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <User size={11} color="#ffffff"/>
               </div>
-              <span style={{ fontSize:12, color:C.text, fontWeight:500 }}>Formulador</span>
+              {!embedded && <span style={{ fontSize:11, color:C.text, fontWeight:500 }}>Formulador</span>}
             </div>
           </div>
         </header>
 
         {/* Cuerpo */}
-        <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
+        <div style={{ flex:1, display:'flex', overflow:'hidden', minHeight:0 }}>
 
           {/* Contenido central desplazable */}
-          <main style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
-            <div style={{ flex:1, overflowY:'auto', padding:'16px 18px', display:'flex', flexDirection:'column', gap:12 }}>
+          <main style={{ flex:1, display:'grid', gridTemplateRows:'1fr auto', overflow:'hidden', minWidth:0, minHeight:0 }}>
+            <div style={{ overflowY:'auto', padding:'16px 18px', display:'flex', flexDirection:'column', gap:12, minHeight:0 }}>
 
               {/* ODS */}
-              <div style={{ background:C.bgSection, borderRadius:10, padding:'12px 16px', border:`1px solid ${C.border}`, flexShrink:0 }}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-                  <span style={{ fontSize:11, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.05em' }}>
-                    ODS Focalizado en el Proyecto
+              <div style={{ background:C.bgSection, borderRadius:10, padding: embedded ? '8px 10px' : '12px 16px', border:`1px solid ${C.border}`, flexShrink:0 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: embedded ? 6 : 10 }}>
+                  <span style={{ fontSize: embedded ? 10 : 11, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.05em' }}>
+                    {embedded ? 'ODS' : 'ODS Focalizado en el Proyecto'}
                   </span>
-                  <button style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:C.cyan, display:'flex', alignItems:'center', gap:3 }}>
-                    Ver Alineación <ChevronRight size={11}/>
+                  <button style={{ background:'none', border:'none', cursor:'pointer', fontSize:10, color:C.cyan, display:'flex', alignItems:'center', gap:3 }}>
+                    Ver Alineación <ChevronRight size={10}/>
                   </button>
                 </div>
-                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                  {ODS.map(o => (
-                    <div key={o.num} style={{
-                      width:72, minHeight:66, borderRadius:8, background:o.bg,
-                      display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-                      cursor:'pointer', flexShrink:0, padding:'6px 4px 5px',
-                    }}>
-                      <span style={{ color:'rgba(255,255,255,0.92)', marginBottom:2 }}>{o.icon}</span>
-                      <span style={{ fontSize:14, fontWeight:800, color:'#fff', lineHeight:1 }}>{o.num}</span>
-                      <span style={{ fontSize:7, color:'rgba(255,255,255,0.88)', textAlign:'center', marginTop:2, lineHeight:1.2, maxWidth:66 }}>{o.name}</span>
-                    </div>
+                {/* Grid 6 columnas — íconos oficiales ODS recortados 1:1 de
+                    FOTOS PROY3/arq radar formulador 360/ODS.webp (fidelidad
+                    exacta exigida por el usuario — no SVGs redibujados). */}
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(6, 1fr)', gap: embedded ? 4 : 6 }}>
+                  {ODS_ALL.map(o => (
+                    <img
+                      key={o.num}
+                      src={`/ods/ods-${o.num}.webp`}
+                      alt={`ODS ${o.num} — ${o.name}`}
+                      title={`ODS ${o.num} — ${o.name}`}
+                      style={{
+                        width: '100%', aspectRatio: '1 / 1', objectFit: 'cover',
+                        borderRadius: embedded ? 3 : 5, cursor: 'pointer', display: 'block',
+                      }}
+                    />
                   ))}
                 </div>
               </div>
 
-              {/* Secciones de impacto */}
-              {SECTIONS.map(s => <ImpactBlock key={s.id} section={s}/>)}
+              {/* Secciones de impacto — pesos/indicadores de UI + score real del backend */}
+              {sections.map(s => <ImpactBlock key={s.id} section={s} compact={embedded}/>)}
             </div>
 
             {/* Barra inferior fija */}
             <footer style={{
-              flexShrink:0, background:C.bgSection,
-              borderTop:`1px solid ${C.border}`, padding:'10px 18px',
-              display:'flex', alignItems:'center', gap:18,
+              background:C.bgSection,
+              borderTop:`1px solid ${C.border}`,
+              padding: embedded ? '6px 10px' : '10px 18px',
+              display:'flex',
+              flexDirection: embedded ? 'column' : 'row',
+              alignItems: embedded ? 'stretch' : 'center',
+              gap: embedded ? 4 : 18,
             }}>
-              <span style={{ fontSize:10, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.07em', whiteSpace:'nowrap' }}>
-                Resumen de Avance del Proyecto
-              </span>
-              <div style={{ display:'flex', gap:16, flex:1, flexWrap:'wrap' }}>
-                {[
-                  { icon:<span style={{ fontSize:14 }}>◎</span>, label:'Cumplimiento Global', value:'72%',         color:'#22c55e' },
-                  { icon:<CheckSquare size={13} color={C.cyan}/>,  label:'Indicadores',        value:'20 / 20',    color:C.cyan    },
-                  { icon:<Paperclip size={13} color={C.textDim}/>, label:'Evidencias',         value:'18 / 20',    color:C.text    },
-                  { icon:<Clock size={13} color="#f59e0b"/>,        label:'Pendientes',         value:'6',          color:'#f59e0b' },
-                  { icon:<FileText size={13} color={C.textDim}/>,   label:'Última Modif.',      value:'Hoy, 09:42', color:C.textMuted },
-                ].map((item, i) => (
-                  <div key={i} style={{ display:'flex', alignItems:'center', gap:5 }}>
-                    {item.icon}
-                    <span style={{ fontSize:11, color:C.textMuted }}>{item.label}</span>
-                    <span style={{ fontSize:11, fontWeight:700, color:item.color }}>{item.value}</span>
+              {embedded ? (
+                <>
+                  {/* Fila 1: título + botón */}
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:6 }}>
+                    <span style={{ fontSize:9, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.06em', whiteSpace:'nowrap' }}>
+                      Resumen de Avance del Proyecto
+                    </span>
+                    <button style={{
+                      flexShrink:0, background:'#111827', color:'#ffffff',
+                      border:'none', borderRadius:4, padding:'2px 7px',
+                      fontSize:9, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap',
+                    }}>
+                      Reporte
+                    </button>
                   </div>
-                ))}
-              </div>
-              <button style={{
-                flexShrink:0, background:'#111827', color:'#ffffff',
-                border:'none', borderRadius:7, padding:'7px 14px',
-                fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap',
-              }}>
-                Generar Reporte Ejecutivo
-              </button>
+                  {/* Fila 2: métricas sin solapamiento */}
+                  <div style={{ display:'flex', gap:8, flexWrap:'nowrap', overflow:'hidden' }}>
+                    {[
+                      { icon:<span style={{ fontSize:10 }}>◎</span>, label:'Cumpl.',  value: resumen.viabilidadGlobal !== null ? `${resumen.viabilidadGlobal}%` : '—', color: colorSalud(resumen.viabilidadGlobal) },
+                      { icon:<CheckSquare size={10} color={C.cyan}/>,  label:'Indic.',  value: String(resumen.indicadores), color:C.cyan    },
+                      { icon:<Paperclip size={10} color={C.textDim}/>, label:'Evid.',   value: String(resumen.anexos), color:C.text    },
+                      { icon:<Clock size={10} color="#f59e0b"/>,        label:'Pend.',   value: String(resumen.pendientes),     color:'#f59e0b' },
+                    ].map((item, i) => (
+                      <div key={i} style={{ display:'flex', alignItems:'center', gap:2, flexShrink:0 }}>
+                        {item.icon}
+                        <span style={{ fontSize:9, color:C.textMuted, whiteSpace:'nowrap' }}>{item.label}</span>
+                        <span style={{ fontSize:10, fontWeight:700, color:item.color }}>{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize:10, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.07em', whiteSpace:'nowrap' }}>
+                    Resumen de Avance del Proyecto
+                  </span>
+                  <div style={{ display:'flex', gap:16, flex:1, flexWrap:'nowrap', overflow:'hidden' }}>
+                    {[
+                      { icon:<span style={{ fontSize:14 }}>◎</span>,  label:'Cumplimiento Global', value: resumen.viabilidadGlobal !== null ? `${resumen.viabilidadGlobal}%` : '—', color: colorSalud(resumen.viabilidadGlobal) },
+                      { icon:<CheckSquare size={13} color={C.cyan}/>,  label:'Indicadores',         value: String(resumen.indicadores),   color:C.cyan      },
+                      { icon:<Paperclip size={13} color={C.textDim}/>, label:'Evidencias',          value: String(resumen.anexos),   color:C.text      },
+                      { icon:<Clock size={13} color="#f59e0b"/>,        label:'Pendientes',          value: String(resumen.pendientes),         color:'#f59e0b'   },
+                      { icon:<FileText size={13} color={C.textDim}/>,  label:'Última Modif.',       value: ultimaModifLabel,color:C.textMuted },
+                    ].map((item, i) => (
+                      <div key={i} style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
+                        {item.icon}
+                        <span style={{ fontSize:11, color:C.textMuted }}>{item.label}</span>
+                        <span style={{ fontSize:11, fontWeight:700, color:item.color }}>{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button style={{
+                    flexShrink:0, background:'#111827', color:'#ffffff',
+                    border:'none', borderRadius:7, padding:'7px 14px',
+                    fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap',
+                  }}>
+                    Generar Reporte Ejecutivo
+                  </button>
+                </>
+              )}
             </footer>
           </main>
 
-          <RightPanel/>
+          <RightPanel compact={embedded} riesgos={riesgos} acciones={acciones} bitacora={bitacora} resumen={resumen}/>
         </div>
       </div>
+
+      {selectorAbierto && <ProyectoSelectorModal onClose={() => setSelectorAbierto(false)}/>}
     </div>
   );
 }

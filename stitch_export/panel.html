@@ -1,0 +1,201 @@
+<!DOCTYPE html><html class="light" lang="es" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>RADAR FONDOS 360 - Control Panel</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;family=Hanken+Grotesk:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-background": "#191c1e",
+              "surface-variant": "#e0e3e5",
+              "primary": "#0058be",
+              "on-primary": "#ffffff",
+              "primary-container": "#1d4ed8",
+              "surface-container-lowest": "#ffffff",
+              "surface-container-highest": "#e0e3e5",
+              "surface-container": "#eceef0",
+              "surface-container-low": "#f2f4f6",
+              "surface-bright": "#f7f9fb",
+              "outline": "#747686",
+              "outline-variant": "#c6c6cd",
+              "background": "#f7f9fb",
+              "surface": "#f7f9fb",
+              "on-surface": "#191c1e",
+              "on-surface-variant": "#434655",
+              "secondary": "#455b9d",
+              "secondary-container": "#a0b6fe",
+              "on-secondary-container": "#2f4686"
+            },
+            fontFamily: {
+              headline: ["Hanken Grotesk", "Public Sans", "sans-serif"],
+              body: ["Hanken Grotesk", "Public Sans", "sans-serif"],
+              mono: ["JetBrains Mono", "monospace"]
+            },
+            borderRadius: {
+              DEFAULT: "0px"
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Hanken Grotesk', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .mono-label {
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        input::placeholder {
+            font-family: 'Hanken Grotesk', sans-serif;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface min-h-screen flex flex-col">
+<!-- Shared Component: NavigationDrawer -->
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col min-h-screen">
+<!-- Shared Component: TopAppBar -->
+<header class="bg-surface border-b border-outline-variant sticky top-0 z-40 flex justify-between items-center w-full px-6 h-16">
+<div class="flex items-center gap-4">
+
+<h1 class="font-headline font-bold text-primary text-xl"><br></h1>
+</div>
+<div class="flex items-center gap-4">
+
+</div>
+</header>
+<!-- Page Content: Control Panel -->
+<div class="p-6 md:p-10 mx-auto w-full space-y-8 max-w-7xl pb-4">
+<!-- Header Section -->
+<section class="space-y-1">
+<h2 class="text-2xl font-bold font-headline text-on-surface tracking-tight">PANEL DE CONTROL</h2>
+<p class="text-sm font-mono text-on-surface-variant uppercase tracking-widest border-l-4 border-primary pl-3"><br></p>
+</section>
+<!-- Configuration Cards Grid -->
+<div class="grid grid-cols-1 gap-2">
+<!-- Card 1: Google Account (Standardized) -->
+<article class="bg-surface-container-lowest border border-outline-variant p-8 flex flex-col md:flex-row md:items-center justify-between gap-8">
+<div class="space-y-2 max-w-xl">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">link</span>
+<h3 class="text-lg font-bold font-headline">Conexión Cuenta de Google</h3>
+</div>
+<p class="text-on-surface-variant text-sm leading-relaxed">Requerido para la autenticación y personalización del perfil. Permite la sincronización de documentos y reportes directamente con su unidad de Drive.</p>
+</div>
+<div class="flex flex-col gap-2 min-w-[300px]">
+<div class="flex justify-end items-center mb-1">
+<span class="text-[10px] font-mono bg-surface-container-highest px-2 py-1 uppercase tracking-tighter">Status: No conectado</span>
+</div>
+<button class="bg-primary hover:brightness-110 active:scale-95 text-on-primary px-6 py-4 font-bold flex items-center justify-center gap-3 rounded transition-all w-full">
+<svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
+<path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"></path>
+<path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"></path>
+<path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"></path>
+<path d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 12-4.53z"></path>
+</svg>
+                        Conectar Google
+                    </button>
+</div>
+</article>
+<!-- Card 2: NotebookLM (Standardized) -->
+<article class="border border-outline-variant bg-surface-container-lowest p-8 flex flex-col md:flex-row md:items-center justify-between gap-8">
+<div class="space-y-2 max-w-xl">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">psychology</span>
+<h3 class="text-lg font-bold font-headline">Conexi3n cuenta de NotebookLM</h3>
+</div>
+<p class="text-on-surface-variant text-sm leading-relaxed">Se ingresa con la cuenta de su producto para realizar el an3lisis de documentos y convocatorias de manera automatizada mediante modelos de lenguaje locales.</p>
+</div>
+<div class="flex flex-col gap-2 min-w-[300px]"><div class="flex justify-end items-center mb-1"><span class="text-[10px] font-mono bg-surface-container-highest px-2 py-1 uppercase tracking-tighter">Status: No conectado</span></div><button class="bg-primary hover:brightness-110 active:scale-95 text-on-primary px-6 py-4 font-bold flex items-center justify-center gap-3 rounded transition-all w-full"><span class="material-symbols-outlined">login</span>Conectar Cuenta</button></div>
+</article>
+<!-- Card 3: Perplexity (Standardized) -->
+<article class="border border-outline-variant bg-surface-container-lowest p-8 flex flex-col md:flex-row md:items-center justify-between gap-8">
+<div class="space-y-2 max-w-xl">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">travel_explore</span>
+<h3 class="text-lg font-bold font-headline">Conexi3n cuenta de Perplexity</h3>
+</div>
+<p class="text-on-surface-variant text-sm leading-relaxed">Se ingresa con la cuenta de su producto para el rastreo din1mico y validaci3n de fuentes externas en tiempo real sobre subvenciones y marcos regulatorios.</p>
+</div>
+<div class="flex flex-col gap-2 min-w-[300px]"><div class="flex justify-end items-center mb-1"><span class="text-[10px] font-mono bg-surface-container-highest px-2 py-1 uppercase tracking-tighter">Status: No conectado</span></div><button class="bg-primary hover:brightness-110 active:scale-95 text-on-primary px-6 py-4 font-bold flex items-center justify-center gap-3 rounded transition-all w-full"><span class="material-symbols-outlined">login</span>Conectar Cuenta</button></div>
+</article>
+<!-- Visual Asset -->
+
+</div>
+</div>
+<!-- Footer Actions Bar -->
+<footer class="bg-white border-t border-outline-variant px-6 py-4 flex justify-end items-center gap-4 mt-8">
+<button class="px-8 py-3 font-bold border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors rounded">
+                Cancelar
+            </button>
+<button class="px-8 py-3 font-bold bg-primary text-on-primary hover:brightness-110 shadow-sm active:scale-95 rounded transition-all">
+                Guardar Configuración
+            </button>
+</footer>
+</main>
+<!-- Mobile Navigation (Responsive Pivot) -->
+<script>
+        // Simple micro-interaction for password visibility toggle
+        document.querySelectorAll('.material-symbols-outlined').forEach(icon => {
+            if (icon.innerText === 'visibility') {
+                icon.addEventListener('click', function() {
+                    const input = this.previousElementSibling;
+                    if (input.type === 'password') {
+                        input.type = 'text';
+                        this.innerText = 'visibility_off';
+                    } else {
+                        input.type = 'password';
+                        this.innerText = 'visibility';
+                    }
+                });
+            }
+        });
+
+        // Save action simulation
+        document.querySelector('button.bg-primary').addEventListener('click', function() {
+            const btn = this;
+            if (btn.innerText.includes('Conectar')) return; // Ignore google connect btn for this mock
+            const originalText = btn.innerText;
+            if (originalText.includes('Guardar')) {
+                btn.innerText = 'Procesando...';
+                btn.classList.add('opacity-50', 'pointer-events-none');
+                setTimeout(() => {
+                    btn.innerText = 'Configuración Guardada';
+                    btn.classList.remove('bg-primary');
+                    btn.classList.add('bg-green-600');
+                    setTimeout(() => {
+                        btn.innerText = originalText;
+                        btn.classList.add('bg-primary');
+                        btn.classList.remove('bg-green-600', 'opacity-50', 'pointer-events-none');
+                    }, 2000);
+                }, 1500);
+            }
+        });
+    </script>
+
+
+
+
+
+
+
+
+</body></html>

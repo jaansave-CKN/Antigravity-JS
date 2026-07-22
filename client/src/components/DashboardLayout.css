@@ -1,0 +1,98 @@
+/* ══════════════════════════════════════════════
+   DashboardLayout — contenedor raíz
+   ══════════════════════════════════════════════ */
+
+/* Variables de layout — fuente única de verdad */
+:root {
+  --sidebar-width: 240px;
+  --sidebar-collapsed: 64px;
+  --right-sidebar-width: 30vw;  /* nunca supera el 30% de la ventana */
+}
+
+/* ── Capa base ─────────────────────────────── */
+.dashboard-layout {
+  min-height: 100vh;
+  background: var(--background, #0b1326);
+}
+
+/* ── Contenido principal ───────────────────── */
+/* Desplazado a la derecha por el sidebar izquierdo
+   y recortado por la derecha por el sidebar derecho */
+.dashboard-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  margin-left: var(--sidebar-width);
+  /* reserva espacio para el sidebar derecho fijo */
+  margin-right: var(--right-sidebar-width);
+  padding-top: 64px; /* altura del Header */
+  transition: margin-left 0.2s ease;
+}
+
+/* Cuando el sidebar izquierdo está colapsado */
+.dashboard-layout--collapsed .dashboard-content {
+  margin-left: var(--sidebar-collapsed);
+}
+
+/* ── Sidebar derecho (fijo) ────────────────── */
+.right-sidebar {
+  position: fixed;
+  right: 0;
+  top: 0;
+  height: 100vh;
+  width: var(--right-sidebar-width);
+  max-width: 30vw;           /* cota dura — nunca excede el 30% */
+  background: var(--surface-container-low, #131b2e);
+  border-left: 1px solid var(--outline-variant, #3e484f);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 90;               /* debajo del Header (z-index típico ≥ 100) */
+
+  /* texto forzado a romper dentro del ancho disponible */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* Scrollbar discreta dentro del sidebar derecho */
+.right-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+.right-sidebar::-webkit-scrollbar-thumb {
+  background: var(--outline-variant, #3e484f);
+  border-radius: 2px;
+}
+
+/* ── Contenido dentro del sidebar derecho ──── */
+.right-sidebar__content {
+  flex: 1;
+  padding: 16px 12px;
+  font-size: 0.82rem;
+  color: var(--on-surface-variant, #bdc8d1);
+  line-height: 1.45;
+}
+
+/* Data-pill genérico para respuestas de Antigravity */
+.right-sidebar__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-container-high, #222a3e);
+  border: 1px solid var(--outline-variant, #3e484f);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 0.78rem;
+  margin-bottom: 4px;
+}
+
+/* ── Responsive: en pantallas pequeñas se oculta ── */
+@media (max-width: 900px) {
+  .right-sidebar {
+    display: none;
+  }
+  .dashboard-content {
+    margin-right: 0;
+  }
+}
