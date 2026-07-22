@@ -9,13 +9,19 @@
  * Requiere: DATABASE_URL en .env apuntando a Supabase / Neon / Railway.
  */
 
-if (!process.env.DATABASE_URL) {
-  console.error('╔══════════════════════════════════════════════════════════╗');
-  console.error('║  [db.js] FATAL: DATABASE_URL no configurada.             ║');
-  console.error('║  El servidor requiere PostgreSQL. Agrega DATABASE_URL     ║');
-  console.error('║  en .env (ej: postgresql://user:pass@host/db?sslmode=...) ║');
-  console.error('╚══════════════════════════════════════════════════════════╝');
-}
+// Diferido con setImmediate: este módulo se importa (y evaluaría este check)
+// ANTES de que server.js llame a loadEnv() en su propio top-level, dando un
+// falso "FATAL" en cada arranque aunque .env sí tenga DATABASE_URL. Se pospone
+// al siguiente tick del event loop, cuando loadEnv() ya corrió.
+setImmediate(() => {
+  if (!process.env.DATABASE_URL) {
+    console.error('╔══════════════════════════════════════════════════════════╗');
+    console.error('║  [db.js] FATAL: DATABASE_URL no configurada.             ║');
+    console.error('║  El servidor requiere PostgreSQL. Agrega DATABASE_URL     ║');
+    console.error('║  en .env (ej: postgresql://user:pass@host/db?sslmode=...) ║');
+    console.error('╚══════════════════════════════════════════════════════════╝');
+  }
+});
 
 export {
   pool,

@@ -8,10 +8,11 @@ import crypto from 'crypto';
 import { loadEnv } from './backend/env-loader.js';
 import jwt from 'jsonwebtoken';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter } from './backend/middlewares/SecurityMiddleware.js';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, slowDown } from './backend/middlewares/SecurityMiddleware.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
-import { startScheduler, runManualIngest } from './backend/pipeline/CronScheduler.js';
+import { startScheduler, runManualIngest, pauseScheduler, resumeScheduler } from './backend/pipeline/CronScheduler.js';
+import { classifySectors } from './backend/services/sectorClassifier.js';
 import { ingestDirectorioConvocatorias } from './backend/pipeline/EntityScraper.js';
 import { parseFileBuffer, importToDirectorio, importToConvocatorias } from './backend/pipeline/FileImporter.js';
 import { encryptKey, decryptKey } from './backend/pipeline/CryptoHelper.js';
@@ -22,20 +23,29 @@ import {
 } from './backend/routes/authGoogle.controller.js';
 import { emailAdapter } from './backend/notifications/BrevoEmailAdapter.js';
 import { pool, getRow, getRows, getCount, runSql } from './backend/db.js';
+import { dbStatus, withTenant } from './backend/config/database.config.js';
+import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
+import { fetchResiliente } from './backend/utils/resilientFetch.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { geminiCB, isQuotaError, AI_LIMIT_EXCEEDED_RESPONSE } from './backend/services/geminiCircuitBreaker.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
-import { isRevoked, checkSessionValid, revokeToken, revokeUserSession } from './backend/middlewares/tokenBlacklist.js';
+import { isRevoked, checkSessionValid, revokeToken, revokeUserSession, initBlacklist, purgeExpiredTokens } from './backend/middlewares/tokenBlacklist.js';
 import { seedPredios } from './backend/pipeline/seed-predios.js';
 import { rejectMaterialsInput } from './backend/middlewares/materialValidator.js';
 import { logger } from './backend/utils/logger.js';
 import { validateStructuralElements } from './backend/validators/structuralValidator.js';
 import { generarArbolConIA } from './backend/agents/arbolObjetivosAgent.js';
 import { runMatchPipeline } from './backend/pipeline/matchScore.js';
+import { calcularScoringDinamico } from './backend/services/scoringDinamico.js';
+import { calcularViabilidadIA } from './backend/services/viabilidadAgent.js';
+import { generarEnfoqueEntidad } from './backend/services/enfoqueEntidadAgent.js';
 import { textToEmbedding, cosineSimilarity, deserializeEmbedding } from './backend/services/embeddingsService.js';
 import { registerRadicacionRoutes } from './backend/routes/radicacion.routes.js';
 import { registerProyectosRoutes } from './backend/routes/proyectos.routes.js';
 import { registerReporteRoutes } from './backend/routes/reporte.routes.js';
 import { registerPresupuestoRoutes } from './backend/routes/presupuesto.routes.js';
-import { radarCacheMiddleware } from './backend/middlewares/radarCache.js';
+import { registerAnexosRoutes } from './backend/routes/anexos.routes.js';
+import { radarCacheMiddleware, invalidateRadarCache } from './backend/middlewares/radarCache.js';
 import { RENDIMIENTOS_CATALOGO } from './backend/pipeline/apuEngine.js';
 import { registerSubscriptionRoutes }    from './backend/routes/subscriptions.routes.js';
 import { registerMotorDialecticoRoutes } from './backend/routes/motorDialectico.routes.js';
@@ -43,7 +53,9 @@ import { registerConfigLogisticaRoutes } from './backend/routes/configLogistica.
 import { registerMarcoNormativoRoutes }  from './backend/routes/marcoNormativo.routes.js';
 import { registerComplianceRoutes }      from './backend/routes/compliance.routes.js';
 import { registerFichaTecnicaRoutes }    from './backend/routes/fichaTecnica.routes.js';
+import { registerExportacionRoutes }     from './backend/routes/exportacion.routes.js';
 import { registerScraperRoutes }         from './backend/routes/scraper.routes.js';
+import { sweepEndsWith }                  from './backend/services/sweepService.js';
 
 const require = createRequire(import.meta.url);
 loadEnv();
@@ -56,6 +68,12 @@ process.on('unhandledRejection', (reason) => console.error('[Fatal] Unhandled Re
 // ── Configuración y Seguridad ────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// Usuario de desarrollo para 'demo-mode-token' (solo NODE_ENV !== 'production').
+// UUID fijo y reconocible (todo ceros salvo el último dígito) — nunca debe
+// existir con este id en una base de datos de producción real. Sembrado en
+// 015_seed_dev_user.sql y en el bootstrap de abajo (gateado a no-producción).
+const DEV_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 if (!JWT_SECRET) {
   console.error('FATAL: JWT_SECRET not set.');
@@ -127,6 +145,18 @@ async function authenticateToken(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
   const token = auth.slice(7);
+
+  // DEV: demo-mode-token es aceptado en entorno local para no bloquear el trabajo de desarrollo.
+  // Debe ser un UUID real (no 'dev-user-001') porque proyectos.user_id/org_id y
+  // projects.tenant_id son columnas UUID con FK a usuarios(id) — un valor no-UUID
+  // hace fallar cualquier INSERT/UPDATE autenticado con este token (500 de BD).
+  // El usuario correspondiente se siembra en 015_seed_dev_user.sql / bootstrap.
+  if (process.env.NODE_ENV !== 'production' && token === 'demo-mode-token') {
+    req.userId = DEV_USER_ID;
+    req.userRole = 'admin';
+    return next();
+  }
+
   const payload = verifyToken(token);
   if (!payload) return res.status(401).json({ success: false, message: 'Token invalido' });
 
@@ -137,6 +167,43 @@ async function authenticateToken(req, res, next) {
 
   req.userId = payload.sub;
   req.userRole = payload.role;
+  next();
+}
+
+// ── setTenantContext ──────────────────────────────────────────────────────────
+// Defensa en profundidad para RLS. El JWT actual solo firma `sub` (userId) y
+// `role` — no lleva tenant_id/org_id como claim — así que el tenant se resuelve
+// aquí a partir del userId ya validado por authenticateToken (nunca de un valor
+// enviado por el cliente). Debe encadenarse DESPUÉS de authenticateToken:
+//
+//   app.post('/ruta', authenticateToken, setTenantContext, tryCatch(async (req, res) => {
+//     await req.withTenant(client => client.query('UPDATE projects SET ... WHERE id = $1', [id]));
+//   }));
+//
+// req.withTenant(callback) delega en withTenant() de database.config.js, que
+// abre una transacción dedicada y ejecuta `SELECT set_config('app.org_id', $1, TRUE)`
+// (equivalente a SET LOCAL) antes de correr el callback — así projects_tenant_rls /
+// match_scores_tenant_rls / budgets_tenant_isolation quedan activas para esa
+// transacción sin importar si el rol de conexión también tiene privilegios amplios.
+//
+// LÍMITE CONOCIDO: los helpers compartidos getRow/getRows/runSql (database.config.js)
+// usan un pool sin cliente fijo por request, por lo que NO heredan este contexto
+// automáticamente. Para quedar protegidas por RLS de verdad, las queries deben
+// pasar por req.withTenant(...) en vez de esos helpers globales. Se aplica aquí
+// a las rutas que tocan projects/match_scores directamente (validar-estructura,
+// modulo7/match); extenderlo al resto de backend/routes/*.js es el siguiente
+// paso natural de este endurecimiento, no cubierto por este cambio.
+async function setTenantContext(req, res, next) {
+  if (!req.userId) return next(); // sin usuario autenticado — nada que fijar
+
+  try {
+    const user = await getRow('SELECT tenant_id FROM usuarios WHERE id = ?', [req.userId]);
+    req.tenantId = user?.tenant_id || req.userId; // fallback: modelo single-tenant-per-user
+  } catch {
+    req.tenantId = req.userId; // degradado — nunca bloquear la request por esto
+  }
+
+  req.withTenant = (callback) => withTenant(req.tenantId, callback);
   next();
 }
 
@@ -162,7 +229,8 @@ function tryCatch(fn) {
 async function resolveGoogleApiKey(userId, getRow) {
   const systemKey = process.env.GOOGLE_API_KEY || '';
   const cred = await getRow('SELECT api_key_enc FROM user_credentials WHERE user_id = ?', [userId]);
-  const enc  = process.env.ENCRYPTION_KEY || JWT_SECRET;
+  const enc  = process.env.ENCRYPTION_KEY;
+  if (!enc) throw new Error('ENCRYPTION_KEY no configurada — credenciales de usuario no disponibles');
   if (cred?.api_key_enc) {
     try {
       const userKey = decryptKey(cred.api_key_enc, enc);
@@ -227,6 +295,12 @@ async function initDb() {
       console.log('[DB] pgvector: extensión vector activa');
     } catch (err) {
       console.warn('[DB] pgvector no disponible (continúa sin índice vectorial):', err.message);
+    }
+    try {
+      await runSql('CREATE EXTENSION IF NOT EXISTS unaccent');
+      console.log('[DB] unaccent: extensión activa (búsqueda sin tildes)');
+    } catch (err) {
+      console.warn('[DB] unaccent no disponible — búsqueda ignorará tildes vía normalización JS:', err.message);
     }
   }
   await runSql(`CREATE TABLE IF NOT EXISTS usuarios (
@@ -301,6 +375,7 @@ async function initDb() {
     id TEXT PRIMARY KEY,
     proyecto_id TEXT NOT NULL,
     tipo TEXT NOT NULL CHECK(tipo IN ('CENTRAL','ESPECIFICO','RESULTADO','ACTIVIDAD')),
+    tipo_nodo TEXT CHECK(tipo_nodo IN ('PROBLEMA_CENTRAL','CAUSA','EFECTO','OBJETIVO_GENERAL','OBJETIVO_ESPECIFICO')),
     nivel INTEGER NOT NULL DEFAULT 0,
     texto TEXT NOT NULL,
     parent_id TEXT,
@@ -308,11 +383,54 @@ async function initDb() {
     confirmado INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
+  // Formalización de 'Problema' (013): tabla ya existente antes de esta columna
+  try { await runSql(`ALTER TABLE objetivos_arbol ADD COLUMN tipo_nodo TEXT CHECK(tipo_nodo IN ('PROBLEMA_CENTRAL','CAUSA','EFECTO','OBJETIVO_GENERAL','OBJETIVO_ESPECIFICO'))`); } catch {}
+
+  // Anexos externos del proyecto (013) — antes solo en localStorage del cliente
+  await runSql(`CREATE TABLE IF NOT EXISTS project_anexos (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    nombre_archivo TEXT NOT NULL,
+    ruta_storage TEXT NOT NULL,
+    tipo_mime TEXT NOT NULL,
+    tamano_bytes INTEGER NOT NULL DEFAULT 0,
+    categoria TEXT CHECK(categoria IN ('legal','financiero','tecnico','institucional','otro')) DEFAULT 'otro',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Indicadores MGA/BPIN estructurados (013) — antes texto libre en ficha_tecnica
+  await runSql(`CREATE TABLE IF NOT EXISTS project_indicators (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    nombre TEXT NOT NULL,
+    tipo TEXT NOT NULL CHECK(tipo IN ('Producto','Resultado','Impacto','Gestión')),
+    linea_base REAL DEFAULT 0,
+    meta_total REAL NOT NULL,
+    unidad_medida TEXT NOT NULL,
+    fuente_verificacion TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Teoría del Cambio 1:1 con el proyecto (013) — antes campo D_alineacion sin persistir
+  await runSql(`CREATE TABLE IF NOT EXISTS project_change_theory (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL UNIQUE,
+    tenant_id TEXT NOT NULL,
+    insumos TEXT NOT NULL DEFAULT '[]',
+    actividades TEXT NOT NULL DEFAULT '[]',
+    productos TEXT NOT NULL DEFAULT '[]',
+    resultados_corto_plazo TEXT NOT NULL DEFAULT '[]',
+    impacto_largo_plazo TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+
   await runSql(`CREATE TABLE IF NOT EXISTS match_scores (
     id TEXT PRIMARY KEY,
     proyecto_id TEXT NOT NULL,
     convocatoria_id TEXT NOT NULL,
-    score REAL NOT NULL CHECK(score BETWEEN 0 AND 100),
+    score REAL NOT NULL CHECK(score BETWEEN 0 AND 1),
     breakdown TEXT NOT NULL,
     pipeline_version TEXT NOT NULL DEFAULT 'v1',
     calculado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -361,19 +479,22 @@ async function initDb() {
     user_id TEXT NOT NULL,
     org_id TEXT NOT NULL DEFAULT '',
     nombre TEXT NOT NULL DEFAULT 'Sin nombre',
-    estado TEXT NOT NULL DEFAULT 'Borrador'
-      CHECK(estado IN ('Borrador','En_Validacion','Finalizado','BLOQUEADO')),
+    estado TEXT NOT NULL DEFAULT 'draft'
+      CHECK(estado IN ('draft','in_review','needs_human_review','processing',
+                        'formulado','Finalizado','BLOQUEADO','archived')),
     bloqueo_razon TEXT,
     ficha_tecnica TEXT DEFAULT '{}',
     presupuesto TEXT DEFAULT '{}',
     crosscheck_sello TEXT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP DEFAULT NULL,
     FOREIGN KEY (user_id) REFERENCES usuarios(id)
   )`);
   // Migraciones de proyectos: agrega columnas ausentes en versiones anteriores del esquema
   try { await runSql(`ALTER TABLE proyectos ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`); } catch {}
   try { await runSql(`ALTER TABLE proyectos ADD COLUMN org_id TEXT NOT NULL DEFAULT ''`); } catch {}
+  try { await runSql(`ALTER TABLE proyectos ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL`); } catch {}
   // Backfill: registros anteriores heredan user_id como org_id
   try { await runSql(`UPDATE proyectos SET org_id = user_id WHERE org_id = ''`); } catch {}
 
@@ -507,6 +628,9 @@ async function initDb() {
   try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN current_period_end TIMESTAMP DEFAULT NULL"); } catch {}
   try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN cancel_at_period_end INTEGER DEFAULT 0"); } catch {}
   try { await runSql("ALTER TABLE directorio_entidades ADD COLUMN status TEXT DEFAULT 'active'"); } catch {}
+  // root_domain — llave relacional normalizada (funding.wellcome.org → wellcome.org)
+  try { await runSql("ALTER TABLE directorio_entidades ADD COLUMN root_domain TEXT DEFAULT NULL"); } catch {}
+  try { await runSql("ALTER TABLE convocatorias ADD COLUMN root_domain TEXT DEFAULT NULL"); } catch {}
   // Tabla de idempotencia de webhooks Stripe
   await runSql(`CREATE TABLE IF NOT EXISTS stripe_events (
     stripe_event_id  TEXT        PRIMARY KEY,
@@ -517,7 +641,16 @@ async function initDb() {
   )`);
   try { await runSql("ALTER TABLE system_config ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); } catch {}
   try { await runSql("ALTER TABLE system_logs  ADD COLUMN nivel TEXT DEFAULT 'ERROR'"); } catch {}
-
+  // Configuración global de la aplicación (clave-valor)
+  await runSql(`CREATE TABLE IF NOT EXISTS app_settings (
+    key        TEXT      PRIMARY KEY,
+    value      TEXT      NOT NULL DEFAULT '{}',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+  // Limpieza: funder-* fueron auto-seeded por error — el Directorio es 100% manual.
+  // Resetear entidad_id en sus convocatorias para que sweepEndsWith las reclasifique.
+  try { await runSql(`UPDATE convocatorias SET entidad_id = NULL WHERE entidad_id LIKE 'funder-%'`); } catch {}
+  try { await runSql(`DELETE FROM directorio_entidades WHERE id LIKE 'funder-%'`); } catch {}
   // V8.0 — Tabla de suscripciones por módulo (RBAC)
   await runSql(`CREATE TABLE IF NOT EXISTS user_subscriptions (
     id TEXT PRIMARY KEY,
@@ -571,6 +704,7 @@ async function initDb() {
   // Migración usuarios: rol granular (Formulador, Evaluador, Diseñador, Administrador, Usuario)
   try { await runSql("ALTER TABLE usuarios ADD COLUMN rol TEXT DEFAULT 'Usuario'"); } catch {}
   try { await runSql("ALTER TABLE usuarios ADD COLUMN org_id TEXT DEFAULT NULL"); } catch {}
+  try { await runSql("ALTER TABLE usuarios ADD COLUMN tokens_invalidated_at TIMESTAMP DEFAULT NULL"); } catch {}
 
   // Seed catalogo de rendimientos desde RENDIMIENTOS_CATALOGO (idempotente via UNIQUE)
   for (const [clave, r] of Object.entries(RENDIMIENTOS_CATALOGO)) {
@@ -594,7 +728,8 @@ async function initDb() {
     tenant_id         TEXT        NOT NULL,
     name              TEXT        NOT NULL DEFAULT '',
     status            TEXT        NOT NULL DEFAULT 'draft'
-      CHECK(status IN ('draft','formulado','needs_human_review','archived')),
+      CHECK(status IN ('draft','in_review','needs_human_review','processing',
+                        'formulado','Finalizado','BLOQUEADO','archived')),
     translation_status TEXT       DEFAULT 'pending'
       CHECK(translation_status IN ('pending','processing','completed','failed','skipped')),
     payload_es        TEXT        DEFAULT NULL,
@@ -605,8 +740,10 @@ async function initDb() {
     audit_cycles      INTEGER     DEFAULT 0,
     audit_approved_at TIMESTAMP   DEFAULT NULL,
     created_at        TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
-    updated_at        TIMESTAMP   DEFAULT CURRENT_TIMESTAMP
+    updated_at        TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+    deleted_at        TIMESTAMP   DEFAULT NULL
   )`);
+  try { await runSql(`ALTER TABLE projects ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL`); } catch {}
 
   // Tabla inmutable de hashes de versiones (ledger V8.0)
   await runSql(`CREATE TABLE IF NOT EXISTS project_version_hashes (
@@ -633,6 +770,16 @@ async function initDb() {
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
 
+  // Índices de rendimiento — evitan full table scan en las queries principales
+  try { await runSql('CREATE INDEX IF NOT EXISTS idx_conv_estado    ON convocatorias(estado)'); } catch {}
+  try { await runSql('CREATE INDEX IF NOT EXISTS idx_conv_deleted   ON convocatorias(deleted_at)'); } catch {}
+  try { await runSql('CREATE INDEX IF NOT EXISTS idx_conv_entidad   ON convocatorias(entidad_id)'); } catch {}
+  try { await runSql('CREATE INDEX IF NOT EXISTS idx_conv_created   ON convocatorias(created_at DESC)'); } catch {}
+  try { await runSql('CREATE INDEX IF NOT EXISTS idx_conv_root      ON convocatorias(root_domain)'); } catch {}
+  try { await runSql('CREATE INDEX IF NOT EXISTS idx_de_deleted     ON directorio_entidades(deleted_at)'); } catch {}
+  try { await runSql('CREATE INDEX IF NOT EXISTS idx_de_root        ON directorio_entidades(root_domain)'); } catch {}
+  try { await runSql('CREATE INDEX IF NOT EXISTS idx_de_status      ON directorio_entidades(status)'); } catch {}
+
   // Aviso de producción: PostgreSQL recomendado sobre SQLite
   if (!process.env.DATABASE_URL) {
     console.warn('[DB] AVISO: DATABASE_URL no definida — usando SQLite (solo desarrollo). En producción configura PostgreSQL.');
@@ -640,11 +787,230 @@ async function initDb() {
   console.log('[DB] DB initialized at', new Date().toISOString());
 }
 
+// ── Reparación de fuente vía PostgREST directo (sin SQL translator) ───────────
+const R2_DONANTES = [
+  'MacArthur Foundation',
+  'International Development Research Centre',
+  'Inter-American Foundation',
+  'Wellcome Trust',
+  'Ford Foundation',
+  'Open Society Foundations',
+];
+const SB_ADMIN_URL  = process.env.SUPABASE_URL  || 'https://ozivmsvxbdtjkzleqbcy.supabase.co';
+const SB_ADMIN_KEY  = process.env.SUPABASE_SERVICE_KEY || '';
+const PGREST_HEADERS = {
+  'Content-Type': 'application/json',
+  'apikey':        SB_ADMIN_KEY,
+  'Authorization': `Bearer ${SB_ADMIN_KEY}`,
+  'Prefer':        'return=minimal',
+};
+
+async function repararFuenteConvocatorias() {
+  if (!SB_ADMIN_KEY) return { error: 'SUPABASE_SERVICE_KEY no configurada' };
+  let r2Count = 0;
+  // R2: un PATCH por donante (evita problemas de CSV con espacios en PostgREST in.())
+  for (const donante of R2_DONANTES) {
+    const r = await fetch(
+      `${SB_ADMIN_URL}/rest/v1/convocatorias?donante=eq.${encodeURIComponent(donante)}`,
+      { method: 'PATCH', headers: PGREST_HEADERS, body: JSON.stringify({ fuente: 'RASTREO_WEB_EXTERNO' }) }
+    );
+    if (!r.ok) {
+      const errText = await r.text();
+      console.warn(`[reparar-fuente] PATCH R2 failed for ${donante}: ${r.status} ${errText}`);
+    } else {
+      r2Count++;
+    }
+  }
+  // R1: todo lo que no es R2 → RASTREO_DIRECTORIO (usa not.in. con valores sin espacios es menos confiable)
+  // En su lugar: primero seteamos todos a DIRECTORIO, luego R2 a WEB_EXTERNO (segunda pasada)
+  const r1all = await fetch(
+    `${SB_ADMIN_URL}/rest/v1/convocatorias?fuente=neq.RASTREO_WEB_EXTERNO`,
+    { method: 'PATCH', headers: PGREST_HEADERS, body: JSON.stringify({ fuente: 'RASTREO_DIRECTORIO' }) }
+  );
+  if (!r1all.ok) {
+    const errText = await r1all.text();
+    return { error: `R1 PATCH failed: ${r1all.status} ${errText}` };
+  }
+  // Segunda pasada R2 (por si fuente estaba ya en 'RASTREO_DIRECTORIO' después del primer paso)
+  for (const donante of R2_DONANTES) {
+    await fetch(
+      `${SB_ADMIN_URL}/rest/v1/convocatorias?donante=eq.${encodeURIComponent(donante)}`,
+      { method: 'PATCH', headers: PGREST_HEADERS, body: JSON.stringify({ fuente: 'RASTREO_WEB_EXTERNO' }) }
+    ).catch(() => {});
+  }
+  return { success: true, r2Donantes: r2Count };
+}
+
+// ── Clasificación masiva de sectores en background ────────────────────────────
+// Frases de navegación/UI que indican que el registro no es una convocatoria real
+const GARBAGE_TITLE_RE = /^(saltar al|ir al|pasar al|menú|volver a|retour à|retour a|télécharger|telecharger|consulter le|aller au|acceder al|accéder au|skip to|go to main|learn more|read more|see more|sign in|log in|register|subscribe|click here|apply now|find out more)/i;
+function isGarbageTitle(title) {
+  if (!title || title.length < 5) return true;
+  if (title.length < 18) return true; // titulos muy cortos no son convocatorias
+  return GARBAGE_TITLE_RE.test(title.trim());
+}
+
+// ── Enriquecedor de montos (regex sin Gemini) ────────────────────────────────
+const MONTO_ENRICH_RE = /(?:up\s+to|hasta|m[aá]ximo|maximum|prize(?:\s+of)?|award(?:\s+of)?|funding\s+of|total\s+de?|value\s+of|por\s+valor\s+de|subsidio\s+de|grant\s+of|monto\s+m[aá]ximo|monto\s+de)\s*:?\s*(?:USD|EUR|COP|GBP|CAD|\$|€|£)\s*([\d,. ]+)\s*(M(?:illion)?|B(?:illion)?|K)?|(?:USD|EUR|COP|GBP|CAD|\$|€|£)\s*([\d,. ]+)\s*(M(?:illion)?|B(?:illion)?|K)?(?:\s*(?:USD|EUR|COP|GBP))?\b|([\d,. ]+)\s*(M(?:illion)?|B(?:illion)?|K)?\s+(?:USD|EUR|COP|GBP|CAD|d[oó]lares?|dollars?|euros?|pesos?)/i;
+
+function parseMontoFromHtml(html) {
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 80_000);
+  const m = text.match(MONTO_ENRICH_RE);
+  if (!m) return null;
+  let currency = 'USD';
+  const sym = m[0].match(/EUR|COP|GBP|CAD|USD|€|£|\$/i)?.[0] || '';
+  if (/EUR|€/.test(sym)) currency = 'EUR';
+  else if (/GBP|£/.test(sym)) currency = 'GBP';
+  else if (/COP/.test(sym)) currency = 'COP';
+  else if (/CAD/.test(sym)) currency = 'CAD';
+  const numRaw = (m[1] || m[3] || m[5] || '').replace(/\s/g, '').replace(/,/g, '');
+  const num = parseFloat(numRaw);
+  if (!num || isNaN(num) || num <= 0 || num > 1e13) return null;
+  const suffix = (m[2] || m[4] || m[6] || '').toUpperCase();
+  const mult = suffix.startsWith('B') ? 1e9 : suffix.startsWith('M') ? 1e6 : suffix.startsWith('K') ? 1e3 : 1;
+  return { value: Math.round(num * mult), currency };
+}
+
+let _enrichingMontos = false;
+async function enriquecerMontosBatch(limit = 300) {
+  if (_enrichingMontos) return;
+  _enrichingMontos = true;
+  let procesadas = 0, actualizadas = 0, errores = 0;
+  console.log(`[Montos] Iniciando enriquecimiento de montos — hasta ${limit} convocatorias...`);
+  try {
+    const rows = await getRows(
+      `SELECT id, url_convocatoria, moneda FROM convocatorias
+       WHERE deleted_at IS NULL AND monto_max = 0 AND url_convocatoria IS NOT NULL AND url_convocatoria != ''
+       ORDER BY created_at DESC LIMIT ${Math.min(limit, 1000)}`
+    );
+    console.log(`[Montos] ${rows.length} convocatorias con monto_max=0 y URL encontradas.`);
+    for (const row of rows) {
+      try {
+        const resp = await fetch(row.url_convocatoria, {
+          signal: AbortSignal.timeout(8000),
+          headers: { 'User-Agent': 'Mozilla/5.0 RadarFondos/1.0', Accept: 'text/html' },
+        });
+        if (!resp.ok) { procesadas++; continue; }
+        const html = await resp.text();
+        const found = parseMontoFromHtml(html);
+        if (found && found.value > 0) {
+          await runSql(
+            'UPDATE convocatorias SET monto_max = $1, moneda = $2 WHERE id = $3',
+            [found.value, found.currency, row.id]
+          );
+          actualizadas++;
+        }
+        procesadas++;
+        if (procesadas % 20 === 0) {
+          console.log(`[Montos] ${procesadas}/${rows.length} procesadas — ${actualizadas} actualizadas...`);
+          await new Promise(r => setTimeout(r, 300));
+        }
+      } catch { errores++; procesadas++; }
+    }
+    console.log(`[Montos] Completado — ${actualizadas} montos actualizados, ${errores} errores de ${procesadas} procesadas.`);
+  } finally {
+    _enrichingMontos = false;
+  }
+}
+
+let _clasificandoSectores = false;
+async function clasificarSectoresEnBatch(limit = 200) {
+  if (_clasificandoSectores) {
+    console.log('[Sectores] Clasificación ya en curso — ignorando solicitud duplicada.');
+    return;
+  }
+  _clasificandoSectores = true;
+  console.log(`[Sectores] Iniciando clasificación masiva — hasta ${limit} convocatorias sin sector...`);
+  let procesadas = 0, actualizadas = 0, eliminadas = 0, errores = 0;
+  try {
+    const rows = await getRows(
+      `SELECT id, titulo, descripcion, donante FROM convocatorias
+       WHERE deleted_at IS NULL AND (sectores IS NULL OR sectores = '[]')
+       LIMIT ${Math.min(limit, 1000)}`
+    );
+    console.log(`[Sectores] ${rows.length} convocatorias sin sector encontradas.`);
+    const now = new Date().toISOString();
+    for (const row of rows) {
+      try {
+        if (isGarbageTitle(row.titulo)) {
+          await runSql('UPDATE convocatorias SET deleted_at = $1 WHERE id = $2', [now, row.id]);
+          eliminadas++;
+          procesadas++;
+          continue;
+        }
+        const sectores = await classifySectors(row.titulo, row.descripcion || '', row.donante || '');
+        if (sectores.length > 0) {
+          await runSql('UPDATE convocatorias SET sectores = $1 WHERE id = $2', [JSON.stringify(sectores), row.id]);
+          actualizadas++;
+        }
+        procesadas++;
+        if (procesadas % 10 === 0) {
+          console.log(`[Sectores] ${procesadas}/${rows.length} procesadas — ${actualizadas} clasificadas, ${eliminadas} garbage eliminadas...`);
+          await new Promise(r => setTimeout(r, 500));
+        }
+      } catch (e) {
+        errores++;
+        if (errores <= 3) console.warn('[Sectores] Error en convocatoria', row.id, e.message?.slice(0, 80));
+      }
+    }
+    console.log(`[Sectores] Completado — ${actualizadas} clasificadas, ${eliminadas} garbage eliminadas, ${errores} errores de ${procesadas} procesadas.`);
+  } finally {
+    _clasificandoSectores = false;
+  }
+}
+
 // ── Start ────────────────────────────────────────────────────────────────────
 async function start() {
-  await initDb();
+  try {
+    await initDb();
+  } catch (err) {
+    console.warn('⚠️  [DB] initDb no-fatal — el servidor arranca en modo degradado REST.');
+    console.warn('    Causa:', err.message.substring(0, 120));
+    console.warn('    Para activar pg Pool: habilita Connection Pooling en https://supabase.com/dashboard/project/ozivmsvxbdtjkzleqbcy/settings/database');
+  }
+  // C-1: Inicializar blacklist — crea tabla revoked_tokens y carga Set en memoria
+  await initBlacklist(runSql, getRows);
+  // A-1: Purgar tokens expirados cada hora (Set + tabla revoked_tokens)
+  setInterval(() => purgeExpiredTokens(runSql).catch(e => console.warn('[blacklist] purge error:', e.message)), 60 * 60_000);
   await seedPredios();
   await seedDirectorio();
+
+  // Seed del usuario dev (demo-mode-token) — NUNCA en producción. Idempotente:
+  // ON CONFLICT DO NOTHING permite correr esto en cada arranque sin duplicar.
+  // Ver también backend/migrations/015_seed_dev_user.sql (misma fila, aplicable
+  // manualmente vía psql si el bootstrap corre en modo degradado sin DDL real).
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      // IMPORTANTE: todo valor va como placeholder ?, ninguno como literal en
+      // VALUES() — en Capa 2 (REST) el mapeo columna↔parámetro es puramente
+      // posicional (ver restInsert en database.config.js); un literal mezclado
+      // entre placeholders desalinea todos los parámetros posteriores.
+      //
+      // Columna en minúsculas y SIN tenant_id: verificado empíricamente contra
+      // la BD real (SELECT * de un usuario existente) que esta instancia nunca
+      // recibió las migraciones formales 001-010 — el esquema realmente activo
+      // es el que crea este mismo bootstrap con el identificador SIN comillas,
+      // que Postgres pliega a minúsculas ("tipousuario"); org_id es TEXT
+      // nullable y tenant_id no existe en esta tabla. El traductor REST de
+      // Capa 2 no simula el case-folding de Postgres — el texto SQL debe usar
+      // la casing real de la columna, no la que aparece en el CREATE TABLE.
+      await runSql(
+        `INSERT INTO usuarios
+           (id, email, password_hash, nombre, tipousuario, plan, org_id, is_approved, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          DEV_USER_ID,
+          'dev-user-001@radarfondos.local',
+          '848ee624f012a8bb30c27eed7384e692:d9c84fda6e8840d09dff5b16080c46d6407e42beaf2693cea7be047952ea99948f9c377a75155f7812cb004db2c91fb25424be8b34f5fdd1da68f0aa793f809e',
+          'Usuario de Desarrollo', 'admin', 'free',
+          DEV_USER_ID, 1, 1,
+        ]
+      );
+    } catch (e) {
+      console.warn('[seedDevUser] No se pudo sembrar el usuario dev:', e.message?.slice(0, 150));
+    }
+  }
 
   // Seed WePropel — idempotente (solo inserta si no existe)
   try {
@@ -675,15 +1041,133 @@ async function start() {
     }
   } catch (e) { console.warn('[Seed] WePropel:', e.message); }
 
+  // Seed Darwin Initiative — idempotente (solo inserta si no existe)
+  try {
+    const existsDI = await getRow("SELECT id FROM directorio_entidades WHERE sigla = 'DI' AND deleted_at IS NULL");
+    if (!existsDI) {
+      const now = new Date().toISOString();
+      await runSql(
+        `INSERT INTO directorio_entidades
+         (id, nombre, sigla, tipo, pais, sitio_web, url_convocatorias,
+          telefono, email, alcance, validation_status, fuente, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          'seed-darwin-initiative',
+          'Darwin Initiative',
+          'DI',
+          'Gobierno',
+          'Reino Unido',
+          'https://www.darwininitiative.org.uk',
+          'https://www.darwininitiative.org.uk/apply/',
+          '',
+          'BCF-Darwin@niras.com',
+          'Internacional',
+          'VALIDADO',
+          'seed',
+          now, now,
+        ]
+      );
+      console.log('[Seed] Darwin Initiative agregado al Directorio');
+    }
+  } catch (e) { console.warn('[Seed] Darwin Initiative:', e.message); }
+
+  // ── Seed bloque extra — 15 financiadores de alta productividad ────────────
+  const NUEVAS_ENTIDADES = [
+    { id:'seed-giz', nombre:'Deutsche Gesellschaft für Internationale Zusammenarbeit', sigla:'GIZ', tipo:'Gobierno', pais:'Alemania', sitio_web:'https://www.giz.de', url_convocatorias:'https://www.giz.de/en/jobs/jobs_tender.html', alcance:'Internacional' },
+    { id:'seed-minciencias', nombre:'Ministerio de Ciencia, Tecnología e Innovación', sigla:'Minciencias', tipo:'Gobierno', pais:'Colombia', sitio_web:'https://minciencias.gov.co', url_convocatorias:'https://minciencias.gov.co/convocatorias', alcance:'Nacional' },
+    { id:'seed-caf', nombre:'CAF – Banco de Desarrollo de América Latina', sigla:'CAF', tipo:'Multilateral', pais:'Venezuela', sitio_web:'https://www.caf.com', url_convocatorias:'https://www.caf.com/es/conocimiento/convocatorias/', alcance:'Regional' },
+    { id:'seed-rockefeller', nombre:'Rockefeller Foundation', sigla:'RF', tipo:'Fundación', pais:'Estados Unidos', sitio_web:'https://www.rockefellerfoundation.org', url_convocatorias:'https://www.rockefellerfoundation.org/grants/', alcance:'Internacional' },
+    { id:'seed-ukri', nombre:'UK Research and Innovation', sigla:'UKRI', tipo:'Gobierno', pais:'Reino Unido', sitio_web:'https://www.ukri.org', url_convocatorias:'https://www.ukri.org/opportunity/', alcance:'Internacional' },
+    { id:'seed-gef', nombre:'Global Environment Facility', sigla:'GEF', tipo:'Multilateral', pais:'Internacional', sitio_web:'https://www.thegef.org', url_convocatorias:'https://www.thegef.org/grants-and-projects', alcance:'Internacional' },
+    { id:'seed-undp', nombre:'United Nations Development Programme', sigla:'PNUD', tipo:'ONU', pais:'Internacional', sitio_web:'https://www.undp.org', url_convocatorias:'https://www.undp.org/funding/calls-for-proposals', alcance:'Internacional' },
+    { id:'seed-gates', nombre:'Bill & Melinda Gates Foundation', sigla:'Gates', tipo:'Fundación', pais:'Estados Unidos', sitio_web:'https://www.gatesfoundation.org', url_convocatorias:'https://www.gatesfoundation.org/about/committed-grants', alcance:'Internacional' },
+    { id:'seed-usaid', nombre:'U.S. Agency for International Development', sigla:'USAID', tipo:'Gobierno', pais:'Estados Unidos', sitio_web:'https://www.usaid.gov', url_convocatorias:'https://www.usaid.gov/partner-with-us/funding-opportunities', alcance:'Internacional' },
+    { id:'seed-erc', nombre:'European Research Council', sigla:'ERC', tipo:'Gobierno', pais:'Europa', sitio_web:'https://erc.europa.eu', url_convocatorias:'https://erc.europa.eu/apply-grant/open-calls', alcance:'Internacional' },
+    { id:'seed-fao', nombre:'Food and Agriculture Organization of the UN', sigla:'FAO', tipo:'ONU', pais:'Internacional', sitio_web:'https://www.fao.org', url_convocatorias:'https://www.fao.org/partnerships/civil-society/calls-for-proposals/en/', alcance:'Internacional' },
+    { id:'seed-luminate', nombre:'Luminate Group', sigla:'Luminate', tipo:'Fundación', pais:'Reino Unido', sitio_web:'https://luminategroup.com', url_convocatorias:'https://luminategroup.com/open-calls', alcance:'Internacional' },
+    { id:'seed-ffi', nombre:'Flora & Fauna International', sigla:'FFI', tipo:'ONG', pais:'Reino Unido', sitio_web:'https://www.fauna-flora.org', url_convocatorias:'https://www.fauna-flora.org/grants/', alcance:'Internacional' },
+    { id:'seed-idblab', nombre:'IDB Lab – Fondo Multilateral de Inversiones', sigla:'IDB Lab', tipo:'Multilateral', pais:'Internacional', sitio_web:'https://idblab.iadb.org', url_convocatorias:'https://idblab.iadb.org/en/calls', alcance:'Regional' },
+    { id:'seed-innpulsa', nombre:'iNNpulsa Colombia', sigla:'iNNpulsa', tipo:'Gobierno', pais:'Colombia', sitio_web:'https://www.innpulsacolombia.com', url_convocatorias:'https://www.innpulsacolombia.com/convocatorias', alcance:'Nacional' },
+  ];
+  for (const ent of NUEVAS_ENTIDADES) {
+    try {
+      const exists = await getRow(`SELECT id FROM directorio_entidades WHERE sigla = ? AND deleted_at IS NULL`, [ent.sigla]);
+      if (!exists) {
+        const now = new Date().toISOString();
+        await runSql(
+          `INSERT INTO directorio_entidades (id,nombre,sigla,tipo,pais,sitio_web,url_convocatorias,telefono,email,alcance,validation_status,fuente,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [ent.id,ent.nombre,ent.sigla,ent.tipo,ent.pais,ent.sitio_web,ent.url_convocatorias,'','',ent.alcance,'VALIDADO','seed',now,now]
+        );
+        console.log(`[Seed] ${ent.sigla} agregado al Directorio`);
+      }
+    } catch(e){ console.warn(`[Seed] ${ent.sigla}:`, e.message?.slice(0,80)); }
+  }
+
   const app = express();
-  app.use(helmet({ contentSecurityPolicy: false }));
-  app.use(cors({ origin: true, credentials: true }));
+  const isProd = process.env.NODE_ENV === 'production';
+  app.use(helmet({
+    contentSecurityPolicy: isProd ? {
+      directives: {
+        defaultSrc:     ["'self'"],
+        scriptSrc:      ["'self'"],
+        styleSrc:       ["'self'", 'https://fonts.googleapis.com', 'https://unpkg.com'],
+        fontSrc:        ["'self'", 'https://fonts.gstatic.com'],
+        imgSrc:         ["'self'", 'data:', 'https:'],
+        connectSrc:     ["'self'", 'https://generativelanguage.googleapis.com', 'https://api.frankfurter.app'],
+        frameSrc:       ["'none'"],
+        objectSrc:      ["'none'"],
+        upgradeInsecureRequests: [],
+      },
+    } : false,
+    crossOriginEmbedderPolicy: false,
+  }));
+
+  // ── CORS estricto — solo orígenes autorizados ────────────────────────────
+  const _allowedOrigins = [
+    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ];
+  app.use(cors({
+    origin: (origin, cb) => {
+      // Permitir sin origin (curl, Postman, same-origin)
+      if (!origin || _allowedOrigins.includes(origin)) return cb(null, true);
+      logger.warn('[CORS] Origen bloqueado', { origin });
+      cb(new Error(`CORS: origen no permitido — ${origin}`));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Smoke-Token'],
+  }));
   // STRIPE WEBHOOK — debe ir ANTES de express.json() para recibir raw body
   // (la verificación de firma de Stripe falla si el body ya fue parseado)
   app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 
-  app.use(express.json());
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: false, limit: '1mb' }));
   app.set('etag', false);
+
+  // ── Slowdown progresivo (antes del hard limit) ────────────────────────────
+  app.use('/api', slowDown);
+
+  // ── Rate limiter global — todas las rutas /api ────────────────────────────
+  app.use('/api', rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+      const raw = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'unknown';
+      const ip = typeof raw === 'string' ? raw.split(',')[0].trim() : String(raw);
+      return ipKeyGenerator(ip);
+    },
+    handler: (_req, res) => res.status(429).json({
+      success: false,
+      code: 'RATE_LIMITED',
+      message: 'Demasiadas solicitudes. Intenta de nuevo en 15 minutos.',
+    }),
+  }));
 
   // ── Aplicación Reglas Materiales (F4-01) ─────────────────────────────────
   app.use('/api/formulador', rejectMaterialsInput);
@@ -693,19 +1177,28 @@ async function start() {
 
   // ── Health Check (plataformas: Railway, Render, K8s liveness probe) ─────────
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', uptime: process.uptime() });
+    const db = dbStatus();
+    res.json({ status: 'ok', uptime: process.uptime(), db });
   });
 
-  // ── Healthcheck ──────────────────────────────────────────────────────────
-  app.get('/api/health', tryCatch(async (_req, res) => {
-    const cfg = await getRow("SELECT value FROM system_config WHERE key = 'production_ready'");
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      production_ready: cfg?.value === 'true',
-      version: '8.0',
-    });
+  app.get('/api/db-status', (_req, res) => {
+    res.json(dbStatus());
+  });
+
+  // ── Quota Status — Gemini Circuit Breaker ───────────────────────────────
+  app.get('/api/admin/quota-status', tryCatch(async (_req, res) => {
+    res.json({ success: true, data: geminiCB.getStatus() });
   }));
+
+  // ── Healthcheck ──────────────────────────────────────────────────────────
+  app.get('/api/health', async (_req, res) => {
+    let production_ready = false;
+    try {
+      const cfg = await getRow("SELECT value FROM system_config WHERE key = 'production_ready'");
+      production_ready = cfg?.value === 'true';
+    } catch { /* DB temporalmente inaccesible — no interrumpe el health check */ }
+    res.json({ status: 'ok', timestamp: new Date().toISOString(), production_ready, version: '8.0' });
+  });
 
   // POST /api/system/production-ready — llamado por smokeTest.js tras checks exitosos
   app.post('/api/system/production-ready', tryCatch(async (req, res) => {
@@ -713,10 +1206,17 @@ async function start() {
     if (!smokeToken || smokeToken !== JWT_SECRET) {
       return res.status(403).json({ success: false, message: 'Token inválido' });
     }
-    await runSql(
-      `INSERT INTO system_config (key, value, updated_at) VALUES ('production_ready','true',CURRENT_TIMESTAMP)
-       ON CONFLICT(key) DO UPDATE SET value='true', updated_at=CURRENT_TIMESTAMP`
-    );
+    // Se evita "INSERT ... ON CONFLICT" con literales embebidos: el traductor
+    // REST (Capa 2) hace zip columna↔parámetro por posición usando el array
+    // `params`, y con literales fijos (sin `?`) ese array llega vacío — el
+    // INSERT terminaba mandando un body {} y violando el NOT NULL de "key".
+    const nowIso = new Date().toISOString();
+    const existingCfg = await getRow('SELECT key FROM system_config WHERE key = ?', ['production_ready']);
+    if (existingCfg) {
+      await runSql('UPDATE system_config SET value = ?, updated_at = ? WHERE key = ?', ['true', nowIso, 'production_ready']);
+    } else {
+      await runSql('INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, ?)', ['production_ready', 'true', nowIso]);
+    }
     console.log('[System] ✓ BD marcada como PRODUCTION_READY —', new Date().toISOString());
     res.json({ success: true, message: 'Sistema marcado como Production Ready' });
   }));
@@ -737,7 +1237,7 @@ async function start() {
      const password_hash = await hashPassword(password);
      const safeRole = role === 'admin' ? 'user' : (role || 'user'); // no permitir auto-admin
      await runSql(
-       `INSERT INTO usuarios (id, email, password_hash, nombre, tipoUsuario, rol) VALUES (?, ?, ?, ?, ?, ?)`,
+       `INSERT INTO usuarios (id, email, password_hash, nombre, tipousuario, rol) VALUES (?, ?, ?, ?, ?, ?)`,
        [id, email.trim().toLowerCase(), password_hash, nombre.trim(), 'Usuario', safeRole]
      );
     // V8.0: auto-crear suscripción free al registrarse
@@ -767,17 +1267,17 @@ async function start() {
     if (!user.is_active) return res.status(403).json({ success: false, message: 'Cuenta desactivada' });
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
-    const token = jwt.sign({ sub: user.id, role: user.tipoUsuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
+    const token = jwt.sign({ sub: user.id, role: user.tipousuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
     res.json({
       success: true,
       token,
-      user: { id: user.id, email: user.email, nombre: user.nombre, role: user.tipoUsuario, plan: user.plan || 'free', created_at: user.createdAt, is_active: !!user.is_active },
+      user: { id: user.id, email: user.email, nombre: user.nombre, role: user.tipousuario, plan: user.plan || 'free', created_at: user.createdat, is_active: !!user.is_active },
     });
   }));
 
   // GET /api/auth/verify
   app.get('/api/auth/verify', authenticateToken, tryCatch(async (req, res) => {
-    const user = await getRow('SELECT id, email, nombre, tipoUsuario, plan, createdAt, is_active FROM usuarios WHERE id = ? AND deleted_at IS NULL', [req.userId]);
+    const user = await getRow('SELECT id, email, nombre, tipousuario, plan, createdat, is_active FROM usuarios WHERE id = ? AND deleted_at IS NULL', [req.userId]);
     if (!user) return res.status(401).json({ valid: false });
     const sub = await getRow(
       'SELECT plan, access_radar, access_formulador FROM user_subscriptions WHERE user_id = ?',
@@ -787,8 +1287,8 @@ async function start() {
       valid: true,
       user: {
         id: user.id, email: user.email, nombre: user.nombre,
-        role: user.tipoUsuario, plan: user.plan || 'free',
-        created_at: user.createdAt, is_active: !!user.is_active,
+        role: user.tipousuario, plan: user.plan || 'free',
+        created_at: user.createdat, is_active: !!user.is_active,
         subscription: {
           plan: sub?.plan || 'free',
           access_radar: !!sub?.access_radar,
@@ -872,7 +1372,7 @@ async function start() {
   }));
 
   // POST /api/auth/forgot-password — envía email real si Brevo está configurado
-  app.post('/api/auth/forgot-password', tryCatch(async (req, res) => {
+  app.post('/api/auth/forgot-password', authLimiter, tryCatch(async (req, res) => {
     const { email } = req.body;
     // Respuesta idéntica exista o no el email (no revela enumeración de usuarios)
     res.json({ success: true, message: 'Si el email existe, recibirás un correo de recuperación' });
@@ -881,7 +1381,7 @@ async function start() {
       const user = await getRow('SELECT id, email FROM usuarios WHERE email = ? AND deleted_at IS NULL', [email.trim().toLowerCase()]);
       if (!user) return;
       // Token de reset = JWT de 1 hora
-      const resetToken = jwt.sign({ sub: user.id, purpose: 'password_reset' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+      const resetToken = jwt.sign({ sub: user.id, purpose: 'password_reset' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '15m' });
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
       const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
       await emailAdapter.sendPasswordReset(user.email, resetLink);
@@ -916,7 +1416,8 @@ async function start() {
     const { apiKey, notebookKey } = req.body;
     if (!apiKey) return res.status(400).json({ success: false, message: 'apiKey requerido' });
     const id = crypto.randomUUID();
-    const enc = process.env.ENCRYPTION_KEY || JWT_SECRET;
+    const enc = process.env.ENCRYPTION_KEY;
+    if (!enc) return res.status(503).json({ success: false, message: 'Servicio de credenciales no disponible — ENCRYPTION_KEY no configurada' });
     const apiKeyEnc = encryptKey(apiKey, enc);
     const nbKeyEnc = notebookKey ? encryptKey(notebookKey, enc) : null;
     const existing = await getRow('SELECT id FROM user_credentials WHERE user_id = ?', [req.userId]);
@@ -951,29 +1452,50 @@ async function start() {
     // Construir cláusula WHERE compartida para datos y COUNT
     let where = 'WHERE c.deleted_at IS NULL';
     const params = [];
-    if (rastreo === '1') { where += " AND c.fuente = 'RASTREO_DIRECTORIO'"; }
-    if (rastreo === '2') { where += " AND c.fuente = 'RASTREO_WEB_EXTERNO'"; }
-    if (q)          { where += ' AND (c.titulo ILIKE ? OR c.donante ILIKE ? OR c.descripcion ILIKE ?)'; const like = `%${q}%`; params.push(like, like, like); }
+    // R1 = rastreadas por EntityScraper desde entidades del Directorio
+    // R2 = rastreadas por DataIngestor desde portales web externos (fuente = RASTREO_WEB_EXTERNO)
+    // La distinción es por fuente de ingesta, no por entidad_id (que puede ser asignado a posteriori).
+    if (rastreo === '1') where += " AND c.fuente = 'RASTREO_DIRECTORIO'";
+    if (rastreo === '2') where += " AND c.fuente = 'RASTREO_WEB_EXTERNO'";
+    // Normalización de dominio: si el input parece un hostname (3+ partes), extraer root_domain
+    function normDomain(v) {
+      const t = v.trim();
+      if (/^[a-z0-9\-]+(\.[a-z0-9\-]+){2,}$/i.test(t)) return extractRootDomain(t) || t;
+      return t;
+    }
+    // Nota: el filtro `q` se aplica en JS post-fetch (accent-insensitive en ambas capas DB)
     if (entidad_id) { where += ' AND c.entidad_id = ?'; params.push(entidad_id); }
-    // Siempre ocultar cerradas. Reglas:
-    //   · Con fecha_limite: solo si no ha vencido
-    //   · Sin fecha_limite: solo si fue ingresada en el último año (evita registros viejos sin fecha)
-    const hoy = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
-    const baseAbierta = ` AND c.estado = 'abierta' AND (
-      (COALESCE(c.fecha_limite,'') != '' AND c.fecha_limite >= '${hoy}')
-      OR
-      (COALESCE(c.fecha_limite,'') = '' AND c.created_at >= NOW() - INTERVAL '1 year')
-    )`;
+    // Todas = todas las abiertas | Nueva = abiertas ≤7 días | Abierta = abiertas >7 días
+    // Usa fecha literal (no NOW()) para que el REST translator pueda parsearla.
+    const hace7dias = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     if (estado === 'nueva') {
-      // Nueva = abierta + ingresada en los últimos 7 días
-      where += baseAbierta + ` AND c.created_at >= NOW() - INTERVAL '7 days'`;
+      where += ` AND c.estado = 'abierta' AND c.created_at >= '${hace7dias}'`;
+    } else if (estado === 'abierta') {
+      where += ` AND c.estado = 'abierta' AND c.created_at < '${hace7dias}'`;
     } else {
-      // 'abierta', 'todos' o sin estado → todas las abiertas no vencidas
-      where += baseAbierta;
+      where += ` AND c.estado = 'abierta'`;
     }
     if (sector && sector !== 'Todos') {
-      // Acepta un valor único o lista separada por comas (multi-selección)
-      const sectorList = String(sector).split(',').map(s => s.trim()).filter(Boolean);
+      // Whitelist estricta: solo sectores conocidos + fragmentos alfanuméricos sin tokens SQL
+      const SECTORES_PERMITIDOS = new Set([
+        'Hábitat y Territorio','Soberanía y Vida','Paz y Sociedad',
+        'Autonomía Económica','Cooperación Internacional','Futuro y Conocimiento',
+        'Construcción','Vivienda','Transporte','Ordenamiento Territorial',
+        'Agua','Saneamiento','Salud','Alimentación','Energía',
+        'Seguridad','Justicia','Cultura','Deporte','Educación',
+        'Inclusión Social','Equidad de Género','Emprendimiento','Empleo',
+        'Turismo','Agropecuario','Medio Ambiente','Tecnología','Investigación',
+        'Todos',
+      ]);
+      const _cleanSector = (v) => {
+        const s = String(v).trim().slice(0, 120);
+        // Rechazar si contiene tokens SQL peligrosos
+        if (/union|select|insert|update|delete|drop|--|;|\/\*/i.test(s)) return null;
+        return s;
+      };
+      const sectorList = String(sector).split('|||')
+        .map(_cleanSector).filter(Boolean)
+        .filter(s => SECTORES_PERMITIDOS.has(s) || /^[\p{L}\p{N}\s&áéíóúñÁÉÍÓÚÑüÜ,.()\-]+$/u.test(s));
       if (sectorList.length === 1) {
         where += ' AND c.sectores ILIKE ?'; params.push(`%${sectorList[0]}%`);
       } else if (sectorList.length > 1) {
@@ -981,17 +1503,54 @@ async function start() {
         sectorList.forEach(s => params.push(`%${s}%`));
       }
     }
-    if (pais   && pais   !== 'Todos') { where += ' AND (c.paises_elegibles ILIKE ? OR de.pais ILIKE ?)'; params.push(`%${pais}%`, `%${pais}%`); }
+    if (pais && pais !== 'Todos') {
+      // Solo letras, espacios y caracteres propios de nombres de países
+      const _cleanPais = String(pais).trim().slice(0, 80);
+      if (!/union|select|insert|update|delete|drop|--|;|\/\*/i.test(_cleanPais) &&
+          /^[\p{L}\p{N}\s&áéíóúñÁÉÍÓÚÑüÜ,.()\-]+$/u.test(_cleanPais)) {
+        where += ' AND c.paises_elegibles ILIKE ?';
+        params.push(`%${_cleanPais}%`);
+      }
+    }
 
-    // COUNT total sin LIMIT
-    const countSql = `SELECT COUNT(*) AS cnt FROM convocatorias c LEFT JOIN directorio_entidades de ON de.id = c.entidad_id ${where}`;
-    const totalRow = await getRow(countSql, params);
-    const total = Number(totalRow?.cnt ?? 0);
+    // Filtro JS accent-insensitive para el término de búsqueda `q`
+    // (funciona en Capa 1/pg y Capa 2/REST sin depender de unaccent() en la DB)
+    const norm = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const searchTerms = q
+      ? q.split(/[+,]/).map(t => {
+          const n = normDomain(t.trim());
+          return norm(n !== t.trim() ? n : t.trim());
+        }).filter(Boolean)
+      : [];
 
-    // Query de datos con ORDER + LIMIT + OFFSET
-    const dataSql = `SELECT c.*, de.nombre AS entidad_nombre, de.sigla AS entidad_sigla, de.tipo AS entidad_tipo, de.pais AS entidad_pais FROM convocatorias c LEFT JOIN directorio_entidades de ON de.id = c.entidad_id ${where} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`;
-    const dataParams = [...params, Number(limit), (Number(page) - 1) * Number(limit)];
-    const rows = await getRows(dataSql, dataParams);
+    // Cuando hay búsqueda de texto, traer todas las filas sin LIMIT para filtrar en JS
+    let rows, total;
+    if (searchTerms.length > 0) {
+      const allSql = `SELECT c.*, de.nombre AS entidad_nombre, de.sigla AS entidad_sigla, de.tipo AS entidad_tipo, de.pais AS entidad_pais FROM convocatorias c LEFT JOIN directorio_entidades de ON de.id = c.entidad_id ${where} ORDER BY c.created_at DESC LIMIT 2000`;
+      const allRows = await getRows(allSql, params);
+      // Filtro accent-insensitive en JS: todos los términos deben coincidir (AND)
+      const filtered = allRows.filter(r =>
+        searchTerms.every(t =>
+          norm(r.titulo).includes(t) ||
+          norm(r.donante).includes(t) ||
+          norm(r.descripcion).includes(t) ||
+          norm(r.sectores).includes(t) ||
+          norm(r.paises_elegibles).includes(t) ||
+          norm(r.root_domain).includes(t)
+        )
+      );
+      total = filtered.length;
+      const offset = (Number(page) - 1) * Number(limit);
+      rows = filtered.slice(offset, offset + Number(limit));
+    } else {
+      // Sin búsqueda: COUNT + LIMIT/OFFSET en DB (más eficiente)
+      const countSql = `SELECT COUNT(*) AS cnt FROM convocatorias c LEFT JOIN directorio_entidades de ON de.id = c.entidad_id ${where}`;
+      const totalRow = await getRow(countSql, params);
+      total = Number(totalRow?.cnt ?? 0);
+      const dataSql = `SELECT c.*, de.nombre AS entidad_nombre, de.sigla AS entidad_sigla, de.tipo AS entidad_tipo, de.pais AS entidad_pais FROM convocatorias c LEFT JOIN directorio_entidades de ON de.id = c.entidad_id ${where} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`;
+      rows = await getRows(dataSql, [...params, Number(limit), (Number(page) - 1) * Number(limit)]);
+    }
+
     res.json({ success: true, data: rows, total, page: Number(page), limit: Number(limit) });
   }));
 
@@ -1033,31 +1592,853 @@ async function start() {
   // DIRECTORIO / ENTIDADES
   // ════════════════════════════════════════════════════════════════════════════
 
-  // GET /api/entidades — incluye convocatorias_count por entidad
+  // GET /api/entidades — fetch directo PostgREST (evita problemas del SQL translator con subqueries)
   app.get('/api/entidades', tryCatch(async (req, res) => {
-    const { q, tipo, pais, page = 1, limit = 50 } = req.query;
-    let sql = `SELECT de.*,
-      (SELECT COUNT(*) FROM convocatorias c
-       WHERE c.entidad_id = de.id AND c.deleted_at IS NULL) AS convocatorias_count
-      FROM directorio_entidades de
-      WHERE de.deleted_at IS NULL`;
-    const params = [];
-    if (q) { sql += ' AND (de.nombre LIKE ? OR de.sigla LIKE ?)'; const like = `%${q}%`; params.push(like, like); }
-    if (tipo) { sql += ' AND de.tipo = ?'; params.push(tipo); }
-    if (pais) { sql += ' AND de.pais = ?'; params.push(pais); }
-    sql += ' ORDER BY de.nombre ASC LIMIT ? OFFSET ?';
-    params.push(Number(limit), (Number(page) - 1) * Number(limit));
-    const rows = await getRows(sql, params);
-    res.json({ success: true, data: rows });
+    const { q, tipo, pais, page = 1, limit = 500 } = req.query;
+    const offset = (Number(page) - 1) * Number(limit);
+    const filters = ['deleted_at=is.null'];
+    if (q)    filters.push(`or=(nombre.ilike.${encodeURIComponent(`%${q}%`)},sigla.ilike.${encodeURIComponent(`%${q}%`)})`);
+    if (tipo) filters.push(`tipo=eq.${encodeURIComponent(tipo)}`);
+    if (pais) filters.push(`pais=eq.${encodeURIComponent(pais)}`);
+    const qs = `${filters.join('&')}&order=nombre.asc&limit=${Number(limit)}&offset=${offset}`;
+    const r   = await fetch(`${SB_ADMIN_URL}/rest/v1/directorio_entidades?${qs}`, { headers: PGREST_HEADERS });
+    if (!r.ok) { const err = await r.json().catch(() => ({})); return res.status(500).json({ success: false, message: err.message || 'Error al leer directorio' }); }
+    const rows = await r.json();
+    res.json({ success: true, data: Array.isArray(rows) ? rows : [] });
+  }));
+
+  // POST /api/entidades — crea nueva entidad desde URL o manualmente
+  app.post('/api/entidades', authenticateToken, tryCatch(async (req, res) => {
+    const { nombre, sigla, tipo, pais, sitio_web, url_convocatorias, telefono, email, alcance } = req.body || {};
+    if (!nombre || !sitio_web) return res.status(400).json({ success: false, message: 'nombre y sitio_web son requeridos' });
+
+    // ── Chequeo de duplicado — fail-CLOSED: si hay duda, bloquea ────────────
+    const entRoot = getApexDomain(sitio_web.trim()) || '';
+    const urlConvRoot = url_convocatorias ? (getApexDomain(url_convocatorias.trim()) || '') : '';
+    try {
+      // Capa 1 (pg Pool): compara root_domain, url_convocatorias Y nombre
+      const roots = [entRoot, urlConvRoot].filter(Boolean);
+      const dupCheck = await getRow(
+        `SELECT id, nombre FROM directorio_entidades
+         WHERE deleted_at IS NULL AND (
+           LOWER(nombre) = LOWER(?)
+           ${roots.length ? `OR root_domain = ANY(ARRAY[${roots.map(() => '?').join(',')}]::text[])
+           OR LOWER(COALESCE(sitio_web,''))       LIKE ANY(ARRAY[${roots.map(() => "'%' || ? || '%'").join(',')}])
+           OR LOWER(COALESCE(url_convocatorias,'')) LIKE ANY(ARRAY[${roots.map(() => "'%' || ? || '%'").join(',')}])` : ''}
+         ) LIMIT 1`,
+        [nombre.trim(), ...roots, ...roots, ...roots]
+      );
+      if (dupCheck) {
+        return res.status(409).json({ success: false, code: 'DUPLICATE', message: `ENTIDAD YA ESTA INSCRITA: "${dupCheck.nombre}"` });
+      }
+    } catch (dupErr) {
+      // Fail-closed: si el check falla, bloquear inserción para evitar duplicados
+      console.warn('[POST /api/entidades] Chequeo de duplicado falló — bloqueando inserción por seguridad:', dupErr.message?.slice(0, 120));
+      return res.status(503).json({ success: false, message: 'No se pudo verificar duplicados — reintenta en un momento' });
+    }
+
+    // ── Chequeo de dominio bloqueado — el usuario lo eliminó y bloqueó antes ──
+    // Sin deleted_at IS NULL a propósito: la fila bloqueada queda soft-deleted
+    // pero debe seguir siendo encontrable por root_domain.
+    if (entRoot) {
+      try {
+        const bloqueado = await getRow(
+          "SELECT id FROM directorio_entidades WHERE root_domain = ? AND validation_status = ?",
+          [entRoot, 'BLOQUEADO']
+        );
+        if (bloqueado) {
+          return res.status(409).json({
+            success: false, code: 'DOMINIO_BLOQUEADO',
+            message: 'Este dominio fue eliminado y bloqueado manualmente — no aplica a convocatorias de subvención.',
+          });
+        }
+      } catch (e) {
+        console.warn('[POST /api/entidades] Error consultando bloqueo de dominio:', e.message);
+      }
+    }
+
+    const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const now = new Date().toISOString();
+    await runSql(
+      `INSERT INTO directorio_entidades
+       (id, nombre, sigla, tipo, pais, sitio_web, url_convocatorias, telefono, email, alcance,
+        validation_status, fuente, root_domain, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [id, nombre.trim(), (sigla||'').trim(), (tipo||'ENTIDAD').trim(), (pais||'').trim(),
+       sitio_web.trim(), (url_convocatorias||'').trim(), (telefono||'').trim(),
+       (email||'').trim(), (alcance||'Internacional').trim(), 'IMPORTADO', 'manual',
+       entRoot || null, now, now]
+    );
+    // ── MOTOR DE COINCIDENCIA CODICIOSA (Greedy Match) ───────────────────────
+    // Regla: RADAR 1 para todo lo que tenga la más mínima sospecha de relación.
+    // Tres pruebas; cualquier TRUE mueve la convocatoria a Rastreo 1 al instante.
+    const trimNombre = nombre.trim();
+    const trimSigla  = (sigla || '').trim();
+
+    // Prueba 1 — TEXTO FUZZY (nombre/sigla vs donante, ambas direcciones)
+    // · exacto nombre · exacto sigla · donante⊃nombre · nombre⊃donante · donante⊃sigla
+    try {
+      await runSql(`
+        UPDATE convocatorias SET entidad_id = ?
+        WHERE entidad_id IS NULL AND deleted_at IS NULL
+          AND (
+            LOWER(donante) = LOWER(?)
+            OR (? != '' AND LOWER(donante) = LOWER(?))
+            OR LOWER(donante) LIKE '%' || LOWER(?) || '%'
+            OR (LENGTH(donante) > 4 AND LOWER(?) LIKE '%' || LOWER(donante) || '%')
+            OR (? != '' AND LENGTH(?) > 2 AND LOWER(donante) LIKE '%' || LOWER(?) || '%')
+          )
+      `, [id, trimNombre, trimSigla, trimSigla, trimNombre, trimNombre, trimSigla, trimSigla, trimSigla]);
+      invalidateRadarCache();
+    } catch (e) { console.warn('[greedy/T1-texto]', e.message?.slice(0, 120)); }
+
+    // Prueba 2 — HOSTNAME endsWith (Regla de Pertenencia por Inclusión).
+    // Extrae el hostname de la URL y aplica .endsWith(entity.root_domain).
+    // Cubre: entidad 'wellcome.org' captura conv. 'https://funding.wellcome.org/...'
+    if (entRoot) {
+      try {
+        await runSql(`
+          UPDATE convocatorias SET entidad_id = ?, root_domain = COALESCE(root_domain, ?)
+          WHERE entidad_id IS NULL AND deleted_at IS NULL
+            AND (
+              -- exact root_domain match
+              LOWER(COALESCE(root_domain,'')) = LOWER(?)
+              -- root_domain es subdominio (endsWith con punto — evita false positives)
+              OR LOWER(COALESCE(root_domain,'')) LIKE '%.' || LOWER(?)
+              -- hostname de url_fuente endsWith entity.root_domain
+              OR SPLIT_PART(REGEXP_REPLACE(LOWER(COALESCE(url_fuente,'')),'^https{0,1}://(www\\.){0,1}',''),'/',1) = LOWER(?)
+              OR SPLIT_PART(REGEXP_REPLACE(LOWER(COALESCE(url_fuente,'')),'^https{0,1}://(www\\.){0,1}',''),'/',1) LIKE '%.' || LOWER(?)
+              -- hostname de url_convocatoria endsWith entity.root_domain
+              OR SPLIT_PART(REGEXP_REPLACE(LOWER(COALESCE(url_convocatoria,'')),'^https{0,1}://(www\\.){0,1}',''),'/',1) = LOWER(?)
+              OR SPLIT_PART(REGEXP_REPLACE(LOWER(COALESCE(url_convocatoria,'')),'^https{0,1}://(www\\.){0,1}',''),'/',1) LIKE '%.' || LOWER(?)
+            )
+        `, [id, entRoot, entRoot, entRoot, entRoot, entRoot, entRoot, entRoot]);
+        invalidateRadarCache();
+      } catch (e) { console.warn('[greedy/T2-host]', e.message?.slice(0, 120)); }
+    }
+
+    // Prueba 3 — EMAIL DOMAIN (donante con formato user@dominio coincide con root_domain)
+    // Ej: "BCF-Flexigrant@niras.com" → dominio "niras.com" == entRoot "niras.com"
+    if (entRoot) {
+      const safeRoot = entRoot.replace(/[%_\\;'"]/g, '');
+      try {
+        await runSql(`
+          UPDATE convocatorias SET entidad_id = ?
+          WHERE entidad_id IS NULL AND deleted_at IS NULL
+            AND donante LIKE '%@%'
+            AND LOWER(SUBSTRING(donante FROM POSITION('@' IN donante) + 1)) LIKE '%' || LOWER(?) || '%'
+        `, [id, safeRoot]);
+        invalidateRadarCache();
+      } catch (e) { console.warn('[greedy/T3-email]', e.message?.slice(0, 120)); }
+    }
+
+    const row = await getRow('SELECT * FROM directorio_entidades WHERE id = ?', [id]);
+    res.status(201).json({ success: true, data: row });
+
+    // Rastreo automático en background para la entidad recién agregada
+    setImmediate(async () => {
+      try {
+        const { ingestDirectorioConvocatorias } = await import('./backend/pipeline/EntityScraper.js');
+        await ingestDirectorioConvocatorias({ soloEntidadId: id });
+        console.log(`[Rastreo1/auto] ✓ Entidad ${nombre} rastreada tras inserción`);
+      } catch (e) {
+        console.warn(`[Rastreo1/auto] Error rastreando ${nombre}:`, e.message?.slice(0, 100));
+      }
+    });
+  }));
+
+  // POST /api/entidades/lookup — analiza URL con Gemini y valida si aplica a Colombia
+  app.post('/api/entidades/lookup', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
+    const { url, url_convocatorias: urlConvInput } = req.body || {};
+    if (!url) return res.status(400).json({ success: false, message: 'url requerida' });
+    let hostname = '';
+    try { hostname = new URL(url).hostname.replace(/^www\./, ''); } catch { return res.status(400).json({ success: false, message: 'URL inválida' }); }
+    const siglaFallback = hostname.split('.')[0].toUpperCase().slice(0, 8);
+
+    // Sub-ruta: si el usuario pega una URL profunda (p.ej. /grants?query=...), separar
+    // sitio_web (dominio raíz) de url_convocatorias (la URL exacta provista).
+    let rootUrl = url;
+    let hasSubPath = false;
+    try {
+      const _u = new URL(url);
+      rootUrl = `${_u.protocol}//${_u.host}`;
+      hasSubPath = _u.pathname !== '/' && _u.pathname !== '' && _u.pathname.length > 1;
+    } catch { /* rootUrl = url */ }
+
+    // getApexDomain: funding.wellcome.org → wellcome.org | sena.edu.co → sena.edu.co
+    const domainRoot = getApexDomain(hostname) || hostname;
+
+    // ── Bloqueo manual: dominio eliminado y bloqueado por el usuario ────────
+    // Corta el flujo ANTES de scrapear/llamar a Gemini — un dominio bloqueado
+    // nunca debe volver a aparecer como Aprobado, sin importar el heurístico.
+    try {
+      const bloqueado = await getRow(
+        "SELECT id FROM directorio_entidades WHERE root_domain = ? AND validation_status = ?",
+        [domainRoot, 'BLOQUEADO']
+      );
+      if (bloqueado) {
+        return res.json({
+          success: true,
+          data: {
+            nombre: siglaFallback, sigla: siglaFallback, sitio_web: url, url_convocatorias: '',
+            tipo: '', pais: '', alcance: '', email: '', telefono: '', fuente: hostname,
+            estado: 'Rechazado', aplica_colombia: false,
+            resumen: '[Bloqueado] Este dominio fue eliminado y bloqueado manualmente — no aplica a convocatorias de subvención.',
+          },
+        });
+      }
+    } catch (e) {
+      console.warn('[lookup/bloqueo] Error consultando bloqueo de dominio:', e.message);
+    }
+
+    // ── Scraping del HTML de la página ──────────────────────────────────────
+    let pageTitle = siglaFallback;
+    let rawHtml   = '';
+    let pageText  = '';
+
+    // Patrones que indican un título de pestaña genérico, no el nombre oficial
+    const NOISY_TITLE = /^(home|homepage|inicio|index|welcome|bienvenid|convocatorias?|grants?|funding|opportunities|page not found|error\s*\d|search|suchergebnisse|ergebnisse|zoekresultaten|résultats|risultati|resultados?|search\s*result|filter|browse|catalog|liste?|directory|login|signin|register)/i;
+
+    function extractOfficialNameFromHtml(html, domainFallback) {
+      // 1. JSON-LD schema.org Organization.name — más autoritativo
+      const ldBlocks = html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+      for (const m of ldBlocks) {
+        try {
+          const nodes = (() => { const j = JSON.parse(m[1]); return Array.isArray(j) ? j : [j, ...(j['@graph'] ?? [])]; })();
+          for (const node of nodes) {
+            if (/Organization|NGO|GovernmentOrg|Educational|Corporation|Foundation/i.test(node['@type'] ?? '')) {
+              if (typeof node.name === 'string' && node.name.trim().length >= 3) return node.name.trim().slice(0, 120);
+            }
+          }
+        } catch { /* JSON inválido */ }
+      }
+      // 2. og:site_name — nombre del sitio, no del artículo
+      const ogSite = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i)
+                  ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:site_name["']/i);
+      if (ogSite?.[1]?.trim() && !NOISY_TITLE.test(ogSite[1].trim())) return ogSite[1].trim().slice(0, 120);
+      // 3. <title> limpio: quitar el segmento ruidoso y conservar el nombre real
+      const rawTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] ?? '';
+      if (rawTitle) {
+        const parts = rawTitle.split(/\s*[\|–\-—]\s*/);
+        const clean = parts.find(p => !NOISY_TITLE.test(p.trim()) && p.trim().length >= 3);
+        if (clean) return clean.trim().slice(0, 120);
+      }
+      // 4. meta application-name
+      const appName = html.match(/<meta[^>]+name=["']application-name["'][^>]+content=["']([^"']+)["']/i)?.[1];
+      if (appName?.trim() && !NOISY_TITLE.test(appName)) return appName.trim().slice(0, 120);
+      // 5. Dominio como último recurso
+      return domainFallback;
+    }
+
+    try {
+      const resp = await fetchResiliente(url, { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': 'Mozilla/5.0 RadarFondos/1.0' } });
+      rawHtml = (await resp.text()).slice(0, 500_000); // cap: evita spike de memoria en sitios grandes
+      pageTitle = extractOfficialNameFromHtml(rawHtml, siglaFallback);
+      // Texto plano (strip tags, colapsar espacios)
+      pageText = rawHtml
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .slice(0, 6000);
+    } catch { /* usar dominio como fallback */ }
+
+    // ── Sub-ruta: obtener nombre oficial desde el dominio raíz ───────────────
+    // Cuando el usuario pega una URL profunda (p.ej. /Suchergebnisse.jsp?query=grants),
+    // el <title> de esa sub-página es el título de la PÁGINA, no el nombre de la ORG.
+    // Fetch adicional al dominio raíz para extraer el nombre correcto.
+    if (hasSubPath && rootUrl !== url) {
+      try {
+        const rootResp = await fetchResiliente(rootUrl, {
+          signal: AbortSignal.timeout(9000),
+          headers: { 'User-Agent': 'Mozilla/5.0 RadarFondos/1.0', Accept: 'text/html' },
+        });
+        if (rootResp.ok) {
+          const rootHtml = (await rootResp.text()).slice(0, 300_000);
+          const rootName = extractOfficialNameFromHtml(rootHtml, siglaFallback);
+          if (rootName && rootName !== siglaFallback && !NOISY_TITLE.test(rootName)) {
+            pageTitle = rootName;
+            console.info(`[lookup/rootName] ✓ Nombre desde raíz "${rootUrl}": "${rootName}"`);
+          }
+        }
+      } catch (e) {
+        console.warn('[lookup/rootName] fetch raíz falló:', e.message?.slice(0, 80));
+      }
+    }
+
+    // ── CAPA 0: Validación cruzada con Rastreo 2 ─────────────────────────────
+    // Si R2 ya tiene convocatorias de este dominio raíz, la entidad es válida.
+    // No tiene sentido rechazarla si nuestra propia BD la conoce.
+    let autoApprovedByR2 = false;
+    let r2SampleDonante = '';
+    try {
+      const safeRoot = domainRoot.replace(/[%_\\;'"]/g, '');
+      const r2Row = await getRow(
+        `SELECT donante FROM convocatorias
+         WHERE deleted_at IS NULL AND entidad_id IS NULL
+           AND (url_fuente ILIKE ? OR url_convocatoria ILIKE ?)
+         LIMIT 1`,
+        [`%${safeRoot}%`, `%${safeRoot}%`]
+      );
+      if (r2Row) {
+        autoApprovedByR2 = true;
+        r2SampleDonante  = r2Row.donante || '';
+        console.info(`[lookup/capa0] ✓ "${safeRoot}" encontrado en R2 (donante: "${r2SampleDonante}") → auto-aprobado.`);
+      }
+    } catch (e) {
+      console.warn('[lookup/capa0] Error en validación cruzada:', e.message);
+    }
+
+    // ── Extracción heurística de campos de contacto desde el HTML ───────────
+    function extractEmail(html) {
+      // 1) mailto: links
+      const mailto = html.match(/mailto:([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/g) || [];
+      if (mailto.length) return mailto[0].replace('mailto:', '').toLowerCase();
+      // 2) texto plano (excluir noreply, example)
+      const plain = html.match(/\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})\b/g) || [];
+      return plain.find(e => !/noreply|example|domain|sentry|test@/.test(e))?.toLowerCase() ?? '';
+    }
+    function extractPhone(text) {
+      const m = text.match(/(?:\+?[\d\s\-().]{7,18}(?=\D|$))/g) || [];
+      return m.find(p => {
+        const digits = p.replace(/\D/g,'');
+        return digits.length >= 7 && digits.length <= 15;
+      })?.trim() ?? '';
+    }
+    function extractSigla(title, hostname) {
+      // Si el título tiene palabras en mayúscula que parezcan sigla
+      const caps = title.match(/\b[A-Z]{2,8}\b/g);
+      if (caps?.length) return caps[0];
+      // Fallback: primera letra de cada palabra del título (máx 5)
+      const words = title.split(/\s+/).filter(w => /^[A-Z]/.test(w));
+      if (words.length >= 2) return words.slice(0,5).map(w=>w[0]).join('');
+      return hostname.split('.')[0].toUpperCase().slice(0,6);
+    }
+    function inferPais(text, hostname) {
+      const t = (text + ' ' + hostname).toLowerCase();
+      const map = [
+        ['colombia','Colombia'],['españa','España'],['spain','España'],
+        ['germany','Alemania'],['alemania','Alemania'],['giz.de','Alemania'],
+        ['united states','Estados Unidos'],['usaid','Estados Unidos'],
+        ['france','Francia'],['agence française','Francia'],
+        ['united kingdom','Reino Unido'],['british','Reino Unido'],
+        ['netherlands','Países Bajos'],['dutch','Países Bajos'],
+        ['sweden','Suecia'],['sida.se','Suecia'],
+        ['norway','Noruega'],['norad','Noruega'],
+        ['japan','Japón'],['jica','Japón'],
+        ['canada','Canadá'],['mexico','México'],['brazil','Brasil'],
+        ['belgique','Bélgica'],['belgium','Bélgica'],
+        ['switzerland','Suiza'],['suiza','Suiza'],
+        ['denmark','Dinamarca'],['danida','Dinamarca'],
+        ['multilateral','Internacional'],['worldbank','Internacional'],
+        ['undp','Internacional'],['unicef','Internacional'],
+        ['onu','Internacional'],['oecd','Internacional'],
+        ['bid.org','Internacional'],['iadb','Internacional'],
+      ];
+      for (const [kw, pais] of map) if (t.includes(kw)) return pais;
+      return 'Internacional';
+    }
+    function inferTipo(text, hostname) {
+      const t = (text + ' ' + hostname).toLowerCase();
+      if (/banco|bank|financ|credit|ifad|iadb|bid\.org|worldbank/.test(t)) return 'BANCO_DESARROLLO';
+      if (/onu|unicef|undp|unfpa|pnud|unops|oms|who|fao|ifad|wfp|unesco/.test(t)) return 'MULTILATERAL';
+      if (/ministerio|ministry|gobern|gobierno|agencia.*estado|giz|usaid|aecid|jica|sida|norad|danida/.test(t)) return 'BILATERAL';
+      if (/fundaci|foundation|fund\b/.test(t)) return 'FUNDACION';
+      if (/univers|academ|college|institute|research/.test(t)) return 'ACADEMIA';
+      if (/ong|ngo|civil|nonprofit|no.?profit|asociaci/.test(t)) return 'ONG';
+      return 'ENTIDAD';
+    }
+    function inferAlcance(text) {
+      const t = text.toLowerCase();
+      if (/global|worldwide|internacional|multilateral|world/.test(t)) return 'Internacional';
+      if (/latinoam|iberoam|carib|regional|hemisfer|america latina/.test(t)) return 'Regional';
+      return 'Internacional';
+    }
+    function extractUrlConvocatorias(html, base) {
+      const patterns = [/href="([^"]*(?:grant|call|convocator|funding|opportunit|apply|becas|financiamiento)[^"]*)"/gi];
+      for (const pat of patterns) {
+        const m = html.match(pat);
+        if (m?.length) {
+          const href = m[0].match(/href="([^"]+)"/)?.[1] ?? '';
+          if (!href) continue;
+          try { return new URL(href, base).href; } catch { /* ignore */ }
+        }
+      }
+      return base;
+    }
+
+    const scrapedEmail   = extractEmail(rawHtml || '');
+    const scrapedPhone   = extractPhone(pageText);
+    const scrapedSigla   = extractSigla(pageTitle, hostname);
+    const scrapedPais    = inferPais(pageText + pageTitle, hostname);
+    const scrapedTipo    = inferTipo(pageText + pageTitle, hostname);
+    const scrapedAlcance = inferAlcance(pageText + pageTitle);
+    let urlConvFinal = extractUrlConvocatorias(rawHtml || '', url);
+    // Sub-ruta: la URL exacta que el usuario pegó ES la página de grants → preservarla
+    if (hasSubPath) urlConvFinal = url;
+
+    // ── Deep Search: busca sub-páginas de grants cuando la URL raíz no basta ─
+    // Estrategia 0: parseo de links de la homepage (usa rawHtml ya cargado — sin request extra).
+    // Estrategia A: Gemini con Google Search Grounding.
+    // Estrategia B: sitemap.xml.
+    // Estrategia C: sondeo de rutas canónicas.
+    // Estrategia D: subdominios canónicos.
+    const LINK_GRANT_KW = /convocator|becas?|grant|fund(?!ament)|financiami|cooperaci|postulaci|llamado|oportunidad(?:es)?|programa(?:s)?|iniciativa|apoyo|subsidio|subvenci|fellowship|award|call[-_]|apply|edital|appel|opportunity|open[-_]call/i;
+    async function runDeepSearch(orgName, domain, apiKey) {
+      // ── Estrategia 0: parsear links de la homepage ya descargada (sin request extra) ──
+      // rawHtml es accesible por closure. Extrae todos los <a href> cuyo href o texto
+      // contenga palabras clave de grants. Luego fetcha esas páginas y verifica contenido.
+      if (rawHtml) {
+        const FETCH_OPTS = { signal: AbortSignal.timeout(7000), headers: { 'User-Agent': 'Mozilla/5.0 RadarFondos/1.0', Accept: 'text/html' } };
+        const homeBase = `https://${domain}`;
+        const grantLinks = new Set();
+        // Extraer pares (href, anchorText) del HTML
+        for (const m of rawHtml.matchAll(/href=["']([^"'#?][^"']*?)["'][^>]*>([\s\S]{0,120}?)<\/a>/gi)) {
+          const href = m[1].trim();
+          const text = m[2].replace(/<[^>]+>/g, ' ').trim();
+          if (LINK_GRANT_KW.test(href) || LINK_GRANT_KW.test(text)) {
+            try {
+              const abs = new URL(href, homeBase).href;
+              if (new URL(abs).hostname.endsWith(domain)) grantLinks.add(abs);
+            } catch { /* href relativo inválido */ }
+          }
+        }
+        // También buscar atributos aria-label y title con keywords
+        for (const m of rawHtml.matchAll(/href=["']([^"'#?][^"']*?)["'][^>]*(?:aria-label|title)=["']([^"']{3,120})["']/gi)) {
+          const href = m[1].trim(); const label = m[2];
+          if (LINK_GRANT_KW.test(label)) {
+            try { const abs = new URL(href, homeBase).href; if (new URL(abs).hostname.endsWith(domain)) grantLinks.add(abs); } catch {}
+          }
+        }
+        const candidates = [...grantLinks].slice(0, 8); // máximo 8 links a sondear
+        for (const linkUrl of candidates) {
+          try {
+            const r = await fetchResiliente(linkUrl, FETCH_OPTS);
+            if (!r.ok) continue;
+            const snippet = (await r.text()).slice(0, 12000);
+            if (LINK_GRANT_KW.test(snippet)) {
+              console.info(`[deep/S0] ✓ Link de grants en nav: ${linkUrl}`);
+              return { aplica: true, deep_url: linkUrl, evidencia: `Página de convocatorias encontrada en navegación del sitio: ${linkUrl}`, nombre_oficial: orgName };
+            }
+          } catch { /* continuar */ }
+        }
+      }
+
+      // ── Estrategia 0.5: crawl BFS de 2 niveles sobre TODOS los links internos ──
+      // La Estrategia 0 solo sigue <a> cuyo href/texto YA contiene una keyword de
+      // grants (p.ej. no habría seguido "/convocatoria" en singular si el regex
+      // solo hubiese cazado plurales, o un link de menú sin texto descriptivo).
+      // Esta estrategia visita TODOS los links internos de la home (sin filtrar
+      // por keyword) y, si una de esas páginas de nivel 1 enlaza a su vez a algo
+      // con pinta de grants, también la sigue — un rastreo real de profundidad 2,
+      // no solo coincidencias de texto en la portada.
+      if (rawHtml) {
+        const FETCH_OPTS2 = { signal: AbortSignal.timeout(6000), headers: { 'User-Agent': 'Mozilla/5.0 RadarFondos/1.0', Accept: 'text/html' } };
+        const homeBase = `https://${domain}`;
+        const nivel1 = new Set();
+        // Solo <a href="...">, no CSS/JS/link[rel] — evita que el tope de 15
+        // candidatos se agote con assets (bootstrap.css, app.js, etc.) antes
+        // de llegar a los enlaces de navegación reales.
+        for (const m of rawHtml.matchAll(/<a\s[^>]*?href=["']([^"'#?][^"']*?)["']/gi)) {
+          const href = m[1].trim();
+          if (!href || /^(mailto:|tel:|javascript:)/i.test(href)) continue;
+          try {
+            const abs = new URL(href, homeBase).href;
+            if (new URL(abs).hostname.endsWith(domain)) nivel1.add(abs);
+          } catch { /* href inválido */ }
+        }
+        const candidatosN1 = [...nivel1].slice(0, 15);
+        let visitasNivel2 = 0;
+        for (const linkUrl of candidatosN1) {
+          try {
+            const r = await fetchResiliente(linkUrl, FETCH_OPTS2);
+            if (!r.ok) continue;
+            const html2 = (await r.text()).slice(0, 15000);
+            if (LINK_GRANT_KW.test(html2)) {
+              console.info(`[deep/S0.5] ✓ Página de nivel 1 con evidencia de grants: ${linkUrl}`);
+              return { aplica: true, deep_url: linkUrl, evidencia: `Página encontrada tras rastreo interno del sitio: ${linkUrl}`, nombre_oficial: orgName };
+            }
+            if (visitasNivel2 >= 6) continue;
+            for (const m2 of html2.matchAll(/href=["']([^"'#?][^"']*?)["'][^>]*>([\s\S]{0,120}?)<\/a>/gi)) {
+              if (visitasNivel2 >= 6) break;
+              const href2 = m2[1].trim();
+              const text2 = m2[2].replace(/<[^>]+>/g, ' ').trim();
+              if (!(LINK_GRANT_KW.test(href2) || LINK_GRANT_KW.test(text2))) continue;
+              try {
+                const abs2 = new URL(href2, linkUrl).href;
+                if (!new URL(abs2).hostname.endsWith(domain)) continue;
+                visitasNivel2++;
+                const r2 = await fetchResiliente(abs2, FETCH_OPTS2);
+                if (!r2.ok) continue;
+                const html3 = (await r2.text()).slice(0, 15000);
+                if (LINK_GRANT_KW.test(html3)) {
+                  console.info(`[deep/S0.5] ✓ Página de nivel 2 con evidencia de grants: ${abs2}`);
+                  return { aplica: true, deep_url: abs2, evidencia: `Página encontrada tras rastreo interno de 2 niveles: ${abs2}`, nombre_oficial: orgName };
+                }
+              } catch { /* continuar con el siguiente link de nivel 2 */ }
+            }
+          } catch { /* continuar con el siguiente candidato de nivel 1 */ }
+        }
+      }
+
+      // ── Estrategia B-sitemap: parsear sitemap.xml del dominio ──────────────
+      {
+        const SITEMAP_URLS = [`https://${domain}/sitemap.xml`, `https://${domain}/sitemap_index.xml`, `https://www.${domain}/sitemap.xml`];
+        for (const sUrl of SITEMAP_URLS) {
+          try {
+            const r = await fetchResiliente(sUrl, { signal: AbortSignal.timeout(6000), headers: { 'User-Agent': 'Mozilla/5.0 RadarFondos/1.0' } });
+            if (!r.ok) continue;
+            const sText = await r.text();
+            // Buscar <loc> URLs con keywords de grants
+            for (const m of sText.matchAll(/<loc>([^<]+)<\/loc>/g)) {
+              const sitemapUrl = m[1].trim();
+              if (LINK_GRANT_KW.test(sitemapUrl)) {
+                console.info(`[deep/Bsitemap] ✓ URL en sitemap: ${sitemapUrl}`);
+                return { aplica: true, deep_url: sitemapUrl, evidencia: `URL de convocatorias/grants encontrada en sitemap.xml`, nombre_oficial: orgName };
+              }
+            }
+          } catch { /* continuar */ }
+        }
+      }
+
+      // A) Gemini Search Grounding — una sola llamada, busca Y evalúa
+      // apiKey es undefined cuando el circuit breaker está cerrado: se omite Strategy A.
+      if (apiKey) try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({
+          model: 'gemini-2.0-flash',
+          tools: [{ googleSearch: {} }],
+        });
+        const deepPrompt =
+          `Organización: "${orgName}" — Dominio: ${domain}\n\n` +
+          `Tarea: busca si esta organización tiene programas de grants, fundaciones, filantropía, ` +
+          `cooperación internacional, becas o financiamiento aplicables a Colombia o América Latina. ` +
+          `Revisa todo el dominio ${domain} (no solo la homepage): busca rutas como /grants, /foundation, ` +
+          `/philanthropy, /csr, /social-impact, /giving, /convocatorias, /becas, /responsibility.\n\n` +
+          `Responde EXCLUSIVAMENTE con JSON válido (sin bloques markdown ni texto extra):\n` +
+          `{"aplica_colombia":true,"deep_url":"URL exacta de la página de grants encontrada","evidencia":"descripción breve de los programas","nombre_oficial":"nombre oficial de la organización"}`;
+        const result = await model.generateContent(deepPrompt);
+        const text = result.response.text().trim();
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.aplica_colombia && parsed.deep_url) {
+            return { aplica: true, deep_url: parsed.deep_url, evidencia: parsed.evidencia ?? '', nombre_oficial: parsed.nombre_oficial };
+          }
+        }
+        // Extraer URLs de los chunks de grounding aunque el JSON falle
+        const chunks = result.response.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
+        const foundUrl = chunks.map(c => c.web?.uri).find(u => {
+          try { return new URL(u).hostname.includes(domain); } catch { return false; }
+        });
+        if (foundUrl) {
+          return { aplica: true, deep_url: foundUrl, evidencia: 'Sub-página encontrada por Google Search Grounding', nombre_oficial: orgName };
+        }
+      } catch (e) {
+        console.warn('[lookup/deep] Gemini Search Grounding falló:', e.message?.slice(0, 100));
+      }
+
+      // B) Sondeo directo de rutas canónicas de grants en el dominio
+      const GRANT_PATHS = [
+        // Inglés
+        '/grants', '/foundation', '/philanthropy', '/giving', '/csr',
+        '/social-impact', '/responsibility', '/sustainability', '/community',
+        '/programs', '/impact', '/donate', '/donations', '/opportunities',
+        '/apply', '/calls', '/open-calls', '/funding', '/fellowships',
+        // Español raíz (plural y singular — muchos portales de gobierno usan singular)
+        '/convocatorias', '/convocatoria', '/becas', '/beca',
+        '/financiamiento', '/cooperacion', '/iniciativas', '/iniciativa',
+        '/fondos', '/fondo', '/oportunidades', '/oportunidad',
+        '/postulaciones', '/postulacion', '/programas', '/programa',
+        '/llamado', '/llamados', '/apoyo', '/subvenciones', '/subvencion',
+        // Prefijo /es/ (sitios bilingüe tipo fontagro.org)
+        '/es/convocatorias', '/es/convocatoria', '/es/iniciativas', '/es/programas',
+        '/es/fondos', '/es/becas', '/es/financiamiento', '/es/oportunidades',
+        '/es/cooperacion', '/es/postulaciones', '/es/llamados',
+        // Prefijo /pt/ (Portugal / Brasil)
+        '/pt/editais', '/pt/financiamento', '/pt/oportunidades', '/pt/chamadas',
+        // Prefijo /fr/
+        '/fr/appels-a-projets', '/fr/financement', '/fr/subventions',
+      ];
+      const GRANT_KW = /grant|foundation|philanthrop|fellowship|subvenci|convocatoria|social[\s-]impact|csr|giving|donation|financiamiento|becas|fondo|iniciativa|llamado|postulaci|editais|appel.{0,10}projet|subvention/i;
+      for (const path of GRANT_PATHS) {
+        const testUrl = `https://${domain}${path}`;
+        try {
+          const r = await fetchResiliente(testUrl, {
+            signal: AbortSignal.timeout(5000),
+            headers: { 'User-Agent': 'Mozilla/5.0 RadarFondos/1.0', 'Accept': 'text/html' },
+          });
+          if (!r.ok) continue;
+          const snippet = await r.text();
+          if (GRANT_KW.test(snippet.slice(0, 10000))) {
+            return { aplica: true, deep_url: testUrl, evidencia: `Página de grants/filantropía encontrada en ruta '${path}'`, nombre_oficial: orgName };
+          }
+        } catch { /* continuar con la siguiente ruta */ }
+      }
+
+      // B2) Sondeo de subdominios canónicos de grants/fondos
+      const GRANT_SUBDOMAINS = ['funding', 'grants', 'foundation', 'philanthropy', 'apply', 'programs', 'giving', 'becas', 'convocatorias', 'opportunities'];
+      for (const sub of GRANT_SUBDOMAINS) {
+        const subUrl = `https://${sub}.${domain}`;
+        try {
+          const r = await fetchResiliente(subUrl, {
+            signal: AbortSignal.timeout(5000),
+            headers: { 'User-Agent': 'Mozilla/5.0 RadarFondos/1.0', 'Accept': 'text/html' },
+          });
+          if (!r.ok) continue;
+          const snippet = await r.text();
+          if (GRANT_KW.test(snippet.slice(0, 10000))) {
+            return { aplica: true, deep_url: subUrl, evidencia: `Subdominio de grants encontrado: ${sub}.${domain}`, nombre_oficial: orgName };
+          }
+        } catch { /* continuar con el siguiente subdominio */ }
+      }
+      return null;
+    }
+
+    // ── Gemini: análisis semántico + enriquecimiento de campos ──────────────
+    const systemPrompt = `Eres un analista experto en cooperación internacional y directorios de donantes.
+Analiza la entidad descrita y devuelve UN ÚNICO objeto JSON sin texto adicional ni bloques markdown.
+
+Estructura EXACTA (todos los campos son obligatorios):
+{
+  "aplica_colombia": true,
+  "estado": "Aceptado",
+  "resumen": "Descripción breve de la entidad y sus fondos para Colombia.",
+  "nombre": "Nombre oficial completo de la entidad",
+  "sigla": "SIGLA",
+  "tipo": "BILATERAL",
+  "pais": "Alemania",
+  "alcance": "Internacional",
+  "email": "info@entidad.org",
+  "telefono": "+57 1 234 5678"
+}
+
+Reglas:
+- "aplica_colombia": booleano estricto (true/false).
+- "estado": "Aceptado" si aplica_colombia=true, "Rechazado" si false.
+- "tipo": uno de BILATERAL | MULTILATERAL | ONG | BANCO_DESARROLLO | FUNDACION | ACADEMIA | GOBIERNO | ENTIDAD
+- "alcance": uno de Internacional | Regional | Nacional
+- "email" y "telefono": extrae del contenido si están disponibles; si no, usa cadena vacía "".
+- "pais": país sede de la entidad (no de Colombia).
+- Responde SOLO con el JSON. Sin texto antes ni después.`;
+
+    let geminiResult = null;
+    if (geminiCB.canCall()) {
+      const apiKeys = [process.env.GOOGLE_API_KEY, process.env.VITE_GEMINI_API_KEY, process.env.GEMINI_API_KEY].filter(Boolean);
+      const models  = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+      const userMsg = `URL: ${url}\nNombre detectado: ${pageTitle}\nContenido de la página (primeros 3000 chars):\n${pageText.slice(0, 3000)}`;
+      outer: for (const apiKey of apiKeys) {
+        for (const modelName of models) {
+          try {
+            const genAI = new GoogleGenerativeAI(apiKey);
+            const model = genAI.getGenerativeModel({ model: modelName, systemInstruction: systemPrompt });
+            const result = await model.generateContent(userMsg);
+            const text = result.response.text().trim();
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) { geminiResult = JSON.parse(jsonMatch[0]); geminiCB.recordSuccess(); break outer; }
+          } catch (err) {
+            const is429 = err.message?.includes('429') || err.message?.includes('quota');
+            if (is429) { geminiCB.recordQuotaError(); break outer; }
+            console.warn(`[lookup] Gemini ${modelName} falló:`, err.message?.slice(0, 100));
+          }
+        }
+      }
+    } else {
+      console.info('[lookup] Circuit breaker OPEN — usando heurística (modo Respaldo).');
+    }
+
+    // ── Heurística de respaldo + merge con datos scrapeados ─────────────────
+    let aplica, estado, resumen;
+    let nombre    = pageTitle;
+    let sigla     = scrapedSigla;
+    let tipo      = scrapedTipo;
+    let pais      = scrapedPais;
+    let alcance   = scrapedAlcance;
+    let email     = scrapedEmail;
+    let telefono  = scrapedPhone;
+
+    if (geminiResult) {
+      aplica   = geminiResult.aplica_colombia === true;
+      estado   = geminiResult.estado ?? (aplica ? 'Aceptado' : 'Rechazado');
+      resumen  = geminiResult.resumen ?? '';
+      // Prefer Gemini values when non-empty, fallback to scraped
+      nombre   = geminiResult.nombre?.trim()   || nombre;
+      sigla    = geminiResult.sigla?.trim()    || sigla;
+      tipo     = geminiResult.tipo?.trim()     || tipo;
+      pais     = geminiResult.pais?.trim()     || pais;
+      alcance  = geminiResult.alcance?.trim()  || alcance;
+      email    = geminiResult.email?.trim()    || email;
+      telefono = geminiResult.telefono?.trim() || telefono;
+    } else {
+      const txt = `${url} ${pageTitle} ${hostname} ${pageText.slice(0,500)}`.toLowerCase();
+      const tieneGrants      = /grant|subvenci|donaci|fund|award|fellowship|convocatoria|call\b|becas|financiami|edital|appel.{0,10}projet/.test(txt);
+      const mencionaColombia = /colombia|col\.gov|minciencias|apc|colciencias/.test(txt);
+      const esCooperKnown   = /undp|pnud|onu|unicef|unfpa|oecd|ocde|worldbank|iadb|bid\.org|aecid|giz\.de|usaid|jica|danida|sida\.se|norad|dfid|fao\.org|who\.int|ifad|unops|iom\.int|oim|minga|lux-development|helvetas|snv\.org|gef|globalfund|gates|ford|rockefeller|kfw|entwicklungsbank|afdb|eib\.org|ebrd|adb\.org|isdb|ifs\.dk|proparco|dfc\.gov|mcc\.gov|idfc|caf\.com|fonplata|cabei|bcie|bice|bladex/.test(hostname + ' ' + txt);
+      const esCooper        = /cooperaci|bilateral|multilateral|development|desarrollo intern|aid\b|ayuda intern|oda\b|international.*fund|programa.*nacion/.test(txt);
+      // Nombre/dominio contiene palabras clave de fondo/financiador (ej: fontagro, fondo, fundacion)
+      const nombreEsFondo   = /\bfond(o|os|tagro|agua|ciencias|paz)?\b|\bfund(a|acion|ing|s)?\b|\bfoundation\b|\bagro\b/i.test(pageTitle + ' ' + hostname);
+      aplica  = tieneGrants || mencionaColombia || esCooperKnown || nombreEsFondo || (esCooper && /latinoam|iberoam|america latina|global|world/.test(txt));
+      estado  = aplica ? 'Aceptado' : 'Rechazado';
+      resumen = `Análisis heurístico: ${aplica ? 'La entidad presenta indicadores de cooperación o fondos aplicables a Colombia.' : 'No se detectaron indicadores de fondos para Colombia. Verifique manualmente.'}`;
+    }
+
+    // ── CAPA 0 override: datos cruzados tienen precedencia sobre rechazo de Fase 1 ──
+    if (!aplica && autoApprovedByR2) {
+      aplica  = true;
+      estado  = 'Aceptado';
+      resumen = `[Capa 0] Validación cruzada: R2 ya contiene convocatorias de "${domainRoot}"` +
+                (r2SampleDonante ? ` (donante registrado: "${r2SampleDonante}")` : '') +
+                `. Entidad confirmada por base de datos interna — sin scraping adicional.`;
+    }
+
+    // ── FASE 2: Deep Search — activo solo cuando Fase 1 rechaza ─────────────
+    // Solo se lanza para dominios raíz o de primer nivel: si el usuario ya pasó
+    // una URL profunda (/grants/...) y fue rechazada, no hay más donde buscar.
+    const urlPath = (() => { try { return new URL(url).pathname; } catch { return '/'; } })();
+    const isRootOrShallow = urlPath === '/' || urlPath === '' || urlPath.split('/').filter(Boolean).length <= 2;
+
+    if (!aplica && isRootOrShallow) {
+      console.info(`[lookup/deep] Fase 1 rechazó ${hostname} — iniciando Deep Search...`);
+      const apiKeyDeep = [process.env.GOOGLE_API_KEY, process.env.VITE_GEMINI_API_KEY, process.env.GEMINI_API_KEY].find(Boolean);
+      const deepApiKey = geminiCB.canCall() ? apiKeyDeep : undefined;
+      try {
+        const deepResult = await runDeepSearch(nombre, hostname, deepApiKey);
+        if (deepResult) {
+          aplica   = true;
+          estado   = 'Aceptado';
+          resumen  = `[Búsqueda profunda] ${deepResult.evidencia || 'Se encontraron programas de cooperación en el dominio.'}`;
+          if (deepResult.nombre_oficial?.trim()) nombre = deepResult.nombre_oficial.trim();
+          if (deepResult.deep_url && deepResult.deep_url !== url) urlConvFinal = deepResult.deep_url;
+          if (deepApiKey) geminiCB.recordSuccess();
+          console.info(`[lookup/deep] ✓ ${hostname} aprobado → ${deepResult.deep_url}`);
+        } else {
+          console.info(`[lookup/deep] ✗ ${hostname} sin evidencia — confirmado Rechazado.`);
+        }
+      } catch (e) {
+        console.warn('[lookup/deep] Error en Fase 2:', e.message?.slice(0, 100));
+      }
+    }
+
+    // ── FASE 3: Evaluar url_convocatorias provista por el usuario ────────────
+    // Si el usuario ya sabe la URL exacta de grants y la entidad sigue rechazada,
+    // fetchar esa URL y verificar si tiene indicadores de subvenciones.
+    if (!aplica && urlConvInput && urlConvInput !== url) {
+      try {
+        const convResp = await fetchResiliente(urlConvInput, { signal: AbortSignal.timeout(8000), headers: { 'User-Agent': 'Mozilla/5.0 RadarFondos/1.0' } });
+        if (convResp.ok) {
+          const convText = (await convResp.text()).slice(0, 8000).toLowerCase();
+          const tieneGrants = /grant|subvenci|fund|award|fellowship|convocatoria|call\b|becas|financiami|apply|proposal/.test(convText);
+          if (tieneGrants) {
+            aplica       = true;
+            estado       = 'Aceptado';
+            urlConvFinal = urlConvInput;
+            resumen      = `[URL Convocatorias] La URL de grants provista contiene indicadores de subvenciones aplicables.`;
+            console.info(`[lookup/fase3] ✓ ${hostname} aprobado por url_convocatorias: ${urlConvInput}`);
+          }
+        }
+      } catch (e) {
+        console.warn('[lookup/fase3] Error evaluando url_convocatorias:', e.message?.slice(0, 80));
+      }
+    }
+
+    // ── POST-FASES: Mejorar urlConvFinal si aún apunta a la raíz ───────────────
+    // rawHtml ya cargado → sin costo de red. Parsea <a href> buscando keywords en href Y texto.
+    // Solo acepta el candidato si el fetch de verificación confirma contenido de grants.
+    if (urlConvFinal === url && rawHtml) {
+      // "fund" como palabra independiente (evita false positives: fundacion, fundamento, refund)
+      const LP_KW = /convocator|becas?|grants?\b|funding\b|financiami|cooperaci|postulaci|llamado|oportunidad(?:es)?\b|iniciativa(?:s)?\b|fellowship|award|apply\b|edital|opportunity(?:ies)?\b/i;
+      const LP_VERIFY = /convocator|grant|becas|fund(?!ament|acion)|financiami|cooperaci|postulaci|fellowship|award|edital|oportunidad|llamado/i;
+      const candidates = new Set();
+      for (const m of rawHtml.matchAll(/href=["']([^"'#?][^"']*?)["'][^>]*>([\s\S]{0,120}?)<\/a>/gi)) {
+        const href = m[1].trim();
+        const text = m[2].replace(/<[^>]+>/g, ' ').trim();
+        if (LP_KW.test(href) || LP_KW.test(text)) {
+          try {
+            const abs = new URL(href, url).href;
+            const absHost = new URL(abs).hostname;
+            if (absHost === hostname || absHost.endsWith('.' + domainRoot) || absHost === 'www.' + domainRoot) candidates.add(abs);
+          } catch { /* href inválido */ }
+        }
+      }
+      for (const candidate of [...candidates].slice(0, 5)) {
+        try {
+          const vr = await fetchResiliente(candidate, { signal: AbortSignal.timeout(6000), headers: { 'User-Agent': 'Mozilla/5.0 RadarFondos/1.0', Accept: 'text/html' } });
+          if (!vr.ok) continue;
+          const snippet = (await vr.text()).slice(0, 10000);
+          if (LP_VERIFY.test(snippet)) {
+            urlConvFinal = candidate;
+            console.info(`[lookup/linkparse] ✓ urlConvFinal mejorado: ${candidate}`);
+            break;
+          }
+        } catch { /* continuar con siguiente candidato */ }
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        nombre,
+        sigla,
+        sitio_web:         hasSubPath ? rootUrl : url,
+        url_convocatorias: urlConvFinal,
+        tipo,
+        pais,
+        alcance,
+        email,
+        telefono,
+        fuente:            hostname,
+        aplica_colombia:   aplica,
+        estado,
+        resumen,
+      }
+    });
   }));
 
   // DELETE /api/entidades/:id — soft-delete (preserva historial)
   app.delete('/api/entidades/:id', authenticateToken, tryCatch(async (req, res) => {
     const { id } = req.params;
-    const result = await runSql(
-      "UPDATE directorio_entidades SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
-      [id]
-    );
+    const bloquear = req.query.bloquear === 'true' || req.body?.bloquear === true;
+
+    // Si se pide bloqueo: en vez de borrar la fila, se conserva marcada como
+    // BLOQUEADO (además del soft-delete) — así /lookup y POST /api/entidades
+    // pueden seguir encontrándola por root_domain aunque ya no aparezca en el
+    // listado activo. No usa una tabla nueva: este entorno corre en Capa 2
+    // (Supabase REST) donde el CREATE TABLE de arranque es un no-op — solo
+    // las tablas provisionadas en el dashboard de Supabase son alcanzables.
+    if (bloquear) {
+      try {
+        const entidad = await getRow('SELECT sitio_web, root_domain FROM directorio_entidades WHERE id = ?', [id]);
+        const raw = entidad?.sitio_web || '';
+        const hostname = raw ? new URL(raw.startsWith('http') ? raw : `https://${raw}`).hostname.replace(/^www\./, '') : '';
+        const rootDomain = entidad?.root_domain || getApexDomain(hostname) || hostname || null;
+        await runSql(
+          "UPDATE directorio_entidades SET validation_status = ?, root_domain = ?, deleted_at = CURRENT_TIMESTAMP WHERE id = ?",
+          ['BLOQUEADO', rootDomain, id]
+        );
+        console.info(`[entidades/bloquear] ✓ Dominio "${rootDomain}" bloqueado permanentemente por usuario ${req.userId}`);
+      } catch (blockErr) {
+        console.warn('[entidades/bloquear] No se pudo registrar el bloqueo de dominio, aplicando soft-delete simple:', blockErr.message);
+        await runSql(
+          "UPDATE directorio_entidades SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+          [id]
+        );
+      }
+    } else {
+      await runSql(
+        "UPDATE directorio_entidades SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+        [id]
+      );
+    }
+    // Liberar convocatorias vinculadas → vuelven a Rastreo 2
+    try {
+      await runSql(
+        "UPDATE convocatorias SET entidad_id = NULL WHERE entidad_id = ? AND deleted_at IS NULL",
+        [id]
+      );
+      invalidateRadarCache();
+    } catch (unlinkErr) {
+      console.warn('[entidades] Aviso: no se pudo desvincular convocatorias:', unlinkErr.message);
+    }
     res.json({ success: true });
   }));
 
@@ -1077,38 +2458,88 @@ async function start() {
     res.json({ success: true, data: rows, total });
   }));
 
-  // POST /api/entidades/:id/rastrear — vincula convocatorias existentes y dispara ingesta (sin auth — ruta pública)
-  app.post('/api/entidades/:id/rastrear', tryCatch(async (req, res) => {
+  // POST /api/entidades/:id/rastrear — vincula convocatorias existentes y dispara ingesta
+  app.post('/api/entidades/:id/rastrear', authenticateToken, tryCatch(async (req, res) => {
     const { id } = req.params;
     const entidad = await getRow('SELECT * FROM directorio_entidades WHERE id = ? AND deleted_at IS NULL', [id]);
     if (!entidad) return res.status(404).json({ success: false, message: 'Entidad no encontrada' });
 
-    // Vincula convocatorias existentes sin entidad_id que coincidan por donante
+    // ── MOTOR CODICIOSA aplicado al rastreo manual ───────────────────────────
     let vinculadas = 0;
-    if (entidad.nombre) {
-      const r1 = await runSql(
-        `UPDATE convocatorias SET entidad_id = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE entidad_id IS NULL AND deleted_at IS NULL
-           AND (LOWER(donante) LIKE ? OR LOWER(donante) = LOWER(?))`,
-        [id, `%${entidad.nombre.toLowerCase()}%`, entidad.nombre]
-      );
+    const rNombre = entidad.nombre || '';
+    const rSigla  = entidad.sigla  || '';
+    const rRoot   = entidad.root_domain || getApexDomain(entidad.sitio_web || '') || '';
+
+    // Prueba 1 — Texto fuzzy
+    try {
+      const r1 = await runSql(`
+        UPDATE convocatorias SET entidad_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE entidad_id IS NULL AND deleted_at IS NULL
+          AND (
+            LOWER(donante) = LOWER(?)
+            OR (? != '' AND LOWER(donante) = LOWER(?))
+            OR LOWER(donante) LIKE '%' || LOWER(?) || '%'
+            OR (LENGTH(donante) > 4 AND LOWER(?) LIKE '%' || LOWER(donante) || '%')
+            OR (? != '' AND LENGTH(?) > 2 AND LOWER(donante) LIKE '%' || LOWER(?) || '%')
+          )
+      `, [id, rNombre, rSigla, rSigla, rNombre, rNombre, rSigla, rSigla, rSigla]);
       vinculadas += r1?.changes || 0;
+    } catch (e) { console.warn('[rastrear/T1]', e.message?.slice(0, 100)); }
+
+    // Prueba 2 — Hostname
+    if (rRoot) {
+      const safeRoot = rRoot.replace(/[%_\\;'"]/g, '');
+      try {
+        const r2 = await runSql(`
+          UPDATE convocatorias SET entidad_id = ?, root_domain = COALESCE(root_domain, ?), updated_at = CURRENT_TIMESTAMP
+          WHERE entidad_id IS NULL AND deleted_at IS NULL
+            AND (url_fuente ILIKE ? OR url_convocatoria ILIKE ?)
+        `, [id, rRoot, `%${safeRoot}%`, `%${safeRoot}%`]);
+        vinculadas += r2?.changes || 0;
+      } catch (e) { console.warn('[rastrear/T2]', e.message?.slice(0, 100)); }
     }
-    if (entidad.sigla) {
-      const r2 = await runSql(
-        `UPDATE convocatorias SET entidad_id = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE entidad_id IS NULL AND deleted_at IS NULL
-           AND LOWER(donante) = LOWER(?)`,
-        [id, entidad.sigla]
-      );
-      vinculadas += r2?.changes || 0;
+
+    // Prueba 3 — Email domain
+    if (rRoot) {
+      const safeRoot = rRoot.replace(/[%_\\;'"]/g, '');
+      try {
+        const r3 = await runSql(`
+          UPDATE convocatorias SET entidad_id = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE entidad_id IS NULL AND deleted_at IS NULL
+            AND donante LIKE '%@%'
+            AND LOWER(SUBSTRING(donante FROM POSITION('@' IN donante) + 1)) LIKE '%' || LOWER(?) || '%'
+        `, [id, safeRoot]);
+        vinculadas += r3?.changes || 0;
+      } catch (e) { console.warn('[rastrear/T3]', e.message?.slice(0, 100)); }
     }
+
+    invalidateRadarCache();
 
     // Dispara ingesta global en background (no bloquea)
     runManualIngest().catch(e => console.error('[Rastrear] ingesta:', e.message));
 
     const total = await getCount('SELECT COUNT(*) as cnt FROM convocatorias WHERE entidad_id = ? AND deleted_at IS NULL', [id]);
     res.json({ success: true, message: 'Rastreo iniciado', entidad_id: id, convocatorias_count: total, nuevas_vinculadas: vinculadas });
+  }));
+
+  // PATCH /api/entidades/:id — actualiza url_convocatorias y dispara re-scraping
+  app.patch('/api/entidades/:id', authenticateToken, tryCatch(async (req, res) => {
+    const { id } = req.params;
+    const { url_convocatorias } = req.body;
+    if (!url_convocatorias) return res.status(400).json({ success: false, message: 'url_convocatorias requerida' });
+    await runSql(
+      `UPDATE directorio_entidades SET url_convocatorias = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
+      [url_convocatorias, new Date().toISOString(), id]
+    );
+    setImmediate(async () => {
+      try {
+        await ingestDirectorioConvocatorias({ soloEntidadId: id });
+        console.log(`[patch/entidad] ✓ Re-scraping completado para entidad ${id} con url ${url_convocatorias}`);
+      } catch (e) {
+        console.warn(`[patch/entidad] Re-scraping falló para ${id}:`, e.message?.slice(0, 80));
+      }
+    });
+    res.json({ success: true, message: 'URL de convocatorias actualizada y re-scraping iniciado' });
   }));
 
   // PATCH /api/entidades/:id/status — activa o deshabilita una entidad
@@ -1119,8 +2550,8 @@ async function start() {
       return res.status(400).json({ success: false, message: 'status debe ser "active" o "disabled"' });
     }
     await runSql(
-      "UPDATE directorio_entidades SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
-      [status, id]
+      "UPDATE directorio_entidades SET status = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+      [status, new Date().toISOString(), id]
     );
     res.json({ success: true, status });
   }));
@@ -1188,12 +2619,75 @@ async function start() {
   // IMPORT (subida de archivos)
   // ════════════════════════════════════════════════════════════════════════════
   const multer = (await import('multer')).default;
-  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+  // ── Whitelist de tipos permitidos en Anexos ───────────────────────────────
+  const ALLOWED_UPLOAD_TYPES = {
+    // extensión → { mimes, magic (hex prefijos), maxBytes }
+    csv:  { mimes: ['text/csv','text/plain','application/csv'], magic: null, maxBytes: 5 * 1024 * 1024 },
+    xlsx: { mimes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/zip','application/octet-stream'], magic: '504b0304', maxBytes: 10 * 1024 * 1024 },
+    xls:  { mimes: ['application/vnd.ms-excel','application/octet-stream'], magic: 'd0cf11e0', maxBytes: 10 * 1024 * 1024 },
+    pdf:  { mimes: ['application/pdf'], magic: '25504446', maxBytes: 20 * 1024 * 1024 },
+    json: { mimes: ['application/json','text/plain'], magic: null, maxBytes: 2 * 1024 * 1024 },
+  };
+
+  function validateUploadedFile(file) {
+    // 1. Nombre seguro — solo letras, números, guiones, puntos; sin traversal
+    const safeName = /^[\w\-. ]{1,200}$/.test(file.originalname);
+    if (!safeName) return 'Nombre de archivo no permitido';
+
+    // 2. Extensión permitida
+    const ext = (file.originalname.split('.').pop() || '').toLowerCase();
+    const rule = ALLOWED_UPLOAD_TYPES[ext];
+    if (!rule) return `Extensión ".${ext}" no permitida. Solo: ${Object.keys(ALLOWED_UPLOAD_TYPES).join(', ')}`;
+
+    // 3. Tamaño por tipo
+    if (file.size > rule.maxBytes) return `Archivo demasiado grande (máx ${rule.maxBytes / 1024 / 1024} MB para .${ext})`;
+
+    // 4. Magic bytes (firma real del archivo)
+    if (rule.magic) {
+      const head = file.buffer.slice(0, 4).toString('hex');
+      if (!head.startsWith(rule.magic)) return `Firma del archivo no coincide con .${ext} — posible archivo malicioso`;
+    }
+
+    // 5. CSV/JSON — solo texto imprimible (sin bytes nulos, sin secuencias de escape de shell)
+    if (ext === 'csv' || ext === 'json') {
+      if (file.buffer.includes(0x00)) return 'Archivo contiene bytes nulos — rechazado';
+    }
+
+    return null; // OK
+  }
+
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024 }, // límite global de multer; validación por tipo en el handler
+    fileFilter: (_req, file, cb) => {
+      const ext = (file.originalname.split('.').pop() || '').toLowerCase();
+      if (!ALLOWED_UPLOAD_TYPES[ext]) return cb(new Error(`Extensión ".${ext}" no permitida`));
+      cb(null, true);
+    },
+  });
 
   app.post('/api/importar', authenticateToken, upload.single('file'), tryCatch(async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'Archivo requerido' });
+
+    // Validación de seguridad profunda
+    const error = validateUploadedFile(req.file);
+    if (error) {
+      console.warn(`[UPLOAD BLOCKED] IP=${req.ip} file="${req.file.originalname}" reason="${error}"`);
+      return res.status(422).json({ success: false, message: error });
+    }
+
     const { tipo = 'convocatorias' } = req.body;
-    const rows = await parseFileBuffer(req.file.buffer, req.file.originalname);
+    let rows;
+    try {
+      rows = await parseFileBuffer(req.file.buffer, req.file.originalname);
+    } catch (e) {
+      // Formato no soportado o JSON malformado — error explícito, no 500 genérico.
+      if (e.code === 'UNSUPPORTED_FILE_FORMAT' || e.code === 'INVALID_JSON' || e.code === 'INVALID_JSON_SHAPE') {
+        return res.status(422).json({ success: false, code: e.code, message: e.message });
+      }
+      throw e;
+    }
     let imported = 0;
     if (tipo === 'directorio') {
       imported = await importToDirectorio(rows);
@@ -1234,20 +2728,266 @@ async function start() {
       },
     });
   }));
-  app.post('/api/radar/start',   authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Scheduler de radar no implementado en esta versión.' }));
-  app.post('/api/radar/stop',    authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Scheduler de radar no implementado en esta versión.' }));
-  app.post('/api/radar/trigger', tryCatch(async (req, res) => {
+  // POST /api/radar/start — reanuda las 4 tareas cron (Rastreo1/2, expiración, backup S3)
+  // y persiste el flag en app_settings para que sobreviva a un reinicio del proceso.
+  app.post('/api/radar/start', authenticateToken, tryCatch(async (req, res) => {
+    const activas = resumeScheduler();
+    const now = new Date().toISOString();
+    const upd = await runSql(
+      `UPDATE app_settings SET value = ?, updated_at = ? WHERE key = 'radar_scheduler_enabled'`,
+      ['true', now]
+    );
+    if ((upd?.rowCount ?? upd?.changes ?? 0) === 0) {
+      await runSql(`INSERT INTO app_settings (key, value, updated_at) VALUES ('radar_scheduler_enabled', 'true', ?)`, [now]).catch(() => {});
+    }
+    res.json({ success: true, message: `Programador de radar activo (${activas} tarea(s) cron).`, tareas_activas: activas });
+  }));
+
+  // POST /api/radar/stop — detiene las tareas cron (node-cron .stop() real) y persiste el flag.
+  app.post('/api/radar/stop', authenticateToken, tryCatch(async (req, res) => {
+    const detenidas = pauseScheduler();
+    const now = new Date().toISOString();
+    const upd = await runSql(
+      `UPDATE app_settings SET value = ?, updated_at = ? WHERE key = 'radar_scheduler_enabled'`,
+      ['false', now]
+    );
+    if ((upd?.rowCount ?? upd?.changes ?? 0) === 0) {
+      await runSql(`INSERT INTO app_settings (key, value, updated_at) VALUES ('radar_scheduler_enabled', 'false', ?)`, [now]).catch(() => {});
+    }
+    res.json({ success: true, message: `Programador de radar detenido (${detenidas} tarea(s) cron).`, tareas_detenidas: detenidas });
+  }));
+  app.post('/api/radar/trigger', authenticateToken, requireAccess('radar'), tryCatch(async (_req, res) => {
     runManualIngest().catch(e => console.error('[Radar/trigger]', e.message));
     res.json({ success: true, message: 'Rastreo 2 iniciado — portales web externos al Directorio. Los resultados aparecerán en segundos.' });
   }));
 
+  // ── Panel keywords — palabras clave para filtrar ingesta R2 ─────────────────
+  app.get('/api/panel/keywords', tryCatch(async (_req, res) => {
+    const row = await getRow(`SELECT value FROM app_settings WHERE key = 'radar_keywords'`);
+    const keywords = row ? JSON.parse(row.value) : [];
+    res.json({ success: true, keywords });
+  }));
+
+  // PUT es config global de la app (no por-tenant) — exige admin, no solo plan Radar.
+  app.put('/api/panel/keywords', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    }
+    const { keywords } = req.body;
+    if (!Array.isArray(keywords)) return res.status(400).json({ success: false, message: 'keywords debe ser array' });
+    const val = JSON.stringify(keywords);
+    const now = new Date().toISOString();
+    // Upsert compatible con Capa 1 (pg) y Capa 2 (REST): UPDATE primero, INSERT si no existía
+    const upd = await runSql(
+      `UPDATE app_settings SET value = ?, updated_at = ? WHERE key = 'radar_keywords'`,
+      [val, now]
+    );
+    if ((upd?.rowCount ?? upd?.changes ?? 0) === 0) {
+      await runSql(
+        `INSERT INTO app_settings (key, value, updated_at) VALUES ('radar_keywords', ?, ?)`,
+        [val, now]
+      ).catch(() => {}); // ignora conflicto de clave duplicada si ocurre en paralelo
+    }
+    res.json({ success: true });
+  }));
+
   // Rastreo 1: escaneo de convocatorias desde cada entidad del Directorio
-  app.post('/api/radar/rastreo1', tryCatch(async (req, res) => {
+  app.post('/api/radar/rastreo1', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
     ingestDirectorioConvocatorias().catch(e => console.error('[Radar/rastreo1]', e.message));
     res.json({ success: true, message: 'Rastreo 1 iniciado — visitando entidades del Directorio. Los resultados aparecerán en segundos.' });
   }));
 
-  app.post('/api/radar/barrido', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Usa POST /api/radar/barrido-masivo con { texto } para búsqueda vectorial.' }));
+  // POST /api/radar/clasificar-sectores — Clasificación masiva en background vía Gemini/keywords
+  app.post('/api/radar/clasificar-sectores', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
+    const batchLimit = Math.min(parseInt(req.query.limit || '200'), 1000);
+    clasificarSectoresEnBatch(batchLimit).catch(e => console.error('[Sectores/batch]', e.message));
+    res.json({ success: true, message: `Clasificación de sectores iniciada — hasta ${batchLimit} convocatorias procesadas en background.` });
+  }));
+
+  // POST /api/radar/enrich-montos — Enriquecimiento de montos con fetch+regex (sin Gemini)
+  app.post('/api/radar/enrich-montos', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
+    const batchLimit = Math.min(parseInt(req.query.limit || '300'), 1000);
+    enriquecerMontosBatch(batchLimit).catch(e => console.error('[Montos/batch]', e.message));
+    res.json({ success: true, message: `Enriquecimiento de montos iniciado — hasta ${batchLimit} convocatorias procesadas en background.` });
+  }));
+
+  // GET /api/radar/clasificar-sectores/status — Progreso de clasificación
+  app.get('/api/radar/clasificar-sectores/status', tryCatch(async (_req, res) => {
+    const total     = await getCount('SELECT COUNT(*) as cnt FROM convocatorias WHERE deleted_at IS NULL');
+    const sinSector = await getCount("SELECT COUNT(*) as cnt FROM convocatorias WHERE deleted_at IS NULL AND (sectores IS NULL OR sectores = '[]')");
+    res.json({ total, sinSector, clasificadas: total - sinSector, porcentaje: total > 0 ? Math.round(((total - sinSector) / total) * 100) : 0 });
+  }));
+
+  // /api/radar/barrido — alias real de /api/radar/barrido-masivo (registrado
+  // más abajo junto con el handler compartido barridoMasivoHandler).
+  app.post('/api/radar/barrido', authenticateToken, requireAccess('radar'), aiLimiter, (req, res, next) => barridoMasivoHandler(req, res, next));
+
+  // POST /api/radar/sweep — Barrido retroactivo endsWith: vincula R2 ↔ Directorio
+  app.post('/api/radar/sweep', authenticateToken, tryCatch(async (_req, res) => {
+    const n = await sweepEndsWith();
+    res.json({ success: true, vinculadas: n });
+  }));
+
+  // POST /api/radar/expirar — Marca como 'cerrada' convocatorias vencidas + soft-delete falsos positivos
+  app.post('/api/radar/expirar', authenticateToken, requireAccess('radar'), tryCatch(async (_req, res) => {
+    const today = new Date().toISOString().slice(0, 10);
+
+    // 1. Cerrar por fecha_limite vencida (explícita)
+    const rowsFecha = await getRows(
+      `SELECT id, fecha_limite FROM convocatorias WHERE estado = 'abierta' AND deleted_at IS NULL AND fecha_limite != ''`,
+      []
+    );
+    let cerradasFecha = 0;
+    for (const row of rowsFecha) {
+      const norm = (row.fecha_limite || '').replace(/\//g, '-');
+      if (norm && norm < today) {
+        await runSql('UPDATE convocatorias SET estado = ? WHERE id = ?', ['cerrada', row.id]);
+        cerradasFecha++;
+      }
+    }
+
+    // 1b. Cerrar por antigüedad: sin fecha_limite + más de 180 días
+    const corte180 = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+    const rowsAntiguas = await getRows(
+      `SELECT id FROM convocatorias WHERE estado = 'abierta' AND deleted_at IS NULL AND (fecha_limite = '' OR fecha_limite IS NULL) AND created_at < ?`,
+      [corte180]
+    );
+    let cerradasAntiguas = 0;
+    for (const row of rowsAntiguas) {
+      await runSql('UPDATE convocatorias SET estado = ? WHERE id = ?', ['cerrada', row.id]);
+      cerradasAntiguas++;
+    }
+
+    // 2. Soft-delete falsos positivos: títulos de navegación/institucionales
+    const NOISE_RE = new RegExp([
+      // Frases institucionales genéricas (nav/secciones)
+      '^(our|their|its)\\s\\w',
+      '^about\\s(us|the\\s|our\\s)',
+      '^(who|what)\\s(we|is)\\s',
+      '^(learn|read|see|view|explore)\\s(more|all)',
+      '^(sign|log)\\s(in|out)',
+      '^(get|be(come)?)\\s(involved|a\\s)',
+      '^(partner|connect)\\s(with|us)',
+      '^(join|follow)\\s(our|us)',
+      // Navegación de página (skip-links, breadcrumbs, menús)
+      'skip\\sto|to\\smain\\scontent|pasar\\sal\\scontenido|main\\scontent$',
+      '(main|mobile)\\s(nav|navigation|menu)',
+      'selector\\sde\\sidioma|visualiz.*men[uú]|ruta\\sde\\snaveg',
+      'activar\\sel\\smodo|publicador\\sde\\scontenidos',
+      'ruta\\sde\\snavegaci|contenido\\sprincip|additional\\slinks',
+      // Redes sociales y suscripciones
+      'opens\\sa\\snew\\swindow|^(facebook|instagram|twitter|linkedin|youtube|flickr)',
+      '^(sign|subscribe)\\s(up|to)\\s',
+      '\\bsocial\\smedia\\s(accounts|platform)',
+      // Páginas de info interna para beneficiarios (no convocatorias)
+      'grantee\\s(publications|stories|news|research)',
+      '^resources\\sfor\\s.*grantees?',
+      '^info\\sfor\\s(grant|grantee)',
+      '^managing\\s(your|funds|award)',
+      '^(results\\sand\\sevaluation|key\\smaterials|standard\\sdocuments)',
+      '^(open\\saccess\\spolicy|open\\sknowledge)',
+      '^(funding\\spolicies|funding\\sguidance|applying\\sfor\\sfunding)',
+      'funding\\sfaq|grants?\\sfaq|grants?\\sdata|grants?\\sdatabase',
+      '^(awarded\\sgrants|approved\\s.*grants|grant\\sopportunities$)',
+      '^(grantee\\spublications|info\\sfor\\sgrantseekers)',
+      // Contratación y políticas (no fondos de cooperación)
+      'public\\sprocurement|general\\stendering|award\\sprocedure',
+      'tenders?\\selectronic\\sdaily|quantum\\setendering',
+      '^(tender\\sopportunities|data\\sprotection\\sin)',
+      '^(contract\\sawards?|requests\\sfor\\sproposals$)',
+      // Páginas institucionales genéricas
+      '^(where\\s(we\\s)?work|case\\sstudies|impact\\sin\\snumbers)',
+      '^(project\\sportfolio|major\\sinitiatives|country\\sprograms?)',
+      '^(global\\sinvestment\\smap|portfolio\\sexplorer)',
+      '^(awards\\sand\\srecognition|press\\srelease|media\\srelease)',
+      '^(small\\sand\\smedium|sustainability$|development\\sfinance)',
+      '^(security\\sand\\sdefence|innovation,\\sdigital)',
+      '^(organisation$|^values?\\sinstituc)',
+      'valores\\sinstitucionales',
+      // Descargas y documentos de soporte
+      '^descarga\\s|^download\\s(our|the)\\s|brochure',
+      '^(map\\sof\\sjica|open\\slearning\\scampus)',
+      // Navegación en idiomas extranjeros y selectores de idioma
+      '^(zum\\shauptinhalt|förderung\\sfinden|formulaire\\sde\\sdemande)',
+      '^(форма\\sзаявки|pasar\\sal|activar\\sel)',
+      'selector\\sde\\sidioma|\\bнавигаци|\\bالميزانية|استمارة\\sالتقديم',
+      '^(es|en|fr|pt|de|it|nl|ru|ar|zh)\\s[-–]\\s',
+      // Títulos cortos de sección sin contexto de convocatoria
+      '^(convocatorias?$|all\\sabout|standard\\sdocuments)',
+      '^(flexi-grant|bcf-flexi|access\\sfunding$|receive\\sfunding$)',
+      '^(find\\sa\\sfunding\\sopportunity$|other\\sfunding\\smodalities)',
+      '^(apply\\sfor\\sgrant$|project\\sfunding$|small\\sgrants$)',
+      '^(medium\\sgrants$|large\\sinnovation|innovation\\sfunding$)',
+      '^(readiness\\sgrant|access\\sand\\squality$)',
+      '^(dashboards\\sand|results\\sand\\sevaluati|open\\sdata)',
+      '^(commissioning\\sus|become\\sa\\scontractor|career)',
+      '^(social\\ssustainab|sustainable\\senergy\\sand|sustainable\\scities)',
+      '^(climate\\sand\\senvironmental|innovation,\\sdigital)',
+      '^(health\\s&|development\\sfinance|solidarity\\swith)',
+      '^(turning\\sinnovation|why\\sagri-input|advancing\\sscience)',
+      // Páginas de categoría/nav adicionales frecuentes
+      '^grants\\sand\\sfellowships$',
+      '^research\\sfunding\\soverview',
+      '^fellows\\ssearch$',
+      '^(discover|explore)\\sour\\s',
+      '^green\\sclimate\\sfund$',
+      '^please\\sgive',
+      '^lla\\s(proposals|regional|single)',
+      '^(build\\sprogram$|international\\sfellowships\\sprogram$)',
+      '^(proposals\\sunder\\sreview$|img\\scall\\s\\d{4}$|isg\\scall\\s\\d{4}$)',
+      '^(approved\\slla|nil\\ssmall\\sgrants)',
+      // Testimoniales (citas entre comillas ascii y tipográficas)
+      '^[""“”]',
+      // Líneas de crédito / préstamos (no son subvenciones)
+      '^l[ií]nea\\sde\\scr[eé]dito',
+      // Años pasados de grantees de IAF (son proyectos financiados, no convocatorias abiertas)
+      '^20\\d{2}\\s[&#\\-–]',
+      // Secciones y categorías genéricas de financiadores
+      '^(empowering|where\\scgiar|restoring\\slandscapes)',
+      '^(a\\slow-carbon|gender\\sand\\syouth|it\'?s\\sabout\\sbig)',
+      '^(why\\sagri|advancing\\sscience|gggi\\son\\ssocial)',
+      '^(management\\sboard|\\u200b)',
+      'bilan\\set\\scompte|balance\\sy\\scuenta|\\bоценк',
+      '^(equity|development|capacity|innovation|sustainability|resilience|empowerment)\\s*$',
+    ].join('|'), 'i');
+    const allOpen = await getRows(
+      `SELECT id, titulo FROM convocatorias WHERE deleted_at IS NULL AND estado != 'cerrada'`,
+      []
+    );
+    let eliminados = 0;
+    for (const row of allOpen) {
+      if (NOISE_RE.test((row.titulo || '').trim())) {
+        await runSql('UPDATE convocatorias SET deleted_at = ? WHERE id = ?', [new Date().toISOString(), row.id]);
+        eliminados++;
+      }
+    }
+
+    res.json({
+      success: true,
+      cerradas_por_fecha: cerradasFecha,
+      eliminados_ruido: eliminados,
+      message: `${cerradasFecha} cerradas por fecha vencida, ${cerradasAntiguas} cerradas por antigüedad (+180 días sin fecha_limite), ${eliminados} falsos positivos eliminados`,
+    });
+  }));
+
+  // POST /api/radar/cerrar-ids — Cierra manualmente convocatorias por array de IDs
+  app.post('/api/radar/cerrar-ids', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ success: false, message: 'ids requerido (array)' });
+    let cerradas = 0;
+    for (const id of ids) {
+      await runSql('UPDATE convocatorias SET estado = ? WHERE id = ?', ['cerrada', id]);
+      cerradas++;
+    }
+    res.json({ success: true, cerradas, message: `${cerradas} convocatorias marcadas como cerradas` });
+  }));
+
+  // POST /api/radar/reparar-fuente — Corrige columna fuente de convocatorias (idempotente)
+  app.post('/api/radar/reparar-fuente', authenticateToken, requireAccess('radar'), tryCatch(async (_req, res) => {
+    const result = await repararFuenteConvocatorias();
+    if (result.error) return res.status(500).json({ success: false, error: result.error });
+    res.json({ success: true, message: 'Columna fuente reparada: R2=RASTREO_WEB_EXTERNO, R1=RASTREO_DIRECTORIO' });
+  }));
   app.post('/api/radar/buscar-masivo', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
     const { texto, limit = 20, threshold = 0.30 } = req.body;
     if (!texto?.trim()) return res.status(400).json({ success: false, message: 'texto requerido' });
@@ -1278,18 +3018,189 @@ async function start() {
     }
     res.json({ success: true, resultados, total: resultados.length, motor: usePg ? 'pgvector·HNSW' : 'js-coseno' });
   }));
-  app.get('/api/radar/buscar', (req, res) => res.status(501).json({ success: false, message: 'No implementado' }));
-  app.get('/api/buscar', (req, res) => res.status(501).json({ success: false, message: 'No implementado' }));
-  app.get('/api/fuentes', (req, res) => res.status(501).json({ success: false, message: 'No implementado' }));
-  app.get('/api/scraped-results', (req, res) => res.status(501).json({ success: false, message: 'No implementado' }));
-  app.post('/api/entidades/scrape-async', authenticateToken, (req, res) => res.status(501).json({ success: false, message: 'No implementado' }));
-  app.post('/api/entidades/indexadas', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Indexación manual de entidades no implementada.' }));
-  app.get('/api/cola-validacion',      authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Cola de validación no implementada en esta versión.' }));
-  app.post('/api/cola-validacion/:id/aprobar',   authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Cola de validación no implementada.' }));
-  app.post('/api/cola-validacion/:id/descartar', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Cola de validación no implementada.' }));
+  // GET /api/radar/buscar?q= — búsqueda semántica (alias legacy de /api/ia/busqueda-semantica)
+  app.get('/api/radar/buscar', tryCatch(async (req, res) => {
+    const texto = String(req.query.q || '').trim();
+    if (!texto) return res.status(400).json({ success: false, message: 'q requerido' });
+    const qVec   = await textToEmbedding(texto);
+    const vecStr = JSON.stringify(qVec);
+    const usePg  = !!process.env.DATABASE_URL;
+    let resultados = [];
+    if (usePg) {
+      resultados = await getRows(
+        `SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado,
+                round((1 - (embedding_vec <=> $1::vector))::numeric, 4) AS similitud
+         FROM convocatorias
+         WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL AND estado != 'cerrada'
+           AND (1 - (embedding_vec <=> $1::vector)) >= 0.25
+         ORDER BY embedding_vec <=> $1::vector LIMIT 20`,
+        [vecStr]
+      );
+    } else {
+      const convs = await getRows("SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL AND estado != 'cerrada'", []);
+      resultados = convs
+        .map(c => ({ ...c, embedding: undefined, similitud: Math.round(cosineSimilarity(qVec, deserializeEmbedding(c.embedding)) * 10000) / 10000 }))
+        .filter(c => c.similitud >= 0.25)
+        .sort((a, b) => b.similitud - a.similitud)
+        .slice(0, 20);
+    }
+    res.json({ success: true, resultados, total: resultados.length });
+  }));
+
+  // GET /api/buscar?q= — búsqueda unificada por texto (ILIKE, sin costo de embeddings)
+  // sobre convocatorias y directorio_entidades. No usa vectores: pensado para
+  // búsquedas rápidas de coincidencia literal, complementario a la semántica.
+  app.get('/api/buscar', tryCatch(async (req, res) => {
+    const q = String(req.query.q || '').trim();
+    if (!q) return res.status(400).json({ success: false, message: 'q requerido' });
+    const like = `%${q}%`;
+    const [convocatorias, entidades] = await Promise.all([
+      getRows(
+        `SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado, fuente
+         FROM convocatorias
+         WHERE deleted_at IS NULL AND (titulo ILIKE ? OR donante ILIKE ? OR descripcion ILIKE ?)
+         ORDER BY created_at DESC LIMIT 25`,
+        [like, like, like]
+      ).catch(() => []),
+      getRows(
+        `SELECT id, nombre, sigla, tipo, pais, sitio_web
+         FROM directorio_entidades
+         WHERE deleted_at IS NULL AND (nombre ILIKE ? OR sigla ILIKE ?)
+         ORDER BY nombre LIMIT 25`,
+        [like, like]
+      ).catch(() => []),
+    ]);
+    res.json({ success: true, data: { convocatorias, entidades }, total: convocatorias.length + entidades.length });
+  }));
+
+  // GET /api/fuentes — fuentes de datos reales del radar, agrupadas con conteo.
+  // Agregación hecha en JS (no SQL GROUP BY): la Capa 2 (REST de Supabase)
+  // reenvía el SELECT a PostgREST sin traducir GROUP BY/agregados — el mismo
+  // patrón de degradación que ya usa matchScore.js para el coseno en Capa 2.
+  app.get('/api/fuentes', tryCatch(async (req, res) => {
+    const rows = await getRows(
+      `SELECT fuente, estado FROM convocatorias WHERE deleted_at IS NULL AND fuente IS NOT NULL AND fuente != ''`
+    );
+    const porFuente = new Map();
+    for (const r of rows) {
+      const entry = porFuente.get(r.fuente) || { fuente: r.fuente, total: 0, activas: 0 };
+      entry.total++;
+      if (r.estado !== 'cerrada') entry.activas++;
+      porFuente.set(r.fuente, entry);
+    }
+    const data = [...porFuente.values()].sort((a, b) => b.total - a.total);
+    res.json({ success: true, data });
+  }));
+
+  // GET /api/scraped-results — historial real de ejecuciones de scraping (crawl_log)
+  app.get('/api/scraped-results', tryCatch(async (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const rows = await getRows(
+      `SELECT id, tipo, fuente, subvenciones_encontradas, resultado, ejecutada_en
+       FROM crawl_log ORDER BY ejecutada_en DESC LIMIT ?`,
+      [limit]
+    );
+    res.json(rows.map(r => {
+      let resultado = r.resultado;
+      if (typeof resultado === 'string') { try { resultado = JSON.parse(resultado); } catch { /* deja el texto crudo */ } }
+      return { ...r, resultado };
+    }));
+  }));
+
+  // POST /api/entidades/scrape-async — dispara scraping en background (no bloquea la respuesta).
+  // Body opcional: { entidadId } → escanea solo esa entidad; sin body → Directorio completo.
+  app.post('/api/entidades/scrape-async', authenticateToken, tryCatch(async (req, res) => {
+    const { entidadId } = req.body || {};
+    if (entidadId) {
+      const entidad = await getRow('SELECT id FROM directorio_entidades WHERE id = ? AND deleted_at IS NULL', [entidadId]);
+      if (!entidad) return res.status(404).json({ success: false, message: 'Entidad no encontrada' });
+    }
+    ingestDirectorioConvocatorias(entidadId ? { soloEntidadId: entidadId } : {})
+      .catch(e => console.error('[entidades/scrape-async]', e.message));
+    res.status(202).json({
+      success: true,
+      message: entidadId
+        ? `Scraping iniciado para la entidad ${entidadId} — los resultados aparecerán en el Directorio en segundos.`
+        : 'Scraping del Directorio completo iniciado en background.',
+    });
+  }));
+
+  // POST /api/entidades/indexadas — entidades ya validadas/indexadas (opuesto de la cola de validación)
+  app.post('/api/entidades/indexadas', authenticateToken, tryCatch(async (req, res) => {
+    const { filtros = {} } = req.body || {};
+    const cond   = [`deleted_at IS NULL`, `validation_status NOT ILIKE '%PENDIENTE%'`];
+    const params = [];
+    if (filtros.tipo)  { cond.push('tipo ILIKE ?');  params.push(`%${filtros.tipo}%`); }
+    if (filtros.pais)  { cond.push('pais ILIKE ?');  params.push(`%${filtros.pais}%`); }
+    const rows = await getRows(
+      `SELECT id, nombre, sigla, tipo, pais, validation_status, updated_at
+       FROM directorio_entidades WHERE ${cond.join(' AND ')}
+       ORDER BY updated_at DESC LIMIT 200`,
+      params
+    );
+    res.json({ success: true, data: rows, total: rows.length });
+  }));
+
+  // GET /api/cola-validacion?estado= — entidades pendientes de validación manual
+  app.get('/api/cola-validacion', authenticateToken, tryCatch(async (req, res) => {
+    const { estado } = req.query;
+    const cond   = [`deleted_at IS NULL`];
+    const params = [];
+    if (estado) { cond.push('validation_status = ?'); params.push(estado); }
+    else        { cond.push(`validation_status ILIKE '%PENDIENTE%'`); }
+    const rows = await getRows(
+      `SELECT id, nombre, sigla, tipo, pais, sitio_web, validation_status, fuente, created_at
+       FROM directorio_entidades WHERE ${cond.join(' AND ')}
+       ORDER BY created_at DESC LIMIT 200`,
+      params
+    );
+    res.json({ success: true, data: rows, total: rows.length });
+  }));
+
+  // POST /api/cola-validacion/:id/aprobar — marca una entidad como validada
+  app.post('/api/cola-validacion/:id/aprobar', authenticateToken, tryCatch(async (req, res) => {
+    const entidad = await getRow('SELECT id FROM directorio_entidades WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
+    if (!entidad) return res.status(404).json({ success: false, message: 'Entidad no encontrada' });
+    await runSql(`UPDATE directorio_entidades SET validation_status = 'VALIDADA', updated_at = ? WHERE id = ?`, [new Date().toISOString(), req.params.id]);
+    res.json({ success: true, message: 'Entidad aprobada y validada' });
+  }));
+
+  // POST /api/cola-validacion/:id/descartar — rechaza y soft-delete de la entidad
+  app.post('/api/cola-validacion/:id/descartar', authenticateToken, tryCatch(async (req, res) => {
+    const entidad = await getRow('SELECT id FROM directorio_entidades WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
+    if (!entidad) return res.status(404).json({ success: false, message: 'Entidad no encontrada' });
+    const now = new Date().toISOString();
+    await runSql(`UPDATE directorio_entidades SET validation_status = 'RECHAZADA', deleted_at = ?, updated_at = ? WHERE id = ?`, [now, now, req.params.id]);
+    res.json({ success: true, message: 'Entidad descartada' });
+  }));
   // Proyectos (GET/POST/PATCH/:id gestionados por proyectos.routes.js)
-  app.get('/api/admin/deleted',             authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Papelera administrativa no implementada.' }));
-  app.post('/api/admin/restore/:tipo/:id',  authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Restauración administrativa no implementada.' }));
+  // GET /api/admin/deleted — papelera: usuarios/proyectos/convocatorias con soft-delete
+  app.get('/api/admin/deleted', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Acceso exclusivo de administradores' });
+
+    const [usuarios, proyectos, convocatorias] = await Promise.all([
+      getRows(`SELECT id, email, nombre, createdAt AS created_at, deleted_at FROM usuarios WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT 200`).catch(() => []),
+      getRows(`SELECT id, nombre, estado, created_at, deleted_at FROM proyectos WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT 200`).catch(() => []),
+      getRows(`SELECT id, titulo, estado, created_at, deleted_at FROM convocatorias WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT 200`).catch(() => []),
+    ]);
+
+    res.json({ success: true, usuarios, proyectos, convocatorias });
+  }));
+
+  // POST /api/admin/restore/:tipo/:id — revierte el soft-delete (deleted_at = NULL)
+  const ADMIN_RESTORE_TABLES = { usuario: 'usuarios', proyecto: 'proyectos', convocatoria: 'convocatorias' };
+  app.post('/api/admin/restore/:tipo/:id', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Acceso exclusivo de administradores' });
+
+    const tabla = ADMIN_RESTORE_TABLES[req.params.tipo];
+    if (!tabla) return res.status(400).json({ success: false, message: `tipo inválido — usa: ${Object.keys(ADMIN_RESTORE_TABLES).join(', ')}` });
+
+    const row = await getRow(`SELECT id FROM ${tabla} WHERE id = ? AND deleted_at IS NOT NULL`, [req.params.id]);
+    if (!row) return res.status(404).json({ success: false, message: 'Elemento no encontrado en la papelera' });
+
+    await runSql(`UPDATE ${tabla} SET deleted_at = NULL WHERE id = ?`, [req.params.id]);
+    res.json({ success: true, message: `${req.params.tipo} restaurado correctamente` });
+  }));
   app.post('/api/ia/chat', (req, res) => res.json({ success: true, response: 'IA no disponible en este plan.' }));
   app.post('/api/ia/busqueda-semantica', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
     const { texto, limit = 10, threshold = 0.25 } = req.body;
@@ -1320,11 +3231,233 @@ async function start() {
     }
     res.json({ success: true, data, total: data.length, motor: usePg ? 'pgvector' : 'js-coseno' });
   }));
-  app.post('/api/ia/buscar',                (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Usa POST /api/ia/busqueda-semantica.' }));
-  app.post('/api/ai/convocatoria-analyze',  (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Análisis de convocatoria no implementado.' }));
-  app.post('/api/triggers/run-with-context', authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Triggers contextuales no implementados.' }));
-  app.post('/api/configuracion/guardar',    authenticateToken, (req, res) => res.status(501).json({ success: false, code: 'NOT_IMPLEMENTED', message: 'Configuración persistente no implementada.' }));
-  app.post('/api/radar/barrido-masivo', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
+  // POST /api/ia/buscar — alias real de /api/ia/busqueda-semantica, body { query }
+  // (AIChat.tsx envía "query"; busqueda-semantica espera "texto" — se traduce aquí).
+  app.post('/api/ia/buscar', aiLimiter, tryCatch(async (req, res) => {
+    const texto = String(req.body?.query || '').trim();
+    if (!texto) return res.status(400).json({ success: false, message: 'query requerido' });
+    const qVec   = await textToEmbedding(texto);
+    const vecStr = JSON.stringify(qVec);
+    const usePg  = !!process.env.DATABASE_URL;
+    let data = [];
+    if (usePg) {
+      data = await getRows(
+        `SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado,
+                round((1 - (embedding_vec <=> $1::vector))::numeric, 4) AS similitud
+         FROM convocatorias
+         WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL
+           AND (1 - (embedding_vec <=> $1::vector)) >= 0.25
+         ORDER BY embedding_vec <=> $1::vector LIMIT 10`,
+        [vecStr]
+      );
+    } else {
+      const convs = await getRows("SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL", []);
+      data = convs
+        .map(c => ({ ...c, embedding: undefined, similitud: Math.round(cosineSimilarity(qVec, deserializeEmbedding(c.embedding)) * 10000) / 10000 }))
+        .filter(c => c.similitud >= 0.25)
+        .sort((a, b) => b.similitud - a.similitud)
+        .slice(0, 10);
+    }
+    res.json({ success: true, data, total: data.length });
+  }));
+  // POST /api/ai/generate — proxy seguro hacia Google Gemini (la key nunca sale al cliente)
+  app.post('/api/ai/generate', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
+    const GEMINI_KEY = process.env.GOOGLE_API_KEY;
+    if (!GEMINI_KEY) return res.status(503).json({ success: false, code: 'AI_NO_DISPONIBLE', message: 'GOOGLE_API_KEY no configurada.' });
+
+    // Circuit breaker: si la cuota de Gemini está agotada, no gastar la llamada.
+    if (!geminiCB.canCall()) {
+      return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
+    }
+
+    const { messages, temperature = 0.7, max_tokens = 8192 } = req.body;
+    if (!Array.isArray(messages) || messages.length === 0)
+      return res.status(400).json({ success: false, message: 'messages[] requerido' });
+
+    // Validar que cada mensaje tiene role y content string
+    const validRoles = new Set(['system', 'user', 'assistant']);
+    for (const m of messages) {
+      if (!validRoles.has(m?.role) || typeof m?.content !== 'string' || m.content.length > 32_000)
+        return res.status(400).json({ success: false, message: 'Mensaje inválido en messages[]' });
+    }
+
+    // Endpoint OpenAI-compatible de Google — acepta el mismo formato de messages[]
+    const GEMINI_MODEL = 'gemini-2.0-flash';
+    let upstream;
+    try {
+      upstream = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${GEMINI_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ model: GEMINI_MODEL, messages, temperature, max_tokens }),
+        }
+      );
+    } catch (err) {
+      logger.warn('[AI/generate] Fallo de red hacia Gemini', { error: err.message });
+      return res.status(502).json({ success: false, code: 'UPSTREAM_ERROR', message: 'Error en Google Gemini.' });
+    }
+
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => '');
+      if (upstream.status === 429) {
+        geminiCB.recordQuotaError();
+        return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
+      }
+      logger.warn('[AI/generate] Gemini error', { status: upstream.status, body: errText.slice(0, 200) });
+      return res.status(502).json({ success: false, code: 'UPSTREAM_ERROR', message: 'Error en Google Gemini.' });
+    }
+
+    const data = await upstream.json();
+    const content = data?.choices?.[0]?.message?.content ?? '';
+    geminiCB.recordSuccess();
+    res.json({ success: true, result: content, model: GEMINI_MODEL });
+  }));
+
+  // POST /api/radar/barrido-gemini — proxy seguro con Google Search Grounding
+  // (reemplaza la llamada directa cliente→Google que usaba geminiScanner.ts con
+  // una API key guardada en localStorage; la key vive exclusivamente aquí).
+  app.post('/api/radar/barrido-gemini', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
+    const GEMINI_KEY = process.env.GOOGLE_API_KEY;
+    if (!GEMINI_KEY) return res.status(503).json({ success: false, code: 'AI_NO_DISPONIBLE', message: 'GOOGLE_API_KEY no configurada.' });
+
+    const { prompt } = req.body;
+    if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 8_000)
+      return res.status(400).json({ success: false, message: 'prompt requerido (máx 8000 caracteres)' });
+
+    if (!geminiCB.canCall()) {
+      return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
+    }
+
+    const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash-lite', 'gemini-2.0-flash'];
+    let lastErr = null;
+    for (const model of MODELS) {
+      try {
+        const upstream = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              tools: [{ googleSearch: {} }],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
+            }),
+          }
+        );
+
+        if (!upstream.ok) {
+          const errText = await upstream.text().catch(() => '');
+          if (upstream.status === 429) {
+            geminiCB.recordQuotaError();
+            return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
+          }
+          lastErr = new Error(`[${upstream.status}] ${errText.slice(0, 200)}`);
+          continue; // probar el siguiente modelo de la lista
+        }
+
+        const data = await upstream.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+        geminiCB.recordSuccess();
+        return res.json({ success: true, result: text, model });
+      } catch (err) {
+        lastErr = err;
+        if (isQuotaError(err)) {
+          geminiCB.recordQuotaError();
+          return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
+        }
+      }
+    }
+
+    logger.warn('[radar/barrido-gemini] Todos los modelos fallaron', { error: lastErr?.message });
+    return res.status(502).json({ success: false, code: 'UPSTREAM_ERROR', message: 'Error en Google Gemini.' });
+  }));
+
+  // POST /api/ai/convocatoria-analyze — mismo proxy seguro que /api/ai/generate
+  // (geminiCB gating, key server-side), body { prompt, context }.
+  app.post('/api/ai/convocatoria-analyze', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
+    const GEMINI_KEY = process.env.GOOGLE_API_KEY;
+    if (!GEMINI_KEY) return res.status(503).json({ success: false, code: 'AI_NO_DISPONIBLE', message: 'GOOGLE_API_KEY no configurada.' });
+    if (!geminiCB.canCall()) return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
+
+    const { prompt, context } = req.body;
+    if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 32_000) {
+      return res.status(400).json({ success: false, message: 'prompt requerido (máx 32000 caracteres)' });
+    }
+
+    const fullPrompt = context ? `${prompt}\n\nContexto adicional:\n${String(context).slice(0, 8000)}` : prompt;
+    const GEMINI_MODEL = 'gemini-2.0-flash';
+    let upstream;
+    try {
+      upstream = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`,
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${GEMINI_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: GEMINI_MODEL, messages: [{ role: 'user', content: fullPrompt }], temperature: 0.4, max_tokens: 4096 }),
+        }
+      );
+    } catch (err) {
+      logger.warn('[ai/convocatoria-analyze] Fallo de red hacia Gemini', { error: err.message });
+      return res.status(502).json({ success: false, code: 'UPSTREAM_ERROR', message: 'Error en Google Gemini.' });
+    }
+
+    if (!upstream.ok) {
+      if (upstream.status === 429) { geminiCB.recordQuotaError(); return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE); }
+      const errText = await upstream.text().catch(() => '');
+      logger.warn('[ai/convocatoria-analyze] Gemini error', { status: upstream.status, body: errText.slice(0, 200) });
+      return res.status(502).json({ success: false, code: 'UPSTREAM_ERROR', message: 'Error en Google Gemini.' });
+    }
+
+    const data = await upstream.json();
+    geminiCB.recordSuccess();
+    res.json({ success: true, result: data?.choices?.[0]?.message?.content ?? '', model: GEMINI_MODEL });
+  }));
+
+  // POST /api/triggers/run-with-context — registra el contexto de alertas/soportes
+  // como traza de auditoría real en system_logs (tabla ya existente).
+  app.post('/api/triggers/run-with-context', authenticateToken, tryCatch(async (req, res) => {
+    const { alertas = [], soportes = [] } = req.body || {};
+    const id = crypto.randomUUID();
+    await runSql(
+      `INSERT INTO system_logs (id, origen, mensaje, payload, nivel, created_at) VALUES (?,?,?,?,?,?)`,
+      [
+        id, 'triggers/run-with-context',
+        `Contexto de disparadores ejecutado: ${alertas.length} alerta(s), ${soportes.length} soporte(s)`,
+        JSON.stringify({ alertas, soportes, userId: req.userId }),
+        'INFO',
+        new Date().toISOString(),
+      ]
+    );
+    res.json({ success: true, message: 'Contexto registrado', log_id: id, alertas: alertas.length, soportes: soportes.length });
+  }));
+
+  // POST /api/configuracion/guardar — persiste credenciales de IA por usuario
+  // (mismo patrón cifrado que POST /api/credentials, tabla user_credentials).
+  app.post('/api/configuracion/guardar', authenticateToken, tryCatch(async (req, res) => {
+    const { cuentaGoogleNotebook, apiKeyMotorBusqueda } = req.body || {};
+    if (!apiKeyMotorBusqueda) return res.status(400).json({ success: false, message: 'apiKeyMotorBusqueda requerido' });
+
+    const enc = process.env.ENCRYPTION_KEY;
+    if (!enc) return res.status(503).json({ success: false, message: 'Servicio de configuración no disponible — ENCRYPTION_KEY no configurada' });
+
+    const apiKeyEnc = encryptKey(apiKeyMotorBusqueda, enc);
+    const nbKeyEnc  = cuentaGoogleNotebook ? encryptKey(cuentaGoogleNotebook, enc) : null;
+    const existing  = await getRow('SELECT id FROM user_credentials WHERE user_id = ?', [req.userId]);
+    if (existing) {
+      await runSql('UPDATE user_credentials SET api_key_enc = ?, notebook_key_enc = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [apiKeyEnc, nbKeyEnc, req.userId]);
+    } else {
+      await runSql('INSERT INTO user_credentials (id, user_id, api_key_enc, notebook_key_enc) VALUES (?, ?, ?, ?)', [crypto.randomUUID(), req.userId, apiKeyEnc, nbKeyEnc]);
+    }
+    res.json({ success: true, message: 'Configuración guardada correctamente' });
+  }));
+  // Handler compartido — /api/radar/barrido es un alias real de esta misma
+  // lógica (antes devolvía 501 diciendo "usa barrido-masivo"; ahora corre la
+  // búsqueda vectorial directamente en vez de redirigir con un mensaje).
+  const barridoMasivoHandler = tryCatch(async (req, res) => {
     const { texto, proyectoId, limit = 50, threshold = 0.25 } = req.body;
     if (!texto?.trim() && !proyectoId) return res.status(400).json({ success: false, message: 'texto o proyectoId requerido' });
     let qVec;
@@ -1362,10 +3495,22 @@ async function start() {
         .slice(0, lim);
     }
     res.json({ success: true, resultados, total: resultados.length, motor: usePg ? 'pgvector·HNSW' : 'js-coseno' });
-  }));
+  });
+  app.post('/api/radar/barrido-masivo', authenticateToken, requireAccess('radar'), aiLimiter, barridoMasivoHandler);
   app.post('/api/convocatorias/filtros', (req, res) => res.json({ success: true, data: [] }));
-  app.put('/api/convocatorias/:id/estado', authenticateToken, tryCatch(async (req, res) => {
+  // FIX AUDITORÍA (crítico): antes cualquier usuario autenticado, de cualquier
+  // tenant, podía poner CUALQUIER valor de estado en CUALQUIER convocatoria —
+  // convocatorias es una tabla compartida por todos los tenants (no tiene
+  // org_id), así que sin este guard un usuario podía marcar como "cerrada"
+  // una oportunidad real para TODOS los demás tenants. Se restringe a
+  // requireAccess('radar') (mismo criterio que el resto de mutaciones de
+  // convocatorias/radar) y se valida el enum real de la columna.
+  const ESTADOS_CONVOCATORIA_VALIDOS = ['abierta', 'cerrada', 'nueva'];
+  app.put('/api/convocatorias/:id/estado', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
     const { estado } = req.body;
+    if (!ESTADOS_CONVOCATORIA_VALIDOS.includes(estado)) {
+      return res.status(400).json({ success: false, message: `estado debe ser uno de: ${ESTADOS_CONVOCATORIA_VALIDOS.join(', ')}` });
+    }
     await runSql('UPDATE convocatorias SET estado = ? WHERE id = ?', [estado, req.params.id]);
     res.json({ success: true });
   }));
@@ -1375,19 +3520,21 @@ async function start() {
   // ════════════════════════════════════════════════════════════════════════════
 
   // F4-02: CRITICAL_DESIGN_EXCEPTION
-  app.post('/api/formulador/validar-estructura', authenticateToken, rejectMaterialsInput, tryCatch(async (req, res) => {
+  app.post('/api/formulador/validar-estructura', authenticateToken, setTenantContext, rejectMaterialsInput, tryCatch(async (req, res) => {
     const { proyectoId, elementos } = req.body;
     if (!proyectoId || !Array.isArray(elementos)) {
       return res.status(400).json({ success: false, message: 'proyectoId y elementos[] requeridos' });
     }
     const { valid, exceptions } = validateStructuralElements(elementos, proyectoId);
     if (!valid) {
-      // Stub para tabla proyectos no existente
+      // RLS-scoped: si proyectoId no pertenece al tenant del usuario, la
+      // policy projects_tenant_rls hace que el UPDATE afecte 0 filas en vez
+      // de bloquear un proyecto ajeno (antes: runSql sin contexto de tenant).
       try {
-        await runSql(
-          "UPDATE proyectos SET estado = 'BLOQUEADO', bloqueo_razon = ? WHERE id = ?",
+        await req.withTenant(client => client.query(
+          "UPDATE proyectos SET estado = 'BLOQUEADO', bloqueo_razon = $1 WHERE id = $2",
           ['CRITICAL_DESIGN_EXCEPTION: columnas en zonas de circulación', proyectoId]
-        );
+        ));
       } catch (e) { if (!e.message?.includes('does not exist')) logger.warn('[Bloqueo] error inesperado', { err: e.message }); }
       
       return res.status(422).json({
@@ -1400,10 +3547,18 @@ async function start() {
     res.json({ success: true, message: 'Validación estructural aprobada', proyectoId });
   }));
 
+  // Ownership compartido para todas las rutas del Motor de Coherencia (Fase 2).
+  async function checkProyectoOwnership(proyectoId, userId) {
+    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+  }
+
   // F4-03: Módulo 3b - Árbol de Objetivos (usa la API key del usuario o la del sistema)
   app.post('/api/modulo3b/arbol/generar', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
     const { proyectoId, objetivoCentral } = req.body;
     if (!proyectoId || !objetivoCentral) return res.status(400).json({ success: false, message: 'proyectoId y objetivoCentral requeridos' });
+    if (!(await checkProyectoOwnership(proyectoId, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
     const apiKey = await resolveGoogleApiKey(req.userId, getRow);
     if (!apiKey) {
       return res.status(503).json({
@@ -1413,15 +3568,364 @@ async function start() {
       });
     }
     const nodos = await generarArbolConIA(objetivoCentral, apiKey);
+
+    // Persistir realmente los nodos en objetivos_arbol — antes se devolvían al
+    // cliente pero nunca se guardaban, dejando "confirmar" sin nada que validar.
+    await runSql('DELETE FROM objetivos_arbol WHERE proyecto_id = ?', [proyectoId]);
+    const ids = nodos.map(() => crypto.randomUUID());
+    for (let i = 0; i < nodos.length; i++) {
+      const n = nodos[i];
+      const parentId = (n.parentIndex !== null && n.parentIndex !== undefined) ? ids[n.parentIndex] : null;
+      await runSql(
+        `INSERT INTO objetivos_arbol (id, proyecto_id, tipo, nivel, texto, parent_id, generado_por_ia, confirmado)
+         VALUES (?, ?, ?, ?, ?, ?, 1, 0)`,
+        [ids[i], proyectoId, n.tipo, n.nivel, n.texto, parentId]
+      );
+    }
+
+    res.json({
+      success: true,
+      data: nodos.map((n, i) => ({
+        ...n, id: ids[i],
+        parent_id: (n.parentIndex !== null && n.parentIndex !== undefined) ? ids[n.parentIndex] : null,
+      })),
+    });
+  }));
+
+  // GET /api/proyectos/:id/arbol — árbol de objetivos ya persistido
+  app.get('/api/proyectos/:id/arbol', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
+    const nodos = await getRows(
+      'SELECT id, tipo, nivel, texto, parent_id, confirmado, supuestos FROM objetivos_arbol WHERE proyecto_id = ? ORDER BY nivel ASC',
+      [req.params.id]
+    );
     res.json({ success: true, data: nodos });
   }));
-  app.post('/api/modulo3b/arbol/:proyectoId/confirmar', authenticateToken, tryCatch(async (req, res) => {
-    await runSql('UPDATE objetivos_arbol SET confirmado = 1 WHERE proyecto_id = ?', [req.params.proyectoId]);
+
+  // PATCH /api/proyectos/:id/arbol/:nodoId — edita texto/supuestos de un nodo puntual
+  // (los "supuestos" alimentan la matriz de marco lógico BID — Fase 5).
+  app.patch('/api/proyectos/:id/arbol/:nodoId', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
+    const { texto, supuestos } = req.body;
+    const updates = [], params = [];
+    if (texto !== undefined)     { updates.push('texto = ?');     params.push(texto); }
+    if (supuestos !== undefined) { updates.push('supuestos = ?'); params.push(supuestos); }
+    if (updates.length === 0) return res.status(400).json({ success: false, message: 'Nada que actualizar' });
+    params.push(req.params.nodoId, req.params.id);
+    await runSql(`UPDATE objetivos_arbol SET ${updates.join(', ')} WHERE id = ? AND proyecto_id = ?`, params);
     res.json({ success: true });
   }));
 
+  // ── Indicadores (project_indicators) — Fase 2 ──────────────────────────────
+  app.get('/api/proyectos/:id/indicadores', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
+    const rows = await getRows(
+      'SELECT id, nombre, tipo, linea_base, meta_total, unidad_medida, fuente_verificacion FROM project_indicators WHERE project_id = ? ORDER BY created_at ASC',
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows });
+  }));
+
+  app.post('/api/proyectos/:id/indicadores', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
+    const { nombre, tipo, linea_base = 0, meta_total, unidad_medida, fuente_verificacion = '' } = req.body;
+    if (!nombre || !tipo || meta_total === undefined || meta_total === '' || !unidad_medida) {
+      return res.status(400).json({ success: false, message: 'nombre, tipo, meta_total y unidad_medida son requeridos' });
+    }
+    const id = crypto.randomUUID();
+    await runSql(
+      `INSERT INTO project_indicators (id, project_id, org_id, nombre, tipo, linea_base, meta_total, unidad_medida, fuente_verificacion)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [id, req.params.id, req.userId, nombre, tipo, linea_base, meta_total, unidad_medida, fuente_verificacion]
+    );
+    res.status(201).json({ success: true, data: { id } });
+  }));
+
+  app.delete('/api/proyectos/:id/indicadores/:indicadorId', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
+    await runSql('DELETE FROM project_indicators WHERE id = ? AND project_id = ?', [req.params.indicadorId, req.params.id]);
+    res.json({ success: true });
+  }));
+
+  // ── Teoría de Cambio (project_change_theory) — Fase 2, 1 fila por proyecto ─
+  app.get('/api/proyectos/:id/teoria-cambio', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
+    const row = await getRow(
+      'SELECT insumos, actividades, productos, resultados_corto_plazo, impacto_largo_plazo FROM project_change_theory WHERE proyecto_id = ?',
+      [req.params.id]
+    );
+    const parseArr = v => { try { return JSON.parse(v || '[]'); } catch { return []; } };
+    res.json({
+      success: true,
+      data: row ? {
+        insumos: parseArr(row.insumos), actividades: parseArr(row.actividades),
+        productos: parseArr(row.productos), resultados_corto_plazo: parseArr(row.resultados_corto_plazo),
+        impacto_largo_plazo: row.impacto_largo_plazo || '',
+      } : null,
+    });
+  }));
+
+  app.put('/api/proyectos/:id/teoria-cambio', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
+    const { insumos = [], actividades = [], productos = [], resultados_corto_plazo = [], impacto_largo_plazo = '' } = req.body;
+    const existing = await getRow('SELECT id FROM project_change_theory WHERE proyecto_id = ?', [req.params.id]);
+    const vals = [JSON.stringify(insumos), JSON.stringify(actividades), JSON.stringify(productos), JSON.stringify(resultados_corto_plazo), impacto_largo_plazo];
+    if (existing) {
+      await runSql(
+        `UPDATE project_change_theory SET insumos=?, actividades=?, productos=?, resultados_corto_plazo=?, impacto_largo_plazo=?, updated_at=CURRENT_TIMESTAMP WHERE proyecto_id=?`,
+        [...vals, req.params.id]
+      );
+    } else {
+      await runSql(
+        `INSERT INTO project_change_theory (id, proyecto_id, org_id, insumos, actividades, productos, resultados_corto_plazo, impacto_largo_plazo)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [crypto.randomUUID(), req.params.id, req.userId, ...vals]
+      );
+    }
+    res.json({ success: true });
+  }));
+
+  // ── Postulaciones por entidad (postulaciones_entidad) ───────────────────────
+  // "Guardar como" ya no duplica el proyecto completo — crea una postulación
+  // hija ligada al proyecto matriz (`proyectos`), con su propio enfoque
+  // narrativo generado por IA y su propio estado de trámite.
+  function extraerContextoMatriz(proyecto) {
+    const fichaTecnica = (() => { try { return JSON.parse(proyecto.ficha_tecnica || '{}'); } catch { return {}; } })();
+    const entradaCompleta   = fichaTecnica.entrada_completa   || {};
+    const contextoNarrativo = fichaTecnica.contexto_narrativo || {};
+    const poblacionPartes = [entradaCompleta.numeroBeneficiarios, entradaCompleta.coberturaGeografica].filter(Boolean);
+    return {
+      problematicaCentral: contextoNarrativo.A_diagnostico || proyecto.problem_statement || '',
+      poblacionObjetivo: poblacionPartes.join(' — '),
+    };
+  }
+
+  app.get('/api/proyectos/:id/postulaciones', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
+    const rows = await getRows(
+      'SELECT id, nombre_entidad, url_lineamientos, enfoque_generado_ia, enfoque_fuente, estado_postulacion, created_at, updated_at FROM postulaciones_entidad WHERE proyecto_matriz_id = ? ORDER BY created_at DESC',
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows });
+  }));
+
+  app.post('/api/proyectos/:id/postulaciones', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
+    const proyecto = await getRow(
+      'SELECT id, ficha_tecnica, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
+      [req.params.id, req.userId]
+    );
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const nombreEntidad = String(req.body?.nombre_entidad || '').trim().slice(0, 255);
+    const urlLineamientos = String(req.body?.url_lineamientos || '').trim().slice(0, 500);
+    if (!nombreEntidad) {
+      return res.status(400).json({ success: false, message: 'nombre_entidad es requerido' });
+    }
+
+    const { problematicaCentral, poblacionObjetivo } = extraerContextoMatriz(proyecto);
+    const { enfoque, fuente } = await generarEnfoqueEntidad({
+      nombreEntidad, urlLineamientos, problematicaCentral, poblacionObjetivo,
+    });
+
+    const id = crypto.randomUUID();
+    await runSql(
+      `INSERT INTO postulaciones_entidad (id, proyecto_matriz_id, org_id, nombre_entidad, url_lineamientos, enfoque_generado_ia, enfoque_fuente, estado_postulacion)
+       VALUES (?,?,?,?,?,?,?,'Borrador')`,
+      [id, req.params.id, req.userId, nombreEntidad, urlLineamientos, enfoque, fuente]
+    );
+
+    res.status(201).json({ success: true, data: { id, nombre_entidad: nombreEntidad, url_lineamientos: urlLineamientos, enfoque_generado_ia: enfoque, enfoque_fuente: fuente, estado_postulacion: 'Borrador' } });
+  }));
+
+  async function checkPostulacionOwnership(postulacionId, userId) {
+    return getRow(
+      'SELECT id, proyecto_matriz_id, nombre_entidad, url_lineamientos FROM postulaciones_entidad WHERE id = ? AND org_id = ?',
+      [postulacionId, userId]
+    );
+  }
+
+  // FIX AUDITORÍA (defensa en profundidad): antes se leía `proyectos` solo por
+  // id (sin org_id), confiando en que proyecto_matriz_id ya venía validado a
+  // través de checkPostulacionOwnership. Funcionalmente seguro (esa invariante
+  // siempre se cumple hoy), pero no autoevidente — se agrega el filtro directo
+  // para que esta consulta sea segura por sí misma, sin depender de otra.
+  app.post('/api/postulaciones/:id/regenerar-enfoque', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
+    const postulacion = await checkPostulacionOwnership(req.params.id, req.userId);
+    if (!postulacion) return res.status(404).json({ success: false, message: 'Postulación no encontrada' });
+
+    const proyecto = await getRow(
+      'SELECT ficha_tecnica, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
+      [postulacion.proyecto_matriz_id, req.userId]
+    );
+    const { problematicaCentral, poblacionObjetivo } = extraerContextoMatriz(proyecto || {});
+    const { enfoque, fuente } = await generarEnfoqueEntidad({
+      nombreEntidad: postulacion.nombre_entidad, urlLineamientos: postulacion.url_lineamientos, problematicaCentral, poblacionObjetivo,
+    });
+
+    await runSql(
+      'UPDATE postulaciones_entidad SET enfoque_generado_ia = ?, enfoque_fuente = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [enfoque, fuente, req.params.id]
+    );
+    res.json({ success: true, data: { enfoque_generado_ia: enfoque, enfoque_fuente: fuente } });
+  }));
+
+  app.patch('/api/postulaciones/:id', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    if (!(await checkPostulacionOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Postulación no encontrada' });
+    }
+    const { estado_postulacion, url_lineamientos, enfoque_generado_ia } = req.body;
+    const ESTADOS_VALIDOS = ['Borrador', 'Radicado', 'Aprobado', 'Rechazado'];
+    if (estado_postulacion !== undefined && !ESTADOS_VALIDOS.includes(estado_postulacion)) {
+      return res.status(400).json({ success: false, message: `estado_postulacion debe ser uno de: ${ESTADOS_VALIDOS.join(', ')}` });
+    }
+    const updates = [], params = [];
+    if (estado_postulacion !== undefined)  { updates.push('estado_postulacion = ?'); params.push(estado_postulacion); }
+    if (url_lineamientos !== undefined)    { updates.push('url_lineamientos = ?');   params.push(String(url_lineamientos).slice(0, 500)); }
+    if (enfoque_generado_ia !== undefined) { updates.push('enfoque_generado_ia = ?'); params.push(String(enfoque_generado_ia).slice(0, 2000)); }
+    if (updates.length === 0) return res.status(400).json({ success: false, message: 'Nada que actualizar' });
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+    params.push(req.params.id);
+    await runSql(`UPDATE postulaciones_entidad SET ${updates.join(', ')} WHERE id = ?`, params);
+    res.json({ success: true });
+  }));
+
+  app.delete('/api/postulaciones/:id', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    if (!(await checkPostulacionOwnership(req.params.id, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Postulación no encontrada' });
+    }
+    await runSql('DELETE FROM postulaciones_entidad WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  }));
+
+  // Confirmar coherencia del árbol — validación REAL (antes: UPDATE ciego sin
+  // verificar nada, y sin nodos persistidos no había ni siquiera qué validar).
+  app.post('/api/modulo3b/arbol/:proyectoId/confirmar', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
+    const proyectoId = req.params.proyectoId;
+    if (!(await checkProyectoOwnership(proyectoId, req.userId))) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
+
+    const nodos = await getRows('SELECT id, tipo, parent_id FROM objetivos_arbol WHERE proyecto_id = ?', [proyectoId]);
+    const detail = [];
+
+    if (nodos.length === 0) {
+      detail.push('El árbol de objetivos está vacío — genera el árbol antes de confirmar.');
+    } else {
+      const centrales = nodos.filter(n => n.tipo === 'CENTRAL');
+      if (centrales.length !== 1) detail.push(`Debe existir exactamente 1 nodo CENTRAL (hay ${centrales.length}).`);
+
+      const idsValidos = new Set(nodos.map(n => n.id));
+      const sinPadre = nodos.filter(n => n.tipo !== 'CENTRAL' && !n.parent_id);
+      if (sinPadre.length > 0) detail.push(`${sinPadre.length} nodo(s) sin padre asignado (parent_id vacío).`);
+      const huerfanos = nodos.filter(n => n.tipo !== 'CENTRAL' && n.parent_id && !idsValidos.has(n.parent_id));
+      if (huerfanos.length > 0) detail.push(`${huerfanos.length} nodo(s) con parent_id que no resuelve a otro nodo del árbol.`);
+
+      // Detección de ciclos: cada nodo debe llegar a CENTRAL en un número finito de saltos.
+      const byId = new Map(nodos.map(n => [n.id, n]));
+      for (const n of nodos) {
+        let cur = n, saltos = 0;
+        while (cur && cur.tipo !== 'CENTRAL' && saltos <= nodos.length) {
+          cur = cur.parent_id ? byId.get(cur.parent_id) : null;
+          saltos++;
+        }
+        if (saltos > nodos.length) { detail.push('Se detectó un ciclo en el árbol (un nodo termina siendo ancestro de sí mismo).'); break; }
+      }
+    }
+
+    const totalIndicadores = await getCount('SELECT COUNT(*) as cnt FROM project_indicators WHERE project_id = ?', [proyectoId]);
+    if (totalIndicadores === 0) {
+      detail.push('El proyecto no tiene ningún indicador registrado — todo objetivo debe tener al menos 1 indicador verificable.');
+    }
+
+    const tdc = await getRow('SELECT resultados_corto_plazo, impacto_largo_plazo FROM project_change_theory WHERE proyecto_id = ?', [proyectoId]);
+    if (tdc) {
+      let resultados = [];
+      try { resultados = JSON.parse(tdc.resultados_corto_plazo || '[]'); } catch { /* noop */ }
+      if (resultados.length > 0 && !String(tdc.impacto_largo_plazo || '').trim()) {
+        detail.push('Hay resultados de corto plazo definidos pero no hay impacto de largo plazo — la cadena causal queda incompleta.');
+      }
+    }
+
+    if (detail.length > 0) {
+      return res.status(422).json({ success: false, message: 'El árbol no pasa la validación de coherencia', detail });
+    }
+
+    await runSql('UPDATE objetivos_arbol SET confirmado = 1 WHERE proyecto_id = ?', [proyectoId]);
+    res.json({ success: true, message: 'Árbol confirmado — coherencia verificada' });
+  }));
+
+  // PATCH /api/proyectos/:id/ficha-tecnica-merge — upsert de UNA clave dentro de
+  // ficha_tecnica (JSON), leyendo y escribiendo en el servidor en una sola
+  // petición. Reemplaza el patrón cliente GET→merge→PATCH (usado antes por
+  // ContextoPage) que mantenía una copia de ficha_tecnica en el navegador
+  // durante todo el tiempo de edición del usuario — aquí la lectura ocurre
+  // justo antes de escribir, acortando la ventana de carrera entre pestañas.
+  app.patch('/api/proyectos/:id/ficha-tecnica-merge', authenticateToken, tryCatch(async (req, res) => {
+    const { key, value } = req.body;
+    if (!key || typeof key !== 'string') {
+      return res.status(400).json({ success: false, message: 'key (string) es requerido' });
+    }
+    const proyecto = await getRow('SELECT ficha_tecnica FROM proyectos WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    let ficha = {};
+    try { ficha = JSON.parse(proyecto.ficha_tecnica || '{}'); } catch { ficha = {}; }
+    ficha[key] = value;
+
+    await runSql(
+      'UPDATE proyectos SET ficha_tecnica = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
+      [JSON.stringify(ficha), req.params.id, req.userId]
+    );
+    res.json({ success: true, message: 'Ficha técnica actualizada' });
+  }));
+
+  // POST /api/radar/persistir-barrido — guarda en convocatorias los resultados
+  // reales de "Iniciar Barrido" (Gemini Search Grounding, PestañaRadar.tsx).
+  // Antes esos resultados eran reales (no un mock) pero solo vivían en memoria
+  // del navegador — desaparecían al recargar. Dedup por url_convocatoria.
+  app.post('/api/radar/persistir-barrido', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
+    const { resultados } = req.body;
+    if (!Array.isArray(resultados) || resultados.length === 0) {
+      return res.status(400).json({ success: false, message: 'resultados (array) es requerido' });
+    }
+    let insertadas = 0, duplicadas = 0;
+    for (const r of resultados.slice(0, 100)) {
+      const url = String(r.enlace_oficial || '').trim();
+      const titulo = String(r.titulo || '').trim();
+      if (!url || !titulo || url === '#') continue;
+      const existente = await getRow('SELECT id FROM convocatorias WHERE url_convocatoria = ?', [url]);
+      if (existente) { duplicadas++; continue; }
+      const estado = /abiert/i.test(r.estado || '') ? 'abierta' : (/próxim|proxim/i.test(r.estado || '') ? 'abierta' : 'abierta');
+      await runSql(
+        `INSERT INTO convocatorias
+           (id, titulo, donante, fuente, descripcion, url_convocatoria, estado, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [crypto.randomUUID(), titulo.slice(0, 300), String(r.fuente || 'Desconocido').slice(0, 200),
+         'RASTREO_MANUAL_IA', String(r.descripcion_corta || '').slice(0, 800), url, estado, new Date().toISOString()]
+      );
+      insertadas++;
+    }
+    res.json({ success: true, insertadas, duplicadas, message: `${insertadas} convocatoria(s) guardada(s), ${duplicadas} ya existían` });
+  }));
+
   // F4-04: Módulo 7 - Match Score Pipeline (requiere plan formulador + GOOGLE_API_KEY)
-  app.post('/api/modulo7/match/:proyectoId', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
+  app.post('/api/modulo7/match/:proyectoId', authenticateToken, setTenantContext, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
     const apiKey = await resolveGoogleApiKey(req.userId, getRow);
     if (!apiKey) {
       return res.status(503).json({
@@ -1430,12 +3934,14 @@ async function start() {
         message: 'El módulo de Match Score requiere Google API Key. Configura tu clave en Ajustes o contacta al administrador.',
       });
     }
-    // SECURITY FIX: verificar ownership antes de pasar al pipeline
-    const ownerCheck = await getRow(
-      'SELECT id FROM proyectos WHERE id = ? AND org_id = ?',
+    // SECURITY FIX: verificar ownership antes de pasar al pipeline.
+    // RLS-scoped vía req.withTenant — projects_tenant_rls es la segunda
+    // barrera detrás del WHERE org_id explícito, no un reemplazo de este.
+    const ownerCheck = await req.withTenant(client => client.query(
+      'SELECT id FROM proyectos WHERE id = $1 AND org_id = $2',
       [req.params.proyectoId, req.userId]
-    );
-    if (!ownerCheck) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    ));
+    if (!ownerCheck.rows?.[0]) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
     try {
       const results = await runMatchPipeline(req.params.proyectoId, getRow, getRows, runSql);
@@ -1446,6 +3952,84 @@ async function start() {
       }
       throw err;
     }
+  }));
+
+  // Scoring dinámico del Dashboard Formulador — reemplaza el mock estático
+  // SECTIONS de DashboardFormuladorPage.tsx con cálculo real sobre BD.
+  app.get('/api/proyectos/:id/scoring-dinamico', authenticateToken, setTenantContext, tryCatch(async (req, res) => {
+    const ownerCheck = await req.withTenant(client => client.query(
+      'SELECT id FROM proyectos WHERE id = $1 AND org_id = $2',
+      [req.params.id, req.userId]
+    ));
+    if (!ownerCheck.rows?.[0]) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const resultado = await calcularScoringDinamico(req.params.id, { getRow, getRows });
+    if (!resultado) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    res.json({ success: true, data: resultado });
+  }));
+
+  // Motor de Viabilidad con Gemini real — conecta NN_Viability_Agent.ts (frontend)
+  // a un análisis real de IA sobre el proyecto y sus anexos. Usa la tabla
+  // `proyectos` (esquema realmente activo: TEXT ids, sin tenant_id) en vez de
+  // `projects`, porque POST /api/proyectos inserta ahí, no en `projects`.
+  app.post('/api/proyectos/:id/viabilidad-ia', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
+    const proyecto = await getRow(
+      'SELECT id, nombre, ficha_tecnica, presupuesto, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
+      [req.params.id, req.userId]
+    );
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    // project_anexos / objetivos_arbol.supuestos / project_change_theory pueden
+    // no existir todavía en esta instancia (ver nota de despliegue) — cada
+    // consulta degrada con gracia a valor vacío en vez de fallar 500.
+    let anexos = [];
+    try {
+      anexos = await getRows('SELECT nombre_archivo, categoria FROM project_anexos WHERE project_id = ?', [req.params.id]);
+    } catch (e) {
+      logger.warn('[viabilidad-ia] project_anexos no disponible — continuando sin anexos', { proyectoId: req.params.id, err: e.message });
+    }
+
+    let supuestosArbol = [];
+    try {
+      const nodos = await getRows('SELECT supuestos FROM objetivos_arbol WHERE proyecto_id = ? AND supuestos IS NOT NULL', [req.params.id]);
+      supuestosArbol = nodos.map(n => n.supuestos).filter(Boolean);
+    } catch (e) {
+      logger.warn('[viabilidad-ia] objetivos_arbol.supuestos no disponible', { proyectoId: req.params.id, err: e.message });
+    }
+
+    let resultadosCambio = [];
+    try {
+      const tdc = await getRow('SELECT resultados_corto_plazo FROM project_change_theory WHERE proyecto_id = ?', [req.params.id]);
+      if (tdc?.resultados_corto_plazo) resultadosCambio = JSON.parse(tdc.resultados_corto_plazo);
+    } catch (e) {
+      logger.warn('[viabilidad-ia] project_change_theory no disponible', { proyectoId: req.params.id, err: e.message });
+    }
+
+    const fichaTecnica = (() => { try { return JSON.parse(proyecto.ficha_tecnica || '{}'); } catch { return {}; } })();
+    const presupuesto  = (() => { try { return JSON.parse(proyecto.presupuesto  || '{}'); } catch { return {}; } })();
+    const entradaCompleta   = fichaTecnica.entrada_completa   || {};
+    const contextoNarrativo = fichaTecnica.contexto_narrativo || {};
+
+    const resultado = await calcularViabilidadIA({
+      id: req.params.id,
+      nombre: proyecto.nombre,
+      problema: contextoNarrativo.A_diagnostico || proyecto.problem_statement || '',
+      metaEsperada: contextoNarrativo.C_meta || '',
+      poblacionAfectada: entradaCompleta.numeroBeneficiarios || '',
+      coberturaGeografica: entradaCompleta.coberturaGeografica || '',
+      presupuesto, anexos, supuestosArbol, resultadosCambio,
+    });
+
+    // Persistencia real dentro de ficha_tecnica (columna JSON ya existente) —
+    // evita depender de una columna/tabla nueva que requeriría DDL.
+    const fichaActualizada = { ...fichaTecnica, viabilidad_ia: resultado };
+    await runSql(
+      'UPDATE proyectos SET ficha_tecnica = ?, updated_at = ? WHERE id = ? AND org_id = ?',
+      [JSON.stringify(fichaActualizada), new Date().toISOString(), req.params.id, req.userId]
+    );
+
+    res.json({ success: true, data: resultado });
   }));
 
   // F4-05: Módulo 8 - Modularidad y Registro
@@ -1476,7 +4060,7 @@ async function start() {
   registerMotorDialecticoRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
 
   // V8.0 — Formulador: M5 Configuración Logística
-  registerConfigLogisticaRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
+  registerConfigLogisticaRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch });
 
   // V8.0 — Formulador: M8 Marco Normativo
   registerMarcoNormativoRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
@@ -1496,8 +4080,14 @@ async function start() {
   // M4: Presupuesto APU por proyecto
   registerPresupuestoRoutes(app, { authenticateToken, runSql, getRow, getRows });
 
+  // Anexos: CRUD real contra project_anexos (migración 013) — reemplaza localStorage de AnexosView.tsx
+  await registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows });
+
   // F5-01: Módulo 9 — Cross-Check Pipeline & Radicación
   registerRadicacionRoutes(app, { authenticateToken, runSql, getRow });
+
+  // Fase 5: Exportación a estructura MGA / BID / OXI
+  registerExportacionRoutes(app, { authenticateToken, getRow, getRows, tryCatch });
 
   // F5-02: Módulo 9 — Exportación Certificada (reporte PDF SSR)
   registerReporteRoutes(app, { authenticateToken, getRow });
@@ -1506,6 +4096,15 @@ async function start() {
   registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRow, encryptKey, JWT_SECRET });
 
   // ════════════════════════════════════════════════════════════════════════════
+  // ── Error handler global (CORS + otros errores de Express) ──────────────
+  app.use((err, req, res, _next) => {
+    if (err.message?.startsWith('CORS:')) {
+      return res.status(403).json({ success: false, code: 'CORS_BLOCKED', message: err.message });
+    }
+    logger.error('[server] Error middleware', { path: req.path, err: err.message });
+    res.status(500).json({ success: false, message: 'Error interno del servidor' });
+  });
+
   // FRONTEND ESTÁTICO — DEBE IR AL FINAL (Express 5: '/{*path}')
   // ════════════════════════════════════════════════════════════════════════════
   const distPath = path.join(__dirname, 'dist');
@@ -1519,9 +4118,55 @@ async function start() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[server] Activo en puerto ${PORT}`);
-    // Activar cron de actualización diaria de convocatorias (02:00 COT)
-    try { startScheduler(); } catch (e) { console.error('[server] startScheduler error:', e.message); }
+    // Activar cron de actualización diaria de convocatorias (02:00 COT).
+    // Si un admin lo detuvo con POST /api/radar/stop, respeta esa preferencia al reiniciar.
+    try {
+      startScheduler();
+      getRow(`SELECT value FROM app_settings WHERE key = 'radar_scheduler_enabled'`)
+        .then(row => { if (row?.value === 'false') pauseScheduler(); })
+        .catch(() => {});
+    } catch (e) { console.error('[server] startScheduler error:', e.message); }
+    // Backfill root_domain en background (no bloquea arranque)
+    setImmediate(() => backfillRootDomains().catch(e => console.warn('[backfill] root_domain error:', e.message)));
+    // Barrido endsWith: vincula convocatorias R2 al Directorio tras el backfill
+    setImmediate(() => sweepEndsWith().catch(e => console.warn('[sweep/endsWith] startup error:', e.message)));
+    // Clasificación de sectores en background: 30s después del arranque para no interferir con otros inits
+    setTimeout(() => clasificarSectoresEnBatch(500).catch(e => console.warn('[Sectores] startup error:', e.message)), 30_000);
+    // Enriquecimiento de montos: 90s después (evita concurrencia con sectores)
+    setTimeout(() => enriquecerMontosBatch(300).catch(e => console.warn('[Montos] startup error:', e.message)), 90_000);
   });
+}
+
+// getApexDomain y extractRootDomain importados desde backend/utils/domainUtils.js
+
+// ── Backfill root_domain en directorio_entidades y convocatorias ────────────
+async function backfillRootDomains() {
+  // getApexDomain acepta URL completa directamente
+  function rdFromUrl(url) {
+    if (!url) return null;
+    const u = url.startsWith('http') ? url : `https://${url}`;
+    return getApexDomain(u);
+  }
+  let ec = 0, cc = 0;
+  // Entidades — solo actualiza registros con root_domain ausente o vacío
+  const ents = await getRows(
+    `SELECT id, sitio_web FROM directorio_entidades WHERE sitio_web IS NOT NULL AND sitio_web != '' AND deleted_at IS NULL AND (root_domain IS NULL OR root_domain = '')`,
+    []
+  );
+  for (const e of ents) {
+    const rd = rdFromUrl(e.sitio_web);
+    if (rd) { await runSql(`UPDATE directorio_entidades SET root_domain = ? WHERE id = ?`, [rd, e.id]); ec++; }
+  }
+  // Convocatorias — solo registros sin root_domain; lote de 5000
+  const convs = await getRows(
+    `SELECT id, url_fuente, url_convocatoria FROM convocatorias WHERE deleted_at IS NULL AND (root_domain IS NULL OR root_domain = '') LIMIT 5000`,
+    []
+  );
+  for (const c of convs) {
+    const rd = rdFromUrl(c.url_fuente) || rdFromUrl(c.url_convocatoria);
+    if (rd) { await runSql(`UPDATE convocatorias SET root_domain = ? WHERE id = ?`, [rd, c.id]); cc++; }
+  }
+  if (ec || cc) console.info(`[backfill] root_domain: ${ec} entidades, ${cc} convocatorias actualizadas.`);
 }
 
 start().catch(err => {

@@ -131,6 +131,43 @@ export function sanitizeFormuladorBody(req, res, next) {
   next();
 }
 
+// ── Slowdown anti-DDoS — retraso progresivo antes de bloquear ─────────────────
+// Después de `freeRequests` por ventana, cada request adicional añade `delayMs`
+const _slowStore = new Map(); // ip → { count, resetAt }
+const SLOW_WINDOW_MS    = 15 * 60 * 1000; // 15 min
+const SLOW_FREE         = 100;             // requests gratis por ventana
+const SLOW_DELAY_MS     = 500;             // ms añadidos por request extra
+const SLOW_MAX_DELAY_MS = 10_000;          // tope: 10 s
+
+export function slowDown(req, res, next) {
+  const ip  = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown')
+              .toString().split(',')[0].trim();
+  const now = Date.now();
+  let entry = _slowStore.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 1, resetAt: now + SLOW_WINDOW_MS };
+  } else {
+    entry.count++;
+  }
+  _slowStore.set(ip, entry);
+
+  const excess = entry.count - SLOW_FREE;
+  if (excess <= 0) return next();
+
+  const delay = Math.min(excess * SLOW_DELAY_MS, SLOW_MAX_DELAY_MS);
+  res.setHeader('X-RateLimit-Delay-Ms', delay);
+  setTimeout(next, delay);
+}
+
+// Limpieza periódica del store (evita leak de memoria)
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of _slowStore) {
+    if (now > entry.resetAt) _slowStore.delete(ip);
+  }
+}, SLOW_WINDOW_MS);
+
 export const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',

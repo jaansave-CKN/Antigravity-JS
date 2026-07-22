@@ -96,8 +96,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: { Authorization: `Bearer ${storedToken}` },
       });
       if (!response.ok) {
-        // El backend respondió: el token fue rechazado (inválido/expirado/revocado) → cerrar sesión
-        clearSession();
+        // Token rechazado. En dev, cambiar a demo-mode-token para no bloquear el trabajo local.
+        if (import.meta.env.DEV) {
+          const devUser = { id: 'dev-user-001', email: 'dev@antigravity.local', nombre: 'Desarrollador Local', role: 'admin' as const, plan: 'suite', created_at: new Date().toISOString(), is_active: true };
+          localStorage.setItem('auth_token', 'demo-mode-token');
+          localStorage.setItem('auth_user', JSON.stringify(devUser));
+          setToken('demo-mode-token');
+          setUser(devUser);
+        } else {
+          clearSession();
+        }
         setLoading(false);
         return;
       }
@@ -125,6 +133,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         (err instanceof DOMException && err.name === 'AbortError');
 
       if (isNetworkError) {
+        // En dev, si el backend no estaba listo al arrancar, evitar propagar un JWT stale
+        // que fallará en los endpoints cuando el backend sí esté disponible.
+        if (import.meta.env.DEV) {
+          const devUser = { id: 'dev-user-001', email: 'dev@antigravity.local', nombre: 'Desarrollador Local', role: 'admin' as const, plan: 'suite', created_at: new Date().toISOString(), is_active: true };
+          localStorage.setItem('auth_token', 'demo-mode-token');
+          localStorage.setItem('auth_user', JSON.stringify(devUser));
+          setToken('demo-mode-token');
+          setUser(devUser);
+          console.warn('[Auth] Backend no disponible — modo dev activo con demo-mode-token');
+        } else {
         const storedUser = localStorage.getItem('auth_user');
         if (storedUser) {
           try {
@@ -135,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.warn('[Auth] Backend no disponible — manteniendo sesión local (reconectando)');
           } catch { clearSession(); }
         } else { clearSession(); }
+        }
       } else {
         // Error inesperado no relacionado con la red → cerrar sesión por seguridad
         console.warn('[Auth] Error inesperado en verificación de token, cerrando sesión:', err);

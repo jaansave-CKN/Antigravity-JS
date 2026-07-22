@@ -1,38 +1,52 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContextNew';
-import Dashboard from './Dashboard';
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
-import PasswordResetPage from './pages/PasswordResetPage';
-import ControlPanel from './pages/ControlPanel';
-import DirectoryPage from './pages/DirectoryPage';
-import ImportPage from './pages/ImportPage';
-import CredentialsPage from './pages/CredentialsPage';
 import TopNavBar from './components/TopNavBar';
 import AuthGuard from './components/AuthGuard';
 import { FavoritosProvider } from './contexts/FavoritosContext';
-import LandingPage from './pages/LandingPage';
-import FormuladorPage from './pages/FormuladorPage';
-import PlanesPage from './pages/PlanesPage';
-import FavoritosPage from './pages/FavoritosPage';
-import AnexosPage from './pages/AnexosPage';
-import ModuloProximamente from './pages/ModuloProximamente';
-import PanelPage from './pages/PanelPage';
-import Modulo10Page from './pages/Modulo10Page';
 import { SubscriptionProvider, useSubscription } from './contexts/SubscriptionContext';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { RadarProvider } from './contexts/RadarContext';
 import { SearchProvider } from './contexts/SearchContext';
-import FormulacionViewer from './components/FormulacionViewer';
-import LogisticaPage from './pages/LogisticaPage';
-import RadarCalcoPage from './pages/RadarCalcoPage';
-import CalendarioPage from './pages/CalendarioPage';
-import EntradaPage from './pages/EntradaPage';
-import DialecticaPage from './pages/DialecticaPage';
-import PopulationObjectiveWizard from './components/formulador/PopulationObjectiveWizard';
+import FormuladorLayout from './components/FormuladorLayout';
+import AppLeftNav from './components/AppLeftNav';
 import './index.css';
+
+// ── Code-splitting: cada página (y sus dependencias pesadas — leaflet, xlsx,
+// jspdf, framer-motion — solo se descargan al visitarla, no en el bundle
+// inicial. Antes TODO se importaba de forma estática (Fase 6). ─────────────
+const Dashboard              = lazy(() => import('./Dashboard'));
+const LoginPage              = lazy(() => import('./pages/LoginPage'));
+const RegisterPage           = lazy(() => import('./pages/RegisterPage'));
+const PasswordResetPage      = lazy(() => import('./pages/PasswordResetPage'));
+const ControlPanel           = lazy(() => import('./pages/ControlPanel'));
+const DirectoryPage          = lazy(() => import('./pages/DirectoryPage'));
+const ImportPage             = lazy(() => import('./pages/ImportPage'));
+const CredentialsPage        = lazy(() => import('./pages/CredentialsPage'));
+const LandingPage            = lazy(() => import('./pages/LandingPage'));
+const TerminosPage           = lazy(() => import('./pages/TerminosPage'));
+const PrivacidadPage         = lazy(() => import('./pages/PrivacidadPage'));
+const ChecklistPage          = lazy(() => import('./pages/ChecklistPage'));
+const FichaTecnicaPage       = lazy(() => import('./pages/FichaTecnicaPage'));
+const PlanesPage             = lazy(() => import('./pages/PlanesPage'));
+const FavoritosPage          = lazy(() => import('./pages/FavoritosPage'));
+const AnexosPage             = lazy(() => import('./pages/AnexosPage'));
+const PanelPage              = lazy(() => import('./pages/PanelPage'));
+const FormulacionViewer      = lazy(() => import('./components/FormulacionViewer'));
+const LogisticaPage          = lazy(() => import('./pages/LogisticaPage'));
+// Revertido a pedido del usuario: el diseño Stitch (PestañaRadar) reemplazó
+// este diseño y no gustó — RadarCalcoPage (LayoutPadre) vuelve a ser /radar.
+const RadarCalcoPage         = lazy(() => import('./pages/RadarCalcoPage'));
+const CalendarioPage         = lazy(() => import('./pages/CalendarioPage'));
+const EntradaPage            = lazy(() => import('./pages/EntradaPage'));
+const DialecticaPage         = lazy(() => import('./pages/DialecticaPage'));
+const ViabilidadPage         = lazy(() => import('./pages/ViabilidadPage'));
+const ContextoPage           = lazy(() => import('./pages/ContextoPage'));
+const ArbolObjetivosPage     = lazy(() => import('./pages/ArbolObjetivosPage'));
+const ExportacionPage        = lazy(() => import('./pages/ExportacionPage'));
+const Modulo10Page           = lazy(() => import('./pages/Modulo10Page'));
+const PopulationObjectiveWizard = lazy(() => import('./components/formulador/PopulationObjectiveWizard'));
 import 'leaflet/dist/leaflet.css';
 import { validateEnv } from './utils/envValidator';
 import { captureError } from './lib/sentry';
@@ -204,16 +218,35 @@ function PlanGate({ require: plan, children }: { require: 'radar' | 'formulador'
   return <>{children}</>;
 }
 
-// ── App layout (TopNavBar + página envuelta en ErrorBoundary por ruta) ────────
+// ── Fallback de carga para páginas lazy (Fase 6 — code-splitting) ──────────
+function RouteLoadingFallback() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0b1326' }}>
+      <span style={{
+        width: 28, height: 28, borderRadius: '50%',
+        border: '3px solid rgba(142,213,255,0.25)', borderTopColor: '#8ed5ff',
+        animation: 'main-spin 0.8s linear infinite', display: 'block',
+      }} />
+      <style>{'@keyframes main-spin { to { transform: rotate(360deg); } }'}</style>
+    </div>
+  );
+}
+
+// ── App layout (TopNavBar + AppLeftNav + página envuelta en ErrorBoundary por ruta) ────────
 function AppLayout() {
   return (
     <FavoritosProvider>
       <SearchProvider>
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
           <TopNavBar />
-          <ErrorBoundary routeName="página">
-            <Outlet />
-          </ErrorBoundary>
+          <div style={{ display: 'flex', flex: 1 }}>
+            <AppLeftNav />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <ErrorBoundary routeName="página">
+                <Outlet />
+              </ErrorBoundary>
+            </div>
+          </div>
         </div>
       </SearchProvider>
     </FavoritosProvider>
@@ -243,6 +276,8 @@ function AppRoutes() {
       <Route path="/login"          element={realAuth ? toHome : <LoginPage />} />
       <Route path="/register"       element={realAuth ? toHome : <RegisterPage />} />
       <Route path="/reset-password" element={<PasswordResetPage />} />
+      <Route path="/terminos"       element={<TerminosPage />} />
+      <Route path="/privacidad"     element={<PrivacidadPage />} />
 
       {/* ── LANDING (ruta pública, sin gate de plan) ─────────────────────── */}
       {/* Única ruta sin requisito de auth — todo lo demás pasa por AuthContextNew */}
@@ -268,33 +303,42 @@ function AppRoutes() {
       {/* ── Pilar B (Ejecución IA 7.0) — acceso libre con demo mode ─────── */}
       {/* PlanGate en DEV es bypass; en prod requiere access_formulador      */}
       <Route element={<AuthGuard mode="public-demo"><AppLayout /></AuthGuard>}>
-        <Route path="/formulador" element={
-          <PlanGate require="formulador"><FormuladorPage /></PlanGate>
-        } />
-        <Route path="/entrada"    element={
-          <PlanGate require="formulador"><EntradaPage /></PlanGate>
-        } />
-        <Route path="/anexos"     element={
-          <PlanGate require="formulador"><AnexosPage /></PlanGate>
-        } />
-        <Route path="/logistica"  element={
-          <PlanGate require="formulador"><LogisticaPage /></PlanGate>
-        } />
-        <Route path="/dialectica" element={
-          <PlanGate require="formulador"><DialecticaPage /></PlanGate>
-        } />
-        <Route path="/ficha"      element={
-          <PlanGate require="formulador">
-            <ModuloProximamente
-              nombre="Ficha Técnica"
-              icono="◫"
-              descripcion="Generación de documentos inmutables con trazabilidad jurídica y hash SHA-256 (requisito V8.0)."
-            />
-          </PlanGate>
-        } />
-        <Route path="/modulo10"   element={
-          <PlanGate require="formulador"><Modulo10Page /></PlanGate>
-        } />
+        {/* FormuladorLayout inyecta el sidebar derecho en todos los módulos B */}
+        <Route element={<FormuladorLayout />}>
+          <Route path="/checklist" element={
+            <PlanGate require="formulador"><ChecklistPage /></PlanGate>
+          } />
+          <Route path="/entrada"    element={
+            <PlanGate require="formulador"><EntradaPage /></PlanGate>
+          } />
+          <Route path="/anexos"     element={
+            <PlanGate require="formulador"><AnexosPage /></PlanGate>
+          } />
+          <Route path="/logistica"  element={
+            <PlanGate require="formulador"><LogisticaPage /></PlanGate>
+          } />
+          <Route path="/contexto" element={
+            <PlanGate require="formulador"><ContextoPage /></PlanGate>
+          } />
+          <Route path="/arbol-objetivos" element={
+            <PlanGate require="formulador"><ArbolObjetivosPage /></PlanGate>
+          } />
+          <Route path="/exportacion" element={
+            <PlanGate require="formulador"><ExportacionPage /></PlanGate>
+          } />
+          <Route path="/compliance" element={
+            <PlanGate require="formulador"><Modulo10Page /></PlanGate>
+          } />
+          <Route path="/dialectica" element={
+            <PlanGate require="formulador"><DialecticaPage /></PlanGate>
+          } />
+          <Route path="/viabilidad" element={
+            <PlanGate require="formulador"><ViabilidadPage /></PlanGate>
+          } />
+          <Route path="/ficha"      element={
+            <PlanGate require="formulador"><FichaTecnicaPage /></PlanGate>
+          } />
+        </Route>
       </Route>
 
       {/* ── Gestión interna: demo mode + credential check ─────────────────── */}
@@ -348,7 +392,9 @@ if (!rootEl) {
           <SubscriptionProvider>
             <LanguageProvider>
               <OAuthParamCleaner />
-              <AppRoutes />
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <AppRoutes />
+              </Suspense>
             </LanguageProvider>
           </SubscriptionProvider>
         </AuthProvider>

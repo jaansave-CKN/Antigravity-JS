@@ -1,0 +1,406 @@
+/* ContextoPage — Módulo Contexto del Problema · Radford360 */
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap');
+
+.ctx__wrap {
+  background: #f7f9fb;
+  min-height: 100%;
+  font-family: 'Public Sans', sans-serif;
+  color: #191c1e;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header — margen/estructura estandarizados 1:1 con EntradaPage
+   (.entr__topbar/.entr__h1) para que todas las ventanas del Formulador se
+   vean como una sola aplicación coherente. */
+.ctx__header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: #ffffff;
+  border-bottom: 1px solid #e0e3e5;
+  padding: 14px 32px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.ctx__content { padding: 24px; flex: 1; }
+.ctx__header-left { display: flex; flex-direction: column; gap: 6px; }
+.ctx__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 32px;
+  font-weight: 700;
+  color: #191c1e;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+.ctx__title .material-symbols-outlined { color: #0041a3; font-size: 28px; }
+.ctx__subtitle {
+  font-size: 12px;
+  color: #76777d;
+  margin: 0;
+  font-weight: 400;
+}
+.ctx__header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+
+/* Botones LIMPIAR/SAVE calcados 1:1 de EntradaPage (.entr__save, .entr__clear)
+   para mantener el mismo componente visual en todas las ventanas del
+   Formulador. SAVE respeta la misma regla de negocio que el botón
+   "Guardar Contexto" de abajo: solo se habilita tras auditoría aprobada. */
+.ctx__topbar-right { display: flex; align-items: center; gap: 12px; }
+
+.ctx__save {
+  background: #0041a3;
+  color: #ffffff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 10px 28px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+.ctx__save:hover:not(:disabled) { background: #003482; }
+.ctx__save--saved { background: #15803d; }
+.ctx__save:disabled { background: #c6c6cd; cursor: not-allowed; }
+
+.ctx__clear {
+  background: #ffffff;
+  color: #64748b;
+  border: 1px solid #c6c6cd;
+  border-radius: 0.5rem;
+  padding: 10px 20px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.ctx__clear:hover { background: #f2f4f6; border-color: #a8adb8; color: #191c1e; }
+.ctx__clear--done { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; }
+
+.ctx__radford-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #001228;
+  border: 1px solid #002244;
+  border-radius: 2rem;
+  padding: 6px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #00e8ff;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ctx__radford-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #00f5ff;
+  box-shadow: 0 0 6px #00f5ff;
+  animation: ctx-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ctx-pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .5; transform: scale(1.4); }
+}
+
+/* ── Grid 2 columnas ─────────────────────────────────────────────────────────── */
+.ctx__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.ctx__field--full { grid-column: 1 / -1; }
+
+/* ── Tarjeta de campo ────────────────────────────────────────────────────────── */
+.ctx__field-card {
+  background: #ffffff;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.75rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s;
+}
+.ctx__field-card:focus-within { border-color: #0041a3; box-shadow: 0 0 0 3px rgba(0,65,163,0.08); }
+.ctx__field-card--recording  { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,0.10); }
+.ctx__field-card--ok         { border-color: #16a34a; }
+.ctx__field-card--warn       { border-color: #f59e0b; }
+.ctx__field-card--error      { border-color: #dc2626; }
+
+.ctx__field-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #eceef0;
+  border-bottom: 1px solid #e0e3e5;
+  border-radius: 0.75rem 0.75rem 0 0;
+}
+.ctx__field-letra {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #0041a3;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  letter-spacing: 0;
+}
+.ctx__field-name {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #191c1e;
+  text-transform: uppercase;
+  flex: 1;
+}
+.ctx__field-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 2rem;
+}
+.ctx__field-badge--ok   { background: #d1fae5; color: #065f46; }
+.ctx__field-badge--warn { background: #fef3c7; color: #92400e; }
+.ctx__field-badge--err  { background: #fee2e2; color: #991b1b; }
+
+/* ── Cuerpo del campo: textarea + mic ───────────────────────────────────────── */
+.ctx__field-body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.ctx__textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px 16px 44px 16px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #191c1e;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: vertical;
+  min-height: 120px;
+  flex: 1;
+}
+.ctx__textarea::placeholder { color: #b0b3bb; font-size: 12px; font-style: italic; }
+
+.ctx__mic-btn {
+  position: absolute;
+  bottom: 10px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  background: #f0f2f4;
+  color: #434655;
+}
+.ctx__mic-btn:hover { background: #e0e3e5; color: #0041a3; }
+.ctx__mic-btn--active {
+  background: #dc2626;
+  color: #fff;
+  animation: ctx-mic-pulse 1s ease-in-out infinite;
+  box-shadow: 0 0 0 4px rgba(220,38,38,0.20);
+}
+.ctx__mic-btn .material-symbols-outlined { font-size: 16px; }
+@keyframes ctx-mic-pulse {
+  0%,100% { box-shadow: 0 0 0 3px rgba(220,38,38,0.20); }
+  50%      { box-shadow: 0 0 0 7px rgba(220,38,38,0.08); }
+}
+
+.ctx__field-hint {
+  padding: 0 16px 10px 16px;
+  font-size: 10px;
+  color: #b0b3bb;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+/* ── Panel de Auditoría Radford360 ───────────────────────────────────────────── */
+.ctx__audit {
+  background: #ffffff;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  margin-bottom: 18px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+.ctx__audit--aprobado  { border-color: #16a34a; }
+.ctx__audit--bloqueado { border-color: #dc2626; }
+.ctx__audit--advertencia { border-color: #f59e0b; }
+
+.ctx__audit-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: #001228;
+  color: #00e8ff;
+}
+.ctx__audit-header .material-symbols-outlined { font-size: 18px; }
+.ctx__audit-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  flex: 1;
+}
+.ctx__audit-score {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+.ctx__audit-score span { font-size: 11px; font-weight: 400; color: rgba(255,255,255,0.5); }
+
+.ctx__audit-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+
+.ctx__audit-resumen {
+  font-size: 13px;
+  color: #434655;
+  line-height: 1.5;
+  padding: 10px 14px;
+  background: #f7f9fb;
+  border-radius: 0.5rem;
+  border-left: 3px solid #0041a3;
+}
+.ctx__audit-resumen--aprobado   { border-left-color: #16a34a; background: #f0fdf4; color: #065f46; }
+.ctx__audit-resumen--bloqueado  { border-left-color: #dc2626; background: #fff5f5; color: #991b1b; }
+.ctx__audit-resumen--advertencia{ border-left-color: #f59e0b; background: #fffbeb; color: #92400e; }
+
+.ctx__consistencia-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 0.375rem;
+  background: #f7f9fb;
+}
+.ctx__consist-label { font-weight: 700; color: #191c1e; flex: 0 0 60px; }
+.ctx__consist-desc  { flex: 1; color: #434655; }
+.ctx__consist-chip {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 2rem;
+}
+.ctx__consist-chip--ok  { background: #d1fae5; color: #065f46; }
+.ctx__consist-chip--warn{ background: #fef3c7; color: #92400e; }
+.ctx__consist-chip--err { background: #fee2e2; color: #991b1b; }
+
+.ctx__alerta {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 0.5rem;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ctx__alerta--bloqueo    { background: #fff5f5; border: 1px solid #fca5a5; }
+.ctx__alerta--advertencia{ background: #fffbeb; border: 1px solid #fcd34d; }
+.ctx__alerta--info       { background: #eff6ff; border: 1px solid #93c5fd; }
+.ctx__alerta-icon { flex-shrink: 0; font-size: 16px; margin-top: 1px; }
+.ctx__alerta--bloqueo    .ctx__alerta-icon { color: #dc2626; }
+.ctx__alerta--advertencia .ctx__alerta-icon { color: #f59e0b; }
+.ctx__alerta--info       .ctx__alerta-icon { color: #2563eb; }
+.ctx__alerta-content strong { display: block; font-size: 11px; font-weight: 700; color: #191c1e; margin-bottom: 2px; }
+.ctx__alerta-content p { margin: 0; color: #434655; }
+.ctx__alerta-accion {
+  margin-top: 4px;
+  font-size: 11px;
+  font-style: italic;
+  color: #76777d;
+}
+
+/* ── Barra de acciones ───────────────────────────────────────────────────────── */
+.ctx__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: flex-end;
+}
+.ctx__btn {
+  height: 40px;
+  padding: 0 24px;
+  border-radius: 0.5rem;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s;
+  border: none;
+}
+.ctx__btn .material-symbols-outlined { font-size: 18px; }
+.ctx__btn--ghost {
+  background: #f0f2f4;
+  color: #434655;
+  border: 1px solid #e0e3e5;
+}
+.ctx__btn--ghost:hover { background: #e0e3e5; }
+.ctx__btn--primary {
+  background: #0041a3;
+  color: #ffffff;
+}
+.ctx__btn--primary:hover { background: #003188; }
+.ctx__btn--primary:disabled {
+  background: #c4c5d7;
+  color: #ffffff;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.ctx__btn--success {
+  background: #16a34a;
+  color: #ffffff;
+}
+.ctx__saved-msg {
+  font-size: 12px;
+  color: #16a34a;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ctx__saved-msg .material-symbols-outlined { font-size: 16px; }
+
+@media (max-width: 768px) {
+  .ctx__grid { grid-template-columns: 1fr; }
+  .ctx__wrap { padding: 16px; }
+  .ctx__field--full { grid-column: auto; }
+}

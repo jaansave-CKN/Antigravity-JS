@@ -4,6 +4,7 @@
  */
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from '../utils/logger.js';
+import { geminiCB, isQuotaError } from '../services/geminiCircuitBreaker.js';
 
 export const ARBOL_SYSTEM_PROMPT = `Eres un experto en formulación de proyectos de cooperación internacional, \
 contratación pública colombiana y Metodología General Ajustada (MGA).
@@ -49,6 +50,12 @@ export async function generarArbolConIA(objetivoCentral, apiKey) {
     return buildMockArbol(objetivoCentral);
   }
 
+  // ── Circuit Breaker: si la cuota de Gemini está agotada, degradar sin llamar a la API ──
+  if (!geminiCB.canCall()) {
+    logger.warn('[ArbolAgent] Circuit breaker OPEN — usando árbol de objetivos de demostración');
+    return buildMockArbol(objetivoCentral);
+  }
+
   try {
     const genAI = new GoogleGenerativeAI(key);
     const model = genAI.getGenerativeModel({
@@ -86,8 +93,14 @@ export async function generarArbolConIA(objetivoCentral, apiKey) {
     }
 
     console.log(`[ArbolAgent] Árbol generado con ${nodos.length} nodos via Gemini`);
+    geminiCB.recordSuccess();
     return nodos;
   } catch (err) {
+    if (isQuotaError(err)) {
+      geminiCB.recordQuotaError();
+      logger.warn('[ArbolAgent] Cuota de Gemini agotada — degradando a árbol de demostración', { objetivoCentral });
+      return buildMockArbol(objetivoCentral);
+    }
     logger.error('[ArbolAgent] Fallo al generar árbol con Gemini', { err: err.message, objetivoCentral });
     throw new Error('La IA de Gemini está experimentando alta latencia. Por favor, reintenta en unos momentos.');
   }

@@ -7,6 +7,7 @@ import type { ModuloActivo } from '../types';
 
 import Header from './Header';
 import Sidebar from './Sidebar';
+import './DashboardLayout.css';
 
 // Definir tipos para las props que necesitamos pasar
 interface HeaderProps {
@@ -94,7 +95,7 @@ const DashboardLayout = ({ children }: { children: ReactNode }) => {
 
   return (
     <div className='dashboard-layout'>
-      <Header 
+      <Header
         busqueda={busqueda}
         onBusquedaChange={onBusquedaChange}
         alertasCount={alertasCount}
@@ -102,19 +103,21 @@ const DashboardLayout = ({ children }: { children: ReactNode }) => {
         alertas={alertas}
         onNavigateToModule={onNavigateToModule}
       />
-      <Sidebar 
+      <Sidebar
         moduloActivo={moduloActivo}
         onModuloChange={onModuloChange}
         badges={badges}
       />
+
+      {/* Sidebar derecho fijo — máx 30% del ancho de ventana */}
+      <aside className='right-sidebar'>
+        <div className='right-sidebar__content'>
+          {/* Contenido del panel derecho — reemplazar con componente real */}
+        </div>
+      </aside>
+
       <main className='dashboard-content'>
-        <div style={{ width: '60%' }}>
-          {Array.isArray(children) ? children : [children]}
-        </div>
-        <div style={{ width: '40%' }}>
-          {/* Placeholder for TablePanel or stats panels */}
-          <div>Data Panels Will Go Here</div>
-        </div>
+        {Array.isArray(children) ? children : [children]}
       </main>
     </div>
   );

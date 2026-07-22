@@ -18,6 +18,17 @@ function wrap(fn) {
   };
 }
 
+// FIX AUDITORÍA (blindaje de moneda): ficha_tecnica/presupuesto son JSON libres
+// sin campo de moneda hoy — ninguna pantalla ofrece ingresar otra divisa, así
+// que esto nunca dispara en uso normal. Es una barrera estructural para que,
+// si algún día se agrega un selector de moneda sin querer, el backend rechace
+// cualquier valor que no sea COP en vez de aceptarlo silenciosamente.
+const CODIGOS_MONEDA_NO_COP = /\b(USD|EUR|GBP|CAD|MXN)\b/;
+function contieneMonedaNoCOP(obj) {
+  const texto = JSON.stringify(obj ?? {});
+  return CODIGOS_MONEDA_NO_COP.test(texto);
+}
+
 /**
  * @param {import('express').Application} app
  * @param {{ authenticateToken: Function, runSql: Function, getRow: Function, getRows: Function }} deps
@@ -35,6 +46,10 @@ export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow
    */
   app.post('/api/proyectos', authenticateToken, sanitizeFormuladorBody, wrap(async (req, res) => {
     const { nombre, fichaTecnica = {}, presupuesto = {} } = req.body;
+
+    if (contieneMonedaNoCOP(fichaTecnica) || contieneMonedaNoCOP(presupuesto)) {
+      return res.status(422).json({ success: false, message: 'Todos los montos deben estar en Pesos Colombianos (COP) — se detectó otra moneda en la solicitud.' });
+    }
 
     if (!nombre || typeof nombre !== 'string' || !nombre.trim()) {
       return res.status(400).json({ success: false, message: 'nombre es requerido' });
@@ -79,7 +94,8 @@ export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow
     return res.status(201).json({
       success: true,
       message: 'Proyecto creado',
-      proyectoId: id,
+      id,          // id real generado por la BD — contrato canónico
+      proyectoId: id, // alias retrocompatible (consumido por rutas existentes)
       estado: 'Borrador',
     });
   }));
@@ -130,6 +146,40 @@ export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow
   }));
 
   /**
+   * POST /api/proyectos/:id/duplicar
+   * "Guardar como" — crea un proyecto NUEVO copiando ficha_tecnica y
+   * presupuesto del proyecto origen bajo un nombre nuevo. No copia anexos,
+   * árbol de objetivos, indicadores ni compliance — esos artefactos quedan
+   * como punto de partida en blanco para la copia (evita duplicar archivos
+   * reales subidos, que pertenecen al proyecto original).
+   */
+  app.post('/api/proyectos/:id/duplicar', authenticateToken, wrap(async (req, res) => {
+    const original = await getRow(
+      'SELECT nombre, ficha_tecnica, presupuesto FROM proyectos WHERE id = ? AND org_id = ?',
+      [req.params.id, req.userId]
+    );
+    if (!original) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
+
+    const nombreNuevo = String(req.body?.nombre || `${original.nombre} (copia)`).trim().slice(0, 200);
+    if (!nombreNuevo) {
+      return res.status(400).json({ success: false, message: 'nombre es requerido' });
+    }
+
+    const orgId = req.userId;
+    const id    = crypto.randomUUID();
+    await runSql(
+      `INSERT INTO proyectos
+         (id, user_id, org_id, nombre, ficha_tecnica, presupuesto, estado)
+       VALUES (?, ?, ?, ?, ?, ?, 'Borrador')`,
+      [id, req.userId, orgId, nombreNuevo, original.ficha_tecnica, original.presupuesto]
+    );
+
+    return res.status(201).json({ success: true, message: 'Proyecto duplicado', id, nombre: nombreNuevo });
+  }));
+
+  /**
    * PATCH /api/proyectos/:id
    * Actualiza nombre, ficha_tecnica o presupuesto mientras el proyecto
    * no esté en estado Finalizado.
@@ -151,6 +201,11 @@ export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow
     }
 
     const { nombre, fichaTecnica, presupuesto } = req.body;
+
+    if (contieneMonedaNoCOP(fichaTecnica) || contieneMonedaNoCOP(presupuesto)) {
+      return res.status(422).json({ success: false, message: 'Todos los montos deben estar en Pesos Colombianos (COP) — se detectó otra moneda en la solicitud.' });
+    }
+
     const updates = [];
     const params  = [];
 

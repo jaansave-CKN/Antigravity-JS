@@ -507,7 +507,7 @@ export default function Dashboard() {
         navigate('/planes');
       }
     } catch {
-      navigate('/formulador');
+      navigate('/checklist');
     }
   }, [hasFormulador, navigate]);
 

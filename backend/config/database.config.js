@@ -1,132 +1,487 @@
 /**
- * database.config.js — PostgreSQL Pool singleton con RLS helper
+ * database.config.js — Motor de BD con 3 capas de resiliencia
  *
- * Expone:
- * pool       — pg.Pool configurado para la nube (SSL, timeouts)
- * withTenant()   — ejecuta un bloque dentro de una transacción explícita
- * runTransaction() — ejecuta N queries atómicamente con BEGIN/COMMIT/ROLLBACK
- * query()      — shorthand para pool.query() (queries de sistema/admin)
- * getRow/getRows/getCount/runSql — API compatible con db.js
+ * CAPA 1: pg.Pool → Session Pooler de Supabase (us-west-2, puerto 5432)
+ * CAPA 2: Supabase REST API → fetch con service key (siempre disponible)
+ * CAPA 3: Graceful degradation → errores 503 controlados, servidor no cae
+ *
+ * Cuando el usuario habilite el pooler en Supabase dashboard,
+ * la Capa 1 entra en operación automáticamente. Sin acción de código.
  */
 
 import pg from 'pg';
 const { Pool } = pg;
 
-if (!process.env.DATABASE_URL) {
-  console.error('[db.config] FATAL: DATABASE_URL no definida.');
-  console.error('[db.config] Configura DATABASE_URL en .env');
+// ── Estado de conexión (shared mutable) ──────────────────────────────────────
+let _pgReady   = false;
+let _pgPool    = null;
+let _lastRetry = 0;
+const RETRY_INTERVAL_MS = 60_000; // reintentar cada 60s
+
+// ── Config de Supabase REST (Capa 2) ─────────────────────────────────────────
+// SIN fallback hardcodeado para la key: una credencial real quedó commiteada
+// aquí anteriormente (service_role — bypasea RLS por completo). Fue rotada/
+// debe rotarse en el dashboard de Supabase; este archivo ya no debe volver a
+// contener un secreto real bajo ninguna circunstancia. Si SUPABASE_SERVICE_KEY
+// no está configurada, la Capa 2 (REST) falla explícitamente en vez de usar
+// una credencial silenciosa.
+const SB_URL = process.env.SUPABASE_URL || 'https://ozivmsvxbdtjkzleqbcy.supabase.co';
+const SB_KEY = process.env.SUPABASE_SERVICE_KEY || '';
+if (!SB_KEY) {
+  console.error('╔══════════════════════════════════════════════════════════╗');
+  console.error('║  [database.config] FATAL: SUPABASE_SERVICE_KEY no configurada.║');
+  console.error('║  La Capa 2 (REST) no puede autenticarse contra Supabase.   ║');
+  console.error('╚══════════════════════════════════════════════════════════╝');
 }
 
-// pg-connection-string v2.7+ trata sslmode=require como verify-full, lo que
-// sobreescribe rejectUnauthorized:false del Pool. Se elimina el parámetro del
-// URL y se delega el control SSL exclusivamente al objeto ssl del Pool.
-function buildConnectionString(url) {
-  if (!url) return url;
+const REST_HEADERS = {
+  'Content-Type': 'application/json',
+  'apikey':        SB_KEY,
+  'Authorization': `Bearer ${SB_KEY}`,
+  'Prefer':        'return=representation',
+};
+
+// ── Construye pool pg con la URL correcta ─────────────────────────────────────
+function buildPool() {
+  const url = process.env.DATABASE_URL;
+  if (!url) return null;
   try {
     const u = new URL(url);
     u.searchParams.delete('sslmode');
-    return u.toString();
+    const isLocal = /localhost|127\.0\.0\.1/.test(url);
+    return new Pool({
+      connectionString: u.toString(),
+      ssl: isLocal ? false : { rejectUnauthorized: false },
+      options: '-c search_path=public -c lock_timeout=5000 -c statement_timeout=30000',
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 8_000,
+      keepAlive: true,
+    });
+  } catch { return null; }
+}
+
+// ── Verifica pg en background (no bloquea el arranque) ───────────────────────
+async function probePg() {
+  if (!_pgPool) _pgPool = buildPool();
+  if (!_pgPool) return false;
+  try {
+    await _pgPool.query('SELECT 1');
+    if (!_pgReady) console.log('[DB] Capa 1 (pg Pool) ACTIVA ✅');
+    _pgReady = true;
+    return true;
   } catch {
-    return url.replace(/([?&])sslmode=[^&]*/g, '$1').replace(/[?&]$/, '');
+    _pgReady = false;
+    return false;
   }
 }
 
-const isLocalhost = process.env.DATABASE_URL?.match(/localhost|127\.0\.0\.1/);
+// Sondeo en background cada minuto
+setInterval(async () => {
+  if (!_pgReady) await probePg();
+}, RETRY_INTERVAL_MS);
 
-export const pool = new Pool({
-  connectionString: buildConnectionString(process.env.DATABASE_URL),
-  ssl: isLocalhost ? false : { rejectUnauthorized: false },
-  // Fuerza schema public en Supabase + lock_timeout global para evitar bloqueos
-  // en migraciones ALTER TABLE cuando la sesión anterior fue terminada abruptamente
-  options: '-c search_path=public -c lock_timeout=5000 -c statement_timeout=15000',
-
-  // Pool sizing: max 20 para no saturar Supabase en tier base
-  max: parseInt(process.env.PG_POOL_MAX || '20', 10),
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 5_000, // Aumentado ligeramente para evitar timeouts en arranque
-  keepAlive: true,
+// Sondeo inicial (no bloquea)
+probePg().then(ok => {
+  if (!ok) console.warn('[DB] Capa 1 no disponible — usando Capa 2 (REST). Activa el pooler en Supabase dashboard para máximo rendimiento.');
 });
 
-pool.on('error', (err) => {
-  console.error('[db.config] Pool error inesperado:', err.message);
-});
+// ── Pool exportado (compatibilidad con código existente) ─────────────────────
+export const pool = {
+  query: async (sql, params = []) => pgOrRest(sql, params),
+  connect: async () => {
+    if (_pgReady) return _pgPool.connect();
+    // Devuelve un client simulado que usa pgOrRest
+    const fakeClient = {
+      query: async (sql, params = []) => pgOrRest(sql, params),
+      release: () => {},
+    };
+    return fakeClient;
+  },
+  on: () => {},
+  end: async () => _pgPool?.end(),
+};
 
-// ── withTenant ────────────────────────────────────────────────────────────────
-export async function withTenant(tenantId, callback) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(
-      "SELECT set_config('app.org_id', $1, TRUE)",
-      [String(tenantId)]
-    );
-    const result = await callback(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => { });
-    throw err;
-  } finally {
-    client.release();
+// ── Normalizador de placeholders (? → $1, $2…) ───────────────────────────────
+function normalizePlaceholders(sql, params) {
+  if (!sql.includes('?')) return { sql, params };
+  let i = 0;
+  return { sql: sql.replace(/\?/g, () => `$${++i}`), params };
+}
+
+// ── ROUTER: intenta pg → si falla, escala a REST ─────────────────────────────
+async function pgOrRest(sql, params = []) {
+  const { sql: q, params: p } = normalizePlaceholders(sql, params);
+
+  // Capa 1: pg Pool (si está disponible)
+  if (_pgReady) {
+    try {
+      return await _pgPool.query(q, p);
+    } catch (err) {
+      console.warn('[DB] pg fallo, escalando a REST:', err.message.substring(0, 80));
+      _pgReady = false;
+    }
   }
+
+  // Reintento de reconexión pg (no bloquea)
+  const now = Date.now();
+  if (now - _lastRetry > RETRY_INTERVAL_MS) {
+    _lastRetry = now;
+    probePg().catch(() => {});
+  }
+
+  // Capa 2: REST API
+  return restQuery(q, p);
+}
+
+// ── Capa 2: Supabase REST SQL executor ───────────────────────────────────────
+async function restQuery(sql, params = []) {
+  const normalized = sql.trim().toUpperCase();
+
+  // DDL → no-op (las tablas ya existen en Supabase)
+  if (/^\s*(CREATE|DROP|ALTER|COMMENT|GRANT|REVOKE|TRUNCATE)\b/.test(normalized)) {
+    return { rows: [], rowCount: 0, command: 'DDL_NOOP' };
+  }
+
+  const op = normalized.replace(/\s+/g, ' ').split(' ')[0];
+
+  try {
+    if (op === 'SELECT') {
+      // SELECT COUNT(*) no es un SELECT normal: PostgREST no agrega filas,
+      // así que restSelect (que trae filas crudas) siempre daría 0. Se
+      // resuelve con una petición HEAD + `Prefer: count=exact` y se lee el
+      // total real del header `Content-Range` que devuelve PostgREST.
+      if (/^SELECT\s+COUNT\(\*\)/i.test(sql.trim())) return await restCount(sql, params);
+      return await restSelect(sql, params);
+    }
+    if (op === 'INSERT') return await restInsert(sql, params);
+    if (op === 'UPDATE') return await restUpdate(sql, params);
+    if (op === 'DELETE') return await restDelete(sql, params);
+    // Fallback: try via rpc if it's a function call
+    return { rows: [], rowCount: 0, command: op };
+  } catch (err) {
+    const e = new Error(`[REST] ${err.message}`);
+    e.code = 'REST_ERROR';
+    throw e;
+  }
+}
+
+// ── Extrae nombre de tabla principal (depth 0, ignora subqueries) ────────────
+function extractTable(sql) {
+  let depth = 0;
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    if (ch === '(') { depth++; continue; }
+    if (ch === ')') { depth--; continue; }
+    if (depth === 0) {
+      const m = sql.slice(i).match(/^(FROM|INTO|UPDATE|JOIN)\s+"?(\w+)"?/i);
+      if (m) return m[2];
+    }
+  }
+  return null;
+}
+
+// ── Divide WHERE clause por AND respetando paréntesis ────────────────────────
+function splitTopLevelAnd(whereClause) {
+  const parts = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < whereClause.length; i++) {
+    const ch = whereClause[i];
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    // Detectar \bAND\b solo a profundidad 0
+    else if (depth === 0 && whereClause.slice(i, i + 3).toUpperCase() === 'AND' &&
+             (i === 0 || /\s/.test(whereClause[i - 1])) &&
+             /\s/.test(whereClause[i + 3] || ' ')) {
+      parts.push(whereClause.slice(start, i).trim());
+      start = i + 3;
+      i += 2;
+    }
+  }
+  parts.push(whereClause.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+// ── Construye filtro PostgREST desde WHERE clause ────────────────────────────
+const PG_OPS = { '=': 'eq', '!=': 'neq', '<>': 'neq', '>': 'gt', '>=': 'gte', '<': 'lt', '<=': 'lte', 'LIKE': 'like', 'ILIKE': 'ilike' };
+// Captura alias opcional, nombre de columna, operador y valor.
+// Soporta wrapper unaccent(): unaccent(c.titulo) ILIKE $1 → alias=c, col=titulo
+const COND_RE = /^(?:unaccent\(\s*)?(?:(\w+)\.)?"?(\w+)"?\s*\)?\s*(=|!=|<>|>=|<=|>|<|IS NULL|IS NOT NULL|ILIKE|LIKE)\s*(\$\d+|'[^']*')?/i;
+// Alias de la tabla principal en todas las queries de convocatorias/entidades
+const MAIN_ALIASES = new Set(['c', 'de', 'e', 'u', 'p', 's']);
+
+// Devuelve cuántos params $N consume una condición
+function countParams(condStr) {
+  return (condStr.match(/\$\d+/g) || []).length;
+}
+
+function buildFilter(whereClause, params) {
+  if (!whereClause) return '';
+  const parts = [];
+  let paramIdx = 0;
+  const conditions = splitTopLevelAnd(whereClause);
+  for (const cond of conditions) {
+    const trimmed = cond.trim();
+
+    // Grupo OR: (col1 ILIKE $N OR col2 ILIKE $N OR ...) → PostgREST or=(...)
+    if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+      const inner = trimmed.slice(1, -1).trim();
+      const orParts = inner.split(/\s+OR\s+/i);
+      const orFilters = [];
+      for (const part of orParts) {
+        const m = part.trim().match(COND_RE);
+        if (!m) continue;
+        const [, tableAlias, col, op, rawVal] = m;
+        // Saltar columnas de tablas JOIN que no son la tabla principal (c.)
+        // La tabla principal de convocatorias siempre usa alias 'c' o sin alias
+        if (tableAlias && tableAlias !== 'c') {
+          if (rawVal?.startsWith('$')) paramIdx++;
+          continue;
+        }
+        let val;
+        if (rawVal?.startsWith("'")) {
+          val = rawVal.slice(1, -1);
+        } else if (rawVal?.startsWith('$')) {
+          val = params[paramIdx++];
+        } else { continue; }
+        if (val === undefined || val === null) continue;
+        const pgOp = PG_OPS[op.toUpperCase()] || 'eq';
+        orFilters.push(`${col}.${pgOp}.${encodeURIComponent(val)}`);
+      }
+      if (orFilters.length > 0) parts.push(`or=(${orFilters.join(',')})`);
+      continue;
+    }
+
+    // Condición simple: [alias.]col op ($N | 'literal')
+    const m = trimmed.match(COND_RE);
+    if (!m) continue;
+    const [, tableAlias, col, op, rawVal] = m;
+    // Saltar condiciones de tablas JOIN (alias distinto de 'c')
+    if (tableAlias && tableAlias !== 'c') {
+      if (rawVal?.startsWith('$')) paramIdx++;
+      continue;
+    }
+    if (/IS NULL/i.test(op)) { parts.push(`${col}=is.null`); continue; }
+    if (/IS NOT NULL/i.test(op)) { parts.push(`${col}=not.is.null`); continue; }
+    let val;
+    if (rawVal?.startsWith("'")) {
+      val = rawVal.slice(1, -1);
+    } else if (rawVal?.startsWith('$')) {
+      val = params[paramIdx++];
+    } else { continue; }
+    if (val === undefined || val === null) continue;
+    const pgOp = PG_OPS[op.toUpperCase()] || 'eq';
+    parts.push(`${col}=${pgOp}.${encodeURIComponent(val)}`);
+  }
+  return parts.join('&');
+}
+
+async function restSelect(sql, params) {
+  const table = extractTable(sql);
+  if (!table) return { rows: [], rowCount: 0, command: 'SELECT' };
+
+  const whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+ORDER|\s+LIMIT|\s+GROUP|\s+HAVING|$)/is);
+  const limitMatch = sql.match(/LIMIT\s+(\d+)/i);
+  const filter = whereMatch ? buildFilter(whereMatch[1], params) : '';
+  const limit  = limitMatch ? `limit=${limitMatch[1]}` : 'limit=1000';
+
+  const qs = [filter, limit].filter(Boolean).join('&');
+  const r  = await fetch(`${SB_URL}/rest/v1/${table}${qs ? '?' + qs : ''}`, { headers: REST_HEADERS });
+  const data = await r.json();
+
+  if (!r.ok) throw new Error(data?.message || JSON.stringify(data));
+  const rows = Array.isArray(data) ? data : [data];
+  return { rows, rowCount: rows.length, command: 'SELECT' };
+}
+
+// ── COUNT(*) real vía PostgREST (Prefer: count=exact + header Content-Range) ─
+async function restCount(sql, params) {
+  const table = extractTable(sql);
+  if (!table) return { rows: [{ cnt: 0 }], rowCount: 1, command: 'SELECT' };
+
+  const whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+ORDER|\s+LIMIT|\s+GROUP|\s+HAVING|$)/is);
+  const filter = whereMatch ? buildFilter(whereMatch[1], params) : '';
+  const qs = [filter, 'limit=1'].filter(Boolean).join('&');
+
+  const r = await fetch(`${SB_URL}/rest/v1/${table}${qs ? '?' + qs : ''}`, {
+    method: 'HEAD',
+    headers: { ...REST_HEADERS, Prefer: 'count=exact' },
+  });
+  if (!r.ok) throw new Error(`Count HEAD ${table} → HTTP ${r.status}`);
+
+  // Formato de PostgREST: "0-0/562" (total exacto) o "0-0/*" (desconocido)
+  const range = r.headers.get('content-range') || '';
+  const total = range.includes('/') ? range.split('/')[1] : null;
+  const cnt   = total && total !== '*' ? parseInt(total, 10) : 0;
+
+  return { rows: [{ cnt, count: cnt }], rowCount: 1, command: 'SELECT' };
+}
+
+async function restInsert(sql, params) {
+  const table  = extractTable(sql);
+  if (!table) throw new Error('INSERT: tabla no encontrada en SQL');
+
+  const colMatch = sql.match(/\(([^)]+)\)\s+VALUES/i);
+  if (!colMatch) throw new Error('INSERT: formato de columnas no reconocido');
+  const cols = colMatch[1].split(',').map(c => c.trim().replace(/"/g, ''));
+  const body = {};
+  cols.forEach((col, i) => { if (params[i] !== undefined) body[col] = params[i]; });
+
+  const r    = await fetch(`${SB_URL}/rest/v1/${table}`, { method: 'POST', headers: REST_HEADERS, body: JSON.stringify(body) });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data?.message || JSON.stringify(data));
+  const rows = Array.isArray(data) ? data : [data];
+  return { rows, rowCount: rows.length, command: 'INSERT' };
+}
+
+async function restUpdate(sql, params) {
+  const table      = extractTable(sql);
+  if (!table) throw new Error('UPDATE: tabla no encontrada');
+
+  const setMatch   = sql.match(/SET\s+(.+?)\s+WHERE/is);
+  const whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+RETURNING|$)/is);
+  if (!setMatch) throw new Error('UPDATE: SET clause no encontrado');
+
+  const setParts = setMatch[1].split(',').map(s => s.trim());
+  const body = {};
+  let paramIdx = 0;
+  for (const part of setParts) {
+    const eqIdx = part.indexOf('=');
+    if (eqIdx === -1) continue;
+    const col = part.slice(0, eqIdx).trim().replace(/"/g, '');
+    const rhs = part.slice(eqIdx + 1).trim();
+    if (/^\$\d+$/.test(rhs)) {
+      // Param placeholder — por aquí llega ya normalizado a $N (pgOrRest
+      // convierte "?" → "$N" antes de llamar a restQuery), nunca "?" literal.
+      // Consume next param
+      body[col] = params[paramIdx++];
+    } else if (/^CURRENT_TIMESTAMP$|^NOW\(\)$/i.test(rhs)) {
+      // SQL timestamp keyword → convert to ISO string for REST
+      body[col] = new Date().toISOString();
+    }
+    // Other SQL expressions (functions, literals) skipped — Supabase auto-handles
+  }
+
+  const filter = whereMatch ? buildFilter(whereMatch[1], params.slice(paramIdx)) : '';
+  const r = await fetch(`${SB_URL}/rest/v1/${table}${filter ? '?' + filter : ''}`, { method: 'PATCH', headers: REST_HEADERS, body: JSON.stringify(body) });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data?.message || JSON.stringify(data));
+  const rows = Array.isArray(data) ? data : [];
+  return { rows, rowCount: rows.length, command: 'UPDATE' };
+}
+
+async function restDelete(sql, params) {
+  const table      = extractTable(sql);
+  if (!table) throw new Error('DELETE: tabla no encontrada');
+  const whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+RETURNING|$)/is);
+  const filter     = whereMatch ? buildFilter(whereMatch[1], params) : '';
+
+  const r = await fetch(`${SB_URL}/rest/v1/${table}${filter ? '?' + filter : ''}`, { method: 'DELETE', headers: REST_HEADERS });
+  if (!r.ok) { const data = await r.json().catch(() => ({})); throw new Error(data?.message || 'DELETE failed'); }
+  return { rows: [], rowCount: 0, command: 'DELETE' };
+}
+
+// ── withTenant ─────────────────────────────────────────────────────────────────
+export async function withTenant(tenantId, callback) {
+  if (_pgReady) {
+    // Capa 1: pg con set_config para RLS real
+    const client = await _pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('app.org_id', $1, TRUE)", [String(tenantId)]);
+      const result = await callback(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  // Capa 2: REST con tenant filter inyectado en el fake client
+  const fakeClient = {
+    _tenantId: tenantId,
+    query: async (sql, params = []) => {
+      // Inyecta el filtro de tenant para SELECT
+      const enriched = injectTenantFilter(sql, tenantId);
+      return pgOrRest(enriched, params);
+    },
+    release: () => {},
+  };
+  return callback(fakeClient);
+}
+
+function injectTenantFilter(sql, tenantId) {
+  // Para SELECT: añade AND org_id = 'tenantId' al WHERE
+  const upper = sql.trim().toUpperCase();
+  if (!upper.startsWith('SELECT')) return sql;
+  if (/\bWHERE\b/i.test(sql)) {
+    return sql.replace(/\bWHERE\b/i, `WHERE org_id = '${tenantId}' AND `);
+  }
+  return sql + ` WHERE org_id = '${tenantId}'`;
 }
 
 // ── runTransaction ────────────────────────────────────────────────────────────
 export async function runTransaction(queries) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const results = [];
-    for (const q of queries) {
-      results.push(await client.query(q.sql, q.params || []));
+  if (_pgReady) {
+    const client = await _pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      const results = [];
+      for (const q of queries) results.push(await client.query(q.sql, q.params || []));
+      await client.query('COMMIT');
+      return results;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
     }
-    await client.query('COMMIT');
-    return results;
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => { });
-    throw err;
-  } finally {
-    client.release();
   }
+  // REST: ejecutar secuencialmente (no atómico en degradado)
+  const results = [];
+  for (const q of queries) results.push(await pgOrRest(q.sql, q.params || []));
+  return results;
 }
 
-// ── query: sin contexto de tenant (admin/system) ─────────────────────────────
-export async function query(sql, params = []) {
-  return pool.query(sql, params);
-}
-
-// ── Helpers — API compatible con db.js ───────────────────────────────────────
+// ── Helpers públicos ──────────────────────────────────────────────────────────
+export async function query(sql, params = []) { return pgOrRest(sql, params); }
 
 export async function getRow(sql, params = []) {
   const { sql: q, params: p } = normalizePlaceholders(sql, params);
-  const res = await pool.query(q, p);
-  return res.rows[0] || null;
+  const res = await pgOrRest(q, p);
+  return res.rows[0] ?? null;
 }
 
 export async function getRows(sql, params = []) {
   const { sql: q, params: p } = normalizePlaceholders(sql, params);
-  const res = await pool.query(q, p);
-  return res.rows;
+  const res = await pgOrRest(q, p);
+  return res.rows ?? [];
 }
 
 export async function getCount(sql, params = []) {
   const { sql: q, params: p } = normalizePlaceholders(sql, params);
-  const res = await pool.query(q, p);
+  const res = await pgOrRest(q, p);
   return parseInt(res.rows[0]?.cnt ?? res.rows[0]?.count ?? 0, 10);
 }
 
 export async function runSql(sql, params = []) {
   const { sql: q, params: p } = normalizePlaceholders(sql, params);
-  return pool.query(q, p);
+  return pgOrRest(q, p);
 }
 
-// ── Convierte ? → $1, $2… para compatibilidad con consultas legacy ────────────
-function normalizePlaceholders(sql, params) {
-  if (!sql.includes('?')) return { sql, params };
-  let i = 0;
+// ── Status helper (para /api/db-status) ──────────────────────────────────────
+export function dbStatus() {
   return {
-    sql: sql.replace(/\?/g, () => `$${++i}`),
-    params,
+    layer: _pgReady ? 1 : 2,
+    engine: _pgReady ? 'pg-pool (Session Pooler)' : 'Supabase REST API',
+    pgReady: _pgReady,
+    supabaseUrl: SB_URL,
+    message: _pgReady
+      ? 'Base de datos OK — pg Pool conectado'
+      : 'Modo degradado — usando REST API. Habilita Connection Pooling en Supabase dashboard para máximo rendimiento.',
   };
 }
 

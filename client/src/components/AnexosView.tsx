@@ -12,10 +12,17 @@ import {
   Bot
 } from 'lucide-react';
 import { useAnexosAgentIntegration, AnexoItem } from '../hooks/useAnexosAgentIntegration';
+import { getAuthHeaders } from '../lib/apiClient';
 import './AnexosView.css';
 
 const STORAGE_KEY = 'radar360_anexos_data';
+const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
 const DEBOUNCE_MS = 500;
+
+// Anexos con archivo real persistido en project_anexos llevan `dbId` — se usa
+// para saber si "eliminar" debe borrar en el backend además de en memoria,
+// y para no duplicarlos al fusionar con la lista fresca del servidor.
+type AnexoItemExt = AnexoItem & { dbId?: string };
 
 const fuentesIcons: Record<string, React.ReactNode> = {
   link: <Link size={16} className="fuente-icon fuente-icon--link" />,
@@ -28,10 +35,14 @@ interface AnexosViewProps {
 }
 
 export default function AnexosView({ className }: AnexosViewProps) {
-  const [anexos, setAnexos] = useState<AnexoItem[]>([]);
+  const [anexos, setAnexos] = useState<AnexoItemExt[]>([]);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const projectId = typeof window !== 'undefined' ? localStorage.getItem(ACTIVE_PROJECT_KEY) : null;
+
   const { 
     injectToAllAgents, 
     buildContextPayload,
@@ -53,6 +64,36 @@ export default function AnexosView({ className }: AnexosViewProps) {
       setAnexos(getInitialAnexos());
     }
   }, []);
+
+  // Anexos reales (archivos subidos) — se cargan desde project_anexos y se
+  // fusionan con las notas locales, reemplazando cualquier copia local vieja
+  // de esos mismos anexos (identificados por dbId) para no duplicarlos.
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+
+    fetch(`/api/proyectos/${projectId}/anexos`, { headers: { ...getAuthHeaders() }, credentials: 'include' })
+      .then(async res => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || !body?.success) return;
+        const reales: AnexoItemExt[] = (body.data || []).map((a: any) => ({
+          id: a.id,
+          dbId: a.id,
+          entidad: a.nombre_archivo,
+          referencia: a.categoria,
+          fuente: 'local' as const,
+          documento: a.nombre_archivo,
+          notas: '',
+          activo: false,
+          actualizadoEn: a.created_at,
+        }));
+        if (cancelled) return;
+        setAnexos(prev => [...reales, ...prev.filter(a => !a.dbId)]);
+      })
+      .catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [projectId]);
 
   const getInitialAnexos = (): AnexoItem[] => [
     {
@@ -156,30 +197,75 @@ export default function AnexosView({ className }: AnexosViewProps) {
     });
   }, []);
 
-  const addNewAnexo = useCallback(() => {
-    const newAnexo: AnexoItem = {
-      id: Date.now().toString(),
-      entidad: 'Nueva Entidad',
-      referencia: `REF-${Date.now()}`,
-      fuente: 'link',
-      notas: '',
-      activo: false,
-      actualizadoEn: new Date().toISOString()
-    };
-    setAnexos(prev => {
-      const updated = [...prev, newAnexo];
-      saveToStorage(updated);
-      return updated;
-    });
-  }, [saveToStorage]);
+  // "Nuevo" abre el selector de archivos — la subida real ocurre en
+  // handleFileSelected, que persiste en project_anexos vía el backend.
+  const handleNuevoClick = useCallback(() => {
+    if (!projectId) {
+      setUploadError('No hay un proyecto activo. Abre o nombra un proyecto en Entrada (M1) antes de subir anexos.');
+      return;
+    }
+    setUploadError(null);
+    fileInputRef.current?.click();
+  }, [projectId]);
+
+  const handleFileSelected = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permite volver a seleccionar el mismo archivo después
+    if (!file || !projectId) return;
+
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('categoria', 'otro');
+
+      const res = await fetch(`/api/proyectos/${projectId}/anexos`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders() },
+        credentials: 'include',
+        body: formData,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body?.success) throw new Error(body?.message ?? 'No se pudo subir el archivo.');
+
+      const nuevo: AnexoItemExt = {
+        id: body.data.id,
+        dbId: body.data.id,
+        entidad: body.data.nombre_archivo,
+        referencia: body.data.categoria,
+        fuente: 'local',
+        documento: body.data.nombre_archivo,
+        notas: '',
+        activo: false,
+        actualizadoEn: body.data.created_at,
+      };
+      setAnexos(prev => [nuevo, ...prev]);
+    } catch (err: any) {
+      setUploadError(err?.message ?? 'Error al subir el archivo.');
+    } finally {
+      setUploading(false);
+    }
+  }, [projectId]);
 
   const deleteAnexo = useCallback((id: string) => {
+    const target = anexos.find(a => a.id === id);
+
     setAnexos(prev => {
       const updated = prev.filter(a => a.id !== id);
-      saveToStorage(updated);
+      if (!target?.dbId) saveToStorage(updated);
       return updated;
     });
-  }, [saveToStorage]);
+
+    // Anexo con archivo real (dbId) — eliminar también en el backend/BD.
+    if (target?.dbId && projectId) {
+      fetch(`/api/proyectos/${projectId}/anexos/${target.dbId}`, {
+        method: 'DELETE',
+        headers: { ...getAuthHeaders() },
+        credentials: 'include',
+      }).catch(() => {});
+    }
+  }, [anexos, saveToStorage, projectId]);
 
   const isNoteBeingScanned = useCallback((noteId: string) => {
     const minerScanning = getAgentScanningNote('001_minero') === noteId;
@@ -196,12 +282,25 @@ export default function AnexosView({ className }: AnexosViewProps) {
             <Upload size={16} />
             <span>Importar</span>
           </button>
-          <button className="anexos-view__btn anexos-view__btn--add" onClick={addNewAnexo}>
+          <button className="anexos-view__btn anexos-view__btn--add" onClick={handleNuevoClick} disabled={uploading}>
             <Plus size={16} />
-            <span>Nuevo</span>
+            <span>{uploading ? 'Subiendo…' : 'Nuevo'}</span>
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={handleFileSelected}
+            style={{ display: 'none' }}
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+          />
         </div>
       </div>
+
+      {uploadError && (
+        <div className="anexos-view__upload-error" role="alert" style={{ color: '#dc2626', fontSize: 12, padding: '6px 0' }}>
+          {uploadError}
+        </div>
+      )}
 
       <div className="anexos-view__agents-status">
         <div className={`anexos-view__agent-indicator ${isAgentActive('001_minero') ? 'anexos-view__agent-indicator--active' : ''}`}>

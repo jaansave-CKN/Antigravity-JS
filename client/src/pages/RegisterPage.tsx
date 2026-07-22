@@ -14,6 +14,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [aceptaTerminos, setAceptaTerminos] = useState(false);
 
   function validatePassword(pw: string): string | null {
     if (pw.length < 8) return 'La contraseña debe tener al menos 8 caracteres.';
@@ -34,6 +35,10 @@ export default function RegisterPage() {
     }
     if (password !== confirm) {
       setError('Las contraseñas no coinciden.');
+      return;
+    }
+    if (!aceptaTerminos) {
+      setError('Debes aceptar los Términos y Condiciones y la Política de Tratamiento de Datos Personales.');
       return;
     }
 
@@ -150,7 +155,23 @@ export default function RegisterPage() {
           </select>
         </div>
 
-        <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+        <div className="auth-field" style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <input
+            id="acepta-terminos"
+            type="checkbox"
+            checked={aceptaTerminos}
+            onChange={(e) => setAceptaTerminos(e.target.checked)}
+            style={{ marginTop: 3 }}
+          />
+          <label htmlFor="acepta-terminos" style={{ fontSize: 13 }}>
+            Acepto los{' '}
+            <a href="/terminos" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Términos y Condiciones</a>
+            {' '}y la{' '}
+            <a href="/privacidad" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Política de Tratamiento de Datos Personales</a>.
+          </label>
+        </div>
+
+        <button type="submit" disabled={loading || !aceptaTerminos} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
           {loading ? 'Creando cuenta...' : 'Crear Cuenta'}
         </button>
 

@@ -18,7 +18,7 @@ export interface UserProfileData {
       active:   boolean;
     };
     deepSearch: {
-      provider: 'Perplexity' | 'Custom';
+      provider: 'Google' | 'Custom';
       active:   boolean;
     };
   };
@@ -29,7 +29,7 @@ export interface UserProfileData {
 
 // ── Etiquetas orientadas al beneficio (abstracción de proveedor) ───────────────
 export const ENGINE_LABELS: Record<string, string> = {
-  Perplexity:   'Motor de Rastreos en Tiempo Real',
+  Google:       'Motor de Rastreos en Tiempo Real',
   Custom:       'Motor de Rastreos Personalizado',
   NotebookLM:   'Analista Inteligente de Documentos',
   LocalModel:   'Analista Local de Documentos',
@@ -58,7 +58,6 @@ export interface CredentialStatusPayload {
 // ── Constantes de URLs oficiales de gestión de API ────────────────────────────
 export const PROVIDER_URLS = {
   googleAIStudio: 'https://aistudio.google.com/app/apikey',
-  perplexity:     'https://www.perplexity.ai/settings/api',
   notebookLM:     'https://notebooklm.google.com/',
 } as const;
 
@@ -67,7 +66,7 @@ export const DEFAULT_PROFILE: UserProfileData = {
   connections: {
     googleDrive:      { connected: false, scopeGranted: false, lastSync: '' },
     documentAnalysis: { provider: 'NotebookLM', active: false },
-    deepSearch:       { provider: 'Perplexity', active: false },
+    deepSearch:       { provider: 'Google', active: false },
   },
   security: { encryptionStatus: 'pending' },
 };

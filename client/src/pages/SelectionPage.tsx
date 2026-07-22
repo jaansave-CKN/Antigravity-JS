@@ -103,7 +103,6 @@ const CSS = `
     font-size: clamp(18px, 2.6vw, 30px);
     font-weight: 700;
     letter-spacing: 0.12em;
-    text-transform: uppercase;
     color: #c8d8e8;
     margin: 0 0 5px;
     text-shadow:
@@ -410,7 +409,7 @@ export default function SelectionPage() {
   const isOnline   = root === 'online';
 
   const goRadar = () => { navigate('/radar'); };
-  const goForm  = () => { navigate('/formulador'); };
+  const goForm  = () => { navigate('/checklist'); };
   const goTrial = async () => {
     setStarting(true);
     try { await startTrial(); navigate('/radar'); }
@@ -462,7 +461,7 @@ export default function SelectionPage() {
 
       {/* ── Main title ──────────────────────────────────────────────────────── */}
       <div className="sp-title">
-        <h1>RADAR FORMULADOR 360</h1>
+        <h1>RadFor-360</h1>
         <div className="sp-title-line" />
       </div>
 

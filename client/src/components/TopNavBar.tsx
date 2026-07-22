@@ -5,7 +5,7 @@
  *   Radar · Panel · Directorio · Favoritos · Calendario
  *
  * PILAR DERECHO (Ejecución IA 7.0):
- *   Entrada · Anexos · Logística · Dialéctica · Ficha Técnica · Formulación AI
+ *   Entrada · Anexos · Logística · Dialéctica · Ficha Técnica · Viabilidad · Check-List
  *
  * Centro: Brand GGIE · RadarFondos + indicador ROOT ONLINE/OFFLINE
  */
@@ -28,13 +28,13 @@ const LEFT_LINKS = [
 ] as const;
 
 const RIGHT_LINKS = [
-  { to: '/entrada',    label: 'Entrada',         icon: '①', requireAuth: true  },
-  { to: '/modulo10',   label: 'Módulo 10',        icon: '⑩', requireAuth: true  },
+  { to: '/entrada',    label: 'Entrada',          icon: '①', requireAuth: true  },
+  { to: '/dialectica', label: 'Dialéctica',       icon: '◨', requireAuth: true  },
   { to: '/anexos',     label: 'Anexos',           icon: '⊕', requireAuth: true  },
   { to: '/logistica',  label: 'Logística',        icon: '◧', requireAuth: true  },
-  { to: '/dialectica', label: 'Dialéctica',       icon: '◨', requireAuth: true  },
   { to: '/ficha',      label: 'Ficha Técnica',    icon: '◫', requireAuth: true  },
-  { to: '/formulador', label: 'Formulación AI',   icon: '✦', requireAuth: true  },
+  { to: '/viabilidad', label: 'Viabilidad',       icon: '◈', requireAuth: true  },
+  { to: '/checklist',  label: 'Check-List',       icon: '☑', requireAuth: true  },
 ] as const;
 
 // ── Hook: estado ROOT (conectividad al backend) ───────────────────────────────
@@ -228,7 +228,7 @@ function Divider() {
 
 // ── Rutas de cada pilar ───────────────────────────────────────────────────────
 const PILAR_A_PATHS = ['/radar', '/panel', '/directorio', '/favoritos', '/calendario'];
-const PILAR_B_PATHS = ['/formulador', '/entrada', '/modulo10', '/anexos', '/logistica', '/dialectica', '/ficha'];
+const PILAR_B_PATHS = ['/checklist', '/entrada', '/anexos', '/logistica', '/dialectica', '/ficha', '/viabilidad'];
 
 // ── TOPNAVBAR PRINCIPAL ───────────────────────────────────────────────────────
 export default function TopNavBar() {
@@ -344,11 +344,11 @@ export default function TopNavBar() {
             marginRight: 4, whiteSpace: 'nowrap',
           }}>B</span>
           {RIGHT_LINKS.map(link => {
-            const isMotor = link.to === '/formulador';
+            const isMotor = link.to === '/checklist';
             // Bloqueado a nivel de pilar (usuario en contexto A o solo tiene plan radar)
             if (pilarBLocked) {
               return (
-                <span key={link.to} title="Módulo B · Formulación IA — no activo en este contexto" style={{
+                <span key={link.to} title="Módulo B · Check-List — no activo en este contexto" style={{
                   padding: '3px 9px', borderRadius: 3, fontSize: 9,
                   fontFamily: "'JetBrains Mono', monospace", fontWeight: 600,
                   letterSpacing: '0.06em', textTransform: 'uppercase' as const,

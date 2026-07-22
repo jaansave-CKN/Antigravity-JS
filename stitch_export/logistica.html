@@ -1,0 +1,221 @@
+<!DOCTYPE html><html class="light" lang="es" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Global Grant Nexus - Logística Detallada</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">tailwind.config = {darkMode: "class", theme: {extend: {colors: {primary: "#0037b0", "on-primary": "#ffffff", "primary-container": "#1d4ed8", "on-primary-container": "#cad3ff", secondary: "#455b9d", "on-secondary": "#ffffff", surface: "#f7f9fb", "on-surface": "#191c1e", "surface-container": "#eceef0", "surface-container-low": "#f2f4f6", "outline-variant": "#c4c5d7", "on-surface-variant": "#434655", error: "#ba1a1a", success: "#2e7d32", "on-secondary-container": "#2f4686", "tertiary-container": "#4f5d71", "tertiary-fixed": "#d5e3fc", "on-tertiary-fixed-variant": "#3a485b", "surface-container-high": "#e6e8ea", "surface-container-highest": "#e0e3e5", "tertiary-fixed-dim": "#b9c7df", "surface-dim": "#d8dadc", "secondary-container": "#a0b6fe", "primary-fixed-dim": "#b7c4ff", "on-secondary-fixed": "#00174b", "primary-fixed": "#dce1ff", "inverse-surface": "#2d3133", "surface-tint": "#2151da", "on-primary-fixed-variant": "#0039b5", "surface-container-lowest": "#ffffff", "secondary-fixed-dim": "#b4c5ff", "on-tertiary": "#ffffff", "inverse-on-surface": "#eff1f3", tertiary: "#374559", "on-primary-fixed": "#001551", outline: "#747686", "on-secondary-fixed-variant": "#2c4383", "on-tertiary-container": "#c7d6ee", background: "#f7f9fb", "on-error": "#ffffff", "error-container": "#ffdad6", "on-background": "#191c1e", "surface-variant": "#e0e3e5", "surface-bright": "#f7f9fb", "on-error-container": "#93000a", "inverse-primary": "#b7c4ff", "on-tertiary-fixed": "#0d1c2e", "secondary-fixed": "#dbe1ff"}, borderRadius: {DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px"}, fontFamily: {headline: ["Public Sans"], display: ["Public Sans"], body: ["Public Sans"], label: ["Public Sans"]}, fontSize: {}}}};</script>
+<style>
+        body { font-family: 'Public Sans', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 1.5rem;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface antialiased min-h-screen">
+<!-- Main Content -->
+<main class="p-8 max-w-[1600px] mx-auto">
+<!-- Header -->
+<header class="flex justify-between items-end mb-8">
+<div class="space-y-1">
+<h2 class="text-3xl font-extrabold text-primary tracking-tight">LOGÍSTICA</h2>
+<nav class="flex text-sm text-on-surface-variant">
+<span class="">Logística</span>
+<span class="mx-2">/</span>
+<span class="text-primary font-semibold">Tramos y Recorridos</span>
+</nav>
+</div>
+</header>
+<!-- Summary Cards (Bento) -->
+<section class="bento-grid mb-8">
+<div class="col-span-3 glass-card p-6 rounded-xl shadow-sm border-l-4 border-primary">
+<div class="flex justify-between items-start mb-4">
+<span class="material-symbols-outlined text-primary bg-primary-container p-2 rounded-lg">route</span>
+<span class="text-success text-xs font-bold bg-success/10 px-2 py-1 rounded">+2 hoy</span>
+</div>
+<h4 class="text-on-surface-variant text-sm font-medium">Tramos Activos</h4>
+<p class="text-3xl font-extrabold mt-1">12</p>
+</div>
+<div class="col-span-3 glass-card p-6 rounded-xl shadow-sm">
+<div class="flex justify-between items-start mb-4">
+<span class="material-symbols-outlined text-primary bg-primary-container p-2 rounded-lg">distance</span>
+<span class="text-on-surface-variant text-xs font-medium">Acumulado Semanal</span>
+</div>
+<h4 class="text-on-surface-variant text-sm font-medium">Kms Totales</h4>
+<p class="text-3xl font-extrabold mt-1">2,450.5 <span class="text-sm font-normal text-on-surface-variant">km</span></p>
+</div>
+<div class="col-span-3 glass-card p-6 rounded-xl shadow-sm border-l-4 border-error">
+<div class="flex justify-between items-start mb-4">
+<span class="material-symbols-outlined text-error bg-error/10 p-2 rounded-lg">warning</span>
+<span class="animate-pulse flex h-2 w-2 rounded-full bg-error"></span>
+</div>
+<h4 class="text-on-surface-variant text-sm font-medium">Alertas Orden Público</h4>
+<p class="text-3xl font-extrabold mt-1">03</p>
+</div>
+<div class="col-span-3 glass-card p-6 rounded-xl shadow-sm bg-gradient-to-br from-primary to-[#001a43] text-on-primary">
+<div class="flex justify-between items-start mb-4">
+<span class="material-symbols-outlined text-primary-container">speed</span>
+</div>
+<h4 class="text-primary-container text-sm font-medium">Eficiencia Media</h4>
+<p class="text-3xl font-extrabold mt-1">94%</p>
+</div>
+</section>
+<!-- Main Logistics Table -->
+<section class="bg-surface border border-outline-variant rounded-xl overflow-hidden shadow-sm mb-6">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-primary text-on-primary text-xs font-bold uppercase tracking-wider">
+<th class="px-6 py-4 w-10"><input class="rounded border-outline-variant text-primary focus:ring-primary h-4 w-4" type="checkbox"></th>
+<th class="px-6 py-4">Tramo</th>
+<th class="px-6 py-4">Recorrido</th>
+<th class="px-6 py-4">DURACION</th>
+<th class="px-6 py-4 text-center">Distancia (KM)</th>
+<th class="px-6 py-4">Medio Transp.</th>
+<th class="px-6 py-4">Estado / Tipo Vía</th>
+<th class="px-6 py-4">Tipo Transp.</th>
+<th class="px-6 py-4 text-center">ORDEN PUBLICO</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant">
+<!-- Row 1 -->
+<tr class="hover:bg-primary/5 transition-colors group cursor-pointer">
+<td class="px-6 py-5 align-middle"><input class="rounded border-outline-variant text-primary focus:ring-primary h-4 w-4" type="checkbox"></td>
+<td class="px-6 py-5 align-middle">
+<span class="bg-primary/10 text-primary px-3 py-1 rounded-full font-bold text-sm">01</span>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-4">
+<div class="flex flex-col items-center">
+<div class="w-2 h-2 rounded-full bg-primary"></div>
+<div class="w-[1px] h-4 bg-outline-variant"></div>
+<div class="w-2 h-2 rounded-full border border-primary"></div>
+</div>
+<div class="flex flex-col gap-0.5">
+<span class="font-bold text-on-surface">Cali</span>
+<span class="text-on-surface-variant text-xs">Buenaventura</span>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 font-medium text-on-surface">03h 15m</td>
+<td class="px-6 py-5 text-center">
+<span class="text-primary font-bold">121.5</span>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-sm">local_shipping</span>
+<span class="">Camión Turbo</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-semibold">Pavimentada</span>
+<span class="text-[10px] uppercase text-success font-bold">Óptimo</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm bg-surface-container px-2 py-1 rounded">Carga Pesada</span>
+</td>
+<td class="px-6 py-5 text-center">
+<span class="text-sm bg-surface-container px-3 py-1 rounded font-bold text-primary">U</span>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-primary/5 transition-colors group cursor-pointer">
+<td class="px-6 py-5 align-middle"><input class="rounded border-outline-variant text-primary focus:ring-primary h-4 w-4" type="checkbox"></td>
+<td class="px-6 py-5 align-middle">
+<span class="bg-primary/10 text-primary px-3 py-1 rounded-full font-bold text-sm">02</span>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-4">
+<div class="flex flex-col items-center">
+<div class="w-2 h-2 rounded-full bg-primary"></div>
+<div class="w-[1px] h-4 bg-outline-variant"></div>
+<div class="w-2 h-2 rounded-full border border-primary"></div>
+</div>
+<div class="flex flex-col gap-0.5">
+<span class="font-bold text-on-surface">Bogotá</span>
+<span class="text-on-surface-variant text-xs">Villavicencio</span>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 font-medium text-on-surface">05h 30m</td>
+<td class="px-6 py-5 text-center">
+<span class="text-primary font-bold">95.0</span>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-sm">local_shipping</span>
+<span class="">Doble Troque</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-semibold">Montaña</span>
+<span class="text-[10px] uppercase text-[#f59e0b] font-bold">Regular</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm bg-surface-container px-2 py-1 rounded">Granel Líquido</span>
+</td>
+<td class="px-6 py-5 text-center">
+<span class="text-sm bg-surface-container px-3 py-1 rounded font-bold text-primary">U</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Action Buttons -->
+<div class="flex gap-4 items-center mb-8 px-2">
+<button class="flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-lg shadow-md hover:opacity-90 transition-all font-semibold">
+<span class="material-symbols-outlined text-[20px]">add_circle</span>
+<span class="">Añadir Tramo</span>
+</button>
+<button class="flex items-center gap-2 px-5 py-2.5 bg-surface border border-error text-error rounded-lg hover:bg-error/5 transition-colors font-semibold">
+<span class="material-symbols-outlined text-[20px]">delete</span>
+<span class="">Eliminar Tramo</span>
+</button>
+<button class="flex items-center gap-2 px-5 py-2.5 bg-surface border border-outline-variant text-on-surface-variant rounded-lg hover:bg-surface-container transition-colors font-semibold">
+<span class="material-symbols-outlined text-[20px]">file_download</span>
+<span class="">Exportar Reporte</span>
+</button>
+</div>
+<!-- Observations Section -->
+<section class="mb-8 glass-card p-6 rounded-xl border border-outline-variant shadow-sm">
+<div class="flex flex-col gap-3">
+<label class="text-sm font-bold text-on-surface flex items-center gap-2" for="observaciones-logistica">
+<span class="material-symbols-outlined text-primary text-[20px]">notes</span>
+                Observaciones
+            </label>
+<textarea class="w-full bg-surface-container-low border border-outline-variant rounded-lg p-4 text-sm text-on-surface-variant focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all resize-none" id="observaciones-logistica" placeholder="Ingrese notas adicionales sobre el despacho o la ruta..." rows="3"></textarea>
+</div>
+</section>
+<!-- Map & Side widgets -->
+
+</main>
+<script>
+    // Simple micro-interaction for rows
+    document.querySelectorAll('tr').forEach(row => {
+        row.addEventListener('click', () => {
+            row.classList.add('scale-[0.995]');
+            setTimeout(() => row.classList.remove('scale-[0.995]'), 100);
+        });
+    });
+</script>
+
+
+
+
+</body></html>

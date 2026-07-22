@@ -5,8 +5,9 @@ import { resolve } from 'path';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const isProd = mode === 'production';
-  // Fallback seguro a localhost:3000
-  const apiTarget = env.VITE_API_URL || 'http://localhost:3000';
+  // Fallback seguro a localhost:8000 (puerto del backend local)
+  // Forzar IPv4 — en Windows, "localhost" resuelve a ::1 (IPv6) pero Express escucha en 127.0.0.1
+  const apiTarget = (env.VITE_API_URL || 'http://localhost:8000').replace('localhost', '127.0.0.1');
 
   return {
     plugins: [react()],
@@ -27,6 +28,20 @@ export default defineConfig(({ mode }) => {
           entryFileNames: 'assets/[name]-[hash].js',
           chunkFileNames: 'assets/[name]-[hash].js',
           assetFileNames: 'assets/[name]-[hash].[ext]',
+          // Fase 6 — separa vendor "core" (siempre necesario) de vendor
+          // "pesado" (leaflet, xlsx, jspdf, sentry, framer-motion), que ya
+          // solo se cargan cuando se visita la página que los usa gracias al
+          // React.lazy() de main.tsx — esto es refuerzo, no sustituto de eso.
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (/react-router-dom|\/react\/|\/react-dom\//.test(id)) return 'vendor-core';
+            if (/leaflet/.test(id)) return 'vendor-leaflet';
+            if (/xlsx/.test(id)) return 'vendor-xlsx';
+            if (/jspdf/.test(id)) return 'vendor-jspdf';
+            if (/@sentry/.test(id)) return 'vendor-sentry';
+            if (/framer-motion/.test(id)) return 'vendor-motion';
+            return 'vendor';
+          },
         },
       },
     },

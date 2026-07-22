@@ -1,0 +1,595 @@
+/* DialecticaPage — Calco estricto Stitch "DIALECTICA"
+   (screen 4dc62f49b8b244f185d1880091095967 · Panel de Orquestación)
+
+   Tokens fuente:
+   primary #0041a3 · background #f7f9fb · surface-variant #e0e3e5
+   surface-container #eceef0 · surface-container-lowest #ffffff
+   on-surface #191c1e · on-surface-variant #434655 · outline-variant #c4c5d7
+   on-primary-container #cad3ff · surface-container-low #f2f4f6
+   status: red #ffdad6 · yellow #dbe1ff · green #0041a3
+   special-btn gradient: 135deg #0041a3 → #001a43 · Public Sans */
+
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap');
+
+.diax__wrap {
+  background-color: #f7f9fb;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Public Sans', sans-serif;
+  color: #191c1e;
+  -webkit-font-smoothing: antialiased;
+  box-sizing: border-box;
+}
+
+/* Topbar — margen/estructura estandarizados 1:1 con EntradaPage
+   (.entr__topbar/.entr__h1/.entr__save/.entr__clear) para que todas las
+   ventanas del Formulador se vean como una sola aplicación coherente. */
+.diax__topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: #ffffff;
+  border-bottom: 1px solid #e0e3e5;
+  height: 72px;
+  padding: 0 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+.diax__h1 {
+  font-size: 32px;
+  font-weight: 700;
+  color: #191c1e;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+.diax__topbar-right { display: flex; align-items: center; gap: 12px; }
+.diax__content { padding: 24px; flex: 1; }
+
+.diax__save {
+  background: #0041a3;
+  color: #ffffff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 10px 28px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+.diax__save:hover { background: #003482; }
+.diax__save--saved { background: #15803d; }
+
+.diax__clear {
+  background: #ffffff;
+  color: #64748b;
+  border: 1px solid #c6c6cd;
+  border-radius: 0.5rem;
+  padding: 10px 20px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.diax__clear:hover { background: #f2f4f6; border-color: #a8adb8; color: #191c1e; }
+.diax__clear--done { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; }
+
+/* MainControlPanel */
+.diax {
+  width: 100%;
+  background: #ffffff;
+  border-radius: 0.75rem;
+  border: 1px solid #e0e3e5;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+/* Contenedor único de los 5 bloques de menú — sin gap propio */
+.diax__sections {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── Category section — sin gap propio ── */
+.diax__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.diax__cat-header {
+  background: #eceef0;
+  text-align: center;
+  padding: 7px 0;
+  border-radius: 0.375rem 0.375rem 0 0;
+  border-bottom: 1px solid #e0e3e5;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+  color: #191c1e;
+}
+.diax__row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-height: 34px;
+  height: auto;
+  margin-top: 7px;
+  margin-bottom: 10px;
+}
+
+/* Índice automático — muestra el número del botón activo (1-based) */
+.diax__sel-idx {
+  width: 28px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #0041a3;
+  font-family: 'Public Sans', sans-serif;
+  background: #f0f3ff;
+  border: 1px solid #c4c5d7;
+  border-radius: 0.375rem;
+  user-select: none;
+}
+
+/* Control buttons */
+.diax__btns {
+  flex: 1;
+  display: grid;
+  gap: 8px;
+}
+@media (max-width: 768px) {
+  .diax__btns { grid-template-columns: repeat(2, 1fr) !important; }
+  .diax__row { height: auto; }
+}
+.diax__ctrl {
+  background: #ffffff;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.25rem;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: #434655;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 5px 4px;
+  line-height: 1.3;
+}
+.diax__ctrl:hover { background-color: #f2f4f6; }
+.diax__ctrl--active {
+  background-color: #cad3ff;
+  color: #0041a3;
+  border-color: #0041a3;
+  box-shadow: 0 0 0 1px #0041a3;
+  font-weight: 600;
+}
+
+/* ── ADN de Configuración (solo lectura — actualización en tiempo real) ── */
+.diax__dna {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f2f4f6;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.5rem;
+  padding: 12px 20px;
+}
+.diax__dna-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #76777d;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.diax__dna-code {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  color: #0041a3;
+  font-family: 'Courier New', monospace;
+  flex-shrink: 0;
+}
+.diax__dna-copy {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #76777d;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+.diax__dna-copy:hover { color: #0041a3; }
+.diax__dna-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: #a0a3a8;
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* ── Regla de bloqueo ── */
+.diax__regla {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #f0f3ff;
+  border: 1px solid #c4c5d7;
+  border-radius: 0.5rem;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #191c1e;
+  margin-top: 16px;
+  line-height: 1.5;
+}
+.diax__regla-icon { font-size: 18px; color: #0041a3; flex-shrink: 0; margin-top: 1px; }
+.diax__regla-tags { display: inline-flex; gap: 5px; flex-wrap: wrap; margin-left: 6px; }
+.diax__regla-tag {
+  background: #0041a3;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Listas: Lista de Oro + Lista Negra ── */
+.diax__lists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+@media (max-width: 640px) { .diax__lists { grid-template-columns: 1fr; } }
+
+.diax__list {
+  background: #ffffff;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.diax__list-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #eceef0;
+  border-bottom: 1px solid #e0e3e5;
+}
+
+.diax__list-badge { font-size: 14px; flex-shrink: 0; }
+.diax__list-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: #191c1e;
+  margin: 0;
+  flex: 1;
+}
+.diax__list-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: #76777d;
+  background: #eceef0;
+  padding: 2px 7px;
+  border-radius: 9999px;
+}
+.diax__list-restore {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid #c4c5d7;
+  border-radius: 0.25rem;
+  padding: 2px 5px;
+  cursor: pointer;
+  color: #76777d;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+.diax__list-restore:hover { color: #0041a3; background: #f0f3ff; border-color: #0041a3; }
+
+.diax__list-body {
+  padding: 8px 0;
+  max-height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Grupos colapsables — estilo árbol Excel/Explorer ── */
+.diax__grupo {
+  border-bottom: 1px solid #eceef0;
+}
+.diax__grupo:last-child { border-bottom: none; }
+
+.diax__grupo-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  background: #f7f9fb;
+  border: none;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s;
+  color: #191c1e;
+  user-select: none;
+}
+.diax__grupo-header:hover { background: #edf0f5; }
+.diax__grupo--open > .diax__grupo-header {
+  background: #edf0f5;
+  border-left-color: #0041a3;
+}
+
+.diax__grupo-arrow {
+  font-size: 9px;
+  color: #76777d;
+  width: 14px;
+  flex-shrink: 0;
+  transition: color 0.12s;
+}
+.diax__grupo--open > .diax__grupo-header .diax__grupo-arrow { color: #0041a3; }
+
+.diax__grupo-titulo {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #191c1e;
+}
+.diax__grupo-count {
+  font-size: 10px;
+  color: #76777d;
+  background: #e0e3e5;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Wrapper header + botón eliminar grupo */
+.diax__grupo-header-wrap {
+  display: flex;
+  align-items: stretch;
+}
+.diax__grupo-header-wrap .diax__grupo-header { flex: 1; }
+.diax__grupo-del {
+  padding: 0 10px;
+  background: none;
+  border: none;
+  border-left: 1px solid #eceef0;
+  font-size: 16px;
+  color: #c4c5d7;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.diax__grupo-del:hover { color: #dc2626; background: #fff5f5; }
+
+/* Cuerpo del grupo — línea vertical izquierda como árbol */
+.diax__grupo-body {
+  border-left: 3px solid #e0e3e5;
+  margin-left: 22px;
+}
+
+/* Agregar ítem inline */
+.diax__add-item {
+  display: flex;
+  gap: 6px;
+  padding: 6px 14px 8px;
+}
+.diax__add-input {
+  flex: 1;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 4px 8px;
+  border: 1px dashed #c4c5d7;
+  border-radius: 0.25rem;
+  background: #f7f9fb;
+  color: #191c1e;
+  outline: none;
+  min-width: 0;
+}
+.diax__add-input:focus { border-color: #0041a3; border-style: solid; background: #fff; }
+.diax__add-ok {
+  font-size: 16px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border: 1px solid #c4c5d7;
+  border-radius: 0.25rem;
+  background: #f2f4f6;
+  color: #0041a3;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s;
+}
+.diax__add-ok:hover { background: #dde3f5; }
+
+/* Lista estilo Word — sin colores */
+.diax__items {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0 6px;
+}
+.diax__item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 14px 3px 10px;
+  font-size: 12px;
+  color: #191c1e;
+  line-height: 1.5;
+}
+.diax__item:hover { background: #f7f9fb; }
+.diax__item:hover .diax__item-del { opacity: 1; }
+.diax__item-dot {
+  color: #76777d;
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+.diax__item-txt { flex: 1; }
+.diax__item-del {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: #c4c5d7;
+  opacity: 0;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.12s, opacity 0.12s;
+  flex-shrink: 0;
+}
+.diax__item-del:hover { color: #dc2626; }
+
+/* ── Modal de confirmación con PIN ── */
+.diax__modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(25, 28, 30, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.diax__modal {
+  background: #ffffff;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 40px -8px rgba(0,0,0,0.22);
+  padding: 28px 28px 24px;
+  width: min(380px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  font-family: 'Public Sans', sans-serif;
+}
+.diax__modal-icon {
+  font-size: 36px;
+  margin-bottom: 10px;
+}
+.diax__modal-icon--delete  { color: #dc2626; }
+.diax__modal-icon--restore { color: #0041a3; }
+
+.diax__modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #191c1e;
+  margin: 0 0 8px;
+  text-align: center;
+}
+.diax__modal-desc {
+  font-size: 12px;
+  color: #434655;
+  text-align: center;
+  margin: 0 0 18px;
+  line-height: 1.55;
+}
+.diax__modal-pin-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 20px;
+}
+.diax__modal-pin-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #76777d;
+}
+.diax__modal-pin-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #c4c5d7;
+  border-radius: 0.375rem;
+  padding: 9px 12px;
+  font-family: inherit;
+  font-size: 16px;
+  letter-spacing: 0.3em;
+  color: #191c1e;
+  background: #f7f9fb;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  text-align: center;
+}
+.diax__modal-pin-input:focus { border-color: #0041a3; box-shadow: 0 0 0 2px rgba(0,65,163,0.15); background: #fff; }
+.diax__modal-pin-input--error { border-color: #dc2626; box-shadow: 0 0 0 2px rgba(220,38,38,0.15); }
+.diax__modal-pin-error {
+  font-size: 11px;
+  color: #dc2626;
+  font-weight: 600;
+  text-align: center;
+}
+.diax__modal-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+.diax__modal-cancel {
+  flex: 1;
+  padding: 8px 0;
+  border: 1px solid #c4c5d7;
+  border-radius: 0.375rem;
+  background: #f7f9fb;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #434655;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.diax__modal-cancel:hover { background: #eceef0; }
+.diax__modal-confirm {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  border-radius: 0.375rem;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.diax__modal-confirm:hover { opacity: 0.88; }
+.diax__modal-confirm--delete  { background: #dc2626; }
+.diax__modal-confirm--restore { background: #0041a3; }

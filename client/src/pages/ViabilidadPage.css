@@ -1,0 +1,381 @@
+/* ViabilidadPage — Dashboard 4 cuadrantes */
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap');
+
+.viab__wrap {
+  background: #f7f9fb;
+  min-height: 100%;
+  padding: 28px;
+  font-family: 'Public Sans', sans-serif;
+  color: #191c1e;
+  box-sizing: border-box;
+}
+
+/* Header */
+.viab__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.viab__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #191c1e;
+  margin: 0;
+}
+.viab__title .material-symbols-outlined { color: #0041a3; font-size: 24px; }
+.viab__dna-badge {
+  background: #eceef0;
+  border: 1px solid #e0e3e5;
+  border-radius: 2rem;
+  padding: 5px 16px;
+  font-size: 12px;
+  color: #434655;
+}
+.viab__dna-badge strong {
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  color: #0041a3;
+  letter-spacing: 0.15em;
+  margin-left: 4px;
+}
+
+/* Grid 2x2 */
+.viab__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto auto auto auto;
+  gap: 20px;
+}
+.viab__separator {
+  grid-column: 1 / -1;
+  height: 1px;
+  background: #e0e3e5;
+}
+
+/* Q3 canvas: columna izquierda del bottom row */
+.viab__card--q3 {
+  grid-column: 1 / 2;
+}
+
+/* Cards */
+.viab__card {
+  background: #ffffff;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.75rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.viab__card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: #eceef0;
+  border-bottom: 1px solid #e0e3e5;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #191c1e;
+}
+.viab__card-header .material-symbols-outlined { font-size: 18px; color: #0041a3; }
+.viab__card-body {
+  padding: 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Q3 Dark canvas card */
+.viab__card--dark {
+  background: #000814;
+  border-color: #002244;
+}
+.viab__card-header--dark {
+  background: #001228;
+  border-bottom: 1px solid #002244;
+  color: #00d8ff;
+}
+.viab__card-header--dark .material-symbols-outlined { color: #00d8ff; }
+.viab__agent-counter {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #00e8ff;
+  letter-spacing: 0.04em;
+}
+.viab__agent-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #00f5ff;
+  box-shadow: 0 0 6px #00f5ff;
+  animation: viab-pulse-dot 1.4s ease-in-out infinite;
+}
+@keyframes viab-pulse-dot {
+  0%,100% { opacity:1; transform:scale(1); }
+  50%      { opacity:.5; transform:scale(1.4); }
+}
+.viab__card-body--canvas {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 0 0 0.75rem 0.75rem;
+  /* Proporciones exactas Stitch AI: 1376×768 = ratio 1.792 (≈16:9) — sin distorsión */
+  aspect-ratio: 1376 / 768;
+  width: 100%;
+}
+
+/* Q1 Montecarlo */
+.viab__mc-body { gap: 8px; }
+.viab__mc-legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: #76777d;
+  flex-wrap: wrap;
+}
+.viab__mc-dot {
+  display: inline-block;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
+/* Q2 Diagnóstico */
+.viab__diag-body { gap: 16px; }
+.viab__score-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.viab__score-label {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.viab__score-sub {
+  font-size: 11px;
+  color: #76777d;
+  margin-top: 4px;
+}
+.viab__just-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.viab__just-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13px;
+  color: #434655;
+  line-height: 1.5;
+}
+.viab__just-list .material-symbols-outlined { flex-shrink: 0; margin-top: 2px; }
+
+/* Q3 Riesgos */
+.viab__risk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.viab__risk-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.viab__risk-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 2rem;
+}
+.viab__risk-text {
+  font-size: 13px;
+  color: #434655;
+  line-height: 1.5;
+}
+
+/* Q4 Acciones */
+.viab__actions-body { gap: 10px; }
+.viab__action-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #f7f9fb;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+  font-family: inherit;
+}
+.viab__action-btn:hover { background: #eceef0; border-color: #c4c5d7; }
+.viab__action-btn .material-symbols-outlined:first-child { color: #0041a3; flex-shrink: 0; }
+.viab__action-cat {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #76777d;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.viab__action-text { font-size: 13px; font-weight: 600; color: #191c1e; }
+.viab__action-arrow { margin-left: auto; color: #c4c5d7; flex-shrink: 0; }
+.viab__action-btn--primary {
+  background: #0041a3;
+  border-color: #0041a3;
+}
+.viab__action-btn--primary:hover { background: #003188; }
+.viab__action-btn--primary .material-symbols-outlined:first-child { color: #cad3ff; }
+.viab__action-btn--primary .viab__action-cat { color: #cad3ff; }
+.viab__action-btn--primary .viab__action-text { color: #ffffff; }
+.viab__action-btn--primary .viab__action-arrow { color: rgba(255,255,255,0.4); }
+
+/* ── MiroFish panels (Q4) ─────────────────────────────────────────────────── */
+.viab__miro-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+.viab__miro-panel {
+  background: #f7f9fb;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.viab__miro-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #eceef0;
+  border-bottom: 1px solid #e0e3e5;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #0041a3;
+  text-transform: uppercase;
+}
+.viab__miro-panel-header .material-symbols-outlined { font-size: 15px; }
+.viab__miro-panel-body {
+  padding: 10px 14px;
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Dimension score bars */
+.viab__dim-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.viab__dim-name {
+  flex: 0 0 110px;
+  color: #434655;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.viab__dim-bar-wrap {
+  flex: 1;
+  height: 6px;
+  background: #e0e3e5;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.viab__dim-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease;
+}
+.viab__dim-score {
+  flex: 0 0 28px;
+  text-align: right;
+  font-weight: 700;
+  color: #191c1e;
+  font-size: 11px;
+}
+/* Pipeline rows */
+.viab__pipe-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  color: #434655;
+  line-height: 1.4;
+}
+.viab__pipe-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  margin-top: 1px;
+}
+.viab__pipe-icon--ok    { background: #d1fae5; color: #065f46; }
+.viab__pipe-icon--adv   { background: #fef3c7; color: #92400e; }
+.viab__pipe-icon--fail  { background: #fee2e2; color: #991b1b; }
+/* Indicator rows */
+.viab__ind-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  color: #434655;
+  padding: 4px 8px;
+  border-radius: 0.25rem;
+  background: #f0f2f4;
+}
+.viab__ind-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 2rem;
+}
+.viab__ind-badge--alto  { background: #fee2e2; color: #991b1b; }
+.viab__ind-badge--medio { background: #fef3c7; color: #92400e; }
+.viab__ind-badge--bajo  { background: #d1fae5; color: #065f46; }
+
+@media (max-width: 768px) {
+  .viab__grid { grid-template-columns: 1fr; }
+  .viab__wrap { padding: 16px; }
+  .viab__card--q3 { grid-column: auto; }
+}

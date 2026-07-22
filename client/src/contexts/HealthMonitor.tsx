@@ -1,5 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react';
-import { taskQueue } from '../services/ai';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useDevAuth, isDevMode } from './DevAuthContext';
 import { useAIOrchestrator } from '../hooks/useAIOrchestrator';
 
@@ -11,10 +10,11 @@ export function HealthMonitor({ children }: HealthMonitorProps) {
   const { bypassMode, healthStatus, autoRecover } = useDevAuth();
   const { queueStatus, stats } = useAIOrchestrator();
   const [mounted, setMounted] = useState(false);
+  const recoveryInProgressRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
-    
+
     if (isDevMode) {
       console.log('[HealthMonitor] Modo desarrollo activo - bypass de auth');
       console.log('[HealthMonitor] TaskQueue:', queueStatus, '| Agentes:', stats.agents);
@@ -22,16 +22,10 @@ export function HealthMonitor({ children }: HealthMonitorProps) {
   }, [queueStatus, stats.agents]);
 
   useEffect(() => {
-    if (healthStatus === 'offline' || healthStatus === 'degraded') {
-      const recoveryTaskId = taskQueue.submitTask({
-        type: 'compilation',
-        priority: 'critical',
-        prompt: 'Error de backend detectado. Diagnosticar y resolver: Firebase Auth/Firestore, conexión API, errores de red.',
-        context: { taskType: 'emergency-recovery' }
-      });
-      console.log(`[HealthMonitor] Tarea de recuperación creada: ${recoveryTaskId}`);
-      
-      autoRecover();
+    if ((healthStatus === 'offline' || healthStatus === 'degraded') && !recoveryInProgressRef.current) {
+      recoveryInProgressRef.current = true;
+      console.log('[HealthMonitor] Estado degradado detectado — iniciando recuperación única.');
+      autoRecover().finally(() => { recoveryInProgressRef.current = false; });
     }
   }, [healthStatus, autoRecover]);
 

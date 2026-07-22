@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { taskQueue } from '../services/ai';
 
-const DEV_MODE = import.meta.env.DEV || true;
+const DEV_MODE = import.meta.env.DEV === true;
 const DEV_USER = {
   uid: 'dev-user-001',
   email: 'dev@antigravity.local',

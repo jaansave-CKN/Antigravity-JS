@@ -1,0 +1,195 @@
+/* AnexosCalcoView — Calco estricto Stitch "Anexos - Azul Sincronizado (Regen)"
+   Tokens fuente:
+   primary #0041a3 · surface-container-lowest #ffffff · on-surface #191c1e
+   on-surface-variant #434655 · outline-variant #c4c5d7 · outline #747686
+   error #ba1a1a · label-sm 11px/16px w700 · body-md 14px/20px · Public Sans */
+
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;900&display=swap');
+
+.anx {
+  width: 100%;
+  min-height: 100vh;
+  background: #f7f9fb;
+  font-family: 'Public Sans', sans-serif;
+  color: #191c1e;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+}
+
+.anx__container { background: #f7f9fb; overflow: hidden; flex: 1; display: flex; flex-direction: column; }
+
+/* Topbar — margen/estructura estandarizados 1:1 con EntradaPage (.entr__topbar,
+   .entr__h1, .entr__save, .entr__clear) para que todas las ventanas del
+   Formulador se vean como una sola aplicación coherente. */
+.anx__topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: #ffffff;
+  border-bottom: 1px solid #e0e3e5;
+  height: 72px;
+  padding: 0 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+.anx__h1 {
+  font-size: 32px;
+  font-weight: 700;
+  color: #191c1e;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+.anx__topbar-right { display: flex; align-items: center; gap: 12px; }
+.anx__content { padding: 24px; flex: 1; }
+
+.anx__save {
+  background: #0041a3;
+  color: #ffffff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 10px 28px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+.anx__save:hover { background: #003482; }
+.anx__save--saved { background: #15803d; }
+
+.anx__clear {
+  background: #ffffff;
+  color: #64748b;
+  border: 1px solid #c6c6cd;
+  border-radius: 0.5rem;
+  padding: 10px 20px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.anx__clear:hover { background: #f2f4f6; border-color: #a8adb8; color: #191c1e; }
+.anx__clear--done { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; }
+.anx__table-scroll { overflow-x: auto; }
+.anx__table { width: 100%; text-align: left; border-collapse: collapse; }
+
+.anx__tr {
+  transition: background-color 0.15s;
+}
+.anx__tr:hover { background: rgba(0, 65, 163, 0.05); }
+.anx__tr + .anx__tr { border-top: 1px solid #c4c5d7; }
+
+.anx__td { padding: 24px; vertical-align: top; }
+.anx__td--desc { width: 70%; padding: 24px; }
+.anx__td--sm { width: 10%; padding: 24px 8px; }
+.anx__td--action { width: 48px; padding: 24px; text-align: center; }
+
+.anx__field { display: flex; flex-direction: column; gap: 6px; }
+.anx__field--center { align-items: center; }
+
+.anx__label {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 700;
+  color: #434655;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.anx__label-spacer { height: 16px; }
+
+.anx__input {
+  width: 100%;
+  border: 1px solid #c4c5d7;
+  border-radius: 0.5rem;
+  padding: 10px 16px;
+  background: #ffffff;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  color: #191c1e;
+  outline: none;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+.anx__input::placeholder { color: #c4c5d7; }
+.anx__input:focus {
+  border-color: #0041a3;
+  box-shadow: 0 0 0 2px rgba(0, 65, 163, 0.2);
+}
+.anx__input--center { text-align: center; padding: 10px 12px; }
+.anx__input--attach { padding: 10px 58px 10px 12px; }
+
+.anx__attach-wrap { position: relative; display: flex; align-items: center; width: 100%; }
+.anx__attach-btn {
+  position: absolute;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  color: #747686;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.anx__download-btn {
+  position: absolute;
+  right: 34px;
+  display: flex;
+  align-items: center;
+  color: #747686;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.anx__tr:hover .anx__attach-btn { color: #0041a3; }
+
+.anx__delete {
+  background: none;
+  border: none;
+  color: #ba1a1a;
+  padding: 10px;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+}
+.anx__delete:hover { background: rgba(0, 65, 163, 0.1); }
+.anx__delete:active { transform: scale(0.9); }
+
+/* ── Footer ── */
+.anx__footer {
+  padding: 20px 24px;
+  background: #ffffff;
+  border-top: 1px solid #c4c5d7;
+}
+.anx__add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #0041a3;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.15s;
+  padding: 0;
+}
+.anx__add:hover { text-decoration: underline; }
+.anx__add:hover svg { transform: scale(1.1); }
+.anx__add:active { transform: scale(0.95); }
+.anx__add svg { transition: transform 0.15s; }

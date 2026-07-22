@@ -151,16 +151,17 @@ export async function checkSessionValid(userId, tokenIat, getRow) {
 export async function purgeExpiredTokens(runSql) {
   const before = revokedSet.size;
   try {
+    const now = new Date().toISOString();
     await runSql(
-      `DELETE FROM revoked_tokens WHERE expires_at <= NOW()`,
-      []
+      `DELETE FROM revoked_tokens WHERE expires_at <= $1`,
+      [now]
     );
     // Reconstruir Set desde BD limpia
     revokedSet.clear();
     const { getRows } = await import('../config/database.config.js');
     const rows = await getRows(
-      `SELECT token_hash FROM revoked_tokens WHERE expires_at > NOW()`,
-      []
+      `SELECT token_hash FROM revoked_tokens WHERE expires_at > $1`,
+      [now]
     );
     rows.forEach(r => revokedSet.add(r.token_hash));
     const purged = before - revokedSet.size;

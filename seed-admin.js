@@ -55,7 +55,7 @@ async function seed() {
     const password_hash = hashPassword(ADMIN.password);
     const now           = new Date().toISOString();
     await runSql(
-      `INSERT INTO usuarios (id, email, password_hash, nombre, tipoUsuario, createdAt, is_approved, is_active)
+      `INSERT INTO usuarios (id, email, password_hash, nombre, tipousuario, createdat, is_approved, is_active)
        VALUES (?, ?, ?, ?, ?, ?, 1, 1)`,
       [id, ADMIN.email, password_hash, ADMIN.nombre, ADMIN.role, now]
     );

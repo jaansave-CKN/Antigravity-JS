@@ -16,13 +16,6 @@ type LinkState = 'idle' | 'linking' | 'linked' | 'error' | 'expand';
 // ── Conectores institucionales (lenguaje de canal, no de clave) ────────────────
 const CONNECTORS: Connector[] = [
   {
-    id:          'perplexity',
-    label:       'Canal Perplexity Intelligence',
-    description: 'Rastreo semántico en tiempo real de convocatorias de financiación pública.',
-    category:    'Motor de Búsqueda',
-    prefix:      'pplx-',
-  },
-  {
     id:          'serper',
     label:       'Canal Serper · Indexación Web',
     description: 'Indexación estructurada de convocatorias mediante búsqueda institucional.',
