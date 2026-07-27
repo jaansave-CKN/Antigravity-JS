@@ -8,6 +8,8 @@
  *   HALF_OPEN → Sondeo      (probando si la cuota se recuperó)
  */
 
+import { captureMessage } from '../config/sentry.config.js';
+
 const RPM_LIMIT  = 15;
 const RPD_LIMIT  = 1500;
 const RPM_WINDOW = 60_000;          // 1 minuto en ms
@@ -74,8 +76,16 @@ class GeminiCircuitBreaker {
   /** Registrar error 429 — abre el circuito */
   recordQuotaError() {
     this.lastQuotaError = new Date();
+    const eraCerrado = this.state !== 'OPEN';
     this.state = 'OPEN';
     console.warn('[GeminiCB] Cuota agotada → circuito OPEN (Modo Respaldo).');
+    // Solo alerta en la transición CLOSED/HALF_OPEN → OPEN, no en cada intento
+    // repetido mientras ya está abierto — evita spamear el colector remoto.
+    if (eraCerrado) {
+      captureMessage('CRITICAL: Gemini Circuit Breaker OPEN - Degradación a heurística', 'fatal', {
+        dailyCount: this.dailyCount, state: this.state,
+      });
+    }
   }
 
   /** Retorna el estado completo para el endpoint /api/admin/quota-status */

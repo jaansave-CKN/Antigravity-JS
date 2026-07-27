@@ -11,6 +11,7 @@ export interface UserProfile {
   last_login?: string;
   is_active: boolean;
   is_trial?: boolean;
+  email_verified?: boolean;
 }
 
 export interface LoginSubscription {
@@ -27,7 +28,7 @@ interface AuthContextType {
   isTrialMode: boolean;
   isReconnecting: boolean;
   login: (email: string, password: string) => Promise<LoginSubscription | undefined>;
-  register: (email: string, password: string, nombre: string, role?: string) => Promise<void>;
+  register: (email: string, password: string, nombre: string, role?: string) => Promise<{ pendingApproval: boolean; message?: string }>;
   logout: () => Promise<void>;
   updateProfile: (data: Partial<UserProfile>) => Promise<void>;
   changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
@@ -120,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           nombre: data.user.nombre, role: data.user.role,
           plan: data.user.plan,
           created_at: data.user.created_at, is_active: data.user.is_active,
+          email_verified: data.user.email_verified,
         });
         checkCredentials(storedToken);
       } else { clearSession(); }
@@ -261,10 +263,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento.'); }
     if (!response.ok) throw new Error(data?.message || 'Error al registrarse.');
+    // Registro con aprobación manual pendiente: el servidor no emite token
+    // todavía — no hay sesión que abrir, solo se informa al llamador.
+    if (data?.pendingApproval) return { pendingApproval: true as const, message: data.message as string };
     const { token: newToken, user: userData } = data;
     if (!newToken || !userData) throw new Error('Respuesta inválida del servidor.');
     persistSession(newToken, userData);
     setHasCreds(false); // usuario nuevo nunca tiene credenciales
+    return { pendingApproval: false as const };
   }
 
   // ── logout ─────────────────────────────────────────────────────────────────

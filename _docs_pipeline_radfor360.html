@@ -1,0 +1,395 @@
+<title>RadFor-360 — Mapa del Pipeline de Auditoría</title>
+<style>
+  :root {
+    --bg: #f6f4ee;
+    --surface: #ffffff;
+    --surface-sunken: #ece8dd;
+    --border: #d8d2c2;
+    --text: #1b2430;
+    --text-muted: #5b6270;
+    --text-faint: #8a8f7b;
+    --accent: #9c7a34;
+    --accent-strong: #7a5e24;
+    --accent-tint: #f1e6c9;
+    --ok: #2f7d4f;
+    --ok-tint: #e3f2e8;
+    --warn: #b5791c;
+    --warn-tint: #fbecd4;
+    --crit: #b13c33;
+    --crit-tint: #f8e2df;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    --radius: 10px;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0a1420;
+    --surface: #101c2b;
+    --surface-sunken: #001c2e;
+    --border: #24384c;
+    --text: #e7ecf2;
+    --text-muted: #9fb0c2;
+    --text-faint: #6d7f92;
+    --accent: #d8b45e;
+    --accent-strong: #f0cd7f;
+    --accent-tint: #2a2415;
+    --ok: #5fbf87;
+    --ok-tint: #10241a;
+    --warn: #e0aa4c;
+    --warn-tint: #2a2013;
+    --crit: #e2766a;
+    --crit-tint: #2c1613;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0a1420;
+      --surface: #101c2b;
+      --surface-sunken: #001c2e;
+      --border: #24384c;
+      --text: #e7ecf2;
+      --text-muted: #9fb0c2;
+      --text-faint: #6d7f92;
+      --accent: #d8b45e;
+      --accent-strong: #f0cd7f;
+      --accent-tint: #2a2415;
+      --ok: #5fbf87;
+      --ok-tint: #10241a;
+      --warn: #e0aa4c;
+      --warn-tint: #2a2013;
+      --crit: #e2766a;
+      --crit-tint: #2c1613;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 56px 28px 96px;
+  }
+
+  header.doc-head {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 28px;
+    margin-bottom: 40px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(26px, 4vw, 34px);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .doc-sub {
+    color: var(--text-muted);
+    font-size: 15px;
+    max-width: 62ch;
+    margin: 0;
+  }
+  .doc-meta {
+    display: flex;
+    gap: 18px;
+    margin-top: 18px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-faint);
+    flex-wrap: wrap;
+  }
+  .doc-meta span b { color: var(--text-muted); font-weight: 600; }
+
+  section { margin-bottom: 44px; }
+  h2 {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 0 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  p { max-width: 68ch; color: var(--text); }
+  p.lede { color: var(--text-muted); font-size: 15px; }
+
+  .diagram-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    overflow-x: auto;
+  }
+  .diagram-card .mermaid { min-width: 640px; }
+
+  .note {
+    display: flex;
+    gap: 10px;
+    background: var(--accent-tint);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    font-size: 13.5px;
+    color: var(--text);
+    margin-top: 16px;
+  }
+  .note b { color: var(--accent-strong); }
+
+  .svc-grid { display: flex; flex-direction: column; gap: 14px; }
+  .svc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    display: grid;
+    grid-template-columns: minmax(0,1fr);
+    gap: 10px;
+  }
+  .svc-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .svc-name {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 14.5px;
+    color: var(--text);
+  }
+  .trigger-pill {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .trigger-pill.auto { background: var(--ok-tint); color: var(--ok); }
+  .trigger-pill.manual { background: var(--warn-tint); color: var(--warn); }
+
+  .svc-row {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    gap: 10px;
+    font-size: 13px;
+    align-items: start;
+  }
+  .svc-row .k { color: var(--text-faint); font-family: var(--mono); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; padding-top: 2px; }
+  .svc-row .v { color: var(--text-muted); }
+  code.inline {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    background: var(--surface-sunken);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: var(--text);
+  }
+
+  table.spec {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  table.spec th, table.spec td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.spec th {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    background: var(--surface-sunken);
+  }
+  table.spec tr:last-child td { border-bottom: none; }
+  table.spec td.mono { font-family: var(--mono); font-size: 12px; }
+  .tablewrap { overflow-x: auto; }
+
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 2px 9px;
+    border-radius: 999px;
+  }
+  .status.ok { background: var(--ok-tint); color: var(--ok); }
+  .status.warn { background: var(--warn-tint); color: var(--warn); }
+  .status.crit { background: var(--crit-tint); color: var(--crit); }
+
+  .verdict {
+    border-left: 3px solid var(--crit);
+    background: var(--crit-tint);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 16px 20px;
+    font-size: 13.5px;
+  }
+  .verdict h3 { margin: 0 0 6px; font-size: 13px; font-family: var(--mono); color: var(--crit); text-transform: uppercase; letter-spacing: .05em; }
+  .verdict p { margin: 0; color: var(--text); }
+
+  footer {
+    border-top: 1px solid var(--border);
+    margin-top: 48px;
+    padding-top: 18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
+
+<div class="wrap">
+  <header class="doc-head">
+    <p class="eyebrow">RadFor-360 · Nota técnica interna</p>
+    <h1>Cómo se comunican hoy los 4 motores del Formulador</h1>
+    <p class="doc-sub">Mapa exacto del pipeline en producción: qué se dispara solo, qué requiere una decisión del formulador, y en qué tabla aterriza cada dato. Sin orquestador nuevo — esto es lo que ya corre.</p>
+    <div class="doc-meta">
+      <span><b>Alcance:</b> backend/services + backend/routes</span>
+      <span><b>Moneda:</b> COP exclusivo</span>
+      <span><b>Última verificación:</b> pruebas end-to-end reales, 2026-07-24</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>01 · Flujo real</h2>
+    <p class="lede">Dos motores se disparan automáticamente al subir un presupuesto. Los otros dos son acciones deliberadas del formulador, con sus propios parámetros — nunca un efecto secundario de la subida.</p>
+    <div class="diagram-card">
+      <pre class="mermaid">
+flowchart TB
+    U["Formulador sube Excel\ncategoria = presupuesto_apu"] --> R["POST /api/proyectos/:id/anexos"]
+    R --> E["ExtractorService.js\nparseAndSanitizeExcel()"]
+    E -->|"filas limpias en COP"| DB1[("project_apu_lineas")]
+    E --> A["AuditorForenseService.js\nejecutarAuditoriaCompleta()"]
+    A -->|"HSEQ ausente / descuadres"| DB2[("project_hallazgos")]
+
+    subgraph manual[" Acciones separadas del formulador — requieren parámetros propios "]
+        direction TB
+        F1["Elige % de choque + nombre del escenario"] --> S1["POST /estres-financiero"]
+        S1 --> ST["EstresadoFinancieroService.js\nsimularEscenario()"]
+        ST -->|"resultado + posible hallazgo CRITICO"| DB3[("project_escenarios_estres")]
+        ST -.->|"si CRITICO"| DB2
+
+        F2["Indica su propio ratio SROI"] --> S2["POST /calcular-sroi"]
+        S2 --> VE["ValorExponencialService.js\ncalcularSROI() + calcularMapeoODS()"]
+        VE --> DB4[("project_sroi_metrics")]
+        VE --> DB5[("project_ods_mapping")]
+    end
+
+    classDef auto fill:#e3f2e8,stroke:#2f7d4f,color:#1b2430,font-size:13px;
+    classDef manual2 fill:#fbecd4,stroke:#b5791c,color:#1b2430,font-size:13px;
+    classDef store fill:#ffffff,stroke:#d8d2c2,color:#1b2430,font-size:12px;
+    class E,A auto;
+    class ST,VE manual2;
+    class DB1,DB2,DB3,DB4,DB5 store;
+      </pre>
+    </div>
+    <div class="note"><b>Por qué no hay un 5º paso automático:</b> ni el % de choque macroeconómico ni el ratio SROI tienen un valor "estándar" real — inventarlos sería presentar una cifra fabricada como si fuera oficial. Por eso ambos exigen que el formulador los indique explícitamente (ver tabla abajo, columna Parámetros).</div>
+  </section>
+
+  <section>
+    <h2>02 · Los 4 servicios, uno por uno</h2>
+    <div class="svc-grid">
+
+      <div class="svc">
+        <div class="svc-top">
+          <span class="svc-name">ExtractorService.js</span>
+          <span class="trigger-pill auto">se dispara solo</span>
+        </div>
+        <div class="svc-row"><span class="k">Cuándo</span><span class="v">Dentro de <code class="inline">POST /api/proyectos/:id/anexos</code>, si <code class="inline">categoria === 'presupuesto_apu'</code> y el archivo es <code class="inline">.xlsx/.xls</code>.</span></div>
+        <div class="svc-row"><span class="k">Hace</span><span class="v">Detecta la fila de encabezado real (ignora logos/filas en blanco), prioriza hojas llamadas Presupuesto/APU/Costos, sanea números en formato colombiano, y rechaza divisas distintas a COP con <code class="inline">422</code>.</span></div>
+        <div class="svc-row"><span class="k">Idempotencia</span><span class="v">Borra líneas de subidas anteriores con el mismo nombre de archivo antes de insertar — corregir un typo y resubir nunca duplica el presupuesto.</span></div>
+        <div class="svc-row"><span class="k">Escribe en</span><span class="v"><code class="inline">project_apu_lineas</code>, en lotes de 500 filas.</span></div>
+      </div>
+
+      <div class="svc">
+        <div class="svc-top">
+          <span class="svc-name">AuditorForenseService.js</span>
+          <span class="trigger-pill auto">se dispara solo</span>
+        </div>
+        <div class="svc-row"><span class="k">Cuándo</span><span class="v">Inmediatamente después de que ExtractorService inserta las líneas — mismo request, sin bloquear la respuesta si falla.</span></div>
+        <div class="svc-row"><span class="k">Hace</span><span class="v">Motor 1: suma EPP+SST+SEÑALIZACION — si es $0, alerta técnica (no cita legal). Motor 2: verifica <code class="inline">cantidad × valor_unitario ≈ valor_total</code> con tolerancia $50 COP.</span></div>
+        <div class="svc-row"><span class="k">Idempotencia</span><span class="v">Limpia hallazgos no resueltos previos del mismo anexo antes de re-evaluar.</span></div>
+        <div class="svc-row"><span class="k">Escribe en</span><span class="v"><code class="inline">project_hallazgos</code> — severidad CRITICA (HSEQ ausente) o ALTA (descuadre).</span></div>
+      </div>
+
+      <div class="svc">
+        <div class="svc-top">
+          <span class="svc-name">EstresadoFinancieroService.js</span>
+          <span class="trigger-pill manual">decisión del formulador</span>
+        </div>
+        <div class="svc-row"><span class="k">Cuándo</span><span class="v">El formulador llama <code class="inline">POST /api/proyectos/:id/estres-financiero</code> con su propio <code class="inline">nombreEscenario</code> + <code class="inline">porcentajeIncremento</code>.</span></div>
+        <div class="svc-row"><span class="k">Hace</span><span class="v">Suma el presupuesto real, aplica el % indicado, y clasifica VIABLE / EN RIESGO / CRITICO (umbral 15% de sobrecosto).</span></div>
+        <div class="svc-row"><span class="k">Si es CRITICO</span><span class="v">Genera además un hallazgo en <code class="inline">project_hallazgos</code> (fase PHVA: ACTUAR).</span></div>
+        <div class="svc-row"><span class="k">Escribe en</span><span class="v"><code class="inline">project_escenarios_estres</code>.</span></div>
+      </div>
+
+      <div class="svc">
+        <div class="svc-top">
+          <span class="svc-name">ValorExponencialService.js</span>
+          <span class="trigger-pill manual">decisión del formulador</span>
+        </div>
+        <div class="svc-row"><span class="k">Cuándo</span><span class="v">El formulador llama <code class="inline">POST /api/proyectos/:id/calcular-sroi</code> con su propio <code class="inline">ratioConversion</code> — sin valor por defecto; rechaza con <code class="inline">422</code> si falta.</span></div>
+        <div class="svc-row"><span class="k">Hace</span><span class="v">SROI = presupuesto × ratio indicado. Empleos = costo de mano de obra detectado ÷ SMMLV 2026 ($1.750.905 COP, Decretos 1469/1470 de 2025). Mapeo ODS por palabras clave sobre las descripciones reales.</span></div>
+        <div class="svc-row"><span class="k">Escribe en</span><span class="v"><code class="inline">project_sroi_metrics</code> y <code class="inline">project_ods_mapping</code>. Lectura combinada: <code class="inline">GET /impacto-social</code>.</span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>03 · Esquema real (verificado, no asumido)</h2>
+    <p class="lede">Antes de escribir cada migración se consultó <code class="inline">information_schema</code> directamente — <code class="inline">proyectos.id</code> y <code class="inline">project_anexos.id</code> son <code class="inline">TEXT</code>, no <code class="inline">UUID</code>, por el bootstrap original de <code class="inline">server.js</code>. Todas las tablas nuevas respetan ese tipo.</p>
+    <div class="tablewrap">
+      <table class="spec">
+        <thead><tr><th>Tabla</th><th>project_id / org_id</th><th>RLS</th><th>Aislamiento real</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">project_apu_lineas</td><td class="mono">TEXT</td><td><span class="status ok">habilitada</span></td><td>Filtro <code class="inline">WHERE org_id = req.userId</code> en la ruta — la política <code class="inline">auth.jwt()</code> es inerte porque el backend siempre usa <code class="inline">service_role</code>.</td></tr>
+          <tr><td class="mono">project_hallazgos</td><td class="mono">TEXT</td><td><span class="status ok">habilitada</span></td><td>Igual patrón.</td></tr>
+          <tr><td class="mono">project_escenarios_estres</td><td class="mono">TEXT</td><td><span class="status ok">habilitada</span></td><td>Igual patrón.</td></tr>
+          <tr><td class="mono">project_sroi_metrics</td><td class="mono">TEXT</td><td><span class="status ok">habilitada</span></td><td>Igual patrón.</td></tr>
+          <tr><td class="mono">project_ods_mapping</td><td class="mono">TEXT</td><td><span class="status ok">habilitada</span></td><td>Igual patrón.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>04 · Por qué se descartó el orquestador centralizado</h2>
+    <div class="verdict">
+      <h3>No implementado — 5 fallas concretas</h3>
+      <p>El <code class="inline">ProyectoPipelineController.js</code> propuesto usaba CommonJS (<code class="inline">require</code>) en un proyecto 100% ESM, invocaba funciones con nombres y firmas que no existen en el código real, habría reprocesado cada anexo dos veces (la extracción/auditoría ya corre dentro de <code class="inline">anexos.routes.js</code>), y disparaba estresado/SROI automáticamente pese a que ambos exigen un parámetro que solo el formulador puede decidir. El pipeline de hoy — dos pasos automáticos, dos deliberados — ya cubre el mismo objetivo sin esos riesgos.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>RadFor-360 · Formulador · nota interna</span>
+    <span>Generado a partir de pruebas reales, no de la especificación</span>
+  </footer>
+</div>

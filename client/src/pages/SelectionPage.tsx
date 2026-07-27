@@ -408,8 +408,20 @@ export default function SelectionPage() {
   const isRealAuth = !!(user && token && token !== 'demo-mode-token' && user.role !== 'trial');
   const isOnline   = root === 'online';
 
-  const goRadar = () => { navigate('/radar'); };
-  const goForm  = () => { navigate('/checklist'); };
+  const goRadar = () => {
+    if (!isRealAuth) {
+      navigate('/login', { state: { from: { pathname: '/radar' }, reason: 'requires-auth', module: 'A', moduleName: 'Radar 360' } });
+      return;
+    }
+    navigate('/radar');
+  };
+  const goForm  = () => {
+    if (!isRealAuth) {
+      navigate('/login', { state: { from: { pathname: '/checklist' }, reason: 'requires-auth', module: 'B', moduleName: 'Formulador AI' } });
+      return;
+    }
+    navigate('/checklist');
+  };
   const goTrial = async () => {
     setStarting(true);
     try { await startTrial(); navigate('/radar'); }

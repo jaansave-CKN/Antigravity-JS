@@ -16,6 +16,27 @@ const getRateLimitKey = (req) => {
   return ipKeyGenerator(ip);
 };
 
+// ── Rate limiting por tenant para el pipeline financiero (rutas pesadas) ─────
+// Se aplica DESPUÉS de authenticateToken en la cadena de middlewares, así
+// req.userId (= org_id en este esquema) ya está disponible. El límite general
+// de /api (300/15min) es por IP y no protege contra un solo tenant saturando
+// el pool de conexiones REST de Supabase con extracciones/cálculos pesados —
+// este limiter es más estricto y aísla por org_id, no por red compartida.
+export const financialPipelineLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  keyGenerator: (req) => req.userId || getRateLimitKey(req),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      success: false,
+      code: 'FINANCIAL_PIPELINE_RATE_LIMITED',
+      message: 'Límite de operaciones del pipeline financiero excedido (20 cada 15 minutos). Reintenta en unos minutos.',
+    });
+  },
+});
+
 // ── Rate limiting estricto para rutas de autenticación ────────────────────────
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { getAuthHeaders } from '../lib/apiClient';
+import { useAuth } from '../contexts/AuthContextNew';
 import ProyectoSelectorModal from '../components/ProyectoSelectorModal';
+import CoPilotoSidebarChat from '../components/copiloto/CoPilotoSidebarChat';
 import {
   LayoutDashboard, FileText, Target, Paperclip, ShieldAlert,
   Lightbulb, Wallet, BarChart2, ArrowLeftRight, Settings,
@@ -14,7 +16,7 @@ import {
 } from 'lucide-react';
 
 // ── Paleta light mode — fondo blanco, texto oscuro ───────────────────────────
-const C = {
+export const C = {
   bgMain:        '#f0f2f5',   // fondo general gris muy claro
   bgSidebar:     '#ffffff',   // sidebar izquierda y panel derecho blancos
   bgHeader:      '#ffffff',   // encabezado blanco
@@ -489,8 +491,8 @@ function LeftSidebar() {
 // ── Panel derecho ─────────────────────────────────────────────────────────────
 interface ResumenProyecto { indicadores: number; anexos: number; pendientes: number; totalDimensiones: number; viabilidadGlobal: number | null }
 
-function RightPanel({ compact = false, riesgos, acciones, bitacora, resumen }: {
-  compact?: boolean; riesgos: Risk[]; acciones: Action[]; bitacora: LogEntry[]; resumen: ResumenProyecto;
+function RightPanel({ compact = false, riesgos, acciones, bitacora, resumen, proyectoId }: {
+  compact?: boolean; riesgos: Risk[]; acciones: Action[]; bitacora: LogEntry[]; resumen: ResumenProyecto; proyectoId?: string;
 }) {
   const actionColor = (p?:string) => p==='Alta' ? '#dc2626' : p==='Media' ? '#d97706' : '#16a34a';
   const priorityColor = (p?:string) => p==='Alta' ? '#dc2626' : p==='Media' ? '#d97706' : '#16a34a';
@@ -664,6 +666,11 @@ function RightPanel({ compact = false, riesgos, acciones, bitacora, resumen }: {
       </section>
 
       </div>{/* fin scroll */}
+
+      {/* CO-PILOTO — fijo e inamovible, fuera de la zona scrolleable */}
+      <div style={{ padding: compact ? '8px 10px 10px' : '10px 14px 14px', borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+        <CoPilotoSidebarChat proyectoId={proyectoId} />
+      </div>
     </aside>
   );
 }
@@ -829,6 +836,7 @@ function useConteosProyecto(proyectoId: string | undefined) {
 // ── Página principal ──────────────────────────────────────────────────────────
 export default function DashboardFormuladorPage({ embedded = false, proyectoId: proyectoIdProp }: { embedded?: boolean; proyectoId?: string }) {
   const { id: proyectoId, nombre: proyectoNombre } = useProyectoActivo(proyectoIdProp);
+  const { user } = useAuth();
   const [selectorAbierto, setSelectorAbierto] = useState(false);
   const { data: scoring } = useScoringDinamico(proyectoId);
   const sections = mergeScoring(SECTIONS, scoring);
@@ -904,11 +912,13 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
                 borderRadius:'50%', width:12, height:12, display:'flex', alignItems:'center', justifyContent:'center',
               }}>3</span>
             </div>
-            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <div style={{ width:22, height:22, borderRadius:'50%', background:'#111827', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6, minWidth:0 }} title={user?.email || 'Sin sesión'}>
+              <div style={{ width:22, height:22, borderRadius:'50%', background:'#111827', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                 <User size={11} color="#ffffff"/>
               </div>
-              {!embedded && <span style={{ fontSize:11, color:C.text, fontWeight:500 }}>Formulador</span>}
+              <span style={{ fontSize:11, color:C.text, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth: embedded ? 170 : 240 }}>
+                {user?.email || 'Sin sesión'}
+              </span>
             </div>
           </div>
         </header>
@@ -1026,7 +1036,7 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
             </footer>
           </main>
 
-          <RightPanel compact={embedded} riesgos={riesgos} acciones={acciones} bitacora={bitacora} resumen={resumen}/>
+          <RightPanel compact={embedded} riesgos={riesgos} acciones={acciones} bitacora={bitacora} resumen={resumen} proyectoId={proyectoId}/>
         </div>
       </div>
 

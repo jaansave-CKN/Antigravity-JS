@@ -169,3 +169,28 @@ export async function sendSubscriptionAlert(to, { nombre, tipo }) {
     html:    bodies[tipo] || `<p>Hola ${nombre}, hay una novedad con tu suscripción.</p>`,
   });
 }
+
+// ── Aviso al administrador: nuevo registro pendiente de aprobación ───────────
+const ADMIN_NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'jaansave@gmail.com';
+
+export async function sendNewUserPendingApproval({ id, nombre, email }) {
+  if (!isConfigured()) return noop('sendNewUserPendingApproval');
+
+  return resend?.emails.send({
+    from:    FROM,
+    to:      ADMIN_NOTIFY_EMAIL,
+    subject: `Nuevo registro pendiente de aprobación — ${nombre}`,
+    html: `
+      <h2>Nuevo usuario registrado</h2>
+      <p><strong>Nombre:</strong> ${nombre}<br/>
+         <strong>Correo:</strong> ${email}<br/>
+         <strong>ID:</strong> ${id}</p>
+      <p>Verifica el pago (Nequi u otro medio) y luego apruébalo desde el panel de administración:</p>
+      <p><a href="${APP_URL}/admin/usuarios-pendientes" style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">
+        Ir al panel de aprobación
+      </a></p>
+      <hr/>
+      <small>Mientras no lo apruebes, este usuario no puede iniciar sesión.</small>
+    `,
+  });
+}

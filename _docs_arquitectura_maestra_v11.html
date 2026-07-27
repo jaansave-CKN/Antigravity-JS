@@ -1,0 +1,413 @@
+<title>RadFor-360 — Documento Maestro de Arquitectura v11</title>
+<style>
+  :root {
+    --bg: #f6f4ee;
+    --surface: #ffffff;
+    --surface-sunken: #ece8dd;
+    --border: #d8d2c2;
+    --text: #1b2430;
+    --text-muted: #5b6270;
+    --text-faint: #8a8f7b;
+    --accent: #9c7a34;
+    --accent-strong: #7a5e24;
+    --accent-tint: #f1e6c9;
+    --ok: #2f7d4f;
+    --ok-tint: #e3f2e8;
+    --warn: #b5791c;
+    --warn-tint: #fbecd4;
+    --crit: #b13c33;
+    --crit-tint: #f8e2df;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    --radius: 10px;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0a1420; --surface: #101c2b; --surface-sunken: #001c2e; --border: #24384c;
+    --text: #e7ecf2; --text-muted: #9fb0c2; --text-faint: #6d7f92;
+    --accent: #d8b45e; --accent-strong: #f0cd7f; --accent-tint: #2a2415;
+    --ok: #5fbf87; --ok-tint: #10241a; --warn: #e0aa4c; --warn-tint: #2a2013;
+    --crit: #e2766a; --crit-tint: #2c1613;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0a1420; --surface: #101c2b; --surface-sunken: #001c2e; --border: #24384c;
+      --text: #e7ecf2; --text-muted: #9fb0c2; --text-faint: #6d7f92;
+      --accent: #d8b45e; --accent-strong: #f0cd7f; --accent-tint: #2a2415;
+      --ok: #5fbf87; --ok-tint: #10241a; --warn: #e0aa4c; --warn-tint: #2a2013;
+      --crit: #e2766a; --crit-tint: #2c1613;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .layout { display: flex; max-width: 1180px; margin: 0 auto; align-items: flex-start; }
+  nav.toc {
+    position: sticky; top: 0; width: 220px; flex-shrink: 0; padding: 40px 18px 40px 28px;
+    height: 100vh; overflow-y: auto; font-family: var(--mono); font-size: 12px;
+  }
+  nav.toc a { display: block; color: var(--text-faint); text-decoration: none; padding: 5px 0; border-left: 2px solid transparent; padding-left: 10px; margin-left: -12px; }
+  nav.toc a:hover { color: var(--accent); border-left-color: var(--accent); }
+  nav.toc .toc-title { color: var(--text-muted); text-transform: uppercase; letter-spacing: .08em; font-size: 10.5px; margin: 18px 0 4px; }
+  nav.toc .toc-title:first-child { margin-top: 0; }
+
+  main.doc { flex: 1; min-width: 0; padding: 56px 40px 120px 32px; }
+  header.doc-head { border-bottom: 1px solid var(--border); padding-bottom: 28px; margin-bottom: 40px; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
+  h1 { font-family: var(--mono); font-size: clamp(24px, 3.4vw, 32px); font-weight: 700; letter-spacing: -0.01em; margin: 0 0 10px; text-wrap: balance; }
+  .doc-sub { color: var(--text-muted); font-size: 15px; max-width: 68ch; margin: 0; }
+  .doc-meta { display: flex; gap: 18px; margin-top: 18px; font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); flex-wrap: wrap; }
+  .doc-meta span b { color: var(--text-muted); font-weight: 600; }
+
+  section { margin-bottom: 52px; scroll-margin-top: 20px; }
+  h2 { font-family: var(--mono); font-size: 20px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .h2-num { color: var(--accent); margin-right: 8px; }
+  h3 { font-family: var(--mono); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  p { max-width: 72ch; color: var(--text); }
+  p.lede { color: var(--text-muted); font-size: 14.5px; margin-top: 4px; margin-bottom: 20px; }
+  ul.plain, ol.plain { padding-left: 20px; max-width: 72ch; }
+  ul.plain li, ol.plain li { margin-bottom: 6px; }
+  code.inline { font-family: var(--mono); font-size: 12.5px; background: var(--surface-sunken); padding: 1px 6px; border-radius: 5px; color: var(--text); }
+
+  .callout { display: flex; gap: 10px; border-radius: var(--radius); padding: 14px 16px; font-size: 13.5px; margin: 16px 0; max-width: 72ch; }
+  .callout.fix { background: var(--warn-tint); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); }
+  .callout.fix b { color: var(--accent-strong); }
+  .callout.info { background: var(--accent-tint); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+  .callout.info b { color: var(--accent-strong); }
+  .callout.new { background: var(--ok-tint); border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); }
+  .callout.new b { color: var(--ok); }
+
+  .diagram-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; overflow-x: auto; margin: 16px 0; }
+  .diagram-card .mermaid { min-width: 560px; }
+
+  .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 16px 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .card .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); margin-bottom: 6px; }
+  .card .v { font-size: 13.5px; color: var(--text); font-weight: 600; }
+  .card .d { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+  .tablewrap { overflow-x: auto; margin: 16px 0; }
+  table.spec { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table.spec th, table.spec td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.spec th { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); background: var(--surface-sunken); }
+  table.spec tr:last-child td { border-bottom: none; }
+  table.spec td.mono { font-family: var(--mono); font-size: 12px; }
+
+  .status { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .status.ok { background: var(--ok-tint); color: var(--ok); }
+  .status.warn { background: var(--warn-tint); color: var(--warn); }
+  .status.crit { background: var(--crit-tint); color: var(--crit); }
+
+  footer { border-top: 1px solid var(--border); margin-top: 48px; padding-top: 18px; font-family: var(--mono); font-size: 11px; color: var(--text-faint); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+
+  @media (max-width: 860px) {
+    nav.toc { display: none; }
+    main.doc { padding: 32px 20px 100px; }
+  }
+</style>
+
+<div class="layout">
+  <nav class="toc">
+    <div class="toc-title">Documento</div>
+    <a href="#resumen">Resumen ejecutivo</a>
+    <a href="#correcciones">Fe de erratas v10→v11</a>
+    <div class="toc-title">Arquitectura</div>
+    <a href="#stack">Stack real</a>
+    <a href="#organigrama">Organigrama del sistema</a>
+    <a href="#modulos">Bloques y módulos</a>
+    <a href="#rbac">Suscripciones / RBAC</a>
+    <div class="toc-title">Agentes IA</div>
+    <a href="#agentes">Agentes y funciones</a>
+    <a href="#relaciones">Relaciones entre módulos</a>
+    <div class="toc-title">Formulador</div>
+    <a href="#pipeline">Pipeline de 4 motores</a>
+    <a href="#flujo">Diagrama de flujo</a>
+    <div class="toc-title">Radar</div>
+    <a href="#radar">Motor de rastreo real</a>
+    <div class="toc-title">Seguridad</div>
+    <a href="#auth">Autenticación</a>
+    <a href="#blindajes">Blindajes técnicos</a>
+    <div class="toc-title">Estado</div>
+    <a href="#pendientes">Deuda técnica real</a>
+  </nav>
+
+  <main class="doc">
+    <header class="doc-head">
+      <p class="eyebrow">ASFALTICA S.A.S. · RadFor-360</p>
+      <h1>Documento Maestro de Arquitectura — v11</h1>
+      <p class="doc-sub">Reemplaza la versión 10.0. Cada afirmación de este documento fue verificada directamente contra el código y la base de datos en producción — no contra la especificación original.</p>
+      <div class="doc-meta">
+        <span><b>Estado:</b> en operación, verificado 2026-07-24</span>
+        <span><b>Base de datos:</b> PostgreSQL / Supabase</span>
+        <span><b>Despliegue:</b> Railway (backend) + Render (frontend)</span>
+      </div>
+    </header>
+
+    <section id="resumen">
+      <h2><span class="h2-num">00</span>Resumen ejecutivo</h2>
+      <p class="lede">RadFor-360 es una plataforma SaaS de dos pilares — Radar (rastreo de convocatorias de financiación) y Formulador (estructuración de proyectos con IA) — con un pipeline de auditoría financiera en Pesos Colombianos construido y probado sobre datos reales. Este documento reemplaza la v10.0, que describía una migración a Firebase y un motor de búsqueda que no existen en el código real.</p>
+      <div class="grid-cards">
+        <div class="card"><div class="k">Frontend</div><div class="v">React + Vite + TypeScript</div><div class="d">puerto 5173</div></div>
+        <div class="card"><div class="k">Backend</div><div class="v">Node.js / Express</div><div class="d">puerto 8000</div></div>
+        <div class="card"><div class="k">Base de datos</div><div class="v">PostgreSQL (Supabase)</div><div class="d">pgvector + HNSW</div></div>
+        <div class="card"><div class="k">Autenticación</div><div class="v">JWT propio (HS256)</div><div class="d">+ fallback Supabase Auth</div></div>
+        <div class="card"><div class="k">Almacenamiento</div><div class="v">Supabase Storage</div><div class="d">bucket privado "anexos"</div></div>
+        <div class="card"><div class="k">Despliegue</div><div class="v">Railway + Render</div><div class="d">Dockerfile.backend/.frontend</div></div>
+      </div>
+    </section>
+
+    <section id="correcciones">
+      <h2><span class="h2-num">01</span>Fe de erratas — qué cambió respecto a la v10.0</h2>
+      <p class="lede">La v10.0 describía un estado aspiracional. Estas son las diferencias verificadas contra el código real:</p>
+      <div class="tablewrap">
+        <table class="spec">
+          <thead><tr><th>Afirmación en v10.0</th><th>Estado real verificado</th></tr></thead>
+          <tbody>
+            <tr><td>"Migrado a Firebase (Firestore y Auth), eliminando PostgreSQL y JWT manual"</td><td><span class="status crit">falso</span> — no existe ninguna referencia a Firebase/Firestore en el backend. La base de datos es PostgreSQL vía Supabase; la autenticación es JWT propio firmado con <code class="inline">JWT_SECRET</code>.</td></tr>
+            <tr><td>"Caché 24h vía Firebase/Redis"</td><td><span class="status crit">falso</span> — <code class="inline">tokenBlacklist.js</code> declara explícitamente "Sin Redis. Sin dependencias externas."</td></tr>
+            <tr><td>"Motor unificado en Gemini 1.5 con Google Search Grounding (reemplaza Perplexity, Tavily y Claude)"</td><td><span class="status crit">falso</span> — no hay ninguna referencia a Perplexity, Tavily ni Search Grounding. El Radar rastrea entidades reales vía <code class="inline">EntityScraper.js</code> + <code class="inline">CronScheduler.js</code> (ver sección Radar).</td></tr>
+            <tr><td>"Despliegue en contenedores Docker orquestado para alta disponibilidad"</td><td><span class="status warn">parcial</span> — sí existen <code class="inline">Dockerfile.backend</code>/<code class="inline">Dockerfile.frontend</code>, usados por Railway/Render como mecanismo de build. No hay una capa de orquestación propia (Kubernetes/Swarm) — son plataformas PaaS gestionadas.</td></tr>
+            <tr><td>"Consolidado a una única variable GEMINI_API_KEY"</td><td><span class="status warn">impreciso</span> — la variable real es <code class="inline">GOOGLE_API_KEY</code>, usada en 8 módulos distintos de IA. No está mal la intención (una sola clave de IA), pero el nombre no coincide.</td></tr>
+            <tr><td>RBAC (access_radar / access_formulador), aislamiento por org_id, hash de versión final</td><td><span class="status ok">confirmado</span> — coincide con el código real (<code class="inline">user_subscriptions</code>, middleware <code class="inline">requireAccess()</code>, <code class="inline">project_version_hashes</code>).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout new"><b>Añadido en esta versión:</b> el pipeline de auditoría financiera (Sprints 1–4, ver sección "Pipeline de 4 motores") no existía en la v10.0 — se construyó, probó con datos reales y verificó en esta sesión.</div>
+    </section>
+
+    <section id="stack">
+      <h2><span class="h2-num">02</span>Stack tecnológico real</h2>
+      <h3>Frontend</h3>
+      <ul class="plain">
+        <li>React + TypeScript + Vite, servido en el puerto 5173 vía pm2 (<code class="inline">radar-frontend</code>).</li>
+        <li>Code-splitting con <code class="inline">React.lazy()</code> para las ~25 páginas del ecosistema — reduce el bundle inicial.</li>
+        <li>Diseño calcado desde Stitch MCP para pantallas específicas (marcadas explícitamente en el código con comentario "Calco estricto Stitch"); el resto son páginas construidas directamente en código.</li>
+      </ul>
+      <h3>Backend</h3>
+      <ul class="plain">
+        <li>Node.js/Express, puerto 8000 vía pm2 (<code class="inline">radar-backend</code>), módulos ES (<code class="inline">import</code>/<code class="inline">export</code>) en todo el codebase.</li>
+        <li>Motor de base de datos con 3 capas de resiliencia (<code class="inline">database.config.js</code>): pool directo (Capa 1) → REST de Supabase con <code class="inline">service_role</code> (Capa 2, la que opera hoy) → degradación controlada (Capa 3).</li>
+      </ul>
+      <h3>Base de datos</h3>
+      <ul class="plain">
+        <li>PostgreSQL gestionado por Supabase, extensión <code class="inline">pgvector</code> con índices HNSW para búsqueda semántica (columnas <code class="inline">vector(768)</code>).</li>
+        <li>Row Level Security habilitada en las 31 tablas públicas. <b>Nota honesta:</b> las políticas RLS son un blindaje secundario — el backend siempre opera con la llave <code class="inline">service_role</code>, que bypasea RLS por diseño. El aislamiento real ocurre en cada ruta vía <code class="inline">WHERE org_id = req.userId</code>.</li>
+        <li><code class="inline">proyectos.id</code> y <code class="inline">project_anexos.id</code> son <code class="inline">TEXT</code> (no <code class="inline">UUID</code>) — heredado del bootstrap original de <code class="inline">server.js</code>; toda tabla nueva respeta ese tipo para poder referenciarlas.</li>
+      </ul>
+      <h3>Despliegue</h3>
+      <ul class="plain">
+        <li>Backend → Railway, vía <code class="inline">Dockerfile.backend</code> + <code class="inline">railway.json</code>.</li>
+        <li>Frontend → Render, vía <code class="inline">Dockerfile.frontend</code> + <code class="inline">render.yaml</code>.</li>
+        <li>Almacenamiento de archivos → Supabase Storage (bucket privado <code class="inline">anexos</code>), no disco local — Railway reconstruye el contenedor en cada deploy, así que cualquier archivo en disco se perdería.</li>
+      </ul>
+    </section>
+
+    <section id="organigrama">
+      <h2><span class="h2-num">03</span>Organigrama del sistema</h2>
+      <p class="lede">Jerarquía real de bloques → módulos → servicios. No es un organigrama de personas — es la estructura de responsabilidad del software.</p>
+      <div class="diagram-card">
+        <pre class="mermaid">
+flowchart TB
+    APP["RadFor-360"]
+    APP --> B0["Bloque 0\nCentro de Mando"]
+    APP --> BA["Bloque A\nRadar"]
+    APP --> BB["Bloque B\nFormulador"]
+    APP --> SUS["Suscripciones / RBAC"]
+
+    B0 --> FAV["Favoritos"]
+    B0 --> CRED["Bóveda de credenciales"]
+
+    BA --> R1["Rastreo 1\nEntityScraper.js"]
+    BA --> R2["Rastreo 2\nfuentes externas"]
+    BA --> M2["M2 · Puente"]
+
+    BB --> M3["M3 · Ingesta / Árbol Objetivos\narbolObjetivosAgent.js"]
+    BB --> MD["Motor Dialéctico"]
+    BB --> CL["Config. Logística"]
+    BB --> PRE["Presupuesto"]
+    BB --> MN["Marco Normativo"]
+    BB --> COMP["Compliance"]
+    BB --> RAD["Radicación"]
+    BB --> FT["Ficha Técnica Maestra"]
+    BB --> VIA["Consultor Estratégico\nviabilidadAgent.js"]
+    BB --> PIPE["Pipeline Financiero\n(4 motores, sección 05)"]
+
+    PRE -.->|"presupuesto_apu"| PIPE
+
+    classDef bloque fill:#001c2e,stroke:#9c7a34,color:#fff,font-weight:bold;
+    classDef modulo fill:#ffffff,stroke:#d8d2c2,color:#1b2430;
+    class B0,BA,BB,SUS bloque;
+    class FAV,CRED,R1,R2,M2,M3,MD,CL,PRE,MN,COMP,RAD,FT,VIA,PIPE modulo;
+        </pre>
+      </div>
+    </section>
+
+    <section id="modulos">
+      <h2><span class="h2-num">04</span>Bloques y módulos</h2>
+      <h3>Bloque 0 — Centro de mando</h3>
+      <ul class="plain">
+        <li><b>Gestor de Favoritos</b> — perfiles guardados del Directorio, persistidos en base de datos (no solo local).</li>
+        <li><b>Bóveda de credenciales</b> (<code class="inline">CredentialsPage.tsx</code> + <code class="inline">credentialVault.js</code>) — cada usuario puede configurar su propia clave de IA; si no la tiene, el sistema usa <code class="inline">GOOGLE_API_KEY</code> del servidor como respaldo.</li>
+      </ul>
+      <h3>Bloque A — Radar (Inteligencia de Mercado)</h3>
+      <ul class="plain">
+        <li><b>Rastreo 1</b> — scraping de entidades ya registradas en el Directorio (<code class="inline">EntityScraper.js</code>).</li>
+        <li><b>Rastreo 2</b> — fuentes generales externas (fundaciones internacionales: MacArthur, IDRC, IAF, Wellcome, Ford, OSF, Skoll, Omidyar, CIVICUS, GlobalGiving, NWO).</li>
+        <li>Programado vía <code class="inline">CronScheduler.js</code>: Rastreo 2 a las 02:00, Rastreo 1 a las 02:30, backup a las 03:00 COT.</li>
+        <li>Puente M2 → transfiere la convocatoria seleccionada al Formulador.</li>
+      </ul>
+      <h3>Bloque B — Formulador (M3 a M12)</h3>
+      <div class="tablewrap">
+        <table class="spec">
+          <thead><tr><th>Módulo</th><th>Archivo real</th></tr></thead>
+          <tbody>
+            <tr><td>M3 — Ingesta / Árbol de objetivos</td><td class="mono">arbolObjetivosAgent.js</td></tr>
+            <tr><td>Motor Dialéctico</td><td class="mono">motorDialectico.routes.js</td></tr>
+            <tr><td>Configuración Logística</td><td class="mono">configLogistica.routes.js</td></tr>
+            <tr><td>Arquitectura Financiera (presupuesto)</td><td class="mono">presupuesto.routes.js</td></tr>
+            <tr><td>Marco Normativo</td><td class="mono">marcoNormativo.routes.js</td></tr>
+            <tr><td>Compliance</td><td class="mono">compliance.routes.js</td></tr>
+            <tr><td>Radicación</td><td class="mono">radicacion.routes.js</td></tr>
+            <tr><td>Reporte / Ficha Técnica Maestra</td><td class="mono">reporte.routes.js, fichaTecnica.routes.js</td></tr>
+            <tr><td>Consultor Estratégico (viabilidad IA)</td><td class="mono">viabilidadAgent.js</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="rbac">
+      <h2><span class="h2-num">05</span>Suscripciones y control de acceso (RBAC)</h2>
+      <p>Confirmado exacto contra el código real. Tabla <code class="inline">user_subscriptions</code> con columnas <code class="inline">access_radar</code> / <code class="inline">access_formulador</code> (booleanas). Middleware <code class="inline">requireAccess(modulo)</code> en el backend valida el permiso en cada ruta protegida; en el frontend, el componente <code class="inline">PlanGate</code> replica la misma lógica para no renderizar módulos sin acceso.</p>
+      <ul class="plain">
+        <li><b>Suscripción Radar</b> → habilita Rastreo 1/2 + Directorio + Favoritos.</li>
+        <li><b>Suscripción Formulador</b> → habilita M3–M12 completos, incluida ingesta manual de pliegos propios.</li>
+        <li><b>Plan Suite</b> → ambos, más el puente M2 sin restricciones.</li>
+        <li>Un usuario con solo Radar que intenta cruzar el puente es redirigido al panel de Planes; el botón valida el permiso <i>antes</i> de inyectar datos en el Formulador.</li>
+      </ul>
+    </section>
+
+    <section id="agentes">
+      <h2><span class="h2-num">06</span>Agentes de IA — funciones reales</h2>
+      <p class="lede">Todos comparten el mismo patrón de resiliencia: intentan Gemini primero, gateados por <code class="inline">geminiCircuitBreaker.js</code> (corta el circuito si hay error de cuota); si Gemini no está disponible, caen a una heurística o plantilla determinista — nunca lanzan una excepción, siempre devuelven un resultado utilizable con el mismo esquema.</p>
+      <div class="tablewrap">
+        <table class="spec">
+          <thead><tr><th>Agente</th><th>Función</th><th>Modelo / fallback</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">viabilidadAgent.js</td><td>Audita viabilidad del proyecto: escala/proporción (población vs meta), coherencia de anexos por taxonomía, veredicto VIABLE / VIABLE_CON_OBSERVACIONES / NO_VIABLE / RECHAZADO_INCOHERENCIA.</td><td>Gemini 2.0 Flash → heurística de reglas</td></tr>
+            <tr><td class="mono">arbolObjetivosAgent.js</td><td>Genera el Árbol de Objetivos (M3b): grafo Causas→Problema→Efectos invertido a Medios→Objetivo→Fines, en lenguaje MGA (Metodología General Ajustada).</td><td>Gemini (google/generative-ai)</td></tr>
+            <tr><td class="mono">enfoqueEntidadAgent.js</td><td>Adapta la problemática/población del proyecto matriz al lenguaje de la entidad financiadora específica a la que se postula. <i>Nota: la ruta backend sigue activa; no se confirmó si el frontend que la invoca sigue montado tras la eliminación de la ventana "Postulaciones".</i></td><td>Gemini → plantilla determinista</td></tr>
+            <tr><td class="mono">sectorClassifier.js</td><td>Clasifica convocatorias del Radar por sector temático; acepta el donante como pista adicional cuando el texto es escueto.</td><td>Gemini → mapa de palabras clave multi-idioma</td></tr>
+            <tr><td class="mono">embeddingsService.js</td><td>Convierte la Ficha Técnica a vector para búsqueda semántica (pipeline M7).</td><td>text-embedding-004, 768 dimensiones</td></tr>
+            <tr><td class="mono">markitdownService.js</td><td>Convierte PDF/DOCX/XLSX a Markdown (CLI Python "MarkItDown"), luego extrae campos estructurados de la convocatoria.</td><td>MarkItDown (Python) + Gemini</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="relaciones">
+      <h2><span class="h2-num">07</span>Relaciones entre módulos</h2>
+      <ul class="plain">
+        <li><b>Radar → Formulador:</b> el Puente (M2) transfiere la convocatoria seleccionada como semilla de un nuevo proyecto en el Formulador — el usuario necesita el plan Suite o cambiar de plan para completar el cruce.</li>
+        <li><b>Anexos → Pipeline financiero:</b> solo un anexo subido con <code class="inline">categoria = presupuesto_apu</code> y extensión <code class="inline">.xlsx/.xls</code> dispara <code class="inline">ExtractorService.js</code> → <code class="inline">AuditorForenseService.js</code> en cadena; cualquier otra categoría de anexo (legal, técnico, institucional) se guarda igual pero no entra al pipeline.</li>
+        <li><b>Pipeline financiero → Ficha Técnica Maestra:</b> los hallazgos de <code class="inline">project_hallazgos</code> y las métricas de <code class="inline">project_escenarios_estres</code>/<code class="inline">project_sroi_metrics</code> están disponibles para el Reporte/Ficha Técnica final, pero su inclusión visual en ese reporte es un paso de frontend aún no verificado en esta sesión.</li>
+        <li><b>Suscripciones → todo:</b> <code class="inline">requireAccess()</code> es el único punto de verdad — tanto el Radar como cada endpoint del Formulador lo consultan antes de ejecutar cualquier lógica de negocio.</li>
+        <li><b>Auth → Suscripciones:</b> al iniciar sesión, <code class="inline">/api/auth/verify</code> devuelve el plan y los flags <code class="inline">access_radar</code>/<code class="inline">access_formulador</code> en el mismo payload — el frontend no hace una segunda llamada para saber qué puede mostrar.</li>
+      </ul>
+    </section>
+
+    <section id="pipeline">
+      <h2><span class="h2-num">08</span>Pipeline de auditoría financiera — 4 motores (nuevo)</h2>
+      <p class="lede">Esta capa no existía en la v10.0. Construida, probada con datos reales end-to-end, y documentada en detalle esta sesión.</p>
+      <div class="grid-cards">
+        <div class="card"><div class="k">Motor 1 · automático</div><div class="v">ExtractorService.js</div><div class="d">Excel → project_apu_lineas, en COP, idempotente</div></div>
+        <div class="card"><div class="k">Motor 2 · automático</div><div class="v">AuditorForenseService.js</div><div class="d">HSEQ ausente + descuadres aritméticos</div></div>
+        <div class="card"><div class="k">Motor 3 · deliberado</div><div class="v">EstresadoFinancieroService.js</div><div class="d">Choque macroeconómico, VIABLE/RIESGO/CRITICO</div></div>
+        <div class="card"><div class="k">Motor 4 · deliberado</div><div class="v">ValorExponencialService.js</div><div class="d">SROI (ratio explícito) + mapeo ODS</div></div>
+      </div>
+      <div class="callout info"><b>Principio de diseño no negociable:</b> ningún motor fabrica una cifra financiera ni una cita legal. El etiquetado HSEQ es una alerta técnica, no un dictamen; el % de choque y el ratio SROI los define el formulador explícitamente — nunca un valor "estándar" inventado. El único número externo usado es el SMMLV 2026 real ($1.750.905 COP, Decretos 1469/1470 de 2025).</div>
+    </section>
+
+    <section id="flujo">
+      <h2><span class="h2-num">09</span>Diagrama de flujo — Formulador</h2>
+      <div class="diagram-card">
+        <pre class="mermaid">
+flowchart TB
+    U["Formulador sube Excel\ncategoria = presupuesto_apu"] --> R["POST /api/proyectos/:id/anexos"]
+    R --> E["ExtractorService.js"]
+    E -->|"filas limpias COP"| DB1[("project_apu_lineas")]
+    E --> A["AuditorForenseService.js"]
+    A -->|"HSEQ / descuadres"| DB2[("project_hallazgos")]
+
+    subgraph manual[" Acciones deliberadas del formulador "]
+        direction TB
+        F1["% de choque + escenario"] --> ST["EstresadoFinancieroService.js"]
+        ST --> DB3[("project_escenarios_estres")]
+        ST -.->|"si CRITICO"| DB2
+        F2["ratio SROI propio"] --> VE["ValorExponencialService.js"]
+        VE --> DB4[("project_sroi_metrics")]
+        VE --> DB5[("project_ods_mapping")]
+    end
+
+    classDef auto fill:#e3f2e8,stroke:#2f7d4f,color:#1b2430,font-size:13px;
+    classDef manual2 fill:#fbecd4,stroke:#b5791c,color:#1b2430,font-size:13px;
+    classDef store fill:#ffffff,stroke:#d8d2c2,color:#1b2430,font-size:12px;
+    class E,A auto;
+    class ST,VE manual2;
+    class DB1,DB2,DB3,DB4,DB5 store;
+        </pre>
+      </div>
+    </section>
+
+    <section id="radar">
+      <h2><span class="h2-num">10</span>Radar — motor de rastreo real</h2>
+      <p>No usa Perplexity, Tavily ni Gemini Search Grounding. Es scraping directo y estructurado:</p>
+      <ul class="plain">
+        <li><code class="inline">EntityScraper.js</code> visita las páginas de convocatorias de cada entidad ya validada en el Directorio.</li>
+        <li><code class="inline">DataIngestor.js</code> normaliza lo extraído antes de insertarlo.</li>
+        <li><code class="inline">sectorClassifier.js</code> usa <code class="inline">GOOGLE_API_KEY</code> (Gemini) solo para clasificar sector, no para buscar.</li>
+        <li><code class="inline">CronScheduler.js</code> orquesta la periodicidad (Rastreo 2 → Rastreo 1 → backup).</li>
+      </ul>
+    </section>
+
+    <section id="auth">
+      <h2><span class="h2-num">11</span>Autenticación</h2>
+      <ul class="plain">
+        <li>Login/registro propios en <code class="inline">server.js</code>: contraseña con <code class="inline">pbkdf2</code> (100.000 iteraciones, sha512), token JWT HS256 firmado con <code class="inline">JWT_SECRET</code>, expiración 7 días.</li>
+        <li><code class="inline">auth.middleware.js</code> valida primero contra Supabase Auth si está configurado; si falla, cae a la verificación JWT local — necesario porque el login propio nunca emite sesiones reales de Supabase Auth.</li>
+        <li><b>Aprobación manual de registros (nuevo):</b> todo registro nuevo queda con <code class="inline">is_approved = 0</code> — no puede iniciar sesión hasta que un administrador lo apruebe desde <code class="inline">/admin/usuarios-pendientes</code>. Se dispara un correo de aviso al administrador vía Brevo.</li>
+        <li>Modo Visitante: token temporal de 24h (<code class="inline">/api/auth/trial</code>), limitado a 3 tokens/hora por IP.</li>
+        <li>Rate limiting estricto en <code class="inline">/api/auth/*</code>: 5 intentos fallidos por 15 minutos por IP (contador en memoria, se reinicia con el proceso).</li>
+      </ul>
+    </section>
+
+    <section id="blindajes">
+      <h2><span class="h2-num">12</span>Blindajes técnicos verificados</h2>
+      <div class="tablewrap">
+        <table class="spec">
+          <thead><tr><th>Blindaje</th><th>Mecanismo real</th></tr></thead>
+          <tbody>
+            <tr><td>Aislamiento multi-tenant</td><td><code class="inline">org_id</code> filtrado en cada ruta (no solo RLS, que es inerte bajo <code class="inline">service_role</code>).</td></tr>
+            <tr><td>Moneda única (COP)</td><td>Rechazo HTTP 422 si se detecta USD/EUR/GBP/CAD/MXN en presupuestos, tanto en <code class="inline">proyectos.routes.js</code> como en <code class="inline">ExtractorService.js</code>.</td></tr>
+            <tr><td>Idempotencia de presupuestos</td><td><code class="inline">ExtractorService.js</code> borra líneas de subidas anteriores con el mismo nombre de archivo antes de insertar — no duplica al corregir y resubir.</td></tr>
+            <tr><td>Chunking</td><td>Inserciones en lotes de 500 filas — protege contra timeout con presupuestos de miles de líneas.</td></tr>
+            <tr><td>Hash inalterable</td><td><code class="inline">project_version_hashes</code> — sella cada Ficha Técnica Maestra final.</td></tr>
+            <tr><td>Confirmación de borrado</td><td>Diálogo de confirmación antes de "LIMPIAR" o eliminar cualquier fila con contenido en Anexos.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="pendientes">
+      <h2><span class="h2-num">13</span>Deuda técnica real (no está en ninguna versión anterior)</h2>
+      <ul class="plain">
+        <li>Envío de correo transaccional depende de credenciales de Brevo — configuradas parcialmente en esta sesión; Resend (usado por el flujo de Stripe) sigue sin configurar.</li>
+        <li>Stripe (cobros reales) sin credenciales de producción.</li>
+        <li>Páginas de Términos/Privacidad tienen campos entre corchetes (razón social, NIT) pendientes de completar con datos reales de la empresa, y requieren revisión legal antes de publicarse.</li>
+        <li>El módulo de exportación a formatos MGA/BID/OXI genera documentos basados en la estructura oficial, no son los formularios descargables exactos del gobierno.</li>
+      </ul>
+    </section>
+
+    <footer>
+      <span>RadFor-360 · ASFALTICA S.A.S. · Documento Maestro v11</span>
+      <span>Reemplaza v10.0 · Verificado contra código real, no contra la especificación</span>
+    </footer>
+  </main>
+</div>

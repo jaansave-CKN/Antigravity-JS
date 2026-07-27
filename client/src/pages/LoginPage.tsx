@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 
@@ -159,9 +159,26 @@ export default function LoginPage() {
   const [nombre, setNombre]           = useState('');
 
   const [error, setError]             = useState('');
+  const [pendingMsg, setPendingMsg]   = useState('');
   const [loading, setLoading]         = useState(false);
   const [showPwd, setShowPwd]         = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
+
+  // "Recordarme" — guarda email+clave en localStorage (solo si el usuario lo
+  // marca explícitamente) para no tener que reescribirla cada vez.
+  const REMEMBER_KEY = 'rf360_remember_creds';
+  const [recordar, setRecordar] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(REMEMBER_KEY);
+      if (raw) {
+        const { email: e, password: p } = JSON.parse(raw);
+        if (e) setEmail(e);
+        if (p) setPassword(p);
+        setRecordar(true);
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   const from       = (location.state as any)?.from?.pathname || '/';
   const reason     = (location.state as any)?.reason     as string | undefined;
@@ -179,9 +196,12 @@ export default function LoginPage() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setPendingMsg('');
     setLoading(true);
     try {
       const sub = await login(email, password);
+      if (recordar) localStorage.setItem(REMEMBER_KEY, JSON.stringify({ email, password }));
+      else localStorage.removeItem(REMEMBER_KEY);
       // Redirección inteligente: si venía de una ruta protegida, respetar; sino, redirigir por plan
       if (from && from !== '/' && from !== '/login') {
         navigate(from, { replace: true });
@@ -195,6 +215,12 @@ export default function LoginPage() {
         navigate('/', { replace: true }); // plan free: SelectionPage → upgrade
       }
     } catch (err: any) {
+      // Credenciales rechazadas: si venían de "Recordarme", la clave guardada
+      // ya no sirve (cuenta borrada/cambiada) — se borra para no quedar
+      // atrapado reintentando siempre la misma clave vieja.
+      localStorage.removeItem(REMEMBER_KEY);
+      setRecordar(false);
+      setPassword('');
       setError(err.message || 'ERROR DE AUTENTICACIÓN · Verifique sus credenciales.');
     } finally {
       setLoading(false);
@@ -204,14 +230,18 @@ export default function LoginPage() {
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    if (!nombre.trim()) {
-      setError('El nombre de usuario es obligatorio.');
-      return;
-    }
     setLoading(true);
     try {
-      await register(email.trim().toLowerCase(), password, nombre.trim());
-      navigate('/', { replace: true }); // Registro exitoso → SelectionPage para elegir pilar
+      // Registro simplificado: solo correo + clave. El nombre se deriva del
+      // correo (parte antes de la @) para no pedirle un dato más al usuario.
+      const nombreDerivado = email.trim().split('@')[0] || 'Usuario';
+      const result = await register(email.trim().toLowerCase(), password, nombreDerivado);
+      if (result.pendingApproval) {
+        setPendingMsg(result.message || 'Cuenta creada. Un administrador debe aprobarla antes de que puedas iniciar sesión.');
+        switchModo('login');
+      } else {
+        navigate('/', { replace: true }); // Registro exitoso → SelectionPage para elegir pilar
+      }
     } catch (err: any) {
       setError(err.message || 'ERROR DE REGISTRO · Verifica los datos ingresados.');
     } finally {
@@ -262,6 +292,14 @@ export default function LoginPage() {
                 <p className="mt-1 font-normal">
                   {moduleName ?? 'Este módulo'} requiere una cuenta activa. Inicia sesión o crea una cuenta para continuar.
                 </p>
+              </div>
+            )}
+
+            {/* Aviso de registro pendiente de aprobación */}
+            {pendingMsg && !error && (
+              <div className="mb-5 px-4 py-3 rounded-lg bg-[rgba(56,189,248,0.1)] border border-[rgba(56,189,248,0.3)] text-[#38bdf8] text-xs font-mono">
+                <span className="font-bold">CUENTA CREADA · PENDIENTE DE APROBACIÓN</span>
+                <p className="mt-1 font-normal">{pendingMsg}</p>
               </div>
             )}
 
@@ -319,7 +357,16 @@ export default function LoginPage() {
                       )}
                     </button>
                   </div>
-                  <div className="flex justify-end mt-1.5">
+                  <div className="flex items-center justify-between mt-2">
+                    <label className="flex items-center gap-2 text-[10px] font-mono text-[#557997] uppercase tracking-wider cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={recordar}
+                        onChange={e => setRecordar(e.target.checked)}
+                        className="accent-[#38bdf8]"
+                      />
+                      RECORDARME
+                    </label>
                     <button
                       type="button"
                       onClick={() => setShowRecovery(true)}
@@ -340,25 +387,9 @@ export default function LoginPage() {
               </form>
             )}
 
-            {/* ── FORMULARIO REGISTRO ── */}
+            {/* ── FORMULARIO REGISTRO — solo correo + clave, sin pedir nombre ── */}
             {esRegistro && (
               <form onSubmit={handleRegister} className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
-                    NOMBRE DE USUARIO
-                  </label>
-                  <input
-                    type="text"
-                    value={nombre}
-                    onChange={e => setNombre(e.target.value)}
-                    placeholder="Nombre Apellido"
-                    required
-                    autoFocus
-                    autoComplete="name"
-                    className="w-full px-3 py-2.5 bg-[#0b1326] border border-[#1a3a50] rounded-lg text-[#c8d8e8] text-sm placeholder-[#94a3b8] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary transition-colors"
-                  />
-                </div>
-
                 <div>
                   <label className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
                     CORREO ELECTRÓNICO
@@ -369,6 +400,7 @@ export default function LoginPage() {
                     onChange={e => setEmail(e.target.value)}
                     placeholder="usuario@institucion.gov"
                     required
+                    autoFocus
                     autoComplete="email"
                     className="w-full px-3 py-2.5 bg-[#0b1326] border border-[#1a3a50] rounded-lg text-[#c8d8e8] text-sm placeholder-[#94a3b8] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary transition-colors"
                   />

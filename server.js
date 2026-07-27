@@ -9,7 +9,7 @@ import { loadEnv } from './backend/env-loader.js';
 import jwt from 'jsonwebtoken';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, slowDown } from './backend/middlewares/SecurityMiddleware.js';
+import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, slowDown, financialPipelineLimiter } from './backend/middlewares/SecurityMiddleware.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
 import { startScheduler, runManualIngest, pauseScheduler, resumeScheduler } from './backend/pipeline/CronScheduler.js';
 import { classifySectors } from './backend/services/sectorClassifier.js';
@@ -45,6 +45,9 @@ import { registerProyectosRoutes } from './backend/routes/proyectos.routes.js';
 import { registerReporteRoutes } from './backend/routes/reporte.routes.js';
 import { registerPresupuestoRoutes } from './backend/routes/presupuesto.routes.js';
 import { registerAnexosRoutes } from './backend/routes/anexos.routes.js';
+import { registerEstresFinancieroRoutes } from './backend/routes/estresFinanciero.routes.js';
+import { registerValorExponencialRoutes } from './backend/routes/valorExponencial.routes.js';
+import { registerCopilotoRoutes } from './backend/routes/copiloto.routes.js';
 import { radarCacheMiddleware, invalidateRadarCache } from './backend/middlewares/radarCache.js';
 import { RENDIMIENTOS_CATALOGO } from './backend/pipeline/apuEngine.js';
 import { registerSubscriptionRoutes }    from './backend/routes/subscriptions.routes.js';
@@ -61,9 +64,15 @@ const require = createRequire(import.meta.url);
 loadEnv();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Import dinámico + init explícito: debe correr DESPUÉS de loadEnv() para que
+// SENTRY_DSN ya esté disponible en process.env (ver comentario en el propio
+// archivo — un import estático aquí arriba se evaluaría antes de loadEnv()).
+const { initSentry, captureError: sentryCaptureError } = await import('./backend/config/sentry.config.js');
+initSentry();
+
 // ── Resiliencia del proceso — previene muertes silenciosas del servidor ────────
-process.on('uncaughtException', (err) => console.error('[Fatal] Uncaught Exception:', err));
-process.on('unhandledRejection', (reason) => console.error('[Fatal] Unhandled Rejection:', reason));
+process.on('uncaughtException', (err) => { console.error('[Fatal] Uncaught Exception:', err); sentryCaptureError(err); });
+process.on('unhandledRejection', (reason) => { console.error('[Fatal] Unhandled Rejection:', reason); sentryCaptureError(reason); });
 
 // ── Configuración y Seguridad ────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -975,38 +984,44 @@ async function start() {
   await seedPredios();
   await seedDirectorio();
 
-  // Seed del usuario dev (demo-mode-token) — NUNCA en producción. Idempotente:
-  // ON CONFLICT DO NOTHING permite correr esto en cada arranque sin duplicar.
+  // Seed del usuario dev (demo-mode-token) — NUNCA en producción. Idempotente
+  // vía pre-check, NO vía "ON CONFLICT DO NOTHING": restInsert() en
+  // database.config.js hace un POST plano a PostgREST y no traduce ON
+  // CONFLICT — bajo el fallback REST esa cláusula se ignora en silencio y
+  // cada reinicio reintentaba el INSERT completo, generando el "duplicate
+  // key" que se veía en los logs.
   // Ver también backend/migrations/015_seed_dev_user.sql (misma fila, aplicable
   // manualmente vía psql si el bootstrap corre en modo degradado sin DDL real).
   if (process.env.NODE_ENV !== 'production') {
     try {
-      // IMPORTANTE: todo valor va como placeholder ?, ninguno como literal en
-      // VALUES() — en Capa 2 (REST) el mapeo columna↔parámetro es puramente
-      // posicional (ver restInsert en database.config.js); un literal mezclado
-      // entre placeholders desalinea todos los parámetros posteriores.
-      //
-      // Columna en minúsculas y SIN tenant_id: verificado empíricamente contra
-      // la BD real (SELECT * de un usuario existente) que esta instancia nunca
-      // recibió las migraciones formales 001-010 — el esquema realmente activo
-      // es el que crea este mismo bootstrap con el identificador SIN comillas,
-      // que Postgres pliega a minúsculas ("tipousuario"); org_id es TEXT
-      // nullable y tenant_id no existe en esta tabla. El traductor REST de
-      // Capa 2 no simula el case-folding de Postgres — el texto SQL debe usar
-      // la casing real de la columna, no la que aparece en el CREATE TABLE.
-      await runSql(
-        `INSERT INTO usuarios
-           (id, email, password_hash, nombre, tipousuario, plan, org_id, is_approved, is_active)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (id) DO NOTHING`,
-        [
-          DEV_USER_ID,
-          'dev-user-001@radarfondos.local',
-          '848ee624f012a8bb30c27eed7384e692:d9c84fda6e8840d09dff5b16080c46d6407e42beaf2693cea7be047952ea99948f9c377a75155f7812cb004db2c91fb25424be8b34f5fdd1da68f0aa793f809e',
-          'Usuario de Desarrollo', 'admin', 'free',
-          DEV_USER_ID, 1, 1,
-        ]
-      );
+      const existsDevUser = await getRow('SELECT id FROM usuarios WHERE id = ?', [DEV_USER_ID]);
+      if (!existsDevUser) {
+        // IMPORTANTE: todo valor va como placeholder ?, ninguno como literal en
+        // VALUES() — en Capa 2 (REST) el mapeo columna↔parámetro es puramente
+        // posicional (ver restInsert en database.config.js); un literal mezclado
+        // entre placeholders desalinea todos los parámetros posteriores.
+        //
+        // Columna en minúsculas y SIN tenant_id: verificado empíricamente contra
+        // la BD real (SELECT * de un usuario existente) que esta instancia nunca
+        // recibió las migraciones formales 001-010 — el esquema realmente activo
+        // es el que crea este mismo bootstrap con el identificador SIN comillas,
+        // que Postgres pliega a minúsculas ("tipousuario"); org_id es TEXT
+        // nullable y tenant_id no existe en esta tabla. El traductor REST de
+        // Capa 2 no simula el case-folding de Postgres — el texto SQL debe usar
+        // la casing real de la columna, no la que aparece en el CREATE TABLE.
+        await runSql(
+          `INSERT INTO usuarios
+             (id, email, password_hash, nombre, tipousuario, plan, org_id, is_approved, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            DEV_USER_ID,
+            'dev-user-001@radarfondos.local',
+            '848ee624f012a8bb30c27eed7384e692:d9c84fda6e8840d09dff5b16080c46d6407e42beaf2693cea7be047952ea99948f9c377a75155f7812cb004db2c91fb25424be8b34f5fdd1da68f0aa793f809e',
+            'Usuario de Desarrollo', 'admin', 'free',
+            DEV_USER_ID, 1, 1,
+          ]
+        );
+      }
     } catch (e) {
       console.warn('[seedDevUser] No se pudo sembrar el usuario dev:', e.message?.slice(0, 150));
     }
@@ -1014,7 +1029,10 @@ async function start() {
 
   // Seed WePropel — idempotente (solo inserta si no existe)
   try {
-    const existsWP = await getRow("SELECT id FROM directorio_entidades WHERE sigla = 'WePropel' AND deleted_at IS NULL");
+    // Chequeo por id (la PK real que colisiona), no por sigla+deleted_at:
+    // una fila soft-deleted sigue ocupando el id y un INSERT nuevo con el
+    // mismo id violaría directorio_entidades_pkey igual.
+    const existsWP = await getRow("SELECT id FROM directorio_entidades WHERE id = 'seed-wepropel'");
     if (!existsWP) {
       const now = new Date().toISOString();
       await runSql(
@@ -1043,7 +1061,7 @@ async function start() {
 
   // Seed Darwin Initiative — idempotente (solo inserta si no existe)
   try {
-    const existsDI = await getRow("SELECT id FROM directorio_entidades WHERE sigla = 'DI' AND deleted_at IS NULL");
+    const existsDI = await getRow("SELECT id FROM directorio_entidades WHERE id = 'seed-darwin-initiative'");
     if (!existsDI) {
       const now = new Date().toISOString();
       await runSql(
@@ -1091,7 +1109,8 @@ async function start() {
   ];
   for (const ent of NUEVAS_ENTIDADES) {
     try {
-      const exists = await getRow(`SELECT id FROM directorio_entidades WHERE sigla = ? AND deleted_at IS NULL`, [ent.sigla]);
+      // Por id (PK real), no por sigla+deleted_at — mismo motivo que WePropel/Darwin arriba.
+      const exists = await getRow(`SELECT id FROM directorio_entidades WHERE id = ?`, [ent.id]);
       if (!exists) {
         const now = new Date().toISOString();
         await runSql(
@@ -1225,6 +1244,15 @@ async function start() {
   // AUTH ROUTES
   // ════════════════════════════════════════════════════════════════════════════
 
+  // Double Opt-In — token JWT autoexpirable (mismo patrón que password_reset),
+  // sin columnas de token en BD. 24h de vigencia.
+  async function enviarCorreoVerificacion(userId, email) {
+    const verifyToken = jwt.sign({ sub: userId, email, purpose: 'email_verification' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '24h' });
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const verifyLink = `${frontendUrl}/verificar-email?token=${verifyToken}`;
+    await emailAdapter.sendEmailVerification(email, verifyLink);
+  }
+
   // POST /api/auth/register
   app.post('/api/auth/register', authLimiter, sanitizeAuthBody, tryCatch(async (req, res) => {
      const { email, password, nombre, role } = req.body;
@@ -1237,8 +1265,8 @@ async function start() {
      const password_hash = await hashPassword(password);
      const safeRole = role === 'admin' ? 'user' : (role || 'user'); // no permitir auto-admin
      await runSql(
-       `INSERT INTO usuarios (id, email, password_hash, nombre, tipousuario, rol) VALUES (?, ?, ?, ?, ?, ?)`,
-       [id, email.trim().toLowerCase(), password_hash, nombre.trim(), 'Usuario', safeRole]
+       `INSERT INTO usuarios (id, email, password_hash, nombre, tipousuario, rol, is_approved) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       [id, email.trim().toLowerCase(), password_hash, nombre.trim(), 'Usuario', safeRole, 0]
      );
     // V8.0: auto-crear suscripción free al registrarse
     try {
@@ -1249,12 +1277,23 @@ async function start() {
         [crypto.randomUUID(), id, 'free', 0, 0]
       );
     } catch {}
-    const token = jwt.sign({ sub: id, role: safeRole }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
+    // Aviso al administrador — no bloquea la respuesta si el correo falla o no está configurado.
+    emailAdapter.sendPendingApprovalNotice(process.env.ADMIN_NOTIFY_EMAIL || 'jaansave@gmail.com', {
+      id, nombre: nombre.trim(), email: email.trim().toLowerCase(),
+    }).catch(e => console.warn('[register] No se pudo notificar al admin:', e.message));
+
+    // Double Opt-In — independiente del gate is_approved (admin). Mismo patrón
+    // de token que /api/auth/forgot-password: JWT autoexpirable, sin columnas
+    // de token en BD. No bloquea la respuesta si el correo falla.
+    enviarCorreoVerificacion(id, email.trim().toLowerCase())
+      .catch(e => console.warn('[register] No se pudo enviar verificación de correo:', e.message));
+
+    // No se emite token: la cuenta queda con is_approved=0 hasta que el
+    // administrador la apruebe manualmente (ver PUT /api/admin/usuarios/:id/aprobar).
     res.status(201).json({
       success: true,
-      message: 'Usuario registrado correctamente',
-      token,
-      user: { id, email: email.trim().toLowerCase(), nombre: nombre.trim(), role: safeRole, plan: 'free', created_at: new Date().toISOString(), is_active: true },
+      pendingApproval: true,
+      message: 'Cuenta creada correctamente. Un administrador debe aprobarla antes de que puedas iniciar sesión.',
     });
   }));
 
@@ -1267,17 +1306,20 @@ async function start() {
     if (!user.is_active) return res.status(403).json({ success: false, message: 'Cuenta desactivada' });
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
+    if (!user.is_approved) {
+      return res.status(403).json({ success: false, code: 'PENDING_APPROVAL', message: 'Tu cuenta está pendiente de aprobación por el administrador. Te avisaremos cuando quede activa.' });
+    }
     const token = jwt.sign({ sub: user.id, role: user.tipousuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
     res.json({
       success: true,
       token,
-      user: { id: user.id, email: user.email, nombre: user.nombre, role: user.tipousuario, plan: user.plan || 'free', created_at: user.createdat, is_active: !!user.is_active },
+      user: { id: user.id, email: user.email, nombre: user.nombre, role: user.tipousuario, plan: user.plan || 'free', created_at: user.createdat, is_active: !!user.is_active, email_verified: !!user.email_verified },
     });
   }));
 
   // GET /api/auth/verify
   app.get('/api/auth/verify', authenticateToken, tryCatch(async (req, res) => {
-    const user = await getRow('SELECT id, email, nombre, tipousuario, plan, createdat, is_active FROM usuarios WHERE id = ? AND deleted_at IS NULL', [req.userId]);
+    const user = await getRow('SELECT id, email, nombre, tipousuario, plan, createdat, is_active, email_verified FROM usuarios WHERE id = ? AND deleted_at IS NULL', [req.userId]);
     if (!user) return res.status(401).json({ valid: false });
     const sub = await getRow(
       'SELECT plan, access_radar, access_formulador FROM user_subscriptions WHERE user_id = ?',
@@ -1289,6 +1331,7 @@ async function start() {
         id: user.id, email: user.email, nombre: user.nombre,
         role: user.tipousuario, plan: user.plan || 'free',
         created_at: user.createdat, is_active: !!user.is_active,
+        email_verified: !!user.email_verified,
         subscription: {
           plan: sub?.plan || 'free',
           access_radar: !!sub?.access_radar,
@@ -1296,6 +1339,96 @@ async function start() {
         },
       },
     });
+  }));
+
+  // POST /api/auth/enviar-verificacion — reenvío protegido (banner "Reenviar correo")
+  app.post('/api/auth/enviar-verificacion', authenticateToken, authLimiter, tryCatch(async (req, res) => {
+    const user = await getRow('SELECT id, email, email_verified FROM usuarios WHERE id = ? AND deleted_at IS NULL', [req.userId]);
+    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    if (user.email_verified) return res.json({ success: true, message: 'Este correo ya está verificado.' });
+    await enviarCorreoVerificacion(user.id, user.email);
+    res.json({ success: true, message: 'Correo de verificación reenviado.' });
+  }));
+
+  // POST /api/auth/confirmar-verificacion — público, consume el JWT del enlace
+  app.post('/api/auth/confirmar-verificacion', tryCatch(async (req, res) => {
+    const { token } = req.body || {};
+    if (!token) return res.status(400).json({ success: false, message: 'token es requerido' });
+    let payload;
+    try {
+      payload = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return res.status(400).json({ success: false, message: 'El enlace de verificación es inválido o expiró. Solicita uno nuevo.' });
+    }
+    if (payload.purpose !== 'email_verification' || !payload.sub) {
+      return res.status(400).json({ success: false, message: 'El enlace de verificación es inválido.' });
+    }
+    const user = await getRow('SELECT id, email FROM usuarios WHERE id = ? AND deleted_at IS NULL', [payload.sub]);
+    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    // El email pudo cambiar desde que se emitió el token — no confirmes una dirección distinta a la actual.
+    if (user.email !== payload.email) {
+      return res.status(400).json({ success: false, message: 'El enlace de verificación ya no corresponde al correo actual de la cuenta.' });
+    }
+    // OJO: literal SQL (TRUE) en el SET no funciona bajo el fallback REST —
+    // restUpdate() en database.config.js solo traduce placeholders $N, no
+    // literales/expresiones — se descartaría en silencio. Usar siempre "?".
+    await runSql('UPDATE usuarios SET email_verified = ? WHERE id = ?', [true, user.id]);
+    res.json({ success: true, message: 'Correo verificado correctamente.' });
+  }));
+
+  // ── Aprobación manual de registros (admin) ───────────────────────────────────
+  // GET /api/admin/usuarios/pendientes
+  app.get('/api/admin/usuarios/pendientes', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    const rows = await getRows(
+      'SELECT id, email, nombre, createdat FROM usuarios WHERE is_approved = 0 AND deleted_at IS NULL ORDER BY createdat DESC'
+    );
+    res.json({ success: true, data: rows });
+  }));
+
+  // POST /api/admin/usuarios/:id/aprobar
+  app.post('/api/admin/usuarios/:id/aprobar', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    // Placeholder real (no literal "1"): bajo el fallback REST, restUpdate()
+    // en database.config.js solo traduce placeholders $N en el SET — un
+    // literal se descarta en silencio y el UPDATE no cambia nada.
+    await runSql('UPDATE usuarios SET is_approved = ? WHERE id = ?', [1, req.params.id]);
+    res.json({ success: true, message: 'Usuario aprobado — ya puede iniciar sesión.' });
+  }));
+
+  // POST /api/admin/usuarios/:id/rechazar
+  app.post('/api/admin/usuarios/:id/rechazar', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    await runSql('UPDATE usuarios SET is_active = ? WHERE id = ?', [0, req.params.id]);
+    res.json({ success: true, message: 'Usuario rechazado.' });
+  }));
+
+  // DELETE /api/usuarios/:id/purgar — Habeas Data (Ley 1581): Hard Delete real.
+  // No existe ON DELETE CASCADE en usuarios→proyectos/user_favorites/user_subscriptions
+  // (confdeltype='a', NO ACTION, verificado vía pg_constraint) — se hace cascada manual
+  // en orden de dependencia. Cada DELETE usa igualdad simple de una sola columna a
+  // propósito: el fallback REST (Capa 2, database.config.js) solo sabe traducir
+  // condiciones simples a filtros PostgREST — un IN/subquery ahí se ignora en
+  // silencio y el DELETE quedaría sin filtro, borrando la tabla completa.
+  app.delete('/api/usuarios/:id/purgar', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    const targetId = req.params.id;
+    const target = await getRow('SELECT id FROM usuarios WHERE id = ?', [targetId]);
+    if (!target) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+
+    const proyectos = await getRows('SELECT id FROM proyectos WHERE user_id = ?', [targetId]);
+    for (const p of proyectos) {
+      // Únicas 2 tablas de proyecto con FK NO ACTION — el resto de project_* ya
+      // tienen ON DELETE CASCADE real y se limpian solas al borrar el proyecto.
+      await runSql('DELETE FROM versiones_proyecto WHERE proyecto_id = ?', [p.id]);
+      await runSql('DELETE FROM project_budgets WHERE proyecto_id = ?', [p.id]);
+    }
+    await runSql('DELETE FROM proyectos WHERE user_id = ?', [targetId]);
+    await runSql('DELETE FROM user_favorites WHERE user_id = ?', [targetId]);
+    await runSql('DELETE FROM user_subscriptions WHERE user_id = ?', [targetId]);
+    await runSql('DELETE FROM usuarios WHERE id = ?', [targetId]);
+
+    res.json({ success: true, message: 'Usuario y todos sus datos asociados purgados definitivamente (Habeas Data / Ley 1581).' });
   }));
 
   // POST /api/auth/trial — genera token temporal 24h (Modo Visitante V8.0)
@@ -2738,7 +2871,10 @@ Reglas:
       ['true', now]
     );
     if ((upd?.rowCount ?? upd?.changes ?? 0) === 0) {
-      await runSql(`INSERT INTO app_settings (key, value, updated_at) VALUES ('radar_scheduler_enabled', 'true', ?)`, [now]).catch(() => {});
+      // Placeholders para las 3 columnas, no literales mezclados: restInsert()
+      // en database.config.js mapea columna↔parámetro por posición e ignora
+      // el contenido real de VALUES() — un literal ahí desalinea todo bajo REST.
+      await runSql(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)`, ['radar_scheduler_enabled', 'true', now]).catch(() => {});
     }
     res.json({ success: true, message: `Programador de radar activo (${activas} tarea(s) cron).`, tareas_activas: activas });
   }));
@@ -2752,7 +2888,7 @@ Reglas:
       ['false', now]
     );
     if ((upd?.rowCount ?? upd?.changes ?? 0) === 0) {
-      await runSql(`INSERT INTO app_settings (key, value, updated_at) VALUES ('radar_scheduler_enabled', 'false', ?)`, [now]).catch(() => {});
+      await runSql(`INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)`, ['radar_scheduler_enabled', 'false', now]).catch(() => {});
     }
     res.json({ success: true, message: `Programador de radar detenido (${detenidas} tarea(s) cron).`, tareas_detenidas: detenidas });
   }));
@@ -2784,8 +2920,8 @@ Reglas:
     );
     if ((upd?.rowCount ?? upd?.changes ?? 0) === 0) {
       await runSql(
-        `INSERT INTO app_settings (key, value, updated_at) VALUES ('radar_keywords', ?, ?)`,
-        [val, now]
+        `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)`,
+        ['radar_keywords', val, now]
       ).catch(() => {}); // ignora conflicto de clave duplicada si ocurre en paralelo
     }
     res.json({ success: true });
@@ -3746,8 +3882,8 @@ Reglas:
     const id = crypto.randomUUID();
     await runSql(
       `INSERT INTO postulaciones_entidad (id, proyecto_matriz_id, org_id, nombre_entidad, url_lineamientos, enfoque_generado_ia, enfoque_fuente, estado_postulacion)
-       VALUES (?,?,?,?,?,?,?,'Borrador')`,
-      [id, req.params.id, req.userId, nombreEntidad, urlLineamientos, enfoque, fuente]
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [id, req.params.id, req.userId, nombreEntidad, urlLineamientos, enfoque, fuente, 'Borrador']
     );
 
     res.status(201).json({ success: true, data: { id, nombre_entidad: nombreEntidad, url_lineamientos: urlLineamientos, enfoque_generado_ia: enfoque, enfoque_fuente: fuente, estado_postulacion: 'Borrador' } });
@@ -3866,7 +4002,7 @@ Reglas:
       return res.status(422).json({ success: false, message: 'El árbol no pasa la validación de coherencia', detail });
     }
 
-    await runSql('UPDATE objetivos_arbol SET confirmado = 1 WHERE proyecto_id = ?', [proyectoId]);
+    await runSql('UPDATE objetivos_arbol SET confirmado = ? WHERE proyecto_id = ?', [1, proyectoId]);
     res.json({ success: true, message: 'Árbol confirmado — coherencia verificada' });
   }));
 
@@ -4081,7 +4217,10 @@ Reglas:
   registerPresupuestoRoutes(app, { authenticateToken, runSql, getRow, getRows });
 
   // Anexos: CRUD real contra project_anexos (migración 013) — reemplaza localStorage de AnexosView.tsx
-  await registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows });
+  await registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows, financialPipelineLimiter });
+  await registerEstresFinancieroRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
+  await registerValorExponencialRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
+  await registerCopilotoRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
 
   // F5-01: Módulo 9 — Cross-Check Pipeline & Radicación
   registerRadicacionRoutes(app, { authenticateToken, runSql, getRow });

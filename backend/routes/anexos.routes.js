@@ -15,7 +15,18 @@
  * admin (service_role key, bypasea RLS — igual que el resto de la app).
  */
 import crypto from 'crypto';
+import pLimit from 'p-limit';
 import { supabaseAdmin } from '../config/supabase.config.js';
+import { parseAndSanitizeExcel } from '../services/ExtractorService.js';
+import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js';
+
+// Amortigua subidas simultáneas de presupuestos pesados: máximo 3 extracciones
+// corriendo a la vez por instancia de Node — el resto se encola en memoria en
+// vez de saturar el pool de conexiones REST de Supabase (Capa 2). Sin Redis/
+// BullMQ: un semáforo en memoria basta para el volumen actual; solo se
+// justificaría una cola real si el tráfico concurrente crece más allá de lo
+// que un único proceso puede absorber.
+const extraccionLimiter = pLimit(3);
 
 const ANEXOS_BUCKET = 'anexos';
 
@@ -31,7 +42,7 @@ const ALLOWED_ANEXO_TYPES = {
   png:  { mimes: ['image/png'],  maxBytes: 8 * 1024 * 1024 },
 };
 
-const CATEGORIAS_VALIDAS = new Set(['legal', 'financiero', 'tecnico', 'institucional', 'otro']);
+const CATEGORIAS_VALIDAS = new Set(['legal', 'financiero', 'tecnico', 'institucional', 'presupuesto_apu', 'otro']);
 
 function safeExt(filename) {
   return (filename || '').split('.').pop().toLowerCase();
@@ -59,7 +70,7 @@ function wrap(fn) {
   };
 }
 
-export async function registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows }) {
+export async function registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows, financialPipelineLimiter }) {
   if (!supabaseAdmin) {
     console.error('[anexos] SUPABASE_URL/SUPABASE_SERVICE_KEY no configurados — subida de anexos desactivada');
   } else {
@@ -129,6 +140,15 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const categoriaRaw = String(req.body?.categoria || 'otro').toLowerCase();
     const categoria = CATEGORIAS_VALIDAS.has(categoriaRaw) ? categoriaRaw : 'otro';
 
+    // Rate limit por org_id SOLO para la ruta pesada (extracción de Excel) —
+    // aplicarlo a todo /anexos golpearía el autoguardado onBlur de filas
+    // puramente narrativas (descripción/texto/link), que se dispara muy
+    // seguido y no tiene nada que ver con el pipeline financiero.
+    if (req.file && categoria === 'presupuesto_apu' && /\.(xlsx|xls)$/i.test(req.file.originalname) && financialPipelineLimiter) {
+      await new Promise(resolve => financialPipelineLimiter(req, res, () => resolve()));
+      if (res.headersSent) return; // el limiter ya respondió 429
+    }
+
     const id = crypto.randomUUID();
     let nombreArchivo = '', rutaStorage = '', tipoMime = '', tamanoBytes = 0;
 
@@ -157,6 +177,43 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
       [id, req.params.id, req.userId, nombreArchivo, rutaStorage, tipoMime, tamanoBytes, categoria, descripcion, texto, link, new Date().toISOString()]
     );
 
+    // "Pieza Cero": si el anexo se marcó explícitamente como presupuesto/APU y
+    // es un Excel, se extrae a project_apu_lineas. Si falla (moneda extranjera,
+    // archivo sin tabla reconocible), se revierte todo — no queda un anexo
+    // "presupuesto" huérfano sin datos extraídos.
+    let extraccion = null;
+    let auditoria = null;
+    if (req.file && categoria === 'presupuesto_apu' && /\.(xlsx|xls)$/i.test(req.file.originalname)) {
+      try {
+        // Idempotencia real: busca anexos previos del mismo proyecto con el
+        // mismo nombre de archivo (p. ej. el usuario corrigió un typo y volvió
+        // a subir "presupuesto.xlsx") para que ExtractorService limpie también
+        // esas líneas antiguas, no solo las del anexo_id recién creado.
+        const anterioresRows = await getRows(
+          'SELECT id FROM project_anexos WHERE project_id = ? AND categoria = ? AND nombre_archivo = ? AND id != ?',
+          [req.params.id, 'presupuesto_apu', nombreArchivo, id]
+        );
+        const anexoIdsAnteriores = anterioresRows.map(r => r.id);
+
+        // Encolado: si ya hay 3 extracciones corriendo en este proceso, esta
+        // petición espera su turno en memoria en vez de competir por conexiones.
+        extraccion = await extraccionLimiter(() => parseAndSanitizeExcel(req.file.buffer, {
+          projectId: req.params.id, orgId: req.userId, anexoId: id, anexoIdsAnteriores,
+        }));
+        // Sprint 2 — Motor VERIFICAR: cruza las líneas recién ingeridas.
+        // No bloquea la respuesta si falla — la ingesta ya quedó guardada.
+        try {
+          auditoria = await ejecutarAuditoriaCompleta(req.params.id, id, req.userId, extraccion.lineas);
+        } catch (audErr) {
+          console.error('[anexos] AuditorForenseService falló (no bloqueante):', audErr.message);
+        }
+      } catch (extErr) {
+        await runSql('DELETE FROM project_anexos WHERE id = ?', [id]);
+        if (rutaStorage) supabaseAdmin.storage.from(ANEXOS_BUCKET).remove([rutaStorage]).catch(() => {});
+        return res.status(extErr.status || 500).json({ success: false, message: extErr.message });
+      }
+    }
+
     res.status(201).json({
       success: true,
       data: {
@@ -164,6 +221,9 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
         tipo_mime: tipoMime, tamano_bytes: tamanoBytes, categoria, descripcion, texto, link,
         created_at: new Date().toISOString(),
       },
+      // No se envían las líneas crudas al cliente — solo el resumen.
+      extraccion: extraccion ? { totalLineas: extraccion.totalLineas, sheetUsada: extraccion.sheetUsada } : null,
+      auditoria,
     });
   }));
 

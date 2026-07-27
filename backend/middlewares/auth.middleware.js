@@ -97,15 +97,16 @@ async function resolveIdentity(req) {
   // Demo mode: siempre rechazado en rutas protegidas
   if (token === 'demo-mode-token') return null;
 
-  // Supabase primero (producción)
+  // Supabase primero (producción), con fallback a JWT local: el login/registro
+  // propios de server.js (jwt.sign(..., JWT_SECRET)) nunca emiten sesiones reales
+  // de Supabase Auth, así que un token propio siempre falla validateWithSupabase
+  // — sin este fallback, tener SUPABASE_URL/ANON_KEY configurados (necesario para
+  // Storage/DB) bloqueaba con 401 todas las rutas autenticadas de la app.
   if (USE_SUPABASE) {
     const identity = await validateWithSupabase(token);
     if (identity) return identity;
-    // Si Supabase falla (error de red, token expirado) no hacer fallback a JWT local
-    return null;
   }
 
-  // JWT local (desarrollo / sin Supabase)
   return validateWithLocalJWT(token);
 }
 
