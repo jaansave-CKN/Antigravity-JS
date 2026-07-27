@@ -25,7 +25,9 @@
     "test:all": "npm run test:smoke && npm run test:security"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1095.0",
     "@google/generative-ai": "^0.24.1",
+    "@sentry/node": "^10.68.0",
     "@sentry/react": "^10.56.0",
     "@supabase/supabase-js": "^2.49.0",
     "@vitejs/plugin-react": "^5.0.0",
@@ -47,6 +49,7 @@
     "lucide-react": "^0.525.0",
     "multer": "^2.1.1",
     "node-cron": "^4.2.1",
+    "p-limit": "^7.3.1",
     "path": "^0.12.7",
     "pdfkit": "^0.18.0",
     "pg": "^8.21.0",

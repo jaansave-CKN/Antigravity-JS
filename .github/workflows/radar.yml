@@ -1,4 +1,4 @@
-name: Radar Fondos 360 — CI/CD Pipeline V8.0
+name: Radar Fondos 360 — CI/CD Pipeline V9.0
 
 on:
   schedule:
@@ -18,45 +18,9 @@ on:
       - 'tsconfig.json'
 
 jobs:
-  # ── CI: Validación TypeScript + Build ─────────────────────────────────────────
+  # ── CI: Validación TypeScript + Build (bloqueante) ────────────────────────────
   ci:
     name: CI — TypeScript + Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Instalar dependencias
-        run: npm ci
-
-      - name: TypeScript check
-        run: npx tsc --noEmit
-        continue-on-error: false
-
-      - name: Build frontend
-        run: npm run build
-        env:
-          VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
-
-      - name: Verificar artefactos
-        run: |
-          echo "✓ Build completado"
-          ls -lh dist/
-          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- Fecha: $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "- Artefactos: $(ls dist/ | wc -l) archivos" >> $GITHUB_STEP_SUMMARY
-
-  # ── CD: Deploy a Firebase + Render ────────────────────────────────────────────
-  deploy:
-    name: CD — Deploy
-    needs: ci
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
@@ -72,32 +36,70 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
       - name: Build frontend
         run: npm run build
         env:
           VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
 
-      - name: Deploy a Firebase Hosting
-        uses: w9jks/firebase-action@v2
-        with:
-          args: deploy --only hosting
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+      - name: Verificar artefactos
+        run: |
+          echo "✓ Build completado"
+          ls -lh dist/
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Fecha: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "- Artefactos: $(ls dist/ | wc -l) archivos" >> $GITHUB_STEP_SUMMARY
 
+  # ── CD: Deploy a Render (único destino real — Firebase no existe en esta arquitectura) ──
+  deploy:
+    name: CD — Deploy a Render
+    needs: ci
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
       - name: Trigger Render deploy
+        # API oficial de Render (autenticada), no un Deploy Hook: el servicio
+        # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
+        # main, sin esperar al CI) — este paso, gateado por needs:ci, es lo
+        # que realmente aporta: bloquear el deploy hasta que build/tsc pasen.
         run: |
-          curl -s -X POST "https://api.render.com/deploy/srv-d87vvtjbc2fs73eej770?key=6vGTV_HBe6k"
+          curl -sf -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json"
           echo "Render deploy triggered: $(date)"
-
-      - name: Resumen de deploy
-        run: |
-          echo "## Deploy V8.0" >> $GITHUB_STEP_SUMMARY
-          echo "- Firebase: https://antigravity-jairo-2026.web.app" >> $GITHUB_STEP_SUMMARY
-          echo "- Render: backend activo" >> $GITHUB_STEP_SUMMARY
+          echo "## Deploy V9.0" >> $GITHUB_STEP_SUMMARY
+          echo "- Render: deploy disparado" >> $GITHUB_STEP_SUMMARY
           echo "- Fecha: $(date)" >> $GITHUB_STEP_SUMMARY
 
-  # ── S3 Backup diario (03:00 UTC) ──────────────────────────────────────────────
+  # ── Post-Deploy: Smoke Test contra el backend real ya desplegado (bloqueante) ──
+  smoke-test:
+    name: Smoke Test — post-deploy
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Esperar a que el deploy de Render esté activo
+        run: sleep 45
+
+      - name: Ejecutar smoke test contra el backend real
+        run: node backend/scripts/smokeTest.js "${{ secrets.SMOKE_TEST_URL }}"
+
+  # ── S3 Backup diario (03:00 UTC) — solo en corridas programadas ───────────────
   backup-s3:
     name: S3 Backup diario
     runs-on: ubuntu-latest
@@ -115,10 +117,6 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
-      - name: Instalar AWS SDK
-        run: npm install @aws-sdk/client-s3 --no-save
-        continue-on-error: true
-
       - name: Ejecutar backup S3
         env:
           AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -126,57 +124,11 @@ jobs:
           AWS_S3_BUCKET:         ${{ secrets.AWS_S3_BUCKET }}
           AWS_REGION:            ${{ secrets.AWS_REGION || 'us-east-1' }}
           DATABASE_URL:          ${{ secrets.DATABASE_URL }}
-        run: node -e "import('./backend/scripts/s3backup.js').then(m => m.runS3Backup()).then(r => console.log(JSON.stringify(r))).catch(console.error)"
-        continue-on-error: true
+        run: node -e "import('./backend/scripts/s3backup.js').then(m => m.runS3Backup()).then(r => console.log(JSON.stringify(r))).catch(e => { console.error(e); process.exit(1); })"
 
       - name: Resumen backup
         if: always()
         run: |
-          echo "## Backup S3 V8.0" >> $GITHUB_STEP_SUMMARY
-          echo "- Fecha: $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "- Estado: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-
-  buscar-convocatorias:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
-    steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Instalar dependencias
-        run: |
-          pip install requests beautifulsoup4 google-serp-api
-
-      - name: Ejecutar radar
-        env:
-          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          python scripts/radar_search.py
-        continue-on-error: true
-
-      - name: Verificar cambios
-        id: git-diff
-        run: |
-          git diff --stat
-
-      - name: Commit cambios
-        if: github.event_name == 'schedule'
-        run: |
-          git config --local user.email "radar@antigravity.com"
-          git config --local user.name "Radar Automático"
-          git add -A
-          git commit -m "Actualización automática de convocatorias $(date '+%Y-%m-%d %H:%M')" || echo "No hay cambios"
-          git push || echo "No se pudo hacer push"
-
-      - name: Notificar resultados
-        if: always()
-        run: |
-          echo "## Resultados del radar" >> $GITHUB_STEP_SUMMARY
+          echo "## Backup S3 V9.0" >> $GITHUB_STEP_SUMMARY
           echo "- Fecha: $(date)" >> $GITHUB_STEP_SUMMARY
           echo "- Estado: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

@@ -11,6 +11,7 @@ import { RadarProvider } from './contexts/RadarContext';
 import { SearchProvider } from './contexts/SearchContext';
 import FormuladorLayout from './components/FormuladorLayout';
 import AppLeftNav from './components/AppLeftNav';
+import EmailVerificationBanner from './components/EmailVerificationBanner';
 import './index.css';
 
 // ── Code-splitting: cada página (y sus dependencias pesadas — leaflet, xlsx,
@@ -20,6 +21,7 @@ const Dashboard              = lazy(() => import('./Dashboard'));
 const LoginPage              = lazy(() => import('./pages/LoginPage'));
 const RegisterPage           = lazy(() => import('./pages/RegisterPage'));
 const PasswordResetPage      = lazy(() => import('./pages/PasswordResetPage'));
+const VerificacionEmailPage  = lazy(() => import('./pages/VerificacionEmailPage'));
 const ControlPanel           = lazy(() => import('./pages/ControlPanel'));
 const DirectoryPage          = lazy(() => import('./pages/DirectoryPage'));
 const ImportPage             = lazy(() => import('./pages/ImportPage'));
@@ -33,6 +35,7 @@ const PlanesPage             = lazy(() => import('./pages/PlanesPage'));
 const FavoritosPage          = lazy(() => import('./pages/FavoritosPage'));
 const AnexosPage             = lazy(() => import('./pages/AnexosPage'));
 const PanelPage              = lazy(() => import('./pages/PanelPage'));
+const AdminUsuariosPendientesPage = lazy(() => import('./pages/AdminUsuariosPendientesPage'));
 const FormulacionViewer      = lazy(() => import('./components/FormulacionViewer'));
 const LogisticaPage          = lazy(() => import('./pages/LogisticaPage'));
 // Revertido a pedido del usuario: el diseño Stitch (PestañaRadar) reemplazó
@@ -53,6 +56,27 @@ import { captureError } from './lib/sentry';
 
 // Falla rápido y explícito si faltan llaves críticas — evita arranques fantasma en producción
 validateEnv();
+
+// Bootstrap de una sola vez: activa el proyecto "Cantagallo - Patico (UMIS)"
+// si el usuario todavía no tiene ningún proyecto activo — evita que los
+// anexos capturados en modo "sin proyecto" (ver AnexosCalcoView.tsx) se
+// queden huérfanos. Se autodesactiva tras la primera ejecución.
+if (!localStorage.getItem('rf360_proyecto_activo') && !localStorage.getItem('rf360_bootstrap_cantagallo')) {
+  localStorage.setItem('rf360_proyecto_activo', '132c2bb8-e181-4c04-9385-6fb76d4fdb99');
+  localStorage.setItem('rf360_proyecto_nombre', 'Cantagallo - Patico (UMIS)');
+  localStorage.setItem('rf360_bootstrap_cantagallo', '1');
+}
+
+// Bootstrap de una sola vez: purga una sesión "demo-mode-token" atascada.
+// AuthContextNew.tsx carga esa sesión falsa sin red apenas la ve en
+// localStorage (nunca reintenta el login real) — quedó así por un bug de CSP
+// ya corregido (VITE_API_URL apuntaba a "localhost" en vez de "127.0.0.1").
+// Sin este bootstrap, ningún reload futuro volvería a probar el backend real.
+if (localStorage.getItem('auth_token') === 'demo-mode-token' && !localStorage.getItem('rf360_bootstrap_demofix')) {
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('auth_user');
+  localStorage.setItem('rf360_bootstrap_demofix', '1');
+}
 
 // ── Error Boundary — global y por ruta ───────────────────────────────────────
 interface EBProps { children: React.ReactNode; routeName?: string; }
@@ -239,6 +263,7 @@ function AppLayout() {
       <SearchProvider>
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
           <TopNavBar />
+          <EmailVerificationBanner />
           <div style={{ display: 'flex', flex: 1 }}>
             <AppLeftNav />
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -276,6 +301,7 @@ function AppRoutes() {
       <Route path="/login"          element={realAuth ? toHome : <LoginPage />} />
       <Route path="/register"       element={realAuth ? toHome : <RegisterPage />} />
       <Route path="/reset-password" element={<PasswordResetPage />} />
+      <Route path="/verificar-email" element={<VerificacionEmailPage />} />
       <Route path="/terminos"       element={<TerminosPage />} />
       <Route path="/privacidad"     element={<PrivacidadPage />} />
 
@@ -298,6 +324,7 @@ function AppRoutes() {
         <Route path="/calendario" element={
           <PlanGate require="radar"><CalendarioPage /></PlanGate>
         } />
+        <Route path="/admin/usuarios-pendientes" element={<AdminUsuariosPendientesPage />} />
       </Route>
 
       {/* ── Pilar B (Ejecución IA 7.0) — acceso libre con demo mode ─────── */}

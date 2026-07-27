@@ -19,15 +19,26 @@
   -webkit-font-smoothing: antialiased;
 }
 
-.anx__container { background: #f7f9fb; overflow: hidden; flex: 1; display: flex; flex-direction: column; }
+/* overflow NO puede ser hidden/auto aquí: crea un contenedor de scroll propio
+   que rompe position:sticky de .anx__topbar y .anx__theadrow, ya que el scroll
+   real ocurre en la página, no dentro de este div. */
+.anx__container { background: #f7f9fb; flex: 1; display: flex; flex-direction: column; }
+
+/* Zona fija — topbar + mensaje de estado + encabezado de columnas, agrupados
+   en un solo bloque sticky para que se muevan siempre juntos al hacer scroll
+   (en vez de cada uno con su propio top offset calculado a mano). */
+.anx__fixedzone {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  flex-shrink: 0;
+  background: #ffffff;
+}
 
 /* Topbar — margen/estructura estandarizados 1:1 con EntradaPage (.entr__topbar,
    .entr__h1, .entr__save, .entr__clear) para que todas las ventanas del
    Formulador se vean como una sola aplicación coherente. */
 .anx__topbar {
-  position: sticky;
-  top: 0;
-  z-index: 50;
   background: #ffffff;
   border-bottom: 1px solid #e0e3e5;
   height: 72px;
@@ -46,7 +57,23 @@
   letter-spacing: -0.02em;
 }
 .anx__topbar-right { display: flex; align-items: center; gap: 12px; }
-.anx__content { padding: 24px; flex: 1; }
+.anx__count {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  background: #eef1f5;
+  color: #434655;
+  font-size: 14px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.anx__statusmsg { padding: 8px 24px; font-size: 12px; font-weight: 600; background: #f7f9fb; }
+/* Padding SOLO vertical: el horizontal ya lo aporta .anx__theadrow/.anx__tr
+   (24px cada uno) — si .anx__content también lo pusiera, las filas quedarían
+   48px más angostas que el encabezado (que vive fuera de .anx__content, en
+   .anx__fixedzone) y las columnas se desalinearían hacia la derecha. */
+.anx__content { padding: 24px 0; flex: 1; }
 
 .anx__save {
   background: #0041a3;
@@ -82,31 +109,51 @@
 .anx__clear:hover { background: #f2f4f6; border-color: #a8adb8; color: #191c1e; }
 .anx__clear--done { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; }
 .anx__table-scroll { overflow-x: auto; }
-.anx__table { width: 100%; text-align: left; border-collapse: collapse; }
+.anx__table { width: 100%; }
 
-.anx__tr {
-  transition: background-color 0.15s;
+/* Grid compartido por el encabezado (.anx__theadrow) y cada fila (.anx__tr) —
+   una sola definición de columnas para que ambos se alineen siempre exacto,
+   sin depender de que flexbox y <table> calculen anchos por separado (esa
+   discrepancia era la causa de los desalineamientos anteriores). Columnas de
+   ancho fijo para TEXTO/ANEXO/LINK/basura garantizan que la papelera siempre
+   quepa sin scroll horizontal; DESCRIPCION toma el espacio restante. */
+.anx__grid {
+  display: grid;
+  grid-template-columns: 20px minmax(110px, 1fr) 70px 92px 92px 36px;
+  column-gap: 8px;
+  align-items: center;
 }
-.anx__tr:hover { background: rgba(0, 65, 163, 0.05); }
-.anx__tr + .anx__tr { border-top: 1px solid #c4c5d7; }
+.anx__rownum { font-size: 12px; font-weight: 600; color: #9199a3; text-align: right; }
 
-.anx__td { padding: 24px; vertical-align: top; }
-.anx__td--desc { width: 70%; padding: 24px; }
-.anx__td--sm { width: 10%; padding: 24px 8px; }
-.anx__td--action { width: 48px; padding: 24px; text-align: center; }
-
-.anx__field { display: flex; flex-direction: column; gap: 6px; }
-.anx__field--center { align-items: center; }
-
-.anx__label {
+/* Encabezado de columnas — vive dentro de .anx__fixedzone, así que se pega
+   junto con el topbar sin cálculo de offset. */
+.anx__theadrow {
+  padding: 8px 24px;
+  background: #f7f9fb;
+  border-bottom: 1px solid #c4c5d7;
+}
+.anx__th {
+  padding: 8px 0;
   font-size: 11px;
   line-height: 16px;
   font-weight: 700;
   color: #434655;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.anx__label-spacer { height: 16px; }
+.anx__th--center { text-align: center; }
+
+.anx__tr {
+  padding: 10px 24px;
+  transition: background-color 0.15s;
+}
+.anx__tr:hover { background: rgba(0, 65, 163, 0.05); }
+
+.anx__td { min-width: 0; }
+.anx__td--action { display: flex; justify-content: center; }
 
 .anx__input {
   width: 100%;

@@ -11,7 +11,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './AnexosCalcoView.css';
-import { http } from '../lib/apiClient';
+import { http, ApiError, isAuthenticated } from '../lib/apiClient';
 
 const STORAGE_KEY = 'radar360_anexos_calco';
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
@@ -58,10 +58,77 @@ export default function AnexosCalcoView() {
           id: a.id, descripcion: a.descripcion || '', texto: a.texto || '', link: a.link || '',
           anexo: a.nombre_archivo || '', persistido: true,
         }));
-        setSoportes(rows.length ? rows : [nuevoSoporte()]);
-      } catch {
-        setErrorSync('No se pudieron cargar los anexos guardados.');
-        setSoportes([nuevoSoporte()]);
+        if (rows.length) { setSoportes(rows); return; }
+
+        // Primera activación de proyecto sin datos en el servidor: si existe un
+        // borrador guardado en modo "sin proyecto activo" (STORAGE_KEY), se migra
+        // ahora a filas reales en project_anexos en vez de descartarlo — evita que
+        // el usuario vea "desaparecer" soportes que ya había capturado localmente.
+        const raw = localStorage.getItem(STORAGE_KEY);
+        let legacy: Soporte[] = [];
+        if (raw) {
+          try {
+            const p = JSON.parse(raw);
+            if (Array.isArray(p)) {
+              legacy = p.filter((s: Soporte) => s.descripcion?.trim() || s.texto?.trim() || s.link?.trim() || s.anexo?.trim());
+            }
+          } catch { /* ignore */ }
+        }
+        if (!legacy.length) { setSoportes([nuevoSoporte()]); return; }
+
+        const migradas: Soporte[] = [];
+        for (const s of legacy) {
+          try {
+            const fd = new FormData();
+            fd.append('descripcion', s.descripcion || '');
+            fd.append('texto', s.texto || '');
+            fd.append('link', s.link || '');
+            fd.append('categoria', 'otro');
+            const resp = await http.upload<{ success: boolean; data?: { id: string; nombre_archivo?: string } }>(`/api/proyectos/${proyectoId}/anexos`, fd);
+            migradas.push({ ...s, id: resp.data?.id || s.id, anexo: resp.data?.nombre_archivo || s.anexo, persistido: !!resp.data?.id });
+          } catch {
+            migradas.push({ ...s, persistido: false }); // se conserva visible aunque falle esta fila — no se descarta
+          }
+        }
+        if (cancelled) return;
+        setSoportes(migradas.length ? migradas : [nuevoSoporte()]);
+        localStorage.removeItem(STORAGE_KEY);
+        const conNombreArchivo = legacy.some(s => s.anexo?.trim());
+        setErrorSync(
+          conNombreArchivo
+            ? 'Se recuperaron tus datos guardados localmente. Nota: los archivos adjuntados antes de tener un proyecto activo solo conservaron su nombre — vuelve a adjuntar el archivo real en esas filas.'
+            : null
+        );
+      } catch (err) {
+        if (cancelled) return;
+        // El servidor no respondió (sesión inválida, red, etc.) — en vez de mostrar
+        // una fila vacía, se muestra el borrador local (si existe) para que el
+        // usuario nunca vea "desaparecer" datos que sí tiene guardados en el
+        // navegador. Estas filas NO quedan marcadas como persistidas: siguen
+        // pendientes de sincronizar en cuanto el servidor vuelva a responder.
+        // El mensaje distingue "no hay sesión" (401 real del servidor) de un
+        // fallo de red/CSP genérico — antes ambos mostraban el mismo texto
+        // ambiguo, lo que impedía saber la causa real sin abrir la consola.
+        const noAutenticado = (err instanceof ApiError && err.status === 401) || !isAuthenticated();
+        const raw = localStorage.getItem(STORAGE_KEY);
+        let legacy: Soporte[] = [];
+        if (raw) {
+          try {
+            const p = JSON.parse(raw);
+            if (Array.isArray(p)) legacy = p.filter((s: Soporte) => s.descripcion?.trim() || s.texto?.trim() || s.link?.trim() || s.anexo?.trim());
+          } catch { /* ignore */ }
+        }
+        if (legacy.length) {
+          setSoportes(legacy.map(s => ({ ...s, persistido: false })));
+          setErrorSync(
+            noAutenticado
+              ? 'Tu sesión no es válida o expiró — inicia sesión de nuevo en /login. Estás viendo la copia local de tus anexos (aún no sincronizada); nada se ha perdido.'
+              : 'No se pudo conectar con el servidor — estás viendo la copia local de tus anexos (aún no sincronizada). Nada se ha perdido.'
+          );
+        } else {
+          setErrorSync(noAutenticado ? 'Tu sesión no es válida o expiró — inicia sesión de nuevo en /login.' : 'No se pudieron cargar los anexos guardados.');
+          setSoportes([nuevoSoporte()]);
+        }
       } finally {
         if (!cancelled) setCargando(false);
       }
@@ -133,6 +200,13 @@ export default function AnexosCalcoView() {
   // que EntradaPage.limpiar()); para eliminar un anexo guardado se usa el
   // botón de eliminar por fila.
   const limpiar = () => {
+    // Confirmación obligatoria: esto puede borrar de la vista filas que aún
+    // no se guardaron en el servidor (p. ej. sin sesión válida) — sin este
+    // aviso, un clic accidental hace parecer que se perdió el trabajo.
+    const hayNoPersistidas = soportes.some(s => !s.persistido && (s.descripcion.trim() || s.texto.trim() || s.link.trim() || s.anexo.trim()));
+    if (hayNoPersistidas && !window.confirm('Esto va a quitar de la vista los soportes que aún no se han guardado en el servidor. ¿Seguro que quieres continuar?')) {
+      return;
+    }
     if (!proyectoId) localStorage.removeItem(STORAGE_KEY);
     setSoportes(prev => {
       const persistidos = prev.filter(s => s.persistido);
@@ -144,6 +218,8 @@ export default function AnexosCalcoView() {
 
   const eliminar = async (id: string) => {
     const row = soportes.find(s => s.id === id);
+    const tieneContenido = row && (row.descripcion.trim() || row.texto.trim() || row.link.trim() || row.anexo.trim());
+    if (tieneContenido && !window.confirm('¿Eliminar este soporte documental? Esta acción no se puede deshacer.')) return;
     setSoportes(prev => prev.filter(s => s.id !== id));
     if (!proyectoId) { localStorage.setItem(STORAGE_KEY, JSON.stringify(soportes.filter(s => s.id !== id))); return; }
     if (row?.persistido) {
@@ -196,91 +272,81 @@ export default function AnexosCalcoView() {
     <main className="anx">
       <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={onFile} />
       <div className="anx__container">
-        {/* ── Topbar ── */}
-        <header className="anx__topbar">
-          <h1 className="anx__h1">Anexos</h1>
-          <div className="anx__topbar-right">
-            <button
-              className={`anx__clear${limpiado ? ' anx__clear--done' : ''}`}
-              onClick={limpiar}
-            >
-              {limpiado ? '✓ LIMPIADO' : 'LIMPIAR'}
-            </button>
-            <button
-              className={`anx__save${guardado ? ' anx__save--saved' : ''}`}
-              onClick={guardar}
-            >
-              {guardado ? '✓ GUARDADO' : 'SAVE'}
-            </button>
+        {/* ── Zona fija: topbar + mensaje de estado + encabezado de columnas —
+             se mueven siempre juntos como un solo bloque pegado arriba. ── */}
+        <div className="anx__fixedzone">
+          <header className="anx__topbar">
+            <h1 className="anx__h1">Anexos <span className="anx__count">{soportes.length}</span></h1>
+            <div className="anx__topbar-right">
+              <button
+                className={`anx__clear${limpiado ? ' anx__clear--done' : ''}`}
+                onClick={limpiar}
+              >
+                {limpiado ? '✓ LIMPIADO' : 'LIMPIAR'}
+              </button>
+              <button
+                className={`anx__save${guardado ? ' anx__save--saved' : ''}`}
+                onClick={guardar}
+              >
+                {guardado ? '✓ GUARDADO' : 'SAVE'}
+              </button>
+            </div>
+          </header>
+          <div className="anx__theadrow anx__grid">
+            <span className="anx__th anx__th--num" />
+            <span className="anx__th">DESCRIPCION</span>
+            <span className="anx__th anx__th--center">TEXTO</span>
+            <span className="anx__th anx__th--center">ANEXO.</span>
+            <span className="anx__th anx__th--center">LINK</span>
+            <span className="anx__th" />
           </div>
-        </header>
+        </div>
 
         <div className="anx__content">
-        {(cargando || errorSync) && (
-          <div style={{ padding: '8px 4px', fontSize: 12, fontWeight: 600, color: errorSync ? '#ba1a1a' : '#434655' }}>
-            {errorSync || 'Cargando anexos guardados…'}
-          </div>
-        )}
         <div className="anx__table-scroll">
-          <table className="anx__table">
-            <tbody>
-              {soportes.map(s => (
-                <tr key={s.id} className="anx__tr">
-                  <td className="anx__td anx__td--desc">
-                    <div className="anx__field">
-                      <label className="anx__label">DESCRIPCION</label>
-                      <input className="anx__input" placeholder="Descripcion del soporte" value={s.descripcion}
-                        onChange={e => actualizar(s.id, { descripcion: e.target.value })}
-                        onBlur={() => guardarEnServidor(s.id)} />
-                    </div>
-                  </td>
-                  <td className="anx__td anx__td--sm">
-                    <div className="anx__field anx__field--center">
-                      <label className="anx__label">TEXTO</label>
-                      <input className="anx__input anx__input--center" placeholder="TEXTO" value={s.texto}
-                        onChange={e => actualizar(s.id, { texto: e.target.value })}
-                        onBlur={() => guardarEnServidor(s.id)} />
-                    </div>
-                  </td>
-                  <td className="anx__td anx__td--sm">
-                    <div className="anx__field anx__field--center">
-                      <label className="anx__label">ANEXO.</label>
-                      <div className="anx__attach-wrap">
-                        <input className="anx__input anx__input--attach" placeholder="." value={s.anexo}
-                          onChange={e => actualizar(s.id, { anexo: e.target.value })} />
-                        {s.persistido && s.anexo && (
-                          <button className="anx__download-btn" title="Descargar anexo" onClick={() => descargar(s)}>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                          </button>
-                        )}
-                        <button className="anx__attach-btn" title={s.subiendo ? 'Subiendo…' : 'Adjuntar anexo'} disabled={s.subiendo} onClick={() => adjuntar(s.id)}>
-                          {s.subiendo
-                            ? <span style={{ fontSize: 10, fontWeight: 700 }}>…</span>
-                            : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>}
+          <div className="anx__table">
+              {soportes.map((s, idx) => (
+                <div key={s.id} className="anx__tr anx__grid">
+                  <span className="anx__rownum">{idx + 1}</span>
+                  <div className="anx__td anx__td--desc">
+                    <input className="anx__input" placeholder="Descripcion del soporte" value={s.descripcion}
+                      onChange={e => actualizar(s.id, { descripcion: e.target.value })}
+                      onBlur={() => guardarEnServidor(s.id)} />
+                  </div>
+                  <div className="anx__td">
+                    <input className="anx__input anx__input--center" placeholder="TEXTO" value={s.texto}
+                      onChange={e => actualizar(s.id, { texto: e.target.value })}
+                      onBlur={() => guardarEnServidor(s.id)} />
+                  </div>
+                  <div className="anx__td">
+                    <div className="anx__attach-wrap">
+                      <input className="anx__input anx__input--attach" placeholder="." value={s.anexo}
+                        onChange={e => actualizar(s.id, { anexo: e.target.value })} />
+                      {s.persistido && s.anexo && (
+                        <button className="anx__download-btn" title="Descargar anexo" onClick={() => descargar(s)}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         </button>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="anx__td anx__td--sm">
-                    <div className="anx__field anx__field--center">
-                      <label className="anx__label">LINK</label>
-                      <input className="anx__input anx__input--center" placeholder="WWW" value={s.link}
-                        onChange={e => actualizar(s.id, { link: e.target.value })}
-                        onBlur={() => guardarEnServidor(s.id)} />
-                    </div>
-                  </td>
-                  <td className="anx__td anx__td--action">
-                    <div className="anx__field anx__field--center">
-                      <span className="anx__label-spacer" />
-                      <button className="anx__delete" title="Eliminar soporte" onClick={() => eliminar(s.id)}>
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                      )}
+                      <button className="anx__attach-btn" title={s.subiendo ? 'Subiendo…' : 'Adjuntar anexo'} disabled={s.subiendo} onClick={() => adjuntar(s.id)}>
+                        {s.subiendo
+                          ? <span style={{ fontSize: 10, fontWeight: 700 }}>…</span>
+                          : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>}
                       </button>
                     </div>
-                  </td>
-                </tr>
+                  </div>
+                  <div className="anx__td">
+                    <input className="anx__input anx__input--center" placeholder="WWW" value={s.link}
+                      onChange={e => actualizar(s.id, { link: e.target.value })}
+                      onBlur={() => guardarEnServidor(s.id)} />
+                  </div>
+                  <div className="anx__td anx__td--action">
+                    <button className="anx__delete" title="Eliminar soporte" onClick={() => eliminar(s.id)}>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    </button>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
+          </div>
         </div>
         {/* Footer Action */}
         <div className="anx__footer">

@@ -80,6 +80,56 @@ export class BrevoEmailAdapter {
     });
   }
 
+  async sendEmailVerification(userEmail, verifyLink) {
+    return this.sendEmail({
+      to:      userEmail,
+      subject: 'Confirma tu correo — Radar Formulador 360',
+      content: `
+        <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:2rem;">
+          <h2 style="color:#191c1e;margin-bottom:0.5rem;">Confirma tu correo electrónico</h2>
+          <p style="color:#45464d;">Gracias por registrarte en <strong>Radar Formulador 360</strong>. Confirma que este correo es tuyo con un clic.</p>
+          <a href="${verifyLink}"
+             style="display:inline-block;margin:1.5rem 0;padding:12px 28px;background:#0058be;color:#fff;
+                    text-decoration:none;border-radius:8px;font-weight:700;font-family:monospace;
+                    letter-spacing:0.05em;text-transform:uppercase;font-size:12px;">
+            Confirmar correo
+          </a>
+          <p style="color:#9ca3af;font-size:11px;margin-top:2rem;">
+            Este enlace expira en 24 horas. Si tienes problemas, copia y pega en tu navegador:<br/>
+            <span style="color:#0058be;word-break:break-all;">${verifyLink}</span>
+          </p>
+          <hr style="border:0;border-top:1px solid #e5e7eb;margin:2rem 0;"/>
+          <p style="color:#c6c6cd;font-size:10px;font-family:monospace;">Radar Formulador 360 · Sistema de Formulación de Proyectos</p>
+        </div>
+      `,
+    });
+  }
+
+  async sendPendingApprovalNotice(adminEmail, { id, nombre, email }) {
+    const appUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    return this.sendEmail({
+      to:      adminEmail,
+      subject: `Nuevo registro pendiente de aprobación — ${nombre}`,
+      content: `
+        <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:2rem;">
+          <h2 style="color:#191c1e;">Nuevo usuario registrado</h2>
+          <p style="color:#45464d;"><strong>Nombre:</strong> ${nombre}<br/>
+             <strong>Correo:</strong> ${email}<br/>
+             <strong>ID:</strong> ${id}</p>
+          <p style="color:#45464d;">Verifica el pago (Nequi u otro medio) y luego apruébalo desde el panel de administración.</p>
+          <a href="${appUrl}/admin/usuarios-pendientes"
+             style="display:inline-block;margin:1rem 0;padding:12px 28px;background:#0058be;color:#fff;
+                    text-decoration:none;border-radius:8px;font-weight:700;font-size:12px;
+                    font-family:monospace;letter-spacing:0.05em;text-transform:uppercase;">
+            Ir al panel de aprobación
+          </a>
+          <hr style="border:0;border-top:1px solid #e5e7eb;margin:2rem 0;"/>
+          <p style="color:#c6c6cd;font-size:10px;">Mientras no lo apruebes, este usuario no puede iniciar sesión.</p>
+        </div>
+      `,
+    });
+  }
+
   async sendImpactNotification(userEmail, impactData) {
     const monto = impactData.monto
       ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(impactData.monto)

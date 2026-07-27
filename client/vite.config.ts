@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => {
           configure: (proxy) => {
             proxy.on('error', (err, _req, res) => {
               if (err.code === 'ECONNREFUSED') {
-                console.warn('Proxy ECONNREFUSED � backend a�n no listo');
+                console.warn('Proxy ECONNREFUSED � backend a�n no listo');
                 res.writeHead(503, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ success: false, message: 'Backend en espera' }));
               }
@@ -51,7 +51,12 @@ export default defineConfig(({ mode }) => {
         'X-Frame-Options': 'DENY',
         'X-XSS-Protection': '1; mode=block',
         'Referrer-Policy': 'strict-origin-when-cross-origin',
-        'Content-Security-Policy': `default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://unpkg.com; connect-src 'self' https://generativelanguage.googleapis.com https://api.groq.com ${apiTarget} ${apiTarget.replace('http', 'ws')} wss://* https://*.googleapis.com;`,
+        // connect-src incluye localhost Y 127.0.0.1 explícitamente (http y ws):
+        // el navegador los trata como orígenes distintos para CSP aunque
+        // apunten a la misma máquina, y VITE_API_URL/apiTarget puede usar
+        // cualquiera de los dos según cómo se configure — bloqueaba fetch()
+        // reales del navegador aunque curl (que no aplica CSP) funcionara bien.
+        'Content-Security-Policy': `default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://unpkg.com; connect-src 'self' https://generativelanguage.googleapis.com https://api.groq.com http://localhost:8000 http://127.0.0.1:8000 ws://localhost:8000 ws://127.0.0.1:8000 wss://* https://*.googleapis.com;`,
       },
     },
   };
