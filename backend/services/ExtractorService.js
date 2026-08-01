@@ -33,6 +33,10 @@ const HSEQ_RULES = [
   { categoria: 'SEÑALIZACION',  regex: /cinta|cono|se(ñ|n)alizaci|valla|barricada|paleta/i },
   { categoria: 'SST',           regex: /\bsst\b|hseq|salud ocupacional|seguridad industrial|v(í|i)gia|inspector/i },
   { categoria: 'AMBIENTAL',     regex: /residuos?|ambiental|escombros?|mitigaci(ó|o)n|disposici(ó|o)n final|impacto/i },
+  // Detección de ausencia de partidas de calidad (ISO 9001) — alerta de
+  // coherencia igual que las demás, NUNCA una certificación de cumplimiento
+  // real contra la norma. Ver AuditorForenseService.auditarSGC().
+  { categoria: 'SGC',           regex: /control de calidad|aseguramiento de calidad|sistema de gesti(ó|o)n(?:.{0,20})?calidad|\biso ?9001\b|ensayos? de laboratorio|interventor(í|i)a de calidad/i },
 ];
 
 const MONEDA_EXTRANJERA_RX = /\b(USD|EUR|GBP|CAD|MXN)\b|[€£]/;
