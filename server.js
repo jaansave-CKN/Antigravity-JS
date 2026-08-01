@@ -1413,8 +1413,21 @@ async function start() {
   app.delete('/api/usuarios/:id/purgar', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
     const targetId = req.params.id;
-    const target = await getRow('SELECT id FROM usuarios WHERE id = ?', [targetId]);
+    if (targetId === req.userId) {
+      return res.status(400).json({ success: false, message: 'No puedes purgar tu propia cuenta.' });
+    }
+    const target = await getRow('SELECT id, tipousuario FROM usuarios WHERE id = ?', [targetId]);
     if (!target) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+
+    if (target.tipousuario === 'admin') {
+      const otrosAdmins = await getRows(
+        "SELECT id FROM usuarios WHERE tipousuario = 'admin' AND is_active = 1 AND id != ? AND deleted_at IS NULL",
+        [targetId]
+      );
+      if (otrosAdmins.length === 0) {
+        return res.status(400).json({ success: false, message: 'No puedes purgar al único administrador activo restante.' });
+      }
+    }
 
     const proyectos = await getRows('SELECT id FROM proyectos WHERE user_id = ?', [targetId]);
     for (const p of proyectos) {

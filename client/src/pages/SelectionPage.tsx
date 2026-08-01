@@ -473,7 +473,7 @@ export default function SelectionPage() {
 
       {/* ── Main title ──────────────────────────────────────────────────────── */}
       <div className="sp-title">
-        <h1>RadFor-360</h1>
+        <h1>RadFor-360<span style={{ fontSize: '0.35em', verticalAlign: 'top', lineHeight: 1, marginLeft: 2, position: 'relative', top: '0.2em' }}>®</span></h1>
         <div className="sp-title-line" />
       </div>
 
