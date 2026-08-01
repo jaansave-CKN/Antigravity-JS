@@ -13,10 +13,10 @@ interface ProyectoRow {
   updated_at: string;
 }
 
-const ESTADO_COLOR: Record<string, { bg: string; color: string }> = {
-  Borrador:   { bg: '#f3f4f6', color: '#6b7280' },
-  Formulado:  { bg: '#dbeafe', color: '#1d4ed8' },
-  Finalizado: { bg: '#dcfce7', color: '#15803d' },
+const ESTADO_COLOR: Record<string, { bg: string; border: string; color: string }> = {
+  Borrador:   { bg: 'rgba(148,163,184,0.10)', border: 'rgba(148,163,184,0.30)', color: '#94a3b8' },
+  Formulado:  { bg: 'rgba(56,189,248,0.10)',  border: 'rgba(56,189,248,0.30)',  color: '#38bdf8' },
+  Finalizado: { bg: 'rgba(34,197,94,0.10)',   border: 'rgba(34,197,94,0.30)',   color: '#22c55e' },
 };
 
 function fmtFecha(iso: string): string {
@@ -89,31 +89,44 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+        zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+        fontFamily: "'Hanken Grotesk', system-ui, sans-serif",
+      }}
       onClick={onClose}
     >
       <div
-        style={{ background: '#ffffff', borderRadius: 12, width: 480, maxWidth: '92vw', maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }}
+        style={{
+          background: '#0b1326', border: '1px solid rgba(56,189,248,0.30)', borderRadius: 16,
+          width: 720, maxWidth: '92vw', maxHeight: '82vh', display: 'flex', flexDirection: 'column',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+        }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #e5e7eb' }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700, color: '#111827', margin: 0 }}>Mis Proyectos</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#6b7280', lineHeight: 1, padding: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid #1a3a50' }}>
+          <div>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: '#c8d8e8', margin: 0, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.02em' }}>
+              MIS PROYECTOS
+            </h2>
+            <p style={{ fontSize: 11, color: '#557997', margin: '3px 0 0' }}>Selecciona un proyecto activo para el Formulador.</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#557997', lineHeight: 1, padding: 4 }}>
             ×
           </button>
         </div>
 
         {error && (
-          <div style={{ padding: '8px 20px', fontSize: 12, color: '#ba1a1a', background: '#fef2f2' }} role="alert">{error}</div>
+          <div style={{ padding: '8px 22px', fontSize: 12, color: '#f87171', background: 'rgba(248,113,113,0.08)' }} role="alert">{error}</div>
         )}
 
         {/* Lista (Abrir / Ver listado) */}
-        <div style={{ overflowY: 'auto', flex: 1, padding: '8px 0' }}>
+        <div style={{ overflowY: 'auto', flex: 1, padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10, alignContent: 'start' }}>
           {cargando ? (
-            <p style={{ padding: '16px 20px', fontSize: 12.5, color: '#6b7280' }}>Cargando proyectos…</p>
+            <p style={{ fontSize: 12.5, color: '#557997', gridColumn: '1 / -1' }}>Cargando proyectos…</p>
           ) : proyectos.length === 0 ? (
-            <p style={{ padding: '16px 20px', fontSize: 12.5, color: '#6b7280', fontStyle: 'italic' }}>Aún no tienes proyectos — crea el primero abajo.</p>
+            <p style={{ fontSize: 12.5, color: '#557997', fontStyle: 'italic', gridColumn: '1 / -1' }}>Aún no tienes proyectos — crea el primero abajo.</p>
           ) : (
             proyectos.map(p => {
               const isActivo = p.id === activoId;
@@ -123,20 +136,31 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
                   key={p.id}
                   onClick={() => abrir(p)}
                   style={{
-                    width: '100%', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left',
-                    padding: '10px 20px', background: isActivo ? '#eff6ff' : 'transparent', border: 'none',
-                    borderLeft: isActivo ? '3px solid #2563eb' : '3px solid transparent', cursor: 'pointer',
+                    textAlign: 'left', padding: 14, borderRadius: 10, cursor: 'pointer',
+                    background: isActivo ? 'rgba(56,189,248,0.08)' : '#0f1b30',
+                    border: isActivo ? '1px solid rgba(56,189,248,0.5)' : '1px solid #1a3a50',
+                    transition: 'border-color 0.15s, background 0.15s',
+                    display: 'flex', flexDirection: 'column', gap: 8,
                   }}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.nombre}{isActivo ? ' (activo)' : ''}
-                    </div>
-                    <div style={{ fontSize: 10.5, color: '#9ca3af', marginTop: 2 }}>Modificado {fmtFecha(p.updated_at)}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{
+                      fontSize: 9.5, fontWeight: 700, padding: '2px 8px', borderRadius: 9999,
+                      background: badge.bg, border: `1px solid ${badge.border}`, color: badge.color,
+                      fontFamily: "'JetBrains Mono', monospace", textTransform: 'uppercase', letterSpacing: '0.05em',
+                    }}>
+                      {p.estado}
+                    </span>
+                    {isActivo && (
+                      <span style={{ fontSize: 9, color: '#38bdf8', fontFamily: "'JetBrains Mono', monospace" }}>● ACTIVO</span>
+                    )}
                   </div>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: badge.bg, color: badge.color, flexShrink: 0 }}>
-                    {p.estado}
-                  </span>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#c8d8e8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.nombre}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: '#557997', fontFamily: "'JetBrains Mono', monospace" }}>
+                    Modificado {fmtFecha(p.updated_at)}
+                  </div>
                 </button>
               );
             })
@@ -144,22 +168,27 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
         </div>
 
         {/* Acciones: Nuevo proyecto */}
-        <div style={{ borderTop: '1px solid #e5e7eb', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ borderTop: '1px solid #1a3a50', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               value={nombreNuevo}
               onChange={e => setNombreNuevo(e.target.value)}
               placeholder="Nombre del nuevo proyecto"
               onKeyDown={e => e.key === 'Enter' && crearNuevo()}
-              style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12.5 }}
+              style={{
+                flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid #1a3a50',
+                background: '#0b1326', color: '#c8d8e8', fontSize: 12.5, outline: 'none',
+              }}
             />
             <button
               onClick={crearNuevo}
               disabled={!nombreNuevo.trim() || creando}
               style={{
-                padding: '8px 14px', borderRadius: 6, border: 'none', background: '#111827', color: '#fff',
+                padding: '9px 16px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.35)',
+                background: '#172133', color: '#38bdf8',
                 fontSize: 12, fontWeight: 700, cursor: nombreNuevo.trim() ? 'pointer' : 'not-allowed',
                 opacity: nombreNuevo.trim() ? 1 : 0.5, whiteSpace: 'nowrap',
+                fontFamily: "'JetBrains Mono', monospace", textTransform: 'uppercase', letterSpacing: '0.05em',
               }}
             >
               {creando ? 'Creando…' : '+ Nuevo'}
