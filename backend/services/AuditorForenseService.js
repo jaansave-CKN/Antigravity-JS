@@ -20,6 +20,7 @@ import { supabaseAdmin } from '../config/supabase.config.js';
 
 const TOLERANCIA_COP = 50;
 const CATEGORIAS_HSEQ = ['EPP', 'SST', 'SEÑALIZACION'];
+const CATEGORIAS_SGC = ['SGC'];
 
 async function limpiarHallazgosPrevios(projectId, anexoId) {
   await supabaseAdmin.from('project_hallazgos')
@@ -46,6 +47,36 @@ async function auditarHSEQ(projectId, anexoId, orgId, lineas) {
     titulo: 'Ausencia de partidas presupuestales para seguridad industrial (HSEQ/SST)',
     detalle: 'Se analizó el 100% de las partidas del presupuesto/APU adjunto y no se identificaron asignaciones financieras en Pesos Colombianos destinadas a Elementos de Protección Personal (EPP), señalización preventiva o gestión de Seguridad y Salud en el Trabajo. Esta es una alerta técnica de coherencia presupuestal — no es una certificación legal ni cita normativa.',
     accion_recomendada: 'Revisar con el equipo formulador si los costos de HSEQ fueron diluidos en el porcentaje de Administración (AIU), o si se requiere adjuntar el anexo técnico específico de Seguridad Industrial y Salud Ocupacional antes de radicar.',
+    resuelto: false,
+  });
+  return !error;
+}
+
+/**
+ * Detección de ausencia de partidas de Sistema de Gestión de Calidad
+ * (control de calidad, ensayos de laboratorio, interventoría de calidad).
+ * Mismo patrón que auditarHSEQ(): alerta de coherencia presupuestal, NUNCA
+ * una certificación de cumplimiento contra ISO 9001 — no evaluamos procesos,
+ * documentación ni auditorías internas, solo si hay o no plata asignada a
+ * la categoría. El proyecto sigue fluyendo con esta alerta activa.
+ */
+async function auditarSGC(projectId, anexoId, orgId, lineas) {
+  const totalSGC = lineas
+    .filter(l => CATEGORIAS_SGC.includes(l.categoria_hseq))
+    .reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
+  if (totalSGC > 0) return false;
+
+  const { error } = await supabaseAdmin.from('project_hallazgos').insert({
+    project_id: projectId,
+    anexo_id: anexoId,
+    org_id: orgId,
+    fase_phva: 'ACTUAR',
+    tipo: 'SGC_AUSENTE',
+    tipo_hallazgo: 'SGC_AUSENTE',
+    severidad: 'ALTA',
+    titulo: 'Ausencia de partidas presupuestales para control/aseguramiento de calidad (SGC)',
+    detalle: 'Se analizó el 100% de las partidas del presupuesto/APU adjunto y no se identificaron asignaciones financieras en Pesos Colombianos destinadas a control de calidad, ensayos de laboratorio o interventoría de calidad. Esta es una alerta técnica de coherencia presupuestal — no es una auditoría de cumplimiento contra ISO 9001 ni una certificación normativa.',
+    accion_recomendada: 'Revisar si los costos de aseguramiento de calidad fueron diluidos en el porcentaje de Administración (AIU), o si se requiere adjuntar el plan de calidad del proyecto antes de radicar.',
     resuelto: false,
   });
   return !error;
@@ -89,6 +120,7 @@ async function auditarDescuadres(projectId, anexoId, orgId, lineas) {
 export async function ejecutarAuditoriaCompleta(projectId, anexoId, orgId, lineas) {
   await limpiarHallazgosPrevios(projectId, anexoId);
   const hallazgoHSEQ = await auditarHSEQ(projectId, anexoId, orgId, lineas);
+  const hallazgoSGC = await auditarSGC(projectId, anexoId, orgId, lineas);
   const descuadresDetectados = await auditarDescuadres(projectId, anexoId, orgId, lineas);
-  return { hallazgoHSEQ, descuadresDetectados };
+  return { hallazgoHSEQ, hallazgoSGC, descuadresDetectados };
 }
