@@ -1,0 +1,30 @@
+# pre-commit — bloquea commitear archivos .env / claves_privadas.txt y patrones
+# de secretos conocidos. Instalado tras el incidente de .env commiteado en
+# mayo 2026 (repo público) — nunca debe volver a pasar. Versionado con Husky
+# para que proteja cualquier clon nuevo del repo, no solo esta máquina.
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+
+BLOCKED_FILES=$(echo "$STAGED" | grep -E '(^|/)(\.env(\..*)?|claves_privadas\.txt|\.mcp\.json)$' || true)
+if [ -n "$BLOCKED_FILES" ]; then
+  echo "❌ COMMIT BLOQUEADO — archivo de secretos detectado en el stage:"
+  echo "$BLOCKED_FILES"
+  echo ""
+  echo "Estos archivos NUNCA deben commitearse. Si es un falso positivo,"
+  echo "usa 'git commit --no-verify' (solo si estás 100% seguro)."
+  exit 1
+fi
+
+# Patrones de secretos conocidos (prefijos reales de proveedores) en el diff staged
+SECRET_PATTERN='github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|xkeysib-[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9_]{20,}|rnd_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|AQ\.Ab8R[A-Za-z0-9_-]{20,}'
+
+MATCH=$(git diff --cached -U0 | grep -E "^\+" | grep -Ev "^\+\+\+" | grep -E "$SECRET_PATTERN" || true)
+if [ -n "$MATCH" ]; then
+  echo "❌ COMMIT BLOQUEADO — patrón de API key real detectado en el diff:"
+  echo "$MATCH" | sed -E 's/(github_pat_|ghp_|xkeysib-|sb_secret_|rnd_|sk-|AQ\.Ab8R)[A-Za-z0-9_-]{6}/\1******/g'
+  echo ""
+  echo "Si es un falso positivo, usa 'git commit --no-verify' (solo si estás 100% seguro)."
+  exit 1
+fi
+
+exit 0
