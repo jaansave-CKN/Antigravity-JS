@@ -164,20 +164,28 @@ export default function LoginPage() {
   const [showPwd, setShowPwd]         = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
 
-  // "Recordarme" — guarda email+clave en localStorage (solo si el usuario lo
-  // marca explícitamente) para no tener que reescribirla cada vez.
+  // "Recordarme" — SOLO el correo, NUNCA la contraseña. La versión anterior
+  // guardaba la clave en texto plano en localStorage y la autocompletaba
+  // (junto con el checkbox marcado) en cada carga de la página, sin que el
+  // usuario lo pidiera cada vez — un problema de seguridad real, no solo de
+  // UX. También se auto-purga cualquier rastro de esa versión anterior al
+  // cargar la página, para limpiar sesiones ya afectadas sin acción manual.
   const REMEMBER_KEY = 'rf360_remember_creds';
   const [recordar, setRecordar] = useState(false);
   useEffect(() => {
     try {
       const raw = localStorage.getItem(REMEMBER_KEY);
       if (raw) {
-        const { email: e, password: p } = JSON.parse(raw);
-        if (e) setEmail(e);
-        if (p) setPassword(p);
-        setRecordar(true);
+        const parsed = JSON.parse(raw);
+        if (parsed?.password) {
+          // Rastro de la versión insegura anterior — se purga por completo,
+          // el campo de clave nunca se rellena solo.
+          localStorage.removeItem(REMEMBER_KEY);
+        } else if (parsed?.email) {
+          setEmail(parsed.email);
+        }
       }
-    } catch { /* ignore */ }
+    } catch { localStorage.removeItem(REMEMBER_KEY); }
   }, []);
 
   // Aviso de sesión expirada — disparado por AuthContextNew.tsx al recibir un
@@ -211,7 +219,8 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const sub = await login(email, password);
-      if (recordar) localStorage.setItem(REMEMBER_KEY, JSON.stringify({ email, password }));
+      // Solo el correo — nunca la clave — y solo si el usuario marcó la casilla en ESTE intento.
+      if (recordar) localStorage.setItem(REMEMBER_KEY, JSON.stringify({ email }));
       else localStorage.removeItem(REMEMBER_KEY);
       // Redirección inteligente: si venía de una ruta protegida, respetar; sino, redirigir por plan
       if (from && from !== '/' && from !== '/login') {
