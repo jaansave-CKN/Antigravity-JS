@@ -1,11 +1,16 @@
 import crypto from 'crypto';
-import { createCheckoutSession, getOrCreateStripeCustomer, stripe as stripeClient } from './stripe.webhook.js';
+import { paymentProvider } from '../payments/index.js';
 
+// Precios en pesos colombianos (COP), mensuales — mercado B2B institucional
+// (consultores, ONG, entidades territoriales que formulan proyectos de
+// inversión/cooperación). Ver docs/PRECIOS.md para el razonamiento completo;
+// única fuente de verdad — el frontend (PlanesPage.tsx) consume GET /api/plans,
+// no mantiene su propia copia de estos números.
 export const PLANES = {
-  free:        { nombre: 'Gratis',     access_radar: 0, access_formulador: 0, precio: 0,   descripcion: 'Acceso de exploración limitado' },
-  radar:       { nombre: 'Radar',      access_radar: 1, access_formulador: 0, precio: 49,  descripcion: 'M1 Radar de Oportunidades + M2 Puente (solo vista)' },
-  formulador:  { nombre: 'Formulador', access_radar: 0, access_formulador: 1, precio: 79,  descripcion: 'M3–M12 Caja Negra de Formulación completa' },
-  suite:       { nombre: 'Suite',      access_radar: 1, access_formulador: 1, precio: 119, descripcion: 'Acceso total al ecosistema Radar + Formulador' },
+  free:        { nombre: 'Gratis',     access_radar: 0, access_formulador: 0, precio: 0,       moneda: 'COP', descripcion: 'Acceso de exploración limitado' },
+  radar:       { nombre: 'Radar',      access_radar: 1, access_formulador: 0, precio: 149000,  moneda: 'COP', descripcion: 'M1 Radar de Oportunidades + M2 Puente (solo vista)' },
+  formulador:  { nombre: 'Formulador', access_radar: 0, access_formulador: 1, precio: 399000,  moneda: 'COP', descripcion: 'M3–M12 Caja Negra de Formulación completa' },
+  suite:       { nombre: 'Suite',      access_radar: 1, access_formulador: 1, precio: 499000,  moneda: 'COP', descripcion: 'Acceso total al ecosistema Radar + Formulador' },
 };
 
 export function registerSubscriptionRoutes(app, { authenticateToken, runSql, getRow, tryCatch }) {
@@ -27,16 +32,11 @@ export function registerSubscriptionRoutes(app, { authenticateToken, runSql, get
     res.json({ success: true, data: PLANES });
   });
 
-  // Mapeo plan → Stripe price ID (inverso de PRICE_TO_PLAN en stripe.webhook.js)
-  const PLAN_TO_PRICE = {
-    radar:      process.env.STRIPE_PRICE_RADAR,
-    formulador: process.env.STRIPE_PRICE_FORMULADOR,
-    suite:      process.env.STRIPE_PRICE_SUITE,
-  };
-
   // POST /api/subscription/activate
   //   Admin (o target_user_id) → activación directa sin pago (backoffice / cortesías).
-  //   Usuario normal           → genera Stripe Checkout Session y devuelve checkout_url.
+  //   Usuario normal           → genera checkout hosteado en la pasarela activa
+  //   (backend/payments/index.js) y devuelve checkout_url. Esta ruta no sabe
+  //   ni le importa si la pasarela es Stripe, Wompi o cualquier otra.
   app.post('/api/subscription/activate', authenticateToken, tryCatch(async (req, res) => {
     const { plan, target_user_id } = req.body;
     if (!plan || !PLANES[plan]) {
@@ -71,37 +71,29 @@ export function registerSubscriptionRoutes(app, { authenticateToken, runSql, get
       });
     }
 
-    // ── PATH USUARIO: genera Stripe Checkout Session ───────────────────────────
-    if (!stripeClient) {
+    // ── PATH USUARIO: genera checkout hosteado en la pasarela activa ──────────
+    if (!paymentProvider.isConfigured) {
       return res.status(503).json({
         success: false,
         message: 'El sistema de pagos no está disponible en este momento. Contacta al administrador.',
       });
     }
 
-    const priceId = PLAN_TO_PRICE[plan];
-    if (!priceId) {
-      return res.status(400).json({
-        success: false,
-        message: `No hay precio Stripe configurado para el plan "${plan}". Contacta al administrador.`,
-      });
-    }
-
     const user = await getRow('SELECT email, nombre FROM usuarios WHERE id = ?', [req.userId]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
-    const customerId = await getOrCreateStripeCustomer(user.email, user.nombre, req.userId, { runSql, getRow });
+    const customerId = await paymentProvider.getOrCreateCustomer(user.email, user.nombre, req.userId, { runSql, getRow });
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const session = await createCheckoutSession({
+    const session = await paymentProvider.createCheckoutSession({
       customerId,
-      priceId,
+      plan,
       tenantId: req.userId,
       successUrl: `${frontendUrl}/planes?checkout=success&plan=${plan}`,
       cancelUrl:  `${frontendUrl}/planes?checkout=canceled`,
     });
 
-    res.json({ success: true, checkout_url: session.url, session_id: session.id });
+    res.json({ success: true, checkout_url: session.url, session_id: session.sessionId });
   }));
 
   // POST /api/bridge/transfer — M2 Puente: valida acceso + crea proyecto borrador desde convocatoria

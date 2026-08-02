@@ -2,27 +2,27 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useSubscription, type PlanId } from '../contexts/SubscriptionContext';
 import { useAuth } from '../contexts/AuthContextNew';
+import { API_BASE } from '../lib/apiClient';
 
 // Formato de moneda del proyecto: pesos colombianos, sin decimales.
 const formatoCOP = new Intl.NumberFormat('es-CO', {
   style: 'currency', currency: 'COP', maximumFractionDigits: 0,
 });
 
-interface PlanDef {
-  id: PlanId;
-  nombre: string;
-  precio: number;
+// Metadata exclusiva de UI (marketing/listado de módulos) — el precio y el
+// nombre canónico vienen de GET /api/plans (backend/routes/subscriptions.routes.js:PLANES),
+// única fuente de verdad. No duplicar números acá — ver docs/PRECIOS.md.
+interface PlanUIMeta {
+  id: Exclude<PlanId, 'free'>;
   descripcion: string;
   modulos: string[];
   color: string;
   destacado: boolean;
 }
 
-const PLANES_UI: PlanDef[] = [
+const PLANES_UI_META: PlanUIMeta[] = [
   {
     id: 'radar',
-    nombre: 'Radar',
-    precio: 49,
     descripcion: 'Inteligencia de mercado para detectar oportunidades',
     modulos: [
       'M0 — Gatekeeper (aprobación humana)',
@@ -34,8 +34,6 @@ const PLANES_UI: PlanDef[] = [
   },
   {
     id: 'formulador',
-    nombre: 'Formulador',
-    precio: 79,
     descripcion: 'Caja Negra de Formulación — del pliego al proyecto blindado',
     modulos: [
       'M3 — Ingesta (carga de pliegos propios)',
@@ -54,8 +52,6 @@ const PLANES_UI: PlanDef[] = [
   },
   {
     id: 'suite',
-    nombre: 'Suite',
-    precio: 119,
     descripcion: 'Acceso total al ecosistema Radar + Formulador 360',
     modulos: [
       'Todo el plan Radar',
@@ -68,6 +64,13 @@ const PLANES_UI: PlanDef[] = [
   },
 ];
 
+interface PlanDef extends PlanUIMeta {
+  nombre: string;
+  precio: number;
+}
+
+interface ApiPlanRow { nombre: string; precio: number; access_radar: number; access_formulador: number }
+
 export default function PlanesPage() {
   const navigate                              = useNavigate();
   const [searchParams, setSearchParams]       = useSearchParams();
@@ -77,6 +80,26 @@ export default function PlanesPage() {
   const [error, setError]                     = useState<string | null>(null);
   const [exitoId, setExitoId]                 = useState<PlanId | null>(null);
   const [avisoCheckout, setAvisoCheckout]     = useState<'success' | 'canceled' | null>(null);
+  const [planes, setPlanes]                   = useState<PlanDef[] | null>(null);
+
+  // Precio/nombre reales desde el backend (única fuente de verdad) — se
+  // combinan con la metadata de marketing/UI que solo vive en el frontend.
+  useEffect(() => {
+    fetch(`${API_BASE}/api/plans`)
+      .then(r => r.json())
+      .then(body => {
+        if (!body?.success || !body?.data) return;
+        const data = body.data as Record<string, ApiPlanRow>;
+        setPlanes(
+          PLANES_UI_META.map(meta => ({
+            ...meta,
+            nombre: data[meta.id]?.nombre ?? meta.id,
+            precio: data[meta.id]?.precio ?? 0,
+          }))
+        );
+      })
+      .catch(() => setPlanes(null));
+  }, []);
 
   // Retorno desde Stripe Checkout (real, no el "modo demo" de abajo). El
   // webhook checkout.session.completed ya activó el plan del lado del
@@ -182,12 +205,16 @@ export default function PlanesPage() {
         </div>
       )}
 
+      {planes === null && (
+        <p style={{ textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>Cargando planes…</p>
+      )}
+
       {/* Plan cards */}
       <div style={{
         display: 'flex', gap: '1.25rem', maxWidth: 960,
         margin: '0 auto', flexWrap: 'wrap', justifyContent: 'center',
       }}>
-        {PLANES_UI.map(plan => {
+        {(planes ?? []).map(plan => {
           const esActual = subscription.plan === plan.id;
           const enExito  = exitoId === plan.id;
           const enCarga  = activando === plan.id;
