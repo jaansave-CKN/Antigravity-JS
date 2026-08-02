@@ -90,6 +90,15 @@ async function parseResponse<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
     let parsed: { message?: string; error?: string; code?: string } = {};
     try { parsed = JSON.parse(text); } catch { /* raw text error */ }
+
+    // Sesión inválida/expirada (ej. rotación de JWT_SECRET en el servidor) —
+    // aviso global en vez de que cada pantalla muestre su propio error
+    // genérico de "no se pudo sincronizar". AuthContextNew.tsx escucha esto
+    // y limpia la sesión local para forzar un re-login real.
+    if (resp.status === 401 && getAuthToken() && getAuthToken() !== 'demo-mode-token') {
+      window.dispatchEvent(new CustomEvent('auth-session-expired'));
+    }
+
     throw new ApiError(
       parsed.message || parsed.error || `HTTP ${resp.status}`,
       resp.status,
