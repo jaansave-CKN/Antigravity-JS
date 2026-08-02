@@ -13,7 +13,19 @@
  */
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import './LogisticaPage.css';
-import { http } from '../lib/apiClient';
+import { http, ApiError } from '../lib/apiClient';
+
+function mensajeSyncError(e: unknown, contexto: 'cargar' | 'sincronizar'): string {
+  const base = contexto === 'cargar'
+    ? 'No se pudo cargar la logística guardada — se muestran los últimos datos locales.'
+    : 'No se pudo sincronizar la logística con el servidor.';
+  if (e instanceof ApiError) {
+    if (e.status === 401) return 'Tu sesión expiró — inicia sesión de nuevo para guardar los cambios.';
+    if (e.status === 404) return 'El proyecto activo ya no existe o no te pertenece — selecciona otro proyecto.';
+    return `${base} (${e.status}: ${e.message})`;
+  }
+  return `${base} (sin conexión con el servidor)`;
+}
 
 const STORAGE_KEY = 'radar360_logistica_tramos';
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
@@ -107,8 +119,9 @@ export default function LogisticaPage() {
             tipo_transporte: t.tipo_transporte, orden_publico: t.orden_publico, seleccionado: false,
           })));
         }
-      } catch {
-        setErrorSync('No se pudo cargar la logística guardada — se muestran los últimos datos locales.');
+      } catch (e) {
+        console.error('[Logística] Error cargando tramos:', e);
+        setErrorSync(mensajeSyncError(e, 'cargar'));
       } finally {
         if (!cancelled) { setCargando(false); hidratado.current = true; }
       }
@@ -129,8 +142,9 @@ export default function LogisticaPage() {
     setErrorSync(null);
     try {
       await http.post(`/api/proyectos/${proyectoId}/logistica-tramos`, { tramos });
-    } catch {
-      setErrorSync('No se pudo sincronizar la logística con el servidor.');
+    } catch (e) {
+      console.error('[Logística] Error sincronizando tramos:', e);
+      setErrorSync(mensajeSyncError(e, 'sincronizar'));
     } finally {
       setGuardando(false);
     }
