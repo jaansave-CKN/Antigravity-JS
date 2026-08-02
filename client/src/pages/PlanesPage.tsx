@@ -1,7 +1,12 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useSubscription, type PlanId } from '../contexts/SubscriptionContext';
 import { useAuth } from '../contexts/AuthContextNew';
+
+// Formato de moneda del proyecto: pesos colombianos, sin decimales.
+const formatoCOP = new Intl.NumberFormat('es-CO', {
+  style: 'currency', currency: 'COP', maximumFractionDigits: 0,
+});
 
 interface PlanDef {
   id: PlanId;
@@ -64,12 +69,31 @@ const PLANES_UI: PlanDef[] = [
 ];
 
 export default function PlanesPage() {
-  const navigate                        = useNavigate();
-  const { subscription, activatePlan }  = useSubscription();
-  const { isAuthenticated }             = useAuth();
-  const [activando, setActivando]       = useState<PlanId | null>(null);
-  const [error, setError]               = useState<string | null>(null);
-  const [exitoId, setExitoId]           = useState<PlanId | null>(null);
+  const navigate                              = useNavigate();
+  const [searchParams, setSearchParams]       = useSearchParams();
+  const { subscription, activatePlan, loadSubscription } = useSubscription();
+  const { isAuthenticated }                   = useAuth();
+  const [activando, setActivando]             = useState<PlanId | null>(null);
+  const [error, setError]                     = useState<string | null>(null);
+  const [exitoId, setExitoId]                 = useState<PlanId | null>(null);
+  const [avisoCheckout, setAvisoCheckout]     = useState<'success' | 'canceled' | null>(null);
+
+  // Retorno desde Stripe Checkout (real, no el "modo demo" de abajo). El
+  // webhook checkout.session.completed ya activó el plan del lado del
+  // servidor antes de que Stripe redirija aquí — solo hace falta refrescar
+  // el estado real en vez de confiar en lo que se veía antes de pagar.
+  useEffect(() => {
+    const checkout = searchParams.get('checkout');
+    if (checkout === 'success' || checkout === 'canceled') {
+      setAvisoCheckout(checkout);
+      if (checkout === 'success') loadSubscription();
+      const next = new URLSearchParams(searchParams);
+      next.delete('checkout');
+      next.delete('plan');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleActivar = async (planId: PlanId) => {
     if (!isAuthenticated) { navigate('/login'); return; }
@@ -77,7 +101,8 @@ export default function PlanesPage() {
     setError(null);
     setExitoId(null);
     try {
-      await activatePlan(planId);
+      const { redirected } = await activatePlan(planId);
+      if (redirected) return; // la página está por navegar a Stripe Checkout
       setExitoId(planId);
       setTimeout(() => {
         if (planId === 'formulador' || planId === 'suite') navigate('/checklist');
@@ -127,6 +152,25 @@ export default function PlanesPage() {
           </div>
         )}
       </div>
+
+      {avisoCheckout === 'success' && (
+        <div style={{
+          maxWidth: 460, margin: '0 auto 1.5rem', background: '#ecfdf5',
+          border: '1px solid #6ee7b7', borderRadius: 8,
+          padding: '10px 16px', fontSize: 13, color: '#065f46', textAlign: 'center',
+        }}>
+          Pago confirmado. Tu plan ya está activo.
+        </div>
+      )}
+      {avisoCheckout === 'canceled' && (
+        <div style={{
+          maxWidth: 460, margin: '0 auto 1.5rem', background: '#fffbeb',
+          border: '1px solid #fcd34d', borderRadius: 8,
+          padding: '10px 16px', fontSize: 13, color: '#92400e', textAlign: 'center',
+        }}>
+          Pago cancelado — no se realizó ningún cargo.
+        </div>
+      )}
 
       {error && (
         <div style={{
@@ -201,7 +245,7 @@ export default function PlanesPage() {
 
               <div style={{ marginBottom: '1.25rem' }}>
                 <span style={{ fontSize: 32, fontWeight: 800, color: plan.color }}>
-                  ${plan.precio}
+                  {formatoCOP.format(plan.precio)}
                 </span>
                 <span style={{ fontSize: 12, color: '#76777d' }}>/mes</span>
               </div>
@@ -249,7 +293,7 @@ export default function PlanesPage() {
         textAlign: 'center', fontSize: 10, color: '#c6c6cd',
         fontFamily: 'monospace', margin: '2rem auto 0', maxWidth: 480,
       }}>
-        Modo demo — activación sin pasarela de pago. En producción: Stripe / MercadoPago.
+        Pasarela de pago Stripe integrada, en espera de activación (STRIPE_SECRET_KEY).
       </p>
 
       <div style={{ textAlign: 'center', marginTop: '1rem' }}>

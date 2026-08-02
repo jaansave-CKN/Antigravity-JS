@@ -15,7 +15,11 @@ interface SubscriptionContextType {
   hasFormulador: boolean;
   hasSuite: boolean;
   loadSubscription: () => Promise<void>;
-  activatePlan: (plan: PlanId) => Promise<void>;
+  /** Devuelve { redirected: true } cuando el usuario fue enviado a Stripe
+   *  Checkout (no admin) — en ese caso aún no hay plan activo real, el
+   *  llamador no debe mostrar éxito ni navegar, la página está a punto
+   *  de descargarse de todas formas. */
+  activatePlan: (plan: PlanId) => Promise<{ redirected: boolean }>;
 }
 
 const DEFAULT_SUB: Subscription = { plan: 'free', access_radar: false, access_formulador: false };
@@ -69,11 +73,25 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     });
     const data = await r.json();
     if (!r.ok || !data.success) throw new Error(data.message || 'Error activando plan');
+
+    // Path usuario (no-admin): el backend devuelve una Stripe Checkout Session
+    // en vez de activar el plan directo — hay que ir a pagar antes de que
+    // exista suscripción real. El webhook activa el plan del lado del
+    // servidor cuando el pago se confirma; loadSubscription() lo refleja
+    // al volver (ver PlanesPage.tsx onde se llama tras checkout=success).
+    if (data.checkout_url) {
+      window.location.href = data.checkout_url;
+      return { redirected: true };
+    }
+
+    // Path admin: activación directa, sin Stripe — el backend ya devuelve
+    // el plan real aplicado.
     setSubscription({
       plan:               data.plan              || plan,
       access_radar:       !!data.access_radar,
       access_formulador:  !!data.access_formulador,
     });
+    return { redirected: false };
   }, []);
 
   // Cargar suscripción al montar y al cambiar la sesión (mismo tab o tab cruzado)
