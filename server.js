@@ -1297,8 +1297,14 @@ async function start() {
       logger.error('[register] No se pudo crear suscripción free — el usuario quedará sin fila hasta la próxima consulta', { userId: id, err: e.message });
     }
     // Aviso al administrador — no bloquea la respuesta si el correo falla o no está configurado.
+    // Token de un solo clic: aprobar/rechazar directo desde el botón del
+    // correo, sin loguearse ni abrir el panel (7 días de validez, un solo uso).
+    const decisionToken = jwt.sign({ sub: id, purpose: 'admin_pending_decision' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
+    const backendUrl = (process.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
     emailAdapter.sendPendingApprovalNotice(process.env.ADMIN_NOTIFY_EMAIL || 'jaansave@gmail.com', {
       id, nombre: nombre.trim(), email: email.trim().toLowerCase(),
+      aprobarUrl:  `${backendUrl}/api/admin/usuarios/${id}/aprobar-por-correo?token=${decisionToken}`,
+      rechazarUrl: `${backendUrl}/api/admin/usuarios/${id}/rechazar-por-correo?token=${decisionToken}`,
     }).catch(e => console.warn('[register] No se pudo notificar al admin:', e.message));
 
     // Double Opt-In — independiente del gate is_approved (admin). Mismo patrón
@@ -1580,6 +1586,84 @@ async function start() {
     const objetivo = await getRow('SELECT email FROM usuarios WHERE id = ?', [req.params.id]);
     await registrarAuditoriaAdmin(req, 'rechazar', { id: req.params.id, email: objetivo?.email });
     res.json({ success: true, message: 'Usuario rechazado.' });
+  }));
+
+  // ── Aprobación/rechazo de UN SOLO CLIC desde el correo — sin sesión ─────────
+  // El correo de "nuevo registro pendiente" trae un link firmado (JWT,
+  // purpose:'admin_pending_decision', atado al id del usuario objetivo,
+  // 7 días de validez, un solo uso — mismo patrón que password_reset/
+  // email_verification). Clickearlo aprueba/rechaza de inmediato, sin login
+  // ni abrir el panel — esto es lo que se pidió explícitamente.
+  async function verificarTokenAprobacionCorreo(targetId, token) {
+    if (!token) return { ok: false, message: 'Enlace inválido — falta el token.' };
+    if (isRevoked(token)) return { ok: false, message: 'Este enlace ya fue usado o fue invalidado.' };
+    let payload;
+    try {
+      payload = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return { ok: false, message: 'El enlace es inválido o expiró.' };
+    }
+    if (payload.purpose !== 'admin_pending_decision' || payload.sub !== targetId) {
+      return { ok: false, message: 'El enlace no corresponde a este usuario.' };
+    }
+    return { ok: true, payload };
+  }
+
+  function paginaResultadoAprobacion(titulo, mensaje, exito) {
+    return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/>
+      <title>${titulo} — RadFor-360</title></head>
+      <body style="margin:0;background:#0b1326;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;">
+        <div style="max-width:420px;padding:2.5rem;background:#0a1426;border:1px solid #1a3a50;border-radius:16px;text-align:center;">
+          <p style="font-size:10px;font-family:monospace;color:#557997;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:8px;">RadFor-360</p>
+          <div style="font-size:40px;margin-bottom:12px;">${exito ? '✅' : '⚠️'}</div>
+          <h1 style="color:#e0e0ff;font-size:18px;margin:0 0 10px;">${titulo}</h1>
+          <p style="color:#8bafcf;font-size:14px;line-height:1.5;">${mensaje}</p>
+        </div>
+      </body></html>`;
+  }
+
+  async function registrarAuditoriaAdminSinSesion(accion, objetivo, req) {
+    try {
+      const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'desconocida').toString().split(',')[0].trim();
+      await runSql(
+        `INSERT INTO admin_audit_log (admin_id, admin_email, accion, objetivo_id, objetivo_email, detalle, ip)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        // admin_id es NOT NULL — no hay sesión real en este flujo (click desde
+        // el correo), se usa un valor centinela en vez de null.
+        ['sistema-correo-1clic', process.env.ADMIN_NOTIFY_EMAIL || null, accion, objetivo.id, objetivo.email, `${accion === 'aprobar' ? 'Aprobado' : 'Rechazado'} con un clic desde el correo (sin sesión)`, ip]
+      );
+    } catch (e) { console.warn('[auditoria-admin] No se pudo registrar decisión por correo:', e.message); }
+  }
+
+  app.get('/api/admin/usuarios/:id/aprobar-por-correo', tryCatch(async (req, res) => {
+    const check = await verificarTokenAprobacionCorreo(req.params.id, req.query.token);
+    if (!check.ok) return res.status(400).send(paginaResultadoAprobacion('No se pudo aprobar', check.message, false));
+
+    const objetivo = await getRow('SELECT id, email, is_approved FROM usuarios WHERE id = ?', [req.params.id]);
+    if (!objetivo) return res.status(404).send(paginaResultadoAprobacion('Usuario no encontrado', 'La cuenta ya no existe.', false));
+
+    if (objetivo.is_approved) {
+      await revokeToken(req.query.token, req.params.id, check.payload.exp, runSql);
+      return res.send(paginaResultadoAprobacion('Ya estaba aprobado', `${objetivo.email} ya tenía acceso habilitado.`, true));
+    }
+
+    await runSql('UPDATE usuarios SET is_approved = ? WHERE id = ?', [1, req.params.id]);
+    await revokeToken(req.query.token, req.params.id, check.payload.exp, runSql);
+    await registrarAuditoriaAdminSinSesion('aprobar', objetivo, req);
+    res.send(paginaResultadoAprobacion('Cuenta aprobada', `${objetivo.email} ya puede iniciar sesión.`, true));
+  }));
+
+  app.get('/api/admin/usuarios/:id/rechazar-por-correo', tryCatch(async (req, res) => {
+    const check = await verificarTokenAprobacionCorreo(req.params.id, req.query.token);
+    if (!check.ok) return res.status(400).send(paginaResultadoAprobacion('No se pudo rechazar', check.message, false));
+
+    const objetivo = await getRow('SELECT id, email FROM usuarios WHERE id = ?', [req.params.id]);
+    if (!objetivo) return res.status(404).send(paginaResultadoAprobacion('Usuario no encontrado', 'La cuenta ya no existe.', false));
+
+    await runSql('UPDATE usuarios SET is_active = ? WHERE id = ?', [0, req.params.id]);
+    await revokeToken(req.query.token, req.params.id, check.payload.exp, runSql);
+    await registrarAuditoriaAdminSinSesion('rechazar', objetivo, req);
+    res.send(paginaResultadoAprobacion('Cuenta rechazada', `${objetivo.email} fue rechazada.`, true));
   }));
 
   // DELETE /api/usuarios/:id/purgar — Habeas Data (Ley 1581): Hard Delete real.

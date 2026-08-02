@@ -122,7 +122,7 @@ export class BrevoEmailAdapter {
     });
   }
 
-  async sendPendingApprovalNotice(adminEmail, { id, nombre, email }) {
+  async sendPendingApprovalNotice(adminEmail, { id, nombre, email, aprobarUrl, rechazarUrl }) {
     const appUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     return this.sendEmail({
       to:      adminEmail,
@@ -133,13 +133,31 @@ export class BrevoEmailAdapter {
           <p style="color:#45464d;"><strong>Nombre:</strong> ${nombre}<br/>
              <strong>Correo:</strong> ${email}<br/>
              <strong>ID:</strong> ${id}</p>
-          <p style="color:#45464d;">Verifica el pago (Nequi u otro medio) y luego apruébalo desde el panel de administración.</p>
-          <a href="${appUrl}/admin/usuarios-pendientes"
-             style="display:inline-block;margin:1rem 0;padding:12px 28px;background:#0058be;color:#fff;
-                    text-decoration:none;border-radius:8px;font-weight:700;font-size:12px;
-                    font-family:monospace;letter-spacing:0.05em;text-transform:uppercase;">
-            Ir al panel de aprobación
-          </a>
+          <p style="color:#45464d;">Verifica el pago (Nequi u otro medio) y luego decide con un clic — no hace falta iniciar sesión.</p>
+          <table role="presentation" style="margin:1.25rem 0;">
+            <tr>
+              <td style="padding-right:10px;">
+                <a href="${aprobarUrl}"
+                   style="display:inline-block;padding:12px 28px;background:#16a34a;color:#fff;
+                          text-decoration:none;border-radius:8px;font-weight:700;font-size:12px;
+                          font-family:monospace;letter-spacing:0.05em;text-transform:uppercase;">
+                  ✓ Aprobar ahora
+                </a>
+              </td>
+              <td>
+                <a href="${rechazarUrl}"
+                   style="display:inline-block;padding:12px 28px;background:#dc2626;color:#fff;
+                          text-decoration:none;border-radius:8px;font-weight:700;font-size:12px;
+                          font-family:monospace;letter-spacing:0.05em;text-transform:uppercase;">
+                  ✕ Rechazar
+                </a>
+              </td>
+            </tr>
+          </table>
+          <p style="color:#9ca3af;font-size:11px;">
+            Este enlace expira en 7 días y solo funciona una vez. Si preferís revisar más detalles antes de decidir:
+            <a href="${appUrl}/admin/usuarios-pendientes" style="color:#0058be;">ir al panel de aprobación</a>.
+          </p>
           <hr style="border:0;border-top:1px solid #e5e7eb;margin:2rem 0;"/>
           <p style="color:#c6c6cd;font-size:10px;">Mientras no lo apruebes, este usuario no puede iniciar sesión.</p>
         </div>
