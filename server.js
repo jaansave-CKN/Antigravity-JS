@@ -3082,13 +3082,10 @@ Reglas:
       }
       throw e;
     }
-    let imported = 0;
-    if (tipo === 'directorio') {
-      imported = await importToDirectorio(rows);
-    } else {
-      imported = await importToConvocatorias(rows);
-    }
-    res.json({ success: true, message: `${imported} registros importados`, count: imported });
+    const report = tipo === 'directorio'
+      ? await importToDirectorio(rows)
+      : await importToConvocatorias(rows);
+    res.json({ success: true, message: `${report.inserted} registros importados`, report });
   }));
 
   // ════════════════════════════════════════════════════════════════════════════
