@@ -61,7 +61,7 @@ export async function convertUrlToMarkdown(url, timeoutMs = 30_000) {
 let _genAI = null;
 function getGenAI() {
   if (_genAI) return _genAI;
-  const key = process.env.GOOGLE_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  const key = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY_FALLBACK || process.env.GEMINI_API_KEY;
   if (!key) return null;
   _genAI = new GoogleGenerativeAI(key);
   return _genAI;

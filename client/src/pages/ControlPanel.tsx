@@ -338,10 +338,6 @@ export default function ControlPanel() {
     }
   }
 
-  const MONTHLY_USED  = 12;
-  const MONTHLY_LIMIT = 500;
-  const progressPct   = Math.round((MONTHLY_USED / MONTHLY_LIMIT) * 100);
-
   const bothActive = engines.gemini;
   const oneActive  = engines.gemini;
 
@@ -618,20 +614,17 @@ export default function ControlPanel() {
               </span>
             </div>
 
-            {/* Consultas al sistema */}
+            {/* Consultas al sistema — el conteo real de consumo aún no existe en
+                el backend (solo hay rate-limit por ventana de tiempo, no un
+                contador acumulado por usuario); mostrar un número inventado
+                sería peor que no mostrar nada. */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider">
                 <span className="text-[#45464d]">CONSULTAS AL SISTEMA</span>
-                <span className="font-bold text-[#191c1e]">{MONTHLY_USED} / {MONTHLY_LIMIT}</span>
-              </div>
-              <div className="w-full h-1.5 bg-[#e6e8ea] rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-[#191c1e] transition-all"
-                  style={{ width: `${progressPct}%` }}
-                />
+                <span className="font-bold text-[#94a3b8]">NO DISPONIBLE AÚN</span>
               </div>
               <p className="text-[10px] font-mono text-[#76777d] uppercase tracking-wider">
-                {MONTHLY_LIMIT - MONTHLY_USED} CONSULTAS DISPONIBLES · CICLO ACTIVO
+                LÍMITE ACTIVO POR VENTANA DE TIEMPO · SIN CONTADOR ACUMULADO TODAVÍA
               </p>
             </div>
 

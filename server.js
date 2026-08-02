@@ -1293,7 +1293,9 @@ async function start() {
          ON CONFLICT (user_id) DO NOTHING`,
         [crypto.randomUUID(), id, 'free', 0, 0]
       );
-    } catch {}
+    } catch (e) {
+      logger.error('[register] No se pudo crear suscripción free — el usuario quedará sin fila hasta la próxima consulta', { userId: id, err: e.message });
+    }
     // Aviso al administrador — no bloquea la respuesta si el correo falla o no está configurado.
     emailAdapter.sendPendingApprovalNotice(process.env.ADMIN_NOTIFY_EMAIL || 'jaansave@gmail.com', {
       id, nombre: nombre.trim(), email: email.trim().toLowerCase(),
@@ -2595,7 +2597,7 @@ Reglas:
 
     let geminiResult = null;
     if (geminiCB.canCall()) {
-      const apiKeys = [process.env.GOOGLE_API_KEY, process.env.VITE_GEMINI_API_KEY, process.env.GEMINI_API_KEY].filter(Boolean);
+      const apiKeys = [process.env.GOOGLE_API_KEY, process.env.GEMINI_API_KEY_FALLBACK, process.env.GEMINI_API_KEY].filter(Boolean);
       const models  = ['gemini-2.0-flash', 'gemini-1.5-flash'];
       const userMsg = `URL: ${url}\nNombre detectado: ${pageTitle}\nContenido de la página (primeros 3000 chars):\n${pageText.slice(0, 3000)}`;
       outer: for (const apiKey of apiKeys) {
@@ -2670,7 +2672,7 @@ Reglas:
 
     if (!aplica && isRootOrShallow) {
       console.info(`[lookup/deep] Fase 1 rechazó ${hostname} — iniciando Deep Search...`);
-      const apiKeyDeep = [process.env.GOOGLE_API_KEY, process.env.VITE_GEMINI_API_KEY, process.env.GEMINI_API_KEY].find(Boolean);
+      const apiKeyDeep = [process.env.GOOGLE_API_KEY, process.env.GEMINI_API_KEY_FALLBACK, process.env.GEMINI_API_KEY].find(Boolean);
       const deepApiKey = geminiCB.canCall() ? apiKeyDeep : undefined;
       try {
         const deepResult = await runDeepSearch(nombre, hostname, deepApiKey);
@@ -3070,8 +3072,13 @@ Reglas:
   // ════════════════════════════════════════════════════════════════════════════
 
   app.post('/api/scheduler/now', authenticateToken, tryCatch(async (req, res) => {
-    try { await runManualIngest(); } catch {}
-    res.json({ success: true, message: 'Ingesta iniciada' });
+    try {
+      await runManualIngest();
+      res.json({ success: true, message: 'Ingesta iniciada' });
+    } catch (e) {
+      logger.error('[scheduler] runManualIngest falló', { err: e.message });
+      res.status(500).json({ success: false, message: 'No se pudo iniciar la ingesta', detail: e.message });
+    }
   }));
 
   app.get('/api/radar/status', authenticateToken, tryCatch(async (_req, res) => {
@@ -3604,7 +3611,7 @@ Reglas:
   }));
   // POST /api/ia/buscar — alias real de /api/ia/busqueda-semantica, body { query }
   // (AIChat.tsx envía "query"; busqueda-semantica espera "texto" — se traduce aquí).
-  app.post('/api/ia/buscar', aiLimiter, tryCatch(async (req, res) => {
+  app.post('/api/ia/buscar', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
     const texto = String(req.body?.query || '').trim();
     if (!texto) return res.status(400).json({ success: false, message: 'query requerido' });
     const qVec   = await textToEmbedding(texto);

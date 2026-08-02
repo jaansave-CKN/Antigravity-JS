@@ -238,8 +238,15 @@ export default function DialecticaPage() {
 
   // Sincronización real al backend — extraída para reusarse tanto en el
   // debounce automático como en el botón SAVE manual.
+  // Guard de secuencia: el debounce cancela TIMERS pendientes, pero no
+  // peticiones HTTP ya en vuelo. Si el usuario edita de nuevo antes de que
+  // la petición anterior responda, ambas quedan en curso — sin esto, la
+  // respuesta más vieja podría llegar después y pisar el estado más nuevo
+  // (setGuardando(false) prematuro, o un error viejo mostrado tarde).
+  const syncSeqRef = useRef(0);
   const sincronizar = useCallback(async () => {
     if (!proyectoId) return;
+    const mySeq = ++syncSeqRef.current;
     setGuardando(true);
     setErrorSync(null);
     try {
@@ -248,10 +255,12 @@ export default function DialecticaPage() {
         interlocutor: st.selecciones.interlocutor, enfoque: st.selecciones.enfoque,
         humanizacion: st.selecciones.humanizacion, adicionales: st.adicionales,
       });
+      if (mySeq !== syncSeqRef.current) return; // ya hay una sincronización más nueva en curso
     } catch {
+      if (mySeq !== syncSeqRef.current) return;
       setErrorSync('No se pudo sincronizar la configuración dialéctica con el servidor.');
     } finally {
-      setGuardando(false);
+      if (mySeq === syncSeqRef.current) setGuardando(false);
     }
   }, [proyectoId, st]);
 

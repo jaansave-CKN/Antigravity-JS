@@ -1,16 +1,27 @@
 /**
- * Servicio de Embeddings — Google Gemini text-embedding-004 (768 dims)
+ * Servicio de Embeddings — Google gemini-embedding-001 (768 dims)
  * Usado por el pipeline M7 para convertir Ficha Tecnica a vector.
+ *
+ * NOTA (2026-08-02): 'text-embedding-004' vía @google/generative-ai (paquete
+ * ya deprecado por Google) empezó a devolver 404 "model not found" — no es
+ * un bug de este código, es un cambio del lado de Google (confirmado en el
+ * foro oficial de desarrolladores, mismo error reportado por terceros desde
+ * febrero 2026). El modelo vigente es 'gemini-embedding-001', pero su salida
+ * por defecto es de 3072 dims, no 768 — el paquete viejo no soporta el
+ * parámetro outputDimensionality para forzar 768 y mantener compatibilidad
+ * con las columnas vector(768) ya existentes. Por eso este archivo usa
+ * @google/genai (el SDK actual), exclusivamente para embeddings — el resto
+ * del código (generación de texto) sigue con @google/generative-ai sin tocar.
  */
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
-const EMBEDDING_MODEL = 'text-embedding-004';
+const EMBEDDING_MODEL = 'gemini-embedding-001';
 const EMBEDDING_DIM   = 768;
 
 function getClient() {
   const key = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
   if (!key) throw new Error('EMBEDDINGS_ERROR: GOOGLE_API_KEY no configurado');
-  return new GoogleGenerativeAI(key);
+  return new GoogleGenAI({ apiKey: key });
 }
 
 /**
@@ -22,13 +33,13 @@ export async function textToEmbedding(text) {
   if (!text || typeof text !== 'string' || !text.trim()) {
     throw new Error('EMBEDDINGS_ERROR: texto vacio');
   }
-  const genAI = getClient();
-  const model = genAI.getGenerativeModel({ model: EMBEDDING_MODEL });
-  const result = await model.embedContent({
-    content: { parts: [{ text: text.trim() }] },
-    taskType: 'SEMANTIC_SIMILARITY',
+  const ai = getClient();
+  const response = await ai.models.embedContent({
+    model: EMBEDDING_MODEL,
+    contents: text.trim(),
+    config: { outputDimensionality: EMBEDDING_DIM, taskType: 'SEMANTIC_SIMILARITY' },
   });
-  const values = result.embedding?.values;
+  const values = response.embeddings?.[0]?.values;
   if (!values || values.length !== EMBEDDING_DIM) {
     throw new Error('EMBEDDINGS_ERROR: vector invalido recibido de Gemini');
   }
