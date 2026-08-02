@@ -86,10 +86,16 @@ export const aiLimiter = rateLimit({
   },
 });
 
-// ── Sanitización ESTRICTA — (Se mantiene igual) ────────────────────────────
+// ── Sanitización ESTRICTA ───────────────────────────────────────────────────
 export function sanitizeInput(value) {
   if (typeof value !== 'string') return value;
   return value
+    // Primero elimina tag + CONTENIDO de <script>/<style> — quitar solo las
+    // etiquetas (como hacía antes el replace de abajo) dejaba el texto
+    // interno como string plano (ej. "<script>alert(1)</script>" → "alert(1)"
+    // sobrevivía). No es explotable hoy (React escapa todo, no hay
+    // dangerouslySetInnerHTML en el proyecto), pero es higiene de datos real.
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
     .replace(/<[^>]*>/g, '')
     .replace(/javascript:/gi, '')
     .replace(/on\w+\s*=/gi, '')
