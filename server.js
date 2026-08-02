@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { loadEnv } from './backend/env-loader.js';
 import jwt from 'jsonwebtoken';
+import { authenticator } from 'otplib';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, slowDown, financialPipelineLimiter } from './backend/middlewares/SecurityMiddleware.js';
@@ -1343,17 +1344,143 @@ async function start() {
     const user = await getRow('SELECT * FROM usuarios WHERE email = ? AND deleted_at IS NULL', [email.trim().toLowerCase()]);
     if (!user) return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
     if (!user.is_active) return res.status(403).json({ success: false, message: 'Cuenta desactivada' });
+
+    // Bloqueo por CUENTA (no solo por IP como authLimiter) — un atacante con
+    // muchas IPs podía forzar bruta una sola cuenta sin activar el límite
+    // por IP. 5 intentos fallidos → 15 minutos bloqueada.
+    if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
+      const minutosRestantes = Math.ceil((new Date(user.locked_until).getTime() - Date.now()) / 60000);
+      return res.status(423).json({
+        success: false, code: 'ACCOUNT_LOCKED',
+        message: `Cuenta bloqueada temporalmente por múltiples intentos fallidos. Intenta de nuevo en ${minutosRestantes} minuto(s).`,
+      });
+    }
+
     const valid = await verifyPassword(password, user.password_hash);
-    if (!valid) return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
+    if (!valid) {
+      const intentos = (user.failed_login_attempts || 0) + 1;
+      const LIMITE_INTENTOS = 5;
+      if (intentos >= LIMITE_INTENTOS) {
+        const lockedUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        await runSql('UPDATE usuarios SET failed_login_attempts = ?, locked_until = ? WHERE id = ?', [0, lockedUntil, user.id]);
+        return res.status(423).json({
+          success: false, code: 'ACCOUNT_LOCKED',
+          message: 'Cuenta bloqueada temporalmente por múltiples intentos fallidos. Intenta de nuevo en 15 minutos.',
+        });
+      }
+      await runSql('UPDATE usuarios SET failed_login_attempts = ? WHERE id = ?', [intentos, user.id]);
+      return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
+    }
+
     if (!user.is_approved) {
       return res.status(403).json({ success: false, code: 'PENDING_APPROVAL', message: 'Tu cuenta está pendiente de aprobación por el administrador. Te avisaremos cuando quede activa.' });
     }
+
+    // Login correcto — reiniciar contador de intentos fallidos.
+    if (user.failed_login_attempts > 0 || user.locked_until) {
+      await runSql('UPDATE usuarios SET failed_login_attempts = ?, locked_until = ? WHERE id = ?', [0, null, user.id]);
+    }
+
+    // MFA: password correcta no basta si la cuenta tiene TOTP activo — se
+    // emite un token de pre-auth de vida corta (5 min, sin poder de acceder
+    // a ninguna ruta real) en vez del JWT de sesión. El JWT real solo sale
+    // de /api/auth/mfa/challenge tras validar el código.
+    if (user.mfa_enabled) {
+      const preAuthToken = jwt.sign({ sub: user.id, purpose: 'mfa_pending' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '5m' });
+      return res.json({ success: true, mfaRequired: true, preAuthToken });
+    }
+
     const token = jwt.sign({ sub: user.id, role: user.tipousuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
     res.json({
       success: true,
       token,
       user: { id: user.id, email: user.email, nombre: user.nombre, role: user.tipousuario, plan: user.plan || 'free', created_at: user.createdat, is_active: !!user.is_active, email_verified: !!user.email_verified },
     });
+  }));
+
+  // POST /api/auth/mfa/challenge — segundo factor: consume el preAuthToken
+  // de /login + el código TOTP de 6 dígitos, emite el JWT de sesión real.
+  app.post('/api/auth/mfa/challenge', authLimiter, tryCatch(async (req, res) => {
+    const { preAuthToken, code } = req.body || {};
+    if (!preAuthToken || !code) return res.status(400).json({ success: false, message: 'preAuthToken y code son requeridos' });
+
+    let payload;
+    try {
+      payload = jwt.verify(preAuthToken, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ success: false, message: 'Sesión de verificación inválida o expirada. Inicia sesión de nuevo.' });
+    }
+    if (payload.purpose !== 'mfa_pending' || !payload.sub) {
+      return res.status(401).json({ success: false, message: 'Token de verificación inválido.' });
+    }
+
+    const user = await getRow('SELECT * FROM usuarios WHERE id = ? AND deleted_at IS NULL', [payload.sub]);
+    if (!user || !user.mfa_enabled || !user.mfa_secret) {
+      return res.status(401).json({ success: false, message: 'Cuenta no válida para verificación MFA.' });
+    }
+
+    const valido = authenticator.check(String(code).trim(), user.mfa_secret);
+    if (!valido) return res.status(401).json({ success: false, message: 'Código incorrecto.' });
+
+    const token = jwt.sign({ sub: user.id, role: user.tipousuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
+    res.json({
+      success: true,
+      token,
+      user: { id: user.id, email: user.email, nombre: user.nombre, role: user.tipousuario, plan: user.plan || 'free', created_at: user.createdat, is_active: !!user.is_active, email_verified: !!user.email_verified },
+    });
+  }));
+
+  // POST /api/auth/mfa/setup — genera un secreto TOTP nuevo (sin activar
+  // todavía) y el URI otpauth:// para escanear con Google Authenticator/
+  // Authy/etc. Requiere confirmar con un código real antes de activarse.
+  // GET /api/auth/mfa/status — estado actual de MFA de la cuenta en sesión,
+  // para que la UI de gestión sepa si mostrar "activar" o "desactivar".
+  app.get('/api/auth/mfa/status', authenticateToken, tryCatch(async (req, res) => {
+    const user = await getRow('SELECT mfa_enabled FROM usuarios WHERE id = ?', [req.userId]);
+    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    res.json({ success: true, mfaEnabled: !!user.mfa_enabled });
+  }));
+
+  app.post('/api/auth/mfa/setup', authenticateToken, tryCatch(async (req, res) => {
+    const user = await getRow('SELECT id, email FROM usuarios WHERE id = ?', [req.userId]);
+    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+
+    const secret = authenticator.generateSecret();
+    await runSql('UPDATE usuarios SET mfa_secret = ?, mfa_enabled = ? WHERE id = ?', [secret, false, user.id]);
+    const otpauthUrl = authenticator.keyuri(user.email, 'RadFor-360', secret);
+
+    res.json({ success: true, data: { secret, otpauthUrl } });
+  }));
+
+  // POST /api/auth/mfa/confirmar — valida el primer código real generado
+  // por la app del usuario antes de activar MFA de verdad.
+  app.post('/api/auth/mfa/confirmar', authenticateToken, tryCatch(async (req, res) => {
+    const { code } = req.body || {};
+    if (!code) return res.status(400).json({ success: false, message: 'code es requerido' });
+
+    const user = await getRow('SELECT mfa_secret FROM usuarios WHERE id = ?', [req.userId]);
+    if (!user?.mfa_secret) return res.status(400).json({ success: false, message: 'No hay una configuración de MFA pendiente. Ejecuta /mfa/setup primero.' });
+
+    const valido = authenticator.check(String(code).trim(), user.mfa_secret);
+    if (!valido) return res.status(400).json({ success: false, message: 'Código incorrecto. Verifica la hora de tu dispositivo e intenta de nuevo.' });
+
+    await runSql('UPDATE usuarios SET mfa_enabled = ? WHERE id = ?', [true, req.userId]);
+    res.json({ success: true, message: 'MFA activado. Se te pedirá un código cada vez que inicies sesión.' });
+  }));
+
+  // POST /api/auth/mfa/desactivar — exige la contraseña actual, no solo
+  // estar autenticado (desactivar 2FA es una acción sensible).
+  app.post('/api/auth/mfa/desactivar', authenticateToken, tryCatch(async (req, res) => {
+    const { password } = req.body || {};
+    if (!password) return res.status(400).json({ success: false, message: 'password es requerido' });
+
+    const user = await getRow('SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
+    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    const valid = await verifyPassword(password, user.password_hash);
+    if (!valid) return res.status(401).json({ success: false, message: 'Contraseña incorrecta.' });
+
+    await runSql('UPDATE usuarios SET mfa_enabled = ?, mfa_secret = ? WHERE id = ?', [false, null, req.userId]);
+    res.json({ success: true, message: 'MFA desactivado.' });
   }));
 
   // GET /api/auth/verify
@@ -1393,6 +1520,9 @@ async function start() {
   app.post('/api/auth/confirmar-verificacion', tryCatch(async (req, res) => {
     const { token } = req.body || {};
     if (!token) return res.status(400).json({ success: false, message: 'token es requerido' });
+    if (isRevoked(token)) {
+      return res.status(400).json({ success: false, message: 'Este enlace ya fue usado. Si necesitas verificar tu correo de nuevo, pide que te reenvíen el correo.' });
+    }
     let payload;
     try {
       payload = jwt.verify(token, JWT_SECRET);
@@ -1412,10 +1542,37 @@ async function start() {
     // restUpdate() en database.config.js solo traduce placeholders $N, no
     // literales/expresiones — se descartaría en silencio. Usar siempre "?".
     await runSql('UPDATE usuarios SET email_verified = ? WHERE id = ?', [true, user.id]);
+    await revokeToken(token, user.id, payload.exp, runSql);
     res.json({ success: true, message: 'Correo verificado correctamente.' });
   }));
 
   // ── Aprobación manual de registros (admin) ───────────────────────────────────
+  // Blindaje: rastro forense de acciones admin — antes no había forma de
+  // responder "quién aprobó esta cuenta y cuándo" con certeza. No bloquea
+  // la respuesta si falla (la acción real ya se ejecutó).
+  async function registrarAuditoriaAdmin(req, accion, objetivo) {
+    try {
+      const admin = await getRow('SELECT email FROM usuarios WHERE id = ?', [req.userId]);
+      const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'desconocida').toString().split(',')[0].trim();
+      await runSql(
+        `INSERT INTO admin_audit_log (admin_id, admin_email, accion, objetivo_id, objetivo_email, detalle, ip)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [req.userId, admin?.email || null, accion, objetivo?.id || null, objetivo?.email || null, objetivo?.detalle || null, ip]
+      );
+    } catch (e) {
+      console.warn('[auditoria-admin] No se pudo registrar:', e.message);
+    }
+  }
+
+  // GET /api/admin/auditoria — últimas 100 acciones admin (aprobar/rechazar/purgar)
+  app.get('/api/admin/auditoria', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    const rows = await getRows(
+      'SELECT admin_email, accion, objetivo_id, objetivo_email, detalle, created_at FROM admin_audit_log ORDER BY created_at DESC LIMIT 100'
+    );
+    res.json({ success: true, data: rows });
+  }));
+
   // GET /api/admin/usuarios/pendientes
   app.get('/api/admin/usuarios/pendientes', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
@@ -1432,6 +1589,8 @@ async function start() {
     // en database.config.js solo traduce placeholders $N en el SET — un
     // literal se descarta en silencio y el UPDATE no cambia nada.
     await runSql('UPDATE usuarios SET is_approved = ? WHERE id = ?', [1, req.params.id]);
+    const objetivo = await getRow('SELECT email FROM usuarios WHERE id = ?', [req.params.id]);
+    await registrarAuditoriaAdmin(req, 'aprobar', { id: req.params.id, email: objetivo?.email });
     res.json({ success: true, message: 'Usuario aprobado — ya puede iniciar sesión.' });
   }));
 
@@ -1439,6 +1598,8 @@ async function start() {
   app.post('/api/admin/usuarios/:id/rechazar', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
     await runSql('UPDATE usuarios SET is_active = ? WHERE id = ?', [0, req.params.id]);
+    const objetivo = await getRow('SELECT email FROM usuarios WHERE id = ?', [req.params.id]);
+    await registrarAuditoriaAdmin(req, 'rechazar', { id: req.params.id, email: objetivo?.email });
     res.json({ success: true, message: 'Usuario rechazado.' });
   }));
 
@@ -1455,7 +1616,7 @@ async function start() {
     if (targetId === req.userId) {
       return res.status(400).json({ success: false, message: 'No puedes purgar tu propia cuenta.' });
     }
-    const target = await getRow('SELECT id, tipousuario FROM usuarios WHERE id = ?', [targetId]);
+    const target = await getRow('SELECT id, email, tipousuario FROM usuarios WHERE id = ?', [targetId]);
     if (!target) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
     if (target.tipousuario === 'admin') {
@@ -1479,6 +1640,14 @@ async function start() {
     await runSql('DELETE FROM user_favorites WHERE user_id = ?', [targetId]);
     await runSql('DELETE FROM user_subscriptions WHERE user_id = ?', [targetId]);
     await runSql('DELETE FROM usuarios WHERE id = ?', [targetId]);
+
+    // Se registra DESPUÉS del delete — admin_audit_log no tiene FK a usuarios
+    // a propósito (el objetivo ya no existe tras purgar), queda como rastro
+    // independiente.
+    await registrarAuditoriaAdmin(req, 'purgar', {
+      id: targetId, email: target.email,
+      detalle: `${proyectos.length} proyecto(s) eliminado(s) en cascada`,
+    });
 
     res.json({ success: true, message: 'Usuario y todos sus datos asociados purgados definitivamente (Habeas Data / Ley 1581).' });
   }));
@@ -1573,6 +1742,46 @@ async function start() {
     } catch (e) {
       console.error('[forgot-password] Error enviando email:', e.message);
     }
+  }));
+
+  // POST /api/auth/reset-password — aplica la nueva contraseña usando el
+  // token del email de recuperación. Hallazgo real: este paso nunca existió
+  // — forgot-password generaba el link pero nada lo consumía. Un solo uso:
+  // se revoca el token inmediatamente tras aplicarse (reusa el mismo
+  // mecanismo de blacklist que el logout — hash SHA-256, sin guardar el JWT
+  // en crudo), así un link filtrado (logs de correo, historial) no sirve
+  // dos veces aunque no haya expirado todavía.
+  app.post('/api/auth/reset-password', authLimiter, tryCatch(async (req, res) => {
+    const { token, newPassword } = req.body || {};
+    if (!token || !newPassword) {
+      return res.status(400).json({ success: false, message: 'token y newPassword son requeridos' });
+    }
+    const errorPassword = validarFortalezaPassword(newPassword);
+    if (errorPassword) return res.status(400).json({ success: false, message: errorPassword });
+
+    if (isRevoked(token)) {
+      return res.status(400).json({ success: false, message: 'Este enlace ya fue usado o fue invalidado. Solicita uno nuevo.' });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return res.status(400).json({ success: false, message: 'El enlace de recuperación es inválido o expiró. Solicita uno nuevo.' });
+    }
+    if (payload.purpose !== 'password_reset' || !payload.sub) {
+      return res.status(400).json({ success: false, message: 'El enlace de recuperación es inválido.' });
+    }
+
+    const user = await getRow('SELECT id FROM usuarios WHERE id = ? AND deleted_at IS NULL', [payload.sub]);
+    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+
+    const newHash = await hashPassword(newPassword);
+    await runSql('UPDATE usuarios SET password_hash = ? WHERE id = ?', [newHash, user.id]);
+    await runSql('UPDATE usuarios SET tokens_invalidated_at = NOW() WHERE id = ?', [user.id]);
+    await revokeToken(token, user.id, payload.exp, runSql);
+
+    res.json({ success: true, message: 'Contraseña actualizada correctamente. Inicia sesión con tu nueva contraseña.' });
   }));
 
   // POST /api/auth/validate-action

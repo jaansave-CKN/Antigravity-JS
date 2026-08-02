@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
+import { API_BASE, getAuthHeaders } from '../lib/apiClient';
 
 // ── Iconos ────────────────────────────────────────────────────────────────────
 function IconArrowLeft() {
@@ -54,6 +55,251 @@ function IconUnlock() {
       <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
       <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
     </svg>
+  );
+}
+
+function IconSmartphone() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
+    </svg>
+  );
+}
+
+// ── Tarjeta: Autenticación en Dos Pasos (MFA / TOTP) ────────────────────────────
+// Estado independiente del resto de la página: se resuelve contra el backend
+// (no hay campo mfa_enabled en el UserProfile del AuthContext), con su propio
+// ciclo activar → mostrar secreto/QR manual → confirmar código, y
+// desactivar → exigir contraseña actual (mismo patrón de re-autenticación
+// sensible ya usado en "VALIDAR SESIÓN ADMINISTRATIVA" arriba).
+function MfaSettingsCard() {
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [mfaEnabled, setMfaEnabled]       = useState(false);
+
+  // Flujo de activación
+  const [activando, setActivando]     = useState(false);
+  const [secret, setSecret]           = useState('');
+  const [otpauthUrl, setOtpauthUrl]   = useState('');
+  const [confirmCode, setConfirmCode] = useState('');
+
+  // Flujo de desactivación
+  const [desactivando, setDesactivando] = useState(false);
+  const [pwdDesactivar, setPwdDesactivar] = useState('');
+
+  const [busy, setBusy]   = useState(false);
+  const [error, setError] = useState('');
+  const [ok, setOk]       = useState('');
+
+  async function fetchStatus() {
+    setLoadingStatus(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/auth/mfa/status`, { headers: { ...getAuthHeaders() } });
+      const data = await r.json();
+      if (r.ok && data?.success) setMfaEnabled(!!data.mfaEnabled);
+    } catch { /* estado indeterminado: se deja el último valor conocido */ }
+    finally { setLoadingStatus(false); }
+  }
+
+  useEffect(() => { fetchStatus(); }, []);
+
+  async function handleActivar() {
+    setError(''); setOk(''); setBusy(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/auth/mfa/setup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.success) throw new Error(data?.message || 'No se pudo iniciar la configuración de MFA.');
+      setSecret(data.data.secret);
+      setOtpauthUrl(data.data.otpauthUrl);
+      setActivando(true);
+    } catch (err: any) {
+      setError(err.message || 'No se pudo iniciar la configuración de MFA.');
+    } finally { setBusy(false); }
+  }
+
+  async function handleConfirmar(e: React.FormEvent) {
+    e.preventDefault();
+    setError(''); setOk(''); setBusy(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/auth/mfa/confirmar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ code: confirmCode }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.success) throw new Error(data?.message || 'Código incorrecto.');
+      setOk('MFA activado correctamente.');
+      setActivando(false);
+      setSecret(''); setOtpauthUrl(''); setConfirmCode('');
+      setMfaEnabled(true);
+    } catch (err: any) {
+      setError(err.message || 'Código incorrecto.');
+    } finally { setBusy(false); }
+  }
+
+  async function handleDesactivar(e: React.FormEvent) {
+    e.preventDefault();
+    setError(''); setOk(''); setBusy(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/auth/mfa/desactivar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ password: pwdDesactivar }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.success) throw new Error(data?.message || 'Contraseña incorrecta.');
+      setOk('MFA desactivado.');
+      setDesactivando(false);
+      setPwdDesactivar('');
+      setMfaEnabled(false);
+    } catch (err: any) {
+      setError(err.message || 'Contraseña incorrecta.');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-[#c6c6cd] overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-[#eceef0]">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-[#191c1e] rounded-lg text-white">
+            <IconSmartphone />
+          </div>
+          <div>
+            <h2 className="font-bold text-[#191c1e] text-xs uppercase tracking-wider">
+              AUTENTICACIÓN EN DOS PASOS (MFA)
+            </h2>
+            <p className="text-[10px] font-mono text-[#76777d] mt-0.5 uppercase tracking-wider">
+              CÓDIGO TOTP · GOOGLE AUTHENTICATOR / AUTHY
+            </p>
+          </div>
+        </div>
+        {!loadingStatus && (
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase ${
+            mfaEnabled ? 'bg-[rgba(5,150,105,0.1)] text-[#065f46]' : 'bg-[#eceef0] text-[#76777d]'
+          }`}>
+            {mfaEnabled ? <IconUnlock /> : <IconLock />}
+            {mfaEnabled ? 'ACTIVO' : 'INACTIVO'}
+          </span>
+        )}
+      </div>
+
+      <div className="px-5 py-4 space-y-3">
+        {error && (
+          <p className="text-[10px] font-mono text-red-600 uppercase tracking-wide">{error}</p>
+        )}
+        {ok && !error && (
+          <p className="text-[10px] font-mono text-[#065f46] uppercase tracking-wide">{ok}</p>
+        )}
+
+        {loadingStatus ? (
+          <p className="text-[10px] font-mono text-[#76777d] uppercase tracking-wider">CONSULTANDO ESTADO…</p>
+        ) : mfaEnabled ? (
+          // ── Estado: activo — ofrecer desactivación (requiere contraseña) ──
+          desactivando ? (
+            <form onSubmit={handleDesactivar} className="space-y-2">
+              <p className="text-[10px] text-[#76777d]">
+                Ingresa tu contraseña actual para desactivar MFA.
+              </p>
+              <input
+                type="password"
+                value={pwdDesactivar}
+                onChange={e => setPwdDesactivar(e.target.value)}
+                placeholder="CONTRASEÑA ACTUAL"
+                required
+                autoComplete="current-password"
+                className="w-full px-3 py-2 bg-[#f7f9fb] border border-[#c6c6cd] rounded-lg text-[#191c1e] text-sm font-mono placeholder-[#76777d] focus:outline-none focus:border-[#191c1e] focus:ring-1 focus:ring-[#191c1e] transition-colors"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setDesactivando(false); setPwdDesactivar(''); setError(''); }}
+                  className="flex-1 py-2 rounded-lg border border-[#c6c6cd] text-[#76777d] text-[10px] font-mono font-bold uppercase tracking-wide hover:bg-[#eceef0] transition-colors"
+                >
+                  CANCELAR
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy || !pwdDesactivar}
+                  className="flex-1 py-2 rounded-lg bg-red-600 text-white text-[10px] font-mono font-bold uppercase tracking-wide hover:bg-red-700 disabled:opacity-40 transition-colors"
+                >
+                  {busy ? 'DESACTIVANDO...' : 'CONFIRMAR DESACTIVACIÓN'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <button
+              onClick={() => setDesactivando(true)}
+              className="w-full py-2.5 rounded-lg border border-[#c6c6cd] text-[#76777d] text-[10px] font-mono font-bold uppercase tracking-widest hover:bg-[#eceef0] transition-colors"
+            >
+              DESACTIVAR MFA
+            </button>
+          )
+        ) : activando ? (
+          // ── Estado: configuración en curso — mostrar secreto + confirmar código ──
+          <div className="space-y-3">
+            <p className="text-[10px] text-[#76777d]">
+              Agrega esta clave manualmente en tu app de autenticación (Google Authenticator, Authy, etc. — opción "Ingresar clave manualmente") y luego confirma con el código generado.
+            </p>
+            <div>
+              <span className="block text-[10px] font-mono font-bold text-[#45464d] uppercase tracking-widest mb-1">
+                CLAVE SECRETA
+              </span>
+              <div className="w-full px-3 py-2 bg-[#f7f9fb] border border-[#e2e8f0] rounded-lg text-[#191c1e] text-sm font-mono select-all break-all">
+                {secret}
+              </div>
+              {otpauthUrl && (
+                <p className="text-[9px] font-mono text-[#94a3b8] mt-1 select-all break-all">{otpauthUrl}</p>
+              )}
+            </div>
+            <form onSubmit={handleConfirmar} className="space-y-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                value={confirmCode}
+                onChange={e => setConfirmCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="CÓDIGO DE 6 DÍGITOS"
+                required
+                className="w-full px-3 py-2 bg-white border border-[#c6c6cd] rounded-lg text-[#191c1e] text-sm font-mono text-center tracking-[0.3em] placeholder-[#76777d] focus:outline-none focus:border-[#191c1e] focus:ring-1 focus:ring-[#191c1e] transition-colors"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setActivando(false); setSecret(''); setOtpauthUrl(''); setConfirmCode(''); setError(''); }}
+                  className="flex-1 py-2 rounded-lg border border-[#c6c6cd] text-[#76777d] text-[10px] font-mono font-bold uppercase tracking-wide hover:bg-[#eceef0] transition-colors"
+                >
+                  CANCELAR
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy || confirmCode.length !== 6}
+                  className="flex-1 py-2 rounded-lg bg-[#191c1e] text-white text-[10px] font-mono font-bold uppercase tracking-wide hover:bg-[#2d3133] disabled:opacity-40 transition-colors"
+                >
+                  {busy ? 'CONFIRMANDO...' : 'CONFIRMAR Y ACTIVAR'}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : (
+          // ── Estado: inactivo — ofrecer activación ──
+          <>
+            <p className="text-[10px] text-[#76777d]">
+              Agrega una capa adicional de seguridad: tras la contraseña, tu cuenta pedirá un código de 6 dígitos generado por tu app de autenticación.
+            </p>
+            <button
+              onClick={handleActivar}
+              disabled={busy}
+              className="w-full py-2.5 rounded-lg bg-[#191c1e] text-white text-[10px] font-mono font-bold uppercase tracking-widest hover:bg-[#2d3133] disabled:opacity-40 transition-colors"
+            >
+              {busy ? 'GENERANDO CONFIGURACIÓN...' : 'ACTIVAR MFA'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -182,6 +428,9 @@ export default function ControlPanel() {
             </div>
           </div>
         </div>
+
+        {/* ── Tarjeta 1B: Autenticación en Dos Pasos (MFA) ── */}
+        <MfaSettingsCard />
 
         {/* ── Tarjeta 2: Sistemas de Inteligencia Estratégica ── */}
         <div className="bg-white rounded-xl border border-[#c6c6cd] overflow-hidden">

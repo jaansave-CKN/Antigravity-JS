@@ -144,7 +144,7 @@ const LOGIN_CSS = `
 
 // ── Página de autenticación ───────────────────────────────────────────────────
 export default function LoginPage() {
-  const { login, register, enterDemoMode } = useAuth();
+  const { login, completeMfaLogin, register, enterDemoMode } = useAuth();
   const navigate  = useNavigate();
   const location  = useLocation();
 
@@ -163,6 +163,11 @@ export default function LoginPage() {
   const [loading, setLoading]         = useState(false);
   const [showPwd, setShowPwd]         = useState(false);
   const [showRecovery, setShowRecovery] = useState(false);
+
+  // MFA: si login() devuelve mfaRequired, se guarda el preAuthToken y se
+  // muestra un segundo formulario (código de 6 dígitos) en vez de navegar.
+  const [mfaPreAuthToken, setMfaPreAuthToken] = useState<string | null>(null);
+  const [mfaCode, setMfaCode]                 = useState('');
 
   // "Recordarme" — SOLO el correo, NUNCA la contraseña. La versión anterior
   // guardaba la clave en texto plano en localStorage y la autocompletaba
@@ -212,28 +217,38 @@ export default function LoginPage() {
     setNombre('');
   }
 
+  // Redirección inteligente compartida por login normal y por el segundo
+  // paso de MFA — misma lógica, dos puntos de entrada distintos.
+  function redirigirTrasLogin(sub: { access_radar?: boolean; access_formulador?: boolean } | undefined) {
+    if (from && from !== '/' && from !== '/login') {
+      navigate(from, { replace: true });
+    } else if (sub?.access_radar && sub?.access_formulador) {
+      navigate('/', { replace: true }); // suite: elige pilar en SelectionPage
+    } else if (sub?.access_formulador) {
+      navigate('/checklist', { replace: true });
+    } else if (sub?.access_radar) {
+      navigate('/radar', { replace: true });
+    } else {
+      navigate('/', { replace: true }); // plan free: SelectionPage → upgrade
+    }
+  }
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     setPendingMsg('');
     setLoading(true);
     try {
-      const sub = await login(email, password);
+      const result = await login(email, password);
       // Solo el correo — nunca la clave — y solo si el usuario marcó la casilla en ESTE intento.
       if (recordar) localStorage.setItem(REMEMBER_KEY, JSON.stringify({ email }));
       else localStorage.removeItem(REMEMBER_KEY);
-      // Redirección inteligente: si venía de una ruta protegida, respetar; sino, redirigir por plan
-      if (from && from !== '/' && from !== '/login') {
-        navigate(from, { replace: true });
-      } else if (sub?.access_radar && sub?.access_formulador) {
-        navigate('/', { replace: true }); // suite: elige pilar en SelectionPage
-      } else if (sub?.access_formulador) {
-        navigate('/checklist', { replace: true });
-      } else if (sub?.access_radar) {
-        navigate('/radar', { replace: true });
-      } else {
-        navigate('/', { replace: true }); // plan free: SelectionPage → upgrade
+
+      if (result && 'mfaRequired' in result) {
+        setMfaPreAuthToken(result.preAuthToken);
+        return;
       }
+      redirigirTrasLogin(result);
     } catch (err: any) {
       // Credenciales rechazadas: si venían de "Recordarme", la clave guardada
       // ya no sirve (cuenta borrada/cambiada) — se borra para no quedar
@@ -242,6 +257,22 @@ export default function LoginPage() {
       setRecordar(false);
       setPassword('');
       setError(err.message || 'ERROR DE AUTENTICACIÓN · Verifique sus credenciales.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleMfaSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mfaPreAuthToken) return;
+    setError('');
+    setLoading(true);
+    try {
+      const sub = await completeMfaLogin(mfaPreAuthToken, mfaCode);
+      redirigirTrasLogin(sub);
+    } catch (err: any) {
+      setMfaCode('');
+      setError(err.message || 'Código incorrecto.');
     } finally {
       setLoading(false);
     }
@@ -298,10 +329,59 @@ export default function LoginPage() {
               GGIE · RADAR FONDOS 360
             </h1>
             <p className="text-[11px] text-[#557997] mt-1.5 font-mono uppercase tracking-wider">
-              {esRegistro ? 'REGISTRO DE NUEVO USUARIO' : 'PROTOCOLO DE AUTENTICACIÓN SEGURA'}
+              {mfaPreAuthToken ? 'VERIFICACIÓN EN DOS PASOS' : esRegistro ? 'REGISTRO DE NUEVO USUARIO' : 'PROTOCOLO DE AUTENTICACIÓN SEGURA'}
             </p>
           </div>
 
+          {mfaPreAuthToken ? (
+            <div className="px-8 py-7">
+              {error && (
+                <div className="mb-5 px-4 py-3 rounded-lg bg-[rgba(248,113,113,0.1)] border border-[rgba(248,113,113,0.3)] text-[#f87171] text-xs font-mono">
+                  <span className="font-bold">ALERTA DE SEGURIDAD:</span> {error}
+                </div>
+              )}
+
+              <p className="text-xs text-[#557997] mb-5">
+                Ingrese el código de 6 dígitos generado por su aplicación de autenticación.
+              </p>
+
+              <form onSubmit={handleMfaSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
+                    CÓDIGO DE VERIFICACIÓN
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    autoFocus
+                    value={mfaCode}
+                    onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    required
+                    className="w-full px-3 py-2.5 bg-[#0b1326] border border-[#1a3a50] rounded-lg text-[#c8d8e8] text-lg tracking-[0.5em] text-center font-mono placeholder-[#94a3b8] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary transition-colors"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || mfaCode.length !== 6}
+                  className="lp-btn-primary w-full bg-[#131b2e] text-[#38bdf8] border border-[rgba(56,189,248,0.35)] py-2.5 rounded-lg font-mono font-bold text-xs uppercase tracking-widest hover:bg-[#1a2a40] hover:border-[rgba(56,189,248,0.65)] disabled:opacity-40 mt-2"
+                >
+                  {loading ? 'VERIFICANDO...' : 'VERIFICAR CÓDIGO'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setMfaPreAuthToken(null); setMfaCode(''); setError(''); setPassword(''); }}
+                  className="w-full py-2 text-[10px] font-mono text-[#557997] hover:text-secondary uppercase tracking-wider underline underline-offset-2 transition-colors"
+                >
+                  VOLVER AL INICIO DE SESIÓN
+                </button>
+              </form>
+            </div>
+          ) : (
           <div className="px-8 py-7">
             {/* Aviso de acceso restringido — dinámico según módulo de origen */}
             {reason === 'requires-auth' && !error && (
@@ -509,6 +589,7 @@ export default function LoginPage() {
               )}
             </div>
           </div>
+          )}
         </div>
       </div>
     </>

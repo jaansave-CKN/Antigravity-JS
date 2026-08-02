@@ -20,6 +20,11 @@ export interface LoginSubscription {
   access_formulador: boolean;
 }
 
+export interface MfaRequiredResult {
+  mfaRequired: true;
+  preAuthToken: string;
+}
+
 interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
@@ -27,7 +32,8 @@ interface AuthContextType {
   hasCredentials: boolean | null;
   isTrialMode: boolean;
   isReconnecting: boolean;
-  login: (email: string, password: string) => Promise<LoginSubscription | undefined>;
+  login: (email: string, password: string) => Promise<LoginSubscription | undefined | MfaRequiredResult>;
+  completeMfaLogin: (preAuthToken: string, code: string) => Promise<LoginSubscription | undefined>;
   register: (email: string, password: string, nombre: string, role?: string) => Promise<{ pendingApproval: boolean; message?: string }>;
   logout: () => Promise<void>;
   updateProfile: (data: Partial<UserProfile>) => Promise<void>;
@@ -198,7 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token]);
 
   // ── login ──────────────────────────────────────────────────────────────────
-  async function login(email: string, password: string): Promise<LoginSubscription | undefined> {
+  async function login(email: string, password: string): Promise<LoginSubscription | undefined | MfaRequiredResult> {
     let response: Response;
     try {
       response = await fetch(`${API_BASE}/auth/login`, {
@@ -214,11 +220,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento. Por favor intenta en unos minutos.'); }
     if (!response.ok) throw new Error(data?.message || 'Credenciales incorrectas.');
+
+    // MFA activo en la cuenta — password correcta no basta, todavía no hay
+    // sesión real hasta completar el segundo factor (ver completeMfaLogin).
+    if (data?.mfaRequired && data?.preAuthToken) {
+      return { mfaRequired: true, preAuthToken: data.preAuthToken };
+    }
+
     const { token: newToken, user: userData, subscription } = data;
     if (!newToken || !userData) throw new Error('Respuesta inválida del servidor.');
     persistSession(newToken, userData);
     checkCredentials(newToken);
     // Notifica a SubscriptionContext (mismo tab) para recargar sin depender de localStorage events
+    window.dispatchEvent(new CustomEvent('auth-login', { detail: { token: newToken } }));
+    return subscription as LoginSubscription | undefined;
+  }
+
+  // ── completeMfaLogin — segundo paso, tras login() devolver mfaRequired ───────
+  async function completeMfaLogin(preAuthToken: string, code: string): Promise<LoginSubscription | undefined> {
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}/auth/mfa/challenge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preAuthToken, code: code.trim() }),
+      });
+    } catch {
+      throw new Error('No se pudo conectar con el servidor. Verifica tu conexión o intenta más tarde.');
+    }
+    const text = await response.text();
+    let data: any;
+    try { data = JSON.parse(text); }
+    catch { throw new Error('El servicio no está disponible en este momento.'); }
+    if (!response.ok) throw new Error(data?.message || 'Código incorrecto.');
+    const { token: newToken, user: userData, subscription } = data;
+    if (!newToken || !userData) throw new Error('Respuesta inválida del servidor.');
+    persistSession(newToken, userData);
+    checkCredentials(newToken);
     window.dispatchEvent(new CustomEvent('auth-login', { detail: { token: newToken } }));
     return subscription as LoginSubscription | undefined;
   }
@@ -374,7 +412,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user, token, loading, hasCredentials,
         isTrialMode: user?.role === 'trial' || user?.is_trial === true,
         isReconnecting,
-        login, register, logout, updateProfile,
+        login, completeMfaLogin, register, logout, updateProfile,
         changePassword, sendPasswordReset,
         validateSessionAction, enterDemoMode, startTrial,
         refreshCredentialsStatus,
