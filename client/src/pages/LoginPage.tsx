@@ -180,6 +180,17 @@ export default function LoginPage() {
     } catch { /* ignore */ }
   }, []);
 
+  // Aviso de sesión expirada — disparado por AuthContextNew.tsx al recibir un
+  // 401 real en cualquier pantalla (ej. rotación de JWT_SECRET en el
+  // servidor), en vez de dejar que cada página muestre su propio error
+  // genérico de sincronización sin explicar la causa real.
+  useEffect(() => {
+    if (sessionStorage.getItem('rf360_session_expired')) {
+      sessionStorage.removeItem('rf360_session_expired');
+      setError('Tu sesión expiró (por seguridad, se renovaron las credenciales del servidor). Inicia sesión de nuevo.');
+    }
+  }, []);
+
   const from       = (location.state as any)?.from?.pathname || '/';
   const reason     = (location.state as any)?.reason     as string | undefined;
   const moduleCode = (location.state as any)?.module     as string | undefined;

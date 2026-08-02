@@ -75,6 +75,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // mount-once: verifyTokenWithBackend estabilizado con useCallback, no cambia entre renders
 
+  // Aviso global de sesión expirada (401 real, ej. rotación de JWT_SECRET en
+  // el servidor) — disparado por apiClient.ts en cualquier request de la app,
+  // no solo en la pantalla donde el usuario esté parado en ese momento.
+  useEffect(() => {
+    function onSessionExpired() {
+      sessionStorage.setItem('rf360_session_expired', '1');
+      clearSession();
+    }
+    window.addEventListener('auth-session-expired', onSessionExpired);
+    return () => window.removeEventListener('auth-session-expired', onSessionExpired);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function clearSession() {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
