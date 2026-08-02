@@ -321,14 +321,14 @@ export default function LoginPage() {
         <div className="lp-card bg-[#0a1426] rounded-2xl border border-[#1a3a50] w-full max-w-md overflow-hidden" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }}>
 
           {/* Encabezado institucional */}
-          <div className="bg-[#001c2e] px-8 py-6 text-center">
-            <p className="text-[10px] font-mono text-[#557997] uppercase tracking-[0.2em] mb-2">
-              SISTEMA INSTITUCIONAL CERTIFICADO
-            </p>
-            <h1 className="text-xl font-bold text-[#e0e0ff] tracking-tight">
-              GGIE · RADAR FONDOS 360
+          <div className="bg-[#001c2e] px-8 py-7 text-center">
+            <h1
+              className="text-xl font-bold text-[#e0e0ff]"
+              style={{ transform: 'scale(1.5, 1.3)', display: 'inline-block' }}
+            >
+              RadFor-360
             </h1>
-            <p className="text-[11px] text-[#557997] mt-1.5 font-mono uppercase tracking-wider">
+            <p className="text-[11px] text-[#557997] mt-3 font-mono uppercase tracking-wider">
               {mfaPreAuthToken ? 'VERIFICACIÓN EN DOS PASOS' : esRegistro ? 'REGISTRO DE NUEVO USUARIO' : 'PROTOCOLO DE AUTENTICACIÓN SEGURA'}
             </p>
           </div>
