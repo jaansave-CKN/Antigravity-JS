@@ -77,26 +77,16 @@ async function run() {
     body: JSON.stringify({ email: testEmail, password: 'SmokeTest1234!', nombre: 'Smoke Test Bot' }),
   });
   check('POST /api/auth/register → 201', reg.status === 201, `email: ${testEmail}`);
-  const authToken = reg.data?.token;
-
-  if (authToken) {
-    const proyecto = await fetchJSON('/api/proyectos', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({
-        nombre: 'Proyecto Smoke Test — borrar después del test',
-        fichaTecnica: { descripcion: 'Test automático de integridad', sector: 'Educación' },
-      }),
-    });
-    check('POST /api/proyectos → 201', proyecto.status === 201, `id: ${proyecto.data?.proyectoId}`);
-
-    const subs = await fetchJSON('/api/subscription', {
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
-    check('GET /api/subscription → data', subs.ok && !!subs.data?.data);
-  } else {
-    check('Flujo autenticado', false, 'sin token — omitiendo pasos dependientes');
-  }
+  // El registro exige aprobación de admin antes de poder iniciar sesión — no
+  // devuelve token de inmediato. Se verifica esa forma exacta de respuesta en
+  // vez de asumir un token, y se detiene ahí (crear un proyecto de prueba
+  // requeriría aprobar la cuenta con acceso directo a la BD, fuera del
+  // alcance de un smoke test HTTP).
+  check(
+    'POST /api/auth/register → pendingApproval (gate de aprobación activo)',
+    reg.status === 201 && reg.data?.pendingApproval === true,
+    reg.data?.message
+  );
 
   // ── 6. Estadísticas del sistema ───────────────────────────────────────────
   console.log('\n[6/6] Estadísticas del sistema...');
