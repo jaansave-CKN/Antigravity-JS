@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { getAuthHeaders } from '../lib/apiClient';
 import { useAuth } from '../contexts/AuthContextNew';
 import ProyectoSelectorModal from '../components/ProyectoSelectorModal';
@@ -12,7 +12,7 @@ import {
   TrendingDown, Scale, Cog, Droplets, RefreshCw, TreePine,
   DollarSign, Percent, Cpu, HelpCircle, User, AlertTriangle,
   Clock, Activity, Zap, CheckCircle2, Heart, Globe, Network,
-  BookOpen, Building2, Waves, Equal, Utensils,
+  BookOpen, Building2, Waves, Equal, Utensils, LogOut,
 } from 'lucide-react';
 
 // ── Paleta light mode — fondo blanco, texto oscuro ───────────────────────────
@@ -836,8 +836,16 @@ function useConteosProyecto(proyectoId: string | undefined) {
 // ── Página principal ──────────────────────────────────────────────────────────
 export default function DashboardFormuladorPage({ embedded = false, proyectoId: proyectoIdProp }: { embedded?: boolean; proyectoId?: string }) {
   const { id: proyectoId, nombre: proyectoNombre } = useProyectoActivo(proyectoIdProp);
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [selectorAbierto, setSelectorAbierto] = useState(false);
+  const [menuUsuarioAbierto, setMenuUsuarioAbierto] = useState(false);
+
+  async function handleLogout() {
+    setMenuUsuarioAbierto(false);
+    await logout();
+    navigate('/login', { replace: true });
+  }
   const { data: scoring } = useScoringDinamico(proyectoId);
   const sections = mergeScoring(SECTIONS, scoring);
   const { global: viabilidadGlobal, pendientes: pendientesCount } = calcularSaludGlobal(sections);
@@ -912,13 +920,54 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
                 borderRadius:'50%', width:12, height:12, display:'flex', alignItems:'center', justifyContent:'center',
               }}>3</span>
             </div>
-            <div style={{ display:'flex', alignItems:'center', gap:6, minWidth:0 }} title={user?.email || 'Sin sesión'}>
-              <div style={{ width:22, height:22, borderRadius:'50%', background:'#111827', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                <User size={11} color="#ffffff"/>
-              </div>
-              <span style={{ fontSize:11, color:C.text, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth: embedded ? 170 : 240 }}>
-                {user?.email || 'Sin sesión'}
-              </span>
+            <div style={{ position:'relative', flexShrink:0 }}>
+              <button
+                onClick={() => setMenuUsuarioAbierto(o => !o)}
+                style={{
+                  display:'flex', alignItems:'center', gap:6, minWidth:0,
+                  background:'none', border:'none', cursor:'pointer', padding:0,
+                }}
+                title={user?.email || 'Sin sesión'}
+              >
+                <div style={{ width:22, height:22, borderRadius:'50%', background:'#111827', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <User size={11} color="#ffffff"/>
+                </div>
+                <span style={{ fontSize:11, color:C.text, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth: embedded ? 170 : 240 }}>
+                  {user?.email || 'Sin sesión'}
+                </span>
+                <ChevronDown size={11} color={C.textMuted} style={{ flexShrink:0, transform: menuUsuarioAbierto ? 'rotate(180deg)' : 'none', transition:'transform 0.15s' }}/>
+              </button>
+
+              {menuUsuarioAbierto && (
+                <>
+                  <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setMenuUsuarioAbierto(false)}/>
+                  <div style={{
+                    position:'absolute', right:0, top:'calc(100% + 6px)', width:200, zIndex:50,
+                    background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:10,
+                    boxShadow:'0 8px 24px rgba(0,0,0,0.12)', overflow:'hidden',
+                  }}>
+                    <div style={{ padding:'10px 12px', borderBottom:`1px solid ${C.border}` }}>
+                      <p style={{ fontSize:11, fontWeight:600, color:C.text, margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {user?.nombre || 'Operador'}
+                      </p>
+                      <p style={{ fontSize:10, color:C.textMuted, margin:'2px 0 0', fontFamily:'monospace', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {user?.email || '—'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      style={{
+                        width:'100%', textAlign:'left', padding:'9px 12px',
+                        background:'none', border:'none', cursor:'pointer',
+                        display:'flex', alignItems:'center', gap:8,
+                        fontSize:11, color:'#dc2626', fontWeight:500,
+                      }}
+                    >
+                      <LogOut size={13}/> Cerrar Sesión
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </header>
