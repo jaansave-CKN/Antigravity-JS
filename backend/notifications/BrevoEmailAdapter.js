@@ -80,6 +80,23 @@ export class BrevoEmailAdapter {
     });
   }
 
+  async sendDuplicateRegistrationNotice(userEmail) {
+    return this.sendEmail({
+      to:      userEmail,
+      subject: 'Alguien intentó registrar una cuenta con tu correo — Radar Formulador 360',
+      content: `
+        <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:2rem;">
+          <h2 style="color:#191c1e;margin-bottom:0.5rem;">Intento de registro con tu correo</h2>
+          <p style="color:#45464d;">Alguien intentó crear una cuenta nueva en <strong>Radar Formulador 360</strong> usando este correo — pero ya tienes una cuenta aquí.</p>
+          <p style="color:#45464d;">Si fuiste tú, simplemente inicia sesión con tu contraseña actual, o usa "Recuperar credenciales" si la olvidaste.</p>
+          <p style="color:#9ca3af;font-size:11px;margin-top:2rem;">Si no fuiste tú, puedes ignorar este correo — tu cuenta está segura y no se creó ninguna cuenta nueva.</p>
+          <hr style="border:0;border-top:1px solid #e5e7eb;margin:2rem 0;"/>
+          <p style="color:#c6c6cd;font-size:10px;font-family:monospace;">Radar Formulador 360 · Sistema de Formulación de Proyectos</p>
+        </div>
+      `,
+    });
+  }
+
   async sendEmailVerification(userEmail, verifyLink) {
     return this.sendEmail({
       to:      userEmail,

@@ -275,6 +275,21 @@ function requireAccess(module) {
   });
 }
 
+// Validación real de fuerza de contraseña — el `minLength={8}` del formulario
+// es solo HTML, se salta con una llamada directa a la API. Esta es la que
+// de verdad se aplica. Umbral mínimo razonable, sin exigir composición
+// específica (mayúscula/símbolo obligatorios generan contraseñas más
+// predecibles en la práctica — la longitud importa más).
+function validarFortalezaPassword(password) {
+  if (typeof password !== 'string' || password.length < 8) {
+    return 'La contraseña debe tener al menos 8 caracteres.';
+  }
+  if (password.length > 128) {
+    return 'La contraseña no puede superar los 128 caracteres.';
+  }
+  return null;
+}
+
 async function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   return new Promise((resolve, reject) => {
@@ -289,8 +304,16 @@ async function verifyPassword(password, stored) {
   const [salt, hash] = stored.split(':');
   return new Promise((resolve, reject) => {
     crypto.pbkdf2(password, salt, 100000, 64, 'sha512', (err, key) => {
-      if (err) reject(err);
-      else resolve(key.toString('hex') === hash);
+      if (err) return reject(err);
+      // Comparación de tiempo constante — timingSafeEqual exige buffers del
+      // mismo largo; un hash corrupto/con formato distinto ya es inválido
+      // por definición, así que ese caso corto-circuita a false sin llegar
+      // a comparar (no hay nada secreto que filtrar en esa longitud: viene
+      // de datos ya almacenados, no de la entrada del atacante).
+      const hashBuf = Buffer.from(hash || '', 'hex');
+      const keyBuf  = key;
+      if (hashBuf.length !== keyBuf.length) return resolve(false);
+      resolve(crypto.timingSafeEqual(keyBuf, hashBuf));
     });
   });
 }
@@ -1259,8 +1282,24 @@ async function start() {
      if (!email || !password || !nombre) {
        return res.status(400).json({ success: false, message: 'email, password y nombre son requeridos' });
      }
-     const existing = await getRow('SELECT id FROM usuarios WHERE email = ?', [email.trim().toLowerCase()]);
-     if (existing) return res.status(409).json({ success: false, message: 'El email ya está registrado' });
+     const errorPassword = validarFortalezaPassword(password);
+     if (errorPassword) return res.status(400).json({ success: false, message: errorPassword });
+
+     // Anti-enumeración: si el email ya existe, responder EXACTAMENTE igual
+     // que un registro nuevo exitoso (mismo status, mismo shape) para que un
+     // atacante no pueda usar este endpoint para descubrir qué correos ya
+     // tienen cuenta. Al dueño real de la cuenta se le avisa por correo en
+     // vez de filtrarlo en la respuesta HTTP.
+     const existing = await getRow('SELECT id, email FROM usuarios WHERE email = ?', [email.trim().toLowerCase()]);
+     if (existing) {
+       emailAdapter.sendDuplicateRegistrationNotice(existing.email)
+         .catch(e => console.warn('[register] No se pudo notificar registro duplicado:', e.message));
+       return res.status(201).json({
+         success: true,
+         pendingApproval: true,
+         message: 'Cuenta creada correctamente. Un administrador debe aprobarla antes de que puedas iniciar sesión.',
+       });
+     }
      const id = crypto.randomUUID();
      const password_hash = await hashPassword(password);
      const safeRole = role === 'admin' ? 'user' : (role || 'user'); // no permitir auto-admin
