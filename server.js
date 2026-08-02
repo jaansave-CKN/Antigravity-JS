@@ -755,29 +755,6 @@ async function initDb() {
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
 
-  // Tabla canónica de proyectos V8.0 (Formulador — multi-tenant, bilingüe)
-  await runSql(`CREATE TABLE IF NOT EXISTS projects (
-    id                TEXT        PRIMARY KEY,
-    tenant_id         TEXT        NOT NULL,
-    name              TEXT        NOT NULL DEFAULT '',
-    status            TEXT        NOT NULL DEFAULT 'draft'
-      CHECK(status IN ('draft','in_review','needs_human_review','processing',
-                        'formulado','Finalizado','BLOQUEADO','archived')),
-    translation_status TEXT       DEFAULT 'pending'
-      CHECK(translation_status IN ('pending','processing','completed','failed','skipped')),
-    payload_es        TEXT        DEFAULT NULL,
-    payload_en        TEXT        DEFAULT NULL,
-    ficha_tecnica     TEXT        DEFAULT '{}',
-    embedding         TEXT        DEFAULT NULL,
-    embedding_vec     vector(768) DEFAULT NULL,
-    audit_cycles      INTEGER     DEFAULT 0,
-    audit_approved_at TIMESTAMP   DEFAULT NULL,
-    created_at        TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
-    updated_at        TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
-    deleted_at        TIMESTAMP   DEFAULT NULL
-  )`);
-  try { await runSql(`ALTER TABLE projects ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL`); } catch {}
-
   // Tabla inmutable de hashes de versiones (ledger V8.0)
   await runSql(`CREATE TABLE IF NOT EXISTS project_version_hashes (
     id                TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
