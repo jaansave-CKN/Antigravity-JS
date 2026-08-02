@@ -73,7 +73,7 @@ export default function ImportPage() {
     formData.append('tipo', importType);
 
     try {
-      const res = await fetch('/api/directory/import', {
+      const res = await fetch('/api/importar', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,

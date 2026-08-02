@@ -1,6 +1,20 @@
 -- =============================================================================
 -- RadarFondos 360 — 013_domain_entities_materialization.sql
 --
+-- ⚠ ADVERTENCIA (2026-08-02, verificado contra la BD en vivo con Management API):
+--   Este archivo originalmente tenía un typo — "object_tree" en vez de
+--   "objective_tree" — ya corregido abajo. PERO el problema es más profundo:
+--   ni "objective_tree" ni "projects" (el esquema canónico en inglés de la
+--   migración 003) existen realmente en producción. Solo existen "objetivos_arbol"
+--   y "proyectos" (español) — projects sí existe como tabla pero con 0 filas.
+--   server.js (el proceso que sirve la app real) usa exclusivamente los nombres
+--   en español. NO ejecutar esta migración contra producción tal cual: el primer
+--   ALTER TABLE fallaría (relation "objective_tree" does not exist) y, si en el
+--   futuro alguien la adapta a "objetivos_arbol" sin revisar el bloque de FK que
+--   compara contra "projects", el chequeo de huérfanos borraría TODAS las filas
+--   reales (viven en "proyectos", no en "projects", que está vacía). Requiere
+--   reescritura consciente antes de aplicarse, no solo un rename de tabla.
+--
 -- PROPÓSITO:
 --   Materializar las entidades de dominio que la auditoría técnica encontró
 --   ausentes del esquema: Anexos, Indicadores y Teoría del Cambio no existían
@@ -126,10 +140,10 @@ CREATE TRIGGER trg_change_theory_updated_at
   FOR EACH ROW EXECUTE FUNCTION set_updated_at_change_theory();
 
 -- =============================================================================
--- 4. FORMALIZACIÓN DE 'Problema' EN object_tree (antes objetivos_arbol)
+-- 4. FORMALIZACIÓN DE 'Problema' EN objective_tree (antes objetivos_arbol)
 --
--- object_tree ya existe (creada originalmente en el bootstrap de server.js,
--- renombrada de objetivos_arbol → object_tree en 003, con RLS+FORCE ya
+-- objective_tree ya existe (creada originalmente en el bootstrap de server.js,
+-- renombrada de objetivos_arbol → objective_tree en 003, con RLS+FORCE ya
 -- aplicado en 010_rls_complete_audit.sql). Hoy solo modela el ÁRBOL DE
 -- OBJETIVOS (columna 'tipo': CENTRAL/ESPECIFICO/RESULTADO/ACTIVIDAD, usado
 -- por arbolObjetivosAgent.js). No existe ninguna representación del ÁRBOL DE
@@ -149,14 +163,14 @@ CREATE TRIGGER trg_change_theory_updated_at
 -- desde el código que las inserte.
 -- =============================================================================
 
-ALTER TABLE object_tree
+ALTER TABLE objective_tree
   ADD COLUMN IF NOT EXISTS tipo_nodo TEXT
   CHECK (tipo_nodo IN ('PROBLEMA_CENTRAL','CAUSA','EFECTO','OBJETIVO_GENERAL','OBJETIVO_ESPECIFICO'));
 
-UPDATE object_tree SET tipo_nodo = 'OBJETIVO_GENERAL'    WHERE tipo = 'CENTRAL'    AND tipo_nodo IS NULL;
-UPDATE object_tree SET tipo_nodo = 'OBJETIVO_ESPECIFICO' WHERE tipo = 'ESPECIFICO' AND tipo_nodo IS NULL;
+UPDATE objective_tree SET tipo_nodo = 'OBJETIVO_GENERAL'    WHERE tipo = 'CENTRAL'    AND tipo_nodo IS NULL;
+UPDATE objective_tree SET tipo_nodo = 'OBJETIVO_ESPECIFICO' WHERE tipo = 'ESPECIFICO' AND tipo_nodo IS NULL;
 
--- ── FK explícita object_tree.proyecto_id → projects(id) ──────────────────────
+-- ── FK explícita objective_tree.proyecto_id → projects(id) ──────────────────────
 -- proyecto_id fue creada como TEXT en el bootstrap original (nunca migrada a
 -- UUID por 001-012, a diferencia de projects/match_scores que sí lo fueron).
 -- Todo el código que inserta en esta tabla (formularProyectoInversion.js:211)
@@ -171,24 +185,24 @@ DECLARE
   orphan_count      INTEGER;
 BEGIN
   SELECT COUNT(*) INTO bad_format_count
-  FROM object_tree
+  FROM objective_tree
   WHERE proyecto_id IS NOT NULL
     AND proyecto_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
 
   IF bad_format_count > 0 THEN
-    RAISE EXCEPTION '[013] % fila(s) en object_tree.proyecto_id no tienen formato UUID válido — limpiar manualmente antes de re-ejecutar esta migración.', bad_format_count;
+    RAISE EXCEPTION '[013] % fila(s) en objective_tree.proyecto_id no tienen formato UUID válido — limpiar manualmente antes de re-ejecutar esta migración.', bad_format_count;
   END IF;
 
   -- Limpieza de huérfanos: proyecto_id que ya no existe en projects.
   -- Sin esto, la conversión de tipo tendría éxito pero la FK posterior fallaría.
   SELECT COUNT(*) INTO orphan_count
-  FROM object_tree ot
+  FROM objective_tree ot
   WHERE ot.proyecto_id IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.id::TEXT = ot.proyecto_id);
 
   IF orphan_count > 0 THEN
-    RAISE WARNING '[013] % fila(s) huérfana(s) en object_tree.proyecto_id (sin proyecto asociado) — eliminando antes de aplicar FK.', orphan_count;
-    DELETE FROM object_tree ot
+    RAISE WARNING '[013] % fila(s) huérfana(s) en objective_tree.proyecto_id (sin proyecto asociado) — eliminando antes de aplicar FK.', orphan_count;
+    DELETE FROM objective_tree ot
     WHERE ot.proyecto_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.id::TEXT = ot.proyecto_id);
   END IF;
@@ -196,18 +210,18 @@ END;
 $$;
 
 -- Conversión de tipo TEXT → UUID (segura tras las validaciones anteriores)
-ALTER TABLE object_tree ALTER COLUMN id         TYPE UUID USING id::uuid;
-ALTER TABLE object_tree ALTER COLUMN proyecto_id TYPE UUID USING proyecto_id::uuid;
-ALTER TABLE object_tree ALTER COLUMN parent_id  TYPE UUID USING NULLIF(parent_id, '')::uuid;
+ALTER TABLE objective_tree ALTER COLUMN id         TYPE UUID USING id::uuid;
+ALTER TABLE objective_tree ALTER COLUMN proyecto_id TYPE UUID USING proyecto_id::uuid;
+ALTER TABLE objective_tree ALTER COLUMN parent_id  TYPE UUID USING NULLIF(parent_id, '')::uuid;
 
-ALTER TABLE object_tree
+ALTER TABLE objective_tree
   DROP CONSTRAINT IF EXISTS fk_object_tree_project;
 
-ALTER TABLE object_tree
+ALTER TABLE objective_tree
   ADD CONSTRAINT fk_object_tree_project
   FOREIGN KEY (proyecto_id) REFERENCES projects(id) ON DELETE CASCADE;
 
-CREATE INDEX IF NOT EXISTS idx_object_tree_tipo_nodo ON object_tree (tipo_nodo);
+CREATE INDEX IF NOT EXISTS idx_object_tree_tipo_nodo ON objective_tree (tipo_nodo);
 
 -- =============================================================================
 -- VERIFICACIÓN POST-MIGRACIÓN
@@ -236,12 +250,12 @@ BEGIN
 
   SELECT COUNT(*) INTO r FROM pg_constraint con
     JOIN pg_class rel ON rel.oid = con.conrelid
-    WHERE rel.relname = 'object_tree' AND con.contype = 'f' AND con.conname = 'fk_object_tree_project';
-  RAISE NOTICE '[object_tree] fk_object_tree_project instalada: %', (r.count = 1);
+    WHERE rel.relname = 'objective_tree' AND con.contype = 'f' AND con.conname = 'fk_object_tree_project';
+  RAISE NOTICE '[objective_tree] fk_object_tree_project instalada: %', (r.count = 1);
 
   SELECT COUNT(*) INTO r FROM information_schema.columns
-    WHERE table_name = 'object_tree' AND column_name = 'tipo_nodo';
-  RAISE NOTICE '[object_tree] columna tipo_nodo instalada: %', (r.count = 1);
+    WHERE table_name = 'objective_tree' AND column_name = 'tipo_nodo';
+  RAISE NOTICE '[objective_tree] columna tipo_nodo instalada: %', (r.count = 1);
 
   RAISE NOTICE '=== FIN VERIFICACIÓN 013 ===';
 END;
