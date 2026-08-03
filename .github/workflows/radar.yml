@@ -68,12 +68,16 @@ jobs:
           node -e "
           const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
           (async () => {
-            const deploys = await (await fetch('https://api.render.com/v1/services/' + RSVC + '/deploys?limit=1', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
-            const dep = (deploys[0].deploy || deploys[0]);
-            console.log('Deploy más reciente:', dep.id, '| status:', dep.status, '| created:', dep.createdAt, '| finished:', dep.finishedAt);
-            const start = dep.createdAt;
-            const end = dep.finishedAt || new Date().toISOString();
-            const url = 'https://api.render.com/v1/logs?resource=' + RSVC + '&startTime=' + encodeURIComponent(start) + '&endTime=' + encodeURIComponent(end) + '&limit=200';
+            const owners = await (await fetch('https://api.render.com/v1/owners', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
+            const ownerId = (owners[0].owner || owners[0]).id;
+            console.log('ownerId:', ownerId);
+            const deploys = await (await fetch('https://api.render.com/v1/services/' + RSVC + '/deploys?limit=10', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
+            const failed = deploys.map(d => d.deploy || d).find(d => d.status === 'build_failed');
+            if (!failed) { console.log('No hay ningún deploy build_failed en los últimos 10'); return; }
+            console.log('Deploy fallido elegido:', failed.id, '| created:', failed.createdAt, '| finished:', failed.finishedAt);
+            const start = failed.createdAt;
+            const end = failed.finishedAt || new Date().toISOString();
+            const url = 'https://api.render.com/v1/logs?ownerId=' + ownerId + '&resource=' + RSVC + '&startTime=' + encodeURIComponent(start) + '&endTime=' + encodeURIComponent(end) + '&limit=200';
             const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
             console.log('Logs HTTP status:', r.status);
             const j = await r.json();
