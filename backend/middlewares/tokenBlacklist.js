@@ -91,16 +91,7 @@ export async function revokeUserSession(userId, runSql) {
     );
     console.log(`[blacklist] Sesiones invalidadas para user: ${userId}`);
   } catch (e) {
-    // Intentar con tabla 'users' (nombre canónico inglés)
-    try {
-      await runSql(
-        `UPDATE users SET tokens_invalidated_at = NOW() WHERE id = $1`,
-        [userId]
-      );
-      console.log(`[blacklist] Sesiones invalidadas para user: ${userId} (tabla users)`);
-    } catch (e2) {
-      console.error('[blacklist] Error en revokeUserSession:', e2.message);
-    }
+    console.error('[blacklist] Error en revokeUserSession:', e.message);
   }
 }
 
@@ -125,18 +116,7 @@ export async function checkSessionValid(userId, tokenIat, getRow) {
       [userId]
     );
 
-    if (!row) {
-      // Intentar con tabla canonical 'users'
-      const row2 = await getRow(
-        `SELECT tokens_invalidated_at FROM users WHERE id = $1`,
-        [userId]
-      );
-      if (!row2 || !row2.tokens_invalidated_at) return true;
-      const invalidatedAt = new Date(row2.tokens_invalidated_at).getTime() / 1000;
-      return tokenIat >= invalidatedAt;
-    }
-
-    if (!row.tokens_invalidated_at) return true;
+    if (!row || !row.tokens_invalidated_at) return true;
     const invalidatedAt = new Date(row.tokens_invalidated_at).getTime() / 1000;
     return tokenIat >= invalidatedAt;
   } catch (e) {
