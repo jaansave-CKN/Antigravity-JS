@@ -1,5 +1,15 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { http, ApiError } from '../lib/apiClient';
+
+const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
+
+interface ProyectoDataResponse {
+  ficha_tecnica: Record<string, unknown> | null;
+  presupuesto: Record<string, unknown> | null;
+}
+interface RadicarSello { auditId: string; pasado_en: string; discrepancy: number }
+interface RadicarResponse { estado: string; sello: RadicarSello }
 
 /**
  * ChecklistPage — alineado a la paleta calco Light Mode del resto del área
@@ -142,6 +152,42 @@ export default function ChecklistPage() {
   const doneCount = estados.filter(e => e.status.percent === 100).length;
   const progress  = Math.round(estados.reduce((sum, e) => sum + e.status.percent, 0) / estados.length);
 
+  const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
+  const [radicando, setRadicando] = useState(false);
+  const [radicarError, setRadicarError] = useState<string | null>(null);
+  const [radicarOk, setRadicarOk] = useState<RadicarResponse | null>(null);
+
+  const radicarProyecto = async () => {
+    if (!proyectoId) return;
+    setRadicando(true);
+    setRadicarError(null);
+    try {
+      const proyecto = await http.get<{ success: boolean; data: ProyectoDataResponse }>(`/api/proyectos/${proyectoId}`);
+      const fichaTecnica = proyecto.data.ficha_tecnica || {};
+      const presupuesto = proyecto.data.presupuesto || {};
+      const resultado = await http.post<{ success: boolean; estado: string; sello: RadicarSello }>(
+        `/api/modulo9/radicar/${proyectoId}`,
+        { fichaTecnica, presupuesto }
+      );
+      setRadicarOk({ estado: resultado.estado, sello: resultado.sello });
+    } catch (e) {
+      if (e instanceof ApiError) {
+        if (e.code === 'CROSSCHECK_FAILED') {
+          const disc = (e.body as { discrepancy?: number })?.discrepancy;
+          setRadicarError(`Discrepancia presupuestal de $${Math.abs(disc ?? 0).toFixed(2)} — la sumatoria de fases (Negra/Gris/Blanca) no coincide con la meta física de la Ficha Técnica. Corrige el Presupuesto o la Ficha Técnica antes de radicar.`);
+        } else if (e.code === 'RIESGO_JURIDICO_CONDICIONADO') {
+          setRadicarError('Riesgo jurídico condicionado — el predio debe quedar despejado en Compliance antes de poder radicar.');
+        } else {
+          setRadicarError(e.message);
+        }
+      } else {
+        setRadicarError('No se pudo radicar el proyecto — intenta de nuevo.');
+      }
+    } finally {
+      setRadicando(false);
+    }
+  };
+
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: T.font, minHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column' }}>
 
@@ -250,10 +296,45 @@ export default function ChecklistPage() {
           })}
         </div>
 
-        {progress === 100 && (
-          <div style={{ background: T.successSoft, border: `1px solid ${T.successBorder}`, borderRadius: 12, padding: '14px 16px', textAlign: 'center' }}>
-            <p style={{ margin: 0, fontSize: 13, color: T.success, fontWeight: 700, letterSpacing: '0.02em' }}>
+        {progress === 100 && !radicarOk && (
+          <div style={{ background: T.successSoft, border: `1px solid ${T.successBorder}`, borderRadius: 12, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p style={{ margin: 0, fontSize: 13, color: T.success, fontWeight: 700, letterSpacing: '0.02em', textAlign: 'center' }}>
               ✓ Proyecto completo en todos los módulos
+            </p>
+            {!proyectoId ? (
+              <p style={{ margin: 0, fontSize: 12, color: T.textMuted, textAlign: 'center' }}>
+                No hay un proyecto activo — selecciona uno en Entrada para poder radicarlo.
+              </p>
+            ) : (
+              <>
+                <button
+                  onClick={radicarProyecto}
+                  disabled={radicando}
+                  style={{
+                    alignSelf: 'center', padding: '10px 24px', borderRadius: 8, border: 'none',
+                    background: T.success, color: '#fff', fontWeight: 700, fontSize: 13, fontFamily: T.font,
+                    cursor: radicando ? 'not-allowed' : 'pointer', opacity: radicando ? 0.6 : 1,
+                  }}
+                >
+                  {radicando ? 'Radicando… (verificando Cross-Check)' : 'Radicar Proyecto'}
+                </button>
+                {radicarError && (
+                  <p style={{ margin: 0, fontSize: 12, color: '#ba1a1a', textAlign: 'center', maxWidth: 480, alignSelf: 'center' }} role="alert">
+                    {radicarError}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {radicarOk && (
+          <div style={{ background: T.successSoft, border: `1px solid ${T.successBorder}`, borderRadius: 12, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: 14, color: T.success, fontWeight: 800, letterSpacing: '0.02em' }}>
+              ✓ Proyecto radicado — sello de auditoría Cross-Check emitido
+            </p>
+            <p style={{ margin: 0, fontSize: 11.5, color: T.textMuted, fontFamily: "'Inter', sans-serif" }}>
+              Sello: <code>{radicarOk.sello.auditId}</code> · Emitido: {new Date(radicarOk.sello.pasado_en).toLocaleString('es-CO')}
             </p>
           </div>
         )}

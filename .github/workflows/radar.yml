@@ -66,12 +66,20 @@ jobs:
         # main, sin esperar al CI) — este paso, gateado por needs:ci, es lo
         # que realmente aporta: bloquear el deploy hasta que build/tsc pasen.
         run: |
-          curl -sf -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
+          HTTP_CODE=$(curl -s -o /tmp/render_response.json -w "%{http_code}" -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
             -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            -H "Content-Type: application/json"
+            -H "Content-Type: application/json")
+          echo "HTTP status: $HTTP_CODE"
+          echo "Respuesta de Render:"
+          cat /tmp/render_response.json
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "::error::Render API respondió HTTP $HTTP_CODE — revisa RENDER_SERVICE_ID/RENDER_API_KEY en Settings > Secrets and variables > Actions."
+            exit 1
+          fi
           echo "Render deploy triggered: $(date)"
           echo "## Deploy V9.0" >> $GITHUB_STEP_SUMMARY
-          echo "- Render: deploy disparado" >> $GITHUB_STEP_SUMMARY
+          echo "- Render: deploy disparado (HTTP $HTTP_CODE)" >> $GITHUB_STEP_SUMMARY
+          echo "- Fecha: $(date)" >> $GITHUB_STEP_SUMMARY
           echo "- Fecha: $(date)" >> $GITHUB_STEP_SUMMARY
 
   # ── Post-Deploy: Smoke Test contra el backend real ya desplegado (bloqueante) ──
