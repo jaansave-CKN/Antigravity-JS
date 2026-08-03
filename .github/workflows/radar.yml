@@ -60,6 +60,31 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
+      - name: TEMPORAL — configurar variables de Brevo en Render (por clave individual, no destructivo)
+        env:
+          RKEY: ${{ secrets.RENDER_API_KEY }}
+          RSVC: ${{ secrets.RENDER_SERVICE_ID }}
+          BREVO_KEY: ${{ secrets.BREVO_API_KEY }}
+        run: |
+          node -e "
+          const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
+          const vars = {
+            BREVO_API_KEY: process.env.BREVO_KEY,
+            BREVO_SENDER_EMAIL: 'jaansave@gmail.com',
+            BREVO_SENDER_NAME: 'RadarFondos 360',
+          };
+          (async () => {
+            for (const [key, value] of Object.entries(vars)) {
+              const r = await fetch('https://api.render.com/v1/services/' + RSVC + '/env-vars/' + key, {
+                method: 'PUT',
+                headers: { Authorization: 'Bearer ' + RKEY, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value }),
+              });
+              console.log(key, '->', r.status);
+            }
+          })();
+          "
+
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook: el servicio
         # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
