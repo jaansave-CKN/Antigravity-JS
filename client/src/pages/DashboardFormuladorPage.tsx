@@ -777,20 +777,28 @@ function derivarRiesgos(sections: ImpactSection[]): Risk[] {
     }));
 }
 
-// ── Compliance M10 (riesgos/mitigación reales) ───────────────────────────────
+// ── Compliance M10 (riesgos/mitigación reales + estado legal predial) ───────
+type EstadoLegal = 'sin_evaluar' | 'condicionado' | 'despejado';
+
 function useComplianceRiesgo(proyectoId: string | undefined) {
-  const [riesgo, setRiesgo] = useState<{ identificados: string; mitigacion: string } | null>(null);
+  const [riesgo, setRiesgo]           = useState<{ identificados: string; mitigacion: string } | null>(null);
+  const [estadoLegal, setEstadoLegal] = useState<EstadoLegal>('sin_evaluar');
+  const [tick, setTick]               = useState(0);
 
   useEffect(() => {
-    if (!proyectoId) { setRiesgo(null); return; }
+    if (!proyectoId) { setRiesgo(null); setEstadoLegal('sin_evaluar'); return; }
     let cancelled = false;
-    fetch(`/api/m10/compliance/${proyectoId}`, { headers: { ...getAuthHeaders() }, credentials: 'include' })
+    // cache: 'no-store' — sin esto, el navegador puede servir una respuesta
+    // vieja tras "Saneamiento Aprobado" (mismo GET, mismo momento) y el badge
+    // no se actualizaría hasta un refresh completo. Confirmado reproducible.
+    fetch(`/api/m10/compliance/${proyectoId}`, { headers: { ...getAuthHeaders() }, credentials: 'include', cache: 'no-store' })
       .then(async res => {
         const body = await res.json().catch(() => ({}));
         return res.ok && body?.success ? body.data : null;
       })
       .then(data => {
         if (cancelled) return;
+        setEstadoLegal((data?.estado_legal as EstadoLegal) || 'sin_evaluar');
         if (!data?.riesgos) { setRiesgo(null); return; }
         try {
           const arr = JSON.parse(data.riesgos);
@@ -800,11 +808,11 @@ function useComplianceRiesgo(proyectoId: string | undefined) {
             : null);
         } catch { setRiesgo(null); }
       })
-      .catch(() => { if (!cancelled) setRiesgo(null); });
+      .catch(() => { if (!cancelled) { setRiesgo(null); setEstadoLegal('sin_evaluar'); } });
     return () => { cancelled = true; };
-  }, [proyectoId]);
+  }, [proyectoId, tick]);
 
-  return riesgo;
+  return { riesgo, estadoLegal, refetch: () => setTick(t => t + 1) };
 }
 
 // ── Conteos reales de indicadores/anexos + bitácora derivada de cargas de anexos ─
@@ -839,7 +847,24 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
   const { data: scoring } = useScoringDinamico(proyectoId);
   const sections = mergeScoring(SECTIONS, scoring);
   const { global: viabilidadGlobal, pendientes: pendientesCount } = calcularSaludGlobal(sections);
-  const riesgoCompliance = useComplianceRiesgo(proyectoId);
+  const { riesgo: riesgoCompliance, estadoLegal, refetch: refetchEstadoLegal } = useComplianceRiesgo(proyectoId);
+  const [saneando, setSaneando] = useState(false);
+
+  async function saneamientoAprobado() {
+    if (!proyectoId || saneando) return;
+    setSaneando(true);
+    try {
+      const res = await fetch(`/api/proyectos/${proyectoId}/estado-legal`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
+        body: JSON.stringify({ estado_legal: 'despejado' }),
+      });
+      if (res.ok) refetchEstadoLegal();
+    } finally {
+      setSaneando(false);
+    }
+  }
   const { indicadores: indicadoresCount, anexos } = useConteosProyecto(proyectoId);
 
   const riesgos: Risk[] = [
@@ -901,6 +926,36 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
             </span>
             <ChevronDown size={11} color={C.textMuted} style={{ flexShrink:0 }}/>
           </button>
+
+          {/* Soft-Lock predial (F-Legal-01) — informativo, nunca deshabilita el
+              formulario técnico. Solo 'condicionado' muestra el badge; el
+              Hard-Lock real vive en el servidor (POST /api/m12/ficha/:id). */}
+          {estadoLegal === 'condicionado' && (
+            <div style={{
+              display:'flex', alignItems:'center', gap:6, flexShrink:0,
+              padding:'4px 10px', borderRadius:999,
+              background:'rgba(217,119,6,0.1)', border:'1px solid rgba(217,119,6,0.35)',
+            }}>
+              <ShieldAlert size={12} color="#b45309" />
+              <span style={{ fontSize:10, fontWeight:700, color:'#b45309', textTransform:'uppercase', letterSpacing:'0.03em', whiteSpace:'nowrap' }}>
+                Bajo Riesgo Jurídico
+              </span>
+              <button
+                onClick={saneamientoAprobado}
+                disabled={saneando}
+                title="Marcar el predio como despejado — habilita la certificación final"
+                style={{
+                  marginLeft:4, padding:'2px 8px', borderRadius:999,
+                  border:'1px solid #b45309', background:'#fff',
+                  color:'#b45309', fontSize:9, fontWeight:700, textTransform:'uppercase',
+                  cursor: saneando ? 'not-allowed' : 'pointer', opacity: saneando ? 0.5 : 1,
+                  whiteSpace:'nowrap',
+                }}
+              >
+                {saneando ? '...' : 'Saneamiento Aprobado'}
+              </button>
+            </div>
+          )}
         </header>
 
         {/* Cuerpo */}

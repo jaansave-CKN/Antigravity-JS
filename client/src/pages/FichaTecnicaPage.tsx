@@ -206,6 +206,8 @@ export default function FichaTecnicaPage() {
     } catch (e) {
       const msg = e instanceof ApiError && e.code === 'PROYECTO_BLOQUEADO'
         ? 'El proyecto está bloqueado — resuelve los errores de validación antes de sellar la Ficha Técnica.'
+        : e instanceof ApiError && e.code === 'RIESGO_JURIDICO_CONDICIONADO'
+        ? 'Riesgo jurídico condicionado — el predio debe quedar despejado (Saneamiento Aprobado) antes de certificar.'
         : e instanceof Error ? e.message : 'Error al generar la Ficha Técnica';
       setError(msg);
     } finally {

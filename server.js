@@ -653,6 +653,12 @@ async function initDb() {
   try { await runSql("ALTER TABLE config_logistica  ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
   try { await runSql("ALTER TABLE marco_normativo   ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
   try { await runSql("ALTER TABLE compliance_data   ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
+  // Soft-Lock predial (F-Legal-01): 'condicionado' NO bloquea la formulación
+  // técnica en paralelo — solo 'despejado' habilita el Hard-Lock final de
+  // certificación (ver POST /api/m12/ficha/:proyectoId y
+  // POST /api/modulo9/radicar/:proyectoId).
+  try { await runSql("ALTER TABLE compliance_data ADD COLUMN estado_legal TEXT NOT NULL DEFAULT 'sin_evaluar'"); } catch {}
+  try { await runSql("ALTER TABLE compliance_data ADD CONSTRAINT compliance_data_estado_legal_check CHECK (estado_legal IN ('sin_evaluar','condicionado','despejado'))"); } catch {}
   try { await runSql("ALTER TABLE versiones_proyecto ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
   try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN access_radar INTEGER DEFAULT 0"); } catch {}
   try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN access_formulador INTEGER DEFAULT 0"); } catch {}
