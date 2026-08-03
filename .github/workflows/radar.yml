@@ -95,10 +95,16 @@ jobs:
         # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
         # main, sin esperar al CI) — este paso, gateado por needs:ci, es lo
         # que realmente aporta: bloquear el deploy hasta que build/tsc pasen.
+        # clearCache:"clear" (TEMPORAL) — el build cache de Render seguía
+        # sirviendo un node_modules de builds rotos anteriores (sin
+        # devDependencies) pese a NPM_CONFIG_PRODUCTION=false ya corregido
+        # ("up to date... 1s" en el log = no reinstalaba nada). Quitar este
+        # body una vez confirmado un deploy "live".
         run: |
           HTTP_CODE=$(curl -s -o /tmp/render_response.json -w "%{http_code}" -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
             -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            -H "Content-Type: application/json")
+            -H "Content-Type: application/json" \
+            -d '{"clearCache":"clear"}')
           echo "HTTP status: $HTTP_CODE"
           echo "Respuesta de Render:"
           cat /tmp/render_response.json
