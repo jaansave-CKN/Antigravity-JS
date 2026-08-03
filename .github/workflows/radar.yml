@@ -60,30 +60,27 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: DIAGNÓSTICO TEMPORAL — estado real y completo de env-vars en Render
+      - name: TEMPORAL — corregir SUPABASE_ANON_KEY (corrupta) y SUPABASE_SERVICE_KEY (1 char de más)
         env:
           RKEY: ${{ secrets.RENDER_API_KEY }}
           RSVC: ${{ secrets.RENDER_SERVICE_ID }}
+          SVC_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           node -e "
           const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
+          const vars = {
+            SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96aXZtc3Z4YmR0amt6bGVxYmN5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MDU2NjIsImV4cCI6MjA5NjA4MTY2Mn0.eIaSajaV46aGMM1FMPLSe0Rg8jsElO0H6L8m9JhrwTQ',
+            SUPABASE_SERVICE_KEY: process.env.SVC_KEY,
+          };
           (async () => {
-            let cursor = '';
-            const rows = [];
-            for (let page = 0; page < 10; page++) {
-              const url = 'https://api.render.com/v1/services/' + RSVC + '/env-vars?limit=20' + (cursor ? '&cursor=' + cursor : '');
-              const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
-              const j = await r.json();
-              if (!Array.isArray(j) || j.length === 0) break;
-              for (const it of j) {
-                const e = it.envVar || it;
-                rows.push(e.key + ' | len=' + (e.value ? e.value.length : 0));
-              }
-              cursor = j[j.length - 1].cursor;
-              if (!cursor) break;
+            for (const [key, value] of Object.entries(vars)) {
+              const r = await fetch('https://api.render.com/v1/services/' + RSVC + '/env-vars/' + key, {
+                method: 'PUT',
+                headers: { Authorization: 'Bearer ' + RKEY, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value }),
+              });
+              console.log(key, '->', r.status, '| longitud enviada:', value.length);
             }
-            console.log('TOTAL:', rows.length);
-            console.log(rows.join('\n'));
           })();
           "
 
