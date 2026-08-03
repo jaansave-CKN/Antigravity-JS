@@ -60,13 +60,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: DIAGNÓSTICO TEMPORAL — listar nombres de env vars actuales (sin valores)
-        # Paso temporal de solo lectura para entender la forma de la API de
-        # env-vars de Render antes de escribir nada. Se retira apenas se lea.
+      - name: DIAGNÓSTICO TEMPORAL — forma real de la respuesta de env-vars (valores enmascarados)
         run: |
-          curl -s "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/env-vars?limit=50" \
+          curl -s "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/env-vars?limit=100" \
             -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);for(const it of j){const e=it.envVar||it;console.log(e.key,'| tiene_valor:', e.value!==undefined && e.value!=='');}});"
+            | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);console.log('Es array:', Array.isArray(j), '| longitud:', j.length);console.log('Primer item (claves):', JSON.stringify(Object.keys(j[0]||{})));const masked = JSON.stringify(j, (k,v)=> (k==='value' && typeof v==='string') ? '*'.repeat(Math.min(v.length,8)) : v, 1);console.log(masked.slice(0, 4000));});"
 
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook: el servicio
