@@ -60,6 +60,14 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
+      - name: DIAGNÓSTICO TEMPORAL — listar nombres de env vars actuales (sin valores)
+        # Paso temporal de solo lectura para entender la forma de la API de
+        # env-vars de Render antes de escribir nada. Se retira apenas se lea.
+        run: |
+          curl -s "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/env-vars?limit=50" \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);for(const it of j){const e=it.envVar||it;console.log(e.key,'| tiene_valor:', e.value!==undefined && e.value!=='');}});"
+
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook: el servicio
         # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
