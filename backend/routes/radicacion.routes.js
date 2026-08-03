@@ -61,6 +61,21 @@ export function registerRadicacionRoutes(app, { authenticateToken, runSql, getRo
       return res.status(409).json({ success: false, message: 'El proyecto ya está Finalizado' });
     }
 
+    // Hard-Lock predial (F-Legal-01) — mismo candado que POST /api/m12/ficha/:proyectoId.
+    // Este endpoint no lo llama ningún componente del frontend hoy, pero sigue
+    // siendo una ruta HTTP real y autenticada — debe quedar igual de protegida.
+    const complianceLegal = await getRow(
+      'SELECT estado_legal FROM compliance_data WHERE proyecto_id = ? AND user_id = ?',
+      [proyectoId, req.userId]
+    );
+    if ((complianceLegal?.estado_legal || 'sin_evaluar') !== 'despejado') {
+      return res.status(409).json({
+        success: false,
+        code: 'RIESGO_JURIDICO_CONDICIONADO',
+        message: 'Riesgo jurídico condicionado — el predio debe quedar despejado antes de certificar.',
+      });
+    }
+
     const { valid, code, discrepancy, detail } = runCrossCheck(fichaTecnica, presupuesto, proyectoId);
 
     if (!valid) {

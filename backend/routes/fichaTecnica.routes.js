@@ -38,6 +38,21 @@ export function registerFichaTecnicaRoutes(app, { authenticateToken, runSql, get
       });
     }
 
+    // Hard-Lock predial (F-Legal-01): el único punto real de bloqueo estricto.
+    // 'sin_evaluar' también bloquea — certificar exige un despeje EXPLÍCITO,
+    // no simplemente que nadie haya corrido la auditoría predial todavía.
+    const complianceLegal = await getRow(
+      'SELECT estado_legal FROM compliance_data WHERE proyecto_id = ? AND user_id = ?',
+      [proyectoId, req.userId]
+    );
+    if ((complianceLegal?.estado_legal || 'sin_evaluar') !== 'despejado') {
+      return res.status(409).json({
+        success: false,
+        code: 'RIESGO_JURIDICO_CONDICIONADO',
+        message: 'Riesgo jurídico condicionado — el predio debe quedar despejado antes de certificar.',
+      });
+    }
+
     // Recopilar todos los módulos del proyecto
     const [motorDialectico, compliance, marcoNormativo, logistica] = await Promise.all([
       getRow('SELECT tono, lista_oro, lista_negra, enfasis FROM motor_dialectico WHERE proyecto_id = ? AND user_id = ?', [proyectoId, req.userId]),
