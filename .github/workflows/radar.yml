@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: DIAGNÓSTICO TEMPORAL — estado real del servicio y del último deploy en Render
+      - name: DIAGNÓSTICO TEMPORAL — log real del build fallido en Render
         env:
           RKEY: ${{ secrets.RENDER_API_KEY }}
           RSVC: ${{ secrets.RENDER_SERVICE_ID }}
@@ -68,12 +68,21 @@ jobs:
           node -e "
           const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
           (async () => {
-            const svc = await (await fetch('https://api.render.com/v1/services/' + RSVC, { headers: { Authorization: 'Bearer ' + RKEY } })).json();
-            console.log('Servicio:', svc.name, '| suspended:', svc.suspended, '| suspenders:', JSON.stringify(svc.suspenders||[]));
-            const deploys = await (await fetch('https://api.render.com/v1/services/' + RSVC + '/deploys?limit=5', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
-            for (const d of deploys) {
-              const dep = d.deploy || d;
-              console.log('Deploy', dep.id, '| status:', dep.status, '| commit:', (dep.commit&&dep.commit.id||'').slice(0,7), '| createdAt:', dep.createdAt, '| finishedAt:', dep.finishedAt);
+            const deploys = await (await fetch('https://api.render.com/v1/services/' + RSVC + '/deploys?limit=1', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
+            const dep = (deploys[0].deploy || deploys[0]);
+            console.log('Deploy más reciente:', dep.id, '| status:', dep.status, '| created:', dep.createdAt, '| finished:', dep.finishedAt);
+            const start = dep.createdAt;
+            const end = dep.finishedAt || new Date().toISOString();
+            const url = 'https://api.render.com/v1/logs?resource=' + RSVC + '&startTime=' + encodeURIComponent(start) + '&endTime=' + encodeURIComponent(end) + '&limit=200';
+            const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
+            console.log('Logs HTTP status:', r.status);
+            const j = await r.json();
+            const entries = j.logs || j || [];
+            console.log('Cantidad de entradas:', Array.isArray(entries) ? entries.length : 'N/A');
+            if (Array.isArray(entries)) {
+              for (const e of entries) console.log(e.timestamp, '|', (e.message||'').slice(0,300));
+            } else {
+              console.log(JSON.stringify(j).slice(0, 3000));
             }
           })();
           "
