@@ -60,7 +60,16 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: DIAGNÓSTICO TEMPORAL — log real del build_failed más reciente
+      - name: FIX TEMPORAL — forzar instalación de devDependencies en Render
+        # Causa raíz real (log crudo de Render, deploy dep-d9ohg7qjnfac73auvjs0,
+        # commit eca4828): "sh: 1: vite: not found". NODE_ENV=production ya
+        # configurado en el servicio hace que "npm install" omita TODAS las
+        # devDependencies (vite, typescript, tailwindcss, esbuild...) — el
+        # fix de husky (dc6...) resolvió el fallo de husky pero no este, que
+        # es el mismo problema de fondo aplicado al resto de devDependencies.
+        # NPM_CONFIG_PRODUCTION=false es la env var estándar de npm/Render
+        # para forzar la instalación de devDependencies aunque NODE_ENV sea
+        # production. No es un secreto, PUT de una sola key, no destructivo.
         env:
           RKEY: ${{ secrets.RENDER_API_KEY }}
           RSVC: ${{ secrets.RENDER_SERVICE_ID }}
@@ -68,21 +77,14 @@ jobs:
           node -e "
           const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
           (async () => {
-            const owners = await (await fetch('https://api.render.com/v1/owners', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
-            const ownerId = (owners[0].owner || owners[0]).id;
-            const deploys = await (await fetch('https://api.render.com/v1/services/' + RSVC + '/deploys?limit=10', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
-            const failed = deploys.map(d => d.deploy || d).find(d => d.status === 'build_failed');
-            if (!failed) { console.log('sin build_failed reciente'); return; }
-            console.log('Deploy:', failed.id, '| commit:', failed.commit&&failed.commit.id);
-            const url = 'https://api.render.com/v1/logs?ownerId=' + ownerId + '&resource=' + RSVC + '&startTime=' + encodeURIComponent(failed.createdAt) + '&endTime=' + encodeURIComponent(failed.finishedAt) + '&limit=200';
-            const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
-            const j = await r.json();
-            const entries = j.logs || j || [];
-            if (Array.isArray(entries)) {
-              for (const e of entries) console.log((e.message||'').replace(/\x1b\[[0-9;]*m/g,'').slice(0,300));
-            } else {
-              console.log(JSON.stringify(j).slice(0,2000));
-            }
+            const r = await fetch('https://api.render.com/v1/services/' + RSVC + '/env-vars/NPM_CONFIG_PRODUCTION', {
+              method: 'PUT',
+              headers: { Authorization: 'Bearer ' + RKEY, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ value: 'false' })
+            });
+            console.log('HTTP status:', r.status);
+            console.log(await r.text());
+            if (r.status < 200 || r.status >= 300) process.exit(1);
           })();
           "
 
