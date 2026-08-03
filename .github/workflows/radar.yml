@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: DIAGNÓSTICO TEMPORAL — log runtime del update_failed más reciente
+      - name: DIAGNÓSTICO TEMPORAL — inventario real de env vars en Render
         env:
           RKEY: ${{ secrets.RENDER_API_KEY }}
           RSVC: ${{ secrets.RENDER_SERVICE_ID }}
@@ -68,23 +68,19 @@ jobs:
           node -e "
           const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
           (async () => {
-            const owners = await (await fetch('https://api.render.com/v1/owners', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
-            const ownerId = (owners[0].owner || owners[0]).id;
-            const deploys = (await (await fetch('https://api.render.com/v1/services/' + RSVC + '/deploys?limit=10', { headers: { Authorization: 'Bearer ' + RKEY } })).json()).map(d => d.deploy || d);
-            for (const d of deploys) console.log(d.status, '|', d.id, '|', d.commit && d.commit.id, '|', d.createdAt, '→', d.finishedAt);
-            const terminal = ['build_failed','update_failed','crashed','canceled'];
-            const target = deploys.filter(d => terminal.includes(d.status)).sort((a,b)=> new Date(b.createdAt)-new Date(a.createdAt))[0];
-            if (!target) { console.log('sin deploy fallido reciente'); return; }
-            console.log('--- LOG del deploy', target.id, target.status, '---');
-            const url = 'https://api.render.com/v1/logs?ownerId=' + ownerId + '&resource=' + RSVC + '&startTime=' + encodeURIComponent(target.createdAt) + '&endTime=' + encodeURIComponent(target.finishedAt || new Date().toISOString()) + '&limit=300';
-            const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
-            const j = await r.json();
-            const entries = j.logs || j || [];
-            if (Array.isArray(entries)) {
-              for (const e of entries) console.log((e.message||'').replace(/\x1b\[[0-9;]*m/g,'').slice(0,300));
-            } else {
-              console.log(JSON.stringify(j).slice(0,2000));
+            let cursor = '';
+            const items = [];
+            for (let page = 0; page < 10; page++) {
+              const url = 'https://api.render.com/v1/services/' + RSVC + '/env-vars?limit=20' + (cursor ? '&cursor=' + cursor : '');
+              const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
+              const j = await r.json();
+              if (!Array.isArray(j) || j.length === 0) break;
+              for (const it of j) items.push(it.envVar || it);
+              cursor = j[j.length - 1].cursor;
+              if (!cursor) break;
             }
+            console.log('TOTAL:', items.length);
+            for (const it of items) console.log(it.key, '| len:', (it.value||'').length, '| prefix:', (it.value||'').slice(0,12));
           })();
           "
 
