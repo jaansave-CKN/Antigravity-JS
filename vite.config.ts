@@ -19,9 +19,12 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: resolve(__dirname, 'dist'),
+      emptyOutDir: true,
       minify: isProd ? 'esbuild' : false,
       sourcemap: !isProd,
       cssMinify: true,
+      // Nivel Dios: Eleva el límite de advertencia para evitar alertas de chunks grandes
+      chunkSizeWarningLimit: 600,
       rollupOptions: {
         input: resolve(__dirname, 'client', 'index.html'),
         output: {
@@ -82,7 +85,8 @@ export default defineConfig(({ mode }) => {
         'X-XSS-Protection': '1; mode=block',
         'Referrer-Policy': 'strict-origin-when-cross-origin',
         // CSP ajustada para permitir APIs externas y evitar bloqueos de seguridad
-        'Content-Security-Policy': `default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://unpkg.com; connect-src 'self' https://generativelanguage.googleapis.com https://api.groq.com ${apiTarget} ${apiTarget.replace('http', 'ws')} wss://* https://*.googleapis.com;`,
+        // cdn.tailwindcss.com retirado de script-src el 2026-08-03 — Tailwind ahora se compila localmente vía PostCSS, ya no se carga desde el CDN.
+        'Content-Security-Policy': `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://unpkg.com; connect-src 'self' https://generativelanguage.googleapis.com https://api.groq.com ${apiTarget} ${apiTarget.replace('http', 'ws')} wss://* https://*.googleapis.com;`,
       },
     },
   };

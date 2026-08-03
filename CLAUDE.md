@@ -57,11 +57,22 @@ antes de proceder.
 
 ## Stack técnico
 
-- Frontend: React + TypeScript + Vite (puerto 5173)
-- Backend: Node.js/Express (puerto 3000)
+- Frontend: React + TypeScript + Vite (puerto 5173 en dev)
+- Backend: Node.js/Express (puerto `process.env.PORT || 3000`)
 - DB: PostgreSQL + pgvector (columnas vector(768), índices HNSW)
-- Despliegue: Railway (backend) + Render (frontend)
+- Despliegue: **un solo servicio en Render** (`render.yaml`, `startCommand: node server.js`) — `server.js` sirve la API y también el build estático del frontend (`express.static(distPath)`). Corregido 2026-08-03: no son dos despliegues separados (Railway + Render); `.env.railway` es un archivo huérfano sin referencias en el código, verificado por grep.
 - Design system: Stitch MCP — Dark mode, token base #001c2e
+
+## Protocolo de Auditoría Verificada (obligatorio para cualquier agente que toque este repo, Claude incluido)
+
+Motivo: una auditoría externa (PDF, 2026-08-03) afirmó varios "hallazgos críticos" de infraestructura (contradicción Render/Railway, PM2 causando bucles de reinicio en producción, choque de rutas `/api/radar`, `@types/react` mal clasificado) que resultaron **falsos al verificarlos** contra `render.yaml`, `package.json` y el código real — bastaba con abrir un archivo o correr un `grep`. La causa: se generó prosa técnica plausible razonando sobre texto/notas, sin ejecutar ninguna verificación contra el repo real.
+
+Regla, sin excepciones:
+
+- **Ninguna afirmación de auditoría, review o reporte de estado se acepta sin evidencia citada** — el comando ejecutado, el archivo+línea leído, o la respuesta real de una API. "Debería fallar" no es un hallazgo; "falló, aquí está el output" sí.
+- **Todo reporte generado por otro agente/herramienta se re-verifica** contra el repo real (grep, lectura de archivo, comando en vivo) antes de actuar sobre él — nunca se ejecuta una corrección basada solo en lo que otro agente afirmó.
+- Un hallazgo sin evidencia adjunta se descarta explícitamente, no se documenta como válido ni se actúa sobre él.
+- Aplica igual a hallazgos de seguridad, de arquitectura, de rendimiento y de estado de CI/CD.
 
 ## Señal de cierre
 
