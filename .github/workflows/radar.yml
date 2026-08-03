@@ -60,37 +60,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: DIAGNÓSTICO TEMPORAL — log real del build fallido en Render
-        env:
-          RKEY: ${{ secrets.RENDER_API_KEY }}
-          RSVC: ${{ secrets.RENDER_SERVICE_ID }}
-        run: |
-          node -e "
-          const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
-          (async () => {
-            const owners = await (await fetch('https://api.render.com/v1/owners', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
-            const ownerId = (owners[0].owner || owners[0]).id;
-            console.log('ownerId:', ownerId);
-            const deploys = await (await fetch('https://api.render.com/v1/services/' + RSVC + '/deploys?limit=10', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
-            const failed = deploys.map(d => d.deploy || d).find(d => d.status === 'build_failed');
-            if (!failed) { console.log('No hay ningún deploy build_failed en los últimos 10'); return; }
-            console.log('Deploy fallido elegido:', failed.id, '| created:', failed.createdAt, '| finished:', failed.finishedAt);
-            const start = failed.createdAt;
-            const end = failed.finishedAt || new Date().toISOString();
-            const url = 'https://api.render.com/v1/logs?ownerId=' + ownerId + '&resource=' + RSVC + '&startTime=' + encodeURIComponent(start) + '&endTime=' + encodeURIComponent(end) + '&limit=200';
-            const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
-            console.log('Logs HTTP status:', r.status);
-            const j = await r.json();
-            const entries = j.logs || j || [];
-            console.log('Cantidad de entradas:', Array.isArray(entries) ? entries.length : 'N/A');
-            if (Array.isArray(entries)) {
-              for (const e of entries) console.log(e.timestamp, '|', (e.message||'').slice(0,300));
-            } else {
-              console.log(JSON.stringify(j).slice(0, 3000));
-            }
-          })();
-          "
-
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook: el servicio
         # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
