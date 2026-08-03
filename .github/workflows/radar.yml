@@ -60,11 +60,29 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: DIAGNÓSTICO TEMPORAL — forma real de la respuesta de env-vars (valores enmascarados)
+      - name: DIAGNÓSTICO TEMPORAL — listar TODAS las env-vars paginando (valores enmascarados)
+        env:
+          RKEY: ${{ secrets.RENDER_API_KEY }}
+          RSVC: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
-          curl -s "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/env-vars?limit=100" \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);console.log('Es array:', Array.isArray(j), '| longitud:', j.length);console.log('Primer item (claves):', JSON.stringify(Object.keys(j[0]||{})));const masked = JSON.stringify(j, (k,v)=> (k==='value' && typeof v==='string') ? '*'.repeat(Math.min(v.length,8)) : v, 1);console.log(masked.slice(0, 4000));});"
+          node -e "
+          const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
+          (async () => {
+            let cursor = '';
+            const keys = [];
+            for (let page = 0; page < 10; page++) {
+              const url = 'https://api.render.com/v1/services/' + RSVC + '/env-vars?limit=20' + (cursor ? '&cursor=' + cursor : '');
+              const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
+              const j = await r.json();
+              if (!Array.isArray(j) || j.length === 0) break;
+              for (const it of j) keys.push(it.envVar ? it.envVar.key : it.key);
+              cursor = j[j.length - 1].cursor;
+              if (!cursor) break;
+            }
+            console.log('TOTAL variables encontradas:', keys.length);
+            console.log(keys.join(', '));
+          })();
+          "
 
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook: el servicio
