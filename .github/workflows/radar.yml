@@ -60,6 +60,14 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
+      - name: DIAGNÓSTICO TEMPORAL — listar servicios reales de Render
+        # Paso temporal para descubrir el Service ID correcto con la API key
+        # ya válida. Se retira en el siguiente commit tras leer el resultado.
+        run: |
+          curl -s "https://api.render.com/v1/services?limit=20" \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);for(const it of j){const s=it.service||it;console.log(s.id,'|',s.name,'|',s.type);}});"
+
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook: el servicio
         # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
