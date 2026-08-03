@@ -60,6 +60,22 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
+      - name: DIAGNÓSTICO TEMPORAL — estado real del último deploy
+        env:
+          RKEY: ${{ secrets.RENDER_API_KEY }}
+          RSVC: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          node -e "
+          const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
+          (async () => {
+            const deploys = await (await fetch('https://api.render.com/v1/services/' + RSVC + '/deploys?limit=5', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
+            for (const d of deploys) {
+              const dep = d.deploy || d;
+              console.log('Deploy', dep.id, '| status:', dep.status, '| commit:', (dep.commit&&dep.commit.id||'').slice(0,7), '| created:', dep.createdAt, '| finished:', dep.finishedAt);
+            }
+          })();
+          "
+
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook: el servicio
         # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
