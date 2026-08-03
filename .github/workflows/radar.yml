@@ -60,30 +60,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: DIAGNÓSTICO TEMPORAL — listar TODAS las env-vars paginando (valores enmascarados)
-        env:
-          RKEY: ${{ secrets.RENDER_API_KEY }}
-          RSVC: ${{ secrets.RENDER_SERVICE_ID }}
-        run: |
-          node -e "
-          const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
-          (async () => {
-            let cursor = '';
-            const keys = [];
-            for (let page = 0; page < 10; page++) {
-              const url = 'https://api.render.com/v1/services/' + RSVC + '/env-vars?limit=20' + (cursor ? '&cursor=' + cursor : '');
-              const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
-              const j = await r.json();
-              if (!Array.isArray(j) || j.length === 0) break;
-              for (const it of j) keys.push(it.envVar ? it.envVar.key : it.key);
-              cursor = j[j.length - 1].cursor;
-              if (!cursor) break;
-            }
-            console.log('TOTAL variables encontradas:', keys.length);
-            console.log(keys.join(', '));
-          })();
-          "
-
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook: el servicio
         # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
