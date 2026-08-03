@@ -60,37 +60,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: FIX TEMPORAL — SUPABASE_URL/FRONTEND_URL corruptas (valor duplicado entre corchetes)
-        # Diagnóstico previo mostró SUPABASE_URL con len:84 y prefix "[https://ozi"
-        # y FRONTEND_URL con len:70 y prefix "[https://rad" — ambas son el valor
-        # real duplicado y envuelto en corchetes literales (bug de una escritura
-        # anterior), lo que rompe la validación de supabase-js ("Invalid
-        # supabaseUrl") y crashea el proceso completo al arrancar (Fatal startup
-        # error, ver log real del deploy dep-d9ohlucv6nnc73fp6r5g). Valores
-        # correctos, no sensibles (URLs públicas), PUT de una sola key cada uno.
-        env:
-          RKEY: ${{ secrets.RENDER_API_KEY }}
-          RSVC: ${{ secrets.RENDER_SERVICE_ID }}
-        run: |
-          node -e "
-          const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
-          (async () => {
-            const fixes = {
-              SUPABASE_URL: 'https://ozivmsvxbdtjkzleqbcy.supabase.co',
-              FRONTEND_URL: 'https://radar360-app.onrender.com'
-            };
-            for (const [key, value] of Object.entries(fixes)) {
-              const r = await fetch('https://api.render.com/v1/services/' + RSVC + '/env-vars/' + key, {
-                method: 'PUT',
-                headers: { Authorization: 'Bearer ' + RKEY, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ value })
-              });
-              console.log(key, '→ HTTP', r.status);
-              if (r.status < 200 || r.status >= 300) { console.log(await r.text()); process.exit(1); }
-            }
-          })();
-          "
-
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook: el servicio
         # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
@@ -133,7 +102,20 @@ jobs:
         run: npm ci
 
       - name: Esperar a que el deploy de Render esté activo
-        run: sleep 45
+        # Poll real en vez de sleep fijo: el arranque en frío corre seedPredios/
+        # seedDirectorio vía REST de Supabase (Capa 2) ANTES de app.listen(),
+        # más lento que un sleep 45 fijo — confirmado con evidencia real: los
+        # primeros 3 checks del smoke test agotaban el timeout de 15s cada uno
+        # (server aún no aceptaba conexiones) mientras los checks 4-6, ya con
+        # el server arriba, respondían en <1s.
+        run: |
+          for i in $(seq 1 24); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${{ secrets.SMOKE_TEST_URL }}/api/health" || echo "000")
+            echo "Intento $i: HTTP $CODE"
+            if [ "$CODE" = "200" ]; then echo "Servidor activo."; exit 0; fi
+            sleep 5
+          done
+          echo "::warning::/api/health no respondió 200 tras 120s de polling — se ejecuta el smoke test de todas formas."
 
       - name: Ejecutar smoke test contra el backend real
         run: node backend/scripts/smokeTest.js "${{ secrets.SMOKE_TEST_URL }}"
