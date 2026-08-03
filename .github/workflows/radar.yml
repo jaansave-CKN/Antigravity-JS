@@ -60,16 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: FIX TEMPORAL — forzar instalación de devDependencies en Render
-        # Causa raíz real (log crudo de Render, deploy dep-d9ohg7qjnfac73auvjs0,
-        # commit eca4828): "sh: 1: vite: not found". NODE_ENV=production ya
-        # configurado en el servicio hace que "npm install" omita TODAS las
-        # devDependencies (vite, typescript, tailwindcss, esbuild...) — el
-        # fix de husky (dc6...) resolvió el fallo de husky pero no este, que
-        # es el mismo problema de fondo aplicado al resto de devDependencies.
-        # NPM_CONFIG_PRODUCTION=false es la env var estándar de npm/Render
-        # para forzar la instalación de devDependencies aunque NODE_ENV sea
-        # production. No es un secreto, PUT de una sola key, no destructivo.
+      - name: DIAGNÓSTICO TEMPORAL — estado real del deploy más reciente
         env:
           RKEY: ${{ secrets.RENDER_API_KEY }}
           RSVC: ${{ secrets.RENDER_SERVICE_ID }}
@@ -77,14 +68,25 @@ jobs:
           node -e "
           const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
           (async () => {
-            const r = await fetch('https://api.render.com/v1/services/' + RSVC + '/env-vars/NPM_CONFIG_PRODUCTION', {
-              method: 'PUT',
-              headers: { Authorization: 'Bearer ' + RKEY, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ value: 'false' })
-            });
-            console.log('HTTP status:', r.status);
-            console.log(await r.text());
-            if (r.status < 200 || r.status >= 300) process.exit(1);
+            const owners = await (await fetch('https://api.render.com/v1/owners', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
+            const ownerId = (owners[0].owner || owners[0]).id;
+            const deploys = (await (await fetch('https://api.render.com/v1/services/' + RSVC + '/deploys?limit=5', { headers: { Authorization: 'Bearer ' + RKEY } })).json()).map(d => d.deploy || d);
+            for (const d of deploys) console.log(d.status, '|', d.id, '|', d.commit && d.commit.id, '|', d.commit && d.commit.message, '|', d.createdAt, '→', d.finishedAt);
+            const svc = await (await fetch('https://api.render.com/v1/services/' + RSVC, { headers: { Authorization: 'Bearer ' + RKEY } })).json();
+            console.log('service.suspended:', svc.suspended);
+            const target = deploys.find(d => d.status === 'build_failed') || deploys.find(d => d.status === 'live') || deploys[0];
+            if (target && (target.status === 'build_failed' || target.status === 'update_failed' || target.status === 'crashed')) {
+              console.log('--- LOG del deploy', target.id, target.status, '---');
+              const url = 'https://api.render.com/v1/logs?ownerId=' + ownerId + '&resource=' + RSVC + '&startTime=' + encodeURIComponent(target.createdAt) + '&endTime=' + encodeURIComponent(target.finishedAt || new Date().toISOString()) + '&limit=200';
+              const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
+              const j = await r.json();
+              const entries = j.logs || j || [];
+              if (Array.isArray(entries)) {
+                for (const e of entries) console.log((e.message||'').replace(/\x1b\[[0-9;]*m/g,'').slice(0,300));
+              } else {
+                console.log(JSON.stringify(j).slice(0,2000));
+              }
+            }
           })();
           "
 
