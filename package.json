@@ -23,7 +23,7 @@
     "test:rls": "psql $DATABASE_URL -f backend/scripts/rlsAuditTest.sql",
     "migrate:security": "psql $DATABASE_URL -f backend/migrations/008_trial_sessions_ttl_trigger.sql && psql $DATABASE_URL -f backend/migrations/009_project_version_hashes.sql && psql $DATABASE_URL -f backend/migrations/010_rls_complete_audit.sql",
     "test:all": "npm run test:smoke && npm run test:security",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1095.0",
