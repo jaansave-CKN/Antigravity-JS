@@ -66,8 +66,9 @@
     "sql.js": "^1.14.1",
     "stripe": "^17.7.0",
     "tailwind-merge": "^3.6.0",
+    "undici": "^8.10.0",
     "url": "^0.11.4",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-latest/xlsx-latest.tgz"
   },
   "devDependencies": {
     "@tailwindcss/container-queries": "^0.1.1",
