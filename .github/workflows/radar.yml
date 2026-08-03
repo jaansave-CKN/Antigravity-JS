@@ -60,6 +60,36 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
+      - name: AUDITORÍA TEMPORAL — inventario real de env vars (Brevo / Google Auth)
+        env:
+          RKEY: ${{ secrets.RENDER_API_KEY }}
+          RSVC: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          node -e "
+          const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
+          (async () => {
+            let cursor = '';
+            const items = [];
+            for (let page = 0; page < 10; page++) {
+              const url = 'https://api.render.com/v1/services/' + RSVC + '/env-vars?limit=20' + (cursor ? '&cursor=' + cursor : '');
+              const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
+              const j = await r.json();
+              if (!Array.isArray(j) || j.length === 0) break;
+              for (const it of j) items.push(it.envVar || it);
+              cursor = j[j.length - 1].cursor;
+              if (!cursor) break;
+            }
+            console.log('TOTAL:', items.length);
+            const relevant = ['BREVO_API_KEY','BREVO_SENDER_EMAIL','BREVO_SENDER_NAME','GOOGLE_API_KEY','GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','GOOGLE_REDIRECT_URI','SENTRY_DSN','RESEND_API_KEY','STRIPE_SECRET_KEY'];
+            for (const it of items) console.log(it.key, '| len:', (it.value||'').length);
+            console.log('--- CHEQUEO DE SOPORTE (presente/ausente) ---');
+            for (const k of relevant) {
+              const found = items.find(it => it.key === k);
+              console.log(k, '|', found ? ('PRESENTE, len:' + (found.value||'').length) : 'AUSENTE');
+            }
+          })();
+          "
+
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook: el servicio
         # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
