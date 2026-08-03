@@ -34,6 +34,7 @@ interface AuthContextType {
   isReconnecting: boolean;
   login: (email: string, password: string) => Promise<LoginSubscription | undefined | MfaRequiredResult>;
   completeMfaLogin: (preAuthToken: string, code: string) => Promise<LoginSubscription | undefined>;
+  activarPorCorreo: (activationToken: string) => Promise<void>;
   register: (email: string, password: string, nombre: string, role?: string) => Promise<{ pendingApproval: boolean; message?: string }>;
   logout: () => Promise<void>;
   updateProfile: (data: Partial<UserProfile>) => Promise<void>;
@@ -261,6 +262,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return subscription as LoginSubscription | undefined;
   }
 
+  // ── activarPorCorreo — botón "Validar" del correo enviado justo después de
+  // que el admin aprueba la cuenta (ver aprobar-por-correo en server.js).
+  // Mismo patrón que completeMfaLogin: intercambia un token de un solo uso
+  // por una sesión real, sin pedir contraseña de nuevo.
+  async function activarPorCorreo(activationToken: string): Promise<void> {
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}/auth/validar-por-correo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: activationToken }),
+      });
+    } catch {
+      throw new Error('No se pudo conectar con el servidor. Verifica tu conexión o intenta más tarde.');
+    }
+    const text = await response.text();
+    let data: any;
+    try { data = JSON.parse(text); }
+    catch { throw new Error('El servicio no está disponible en este momento.'); }
+    if (!response.ok) throw new Error(data?.message || 'No se pudo validar la cuenta.');
+    const { token: newToken, user: userData } = data;
+    if (!newToken || !userData) throw new Error('Respuesta inválida del servidor.');
+    persistSession(newToken, userData);
+    checkCredentials(newToken);
+    window.dispatchEvent(new CustomEvent('auth-login', { detail: { token: newToken } }));
+  }
+
   // ── Modo Trial (V8.0) — token temporal 24h, datos en sessionStorage ──────
   async function startTrial() {
     let response: Response;
@@ -412,7 +440,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user, token, loading, hasCredentials,
         isTrialMode: user?.role === 'trial' || user?.is_trial === true,
         isReconnecting,
-        login, completeMfaLogin, register, logout, updateProfile,
+        login, completeMfaLogin, activarPorCorreo, register, logout, updateProfile,
         changePassword, sendPasswordReset,
         validateSessionAction, enterDemoMode, startTrial,
         refreshCredentialsStatus,

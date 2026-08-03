@@ -13,6 +13,7 @@ import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 import { useSubscription } from '../contexts/SubscriptionContext';
+import UserMenu from './UserMenu';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 type RootStatus = 'online' | 'offline' | 'checking';
@@ -276,6 +277,16 @@ export default function TopNavBar() {
         zIndex:               100,
         overflow:             'hidden',
       }}>
+        {/* Wrapper interno relativo: ancla el indicador ROOT al centro real de la barra,
+            independiente del ancho desigual de los pilares A/B a los lados. */}
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+          <div style={{
+            position: 'absolute', left: '50%', top: '50%',
+            transform: 'translate(-50%, -50%)', pointerEvents: 'auto',
+          }}>
+            <RootIndicator status={rootStatus} />
+          </div>
+        </div>
 
         {/* ── BRAND ─────────────────────────────────────────────────────────── */}
         <NavLink to="/" style={{ textDecoration: 'none', flexShrink: 0 }}>
@@ -325,10 +336,8 @@ export default function TopNavBar() {
 
         <Divider />
 
-        {/* ── CENTRO: ROOT status ────────────────────────────────────────────── */}
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-          <RootIndicator status={rootStatus} />
-        </div>
+        {/* ── CENTRO: espaciador — el indicador ROOT real vive anclado al centro absoluto de la barra ── */}
+        <div style={{ flex: 1 }} />
 
         <Divider />
 
@@ -386,7 +395,10 @@ export default function TopNavBar() {
             </NavLink>
           </div>
         ) : (
-          token && <ReportErrorButton token={token} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            {token && <ReportErrorButton token={token} />}
+            <UserMenu />
+          </div>
         )}
       </nav>
     </>

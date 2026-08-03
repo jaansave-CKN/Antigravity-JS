@@ -224,7 +224,7 @@ const CSS = `
 
   /* ── Card subtitle ── */
   .sp-card-subtitle {
-    font-size: 11px;
+    font-size: 14.3px;
     color: #557997;
     margin-bottom: 16px;
     text-align: center;
@@ -252,7 +252,7 @@ const CSS = `
   }
   .sp-features li {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
+    font-size: 10.53px;
     font-weight: 500;
     color: #3a5e7a;
     letter-spacing: 0.02em;
@@ -260,7 +260,7 @@ const CSS = `
     align-items: center;
     gap: 8px;
   }
-  .sp-feat-icon { font-size: 10px; flex-shrink: 0; }
+  .sp-feat-icon { font-size: 11.7px; flex-shrink: 0; }
   .sp-card-a .sp-feat-icon { color: rgba(56,189,248,0.55); }
   .sp-card-b .sp-feat-icon { color: rgba(189,194,255,0.55); }
 
@@ -448,10 +448,6 @@ export default function SelectionPage() {
 
       {/* ── Brand header ────────────────────────────────────────────────────── */}
       <div className="sp-brand">
-        <div className="sp-brand-name">
-          GGIE<span className="sp-brand-sep">·</span>
-          <em className="sp-brand-em">RadarFondos</em>
-        </div>
         <div
           className="sp-status"
           style={{
