@@ -60,7 +60,14 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: DIAGNÓSTICO TEMPORAL — inventario real de env vars en Render
+      - name: FIX TEMPORAL — SUPABASE_URL/FRONTEND_URL corruptas (valor duplicado entre corchetes)
+        # Diagnóstico previo mostró SUPABASE_URL con len:84 y prefix "[https://ozi"
+        # y FRONTEND_URL con len:70 y prefix "[https://rad" — ambas son el valor
+        # real duplicado y envuelto en corchetes literales (bug de una escritura
+        # anterior), lo que rompe la validación de supabase-js ("Invalid
+        # supabaseUrl") y crashea el proceso completo al arrancar (Fatal startup
+        # error, ver log real del deploy dep-d9ohlucv6nnc73fp6r5g). Valores
+        # correctos, no sensibles (URLs públicas), PUT de una sola key cada uno.
         env:
           RKEY: ${{ secrets.RENDER_API_KEY }}
           RSVC: ${{ secrets.RENDER_SERVICE_ID }}
@@ -68,19 +75,19 @@ jobs:
           node -e "
           const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
           (async () => {
-            let cursor = '';
-            const items = [];
-            for (let page = 0; page < 10; page++) {
-              const url = 'https://api.render.com/v1/services/' + RSVC + '/env-vars?limit=20' + (cursor ? '&cursor=' + cursor : '');
-              const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
-              const j = await r.json();
-              if (!Array.isArray(j) || j.length === 0) break;
-              for (const it of j) items.push(it.envVar || it);
-              cursor = j[j.length - 1].cursor;
-              if (!cursor) break;
+            const fixes = {
+              SUPABASE_URL: 'https://ozivmsvxbdtjkzleqbcy.supabase.co',
+              FRONTEND_URL: 'https://radar360-app.onrender.com'
+            };
+            for (const [key, value] of Object.entries(fixes)) {
+              const r = await fetch('https://api.render.com/v1/services/' + RSVC + '/env-vars/' + key, {
+                method: 'PUT',
+                headers: { Authorization: 'Bearer ' + RKEY, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value })
+              });
+              console.log(key, '→ HTTP', r.status);
+              if (r.status < 200 || r.status >= 300) { console.log(await r.text()); process.exit(1); }
             }
-            console.log('TOTAL:', items.length);
-            for (const it of items) console.log(it.key, '| len:', (it.value||'').length, '| prefix:', (it.value||'').slice(0,12));
           })();
           "
 
@@ -89,16 +96,10 @@ jobs:
         # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
         # main, sin esperar al CI) — este paso, gateado por needs:ci, es lo
         # que realmente aporta: bloquear el deploy hasta que build/tsc pasen.
-        # clearCache:"clear" (TEMPORAL) — el build cache de Render seguía
-        # sirviendo un node_modules de builds rotos anteriores (sin
-        # devDependencies) pese a NPM_CONFIG_PRODUCTION=false ya corregido
-        # ("up to date... 1s" en el log = no reinstalaba nada). Quitar este
-        # body una vez confirmado un deploy "live".
         run: |
           HTTP_CODE=$(curl -s -o /tmp/render_response.json -w "%{http_code}" -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
             -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d '{"clearCache":"clear"}')
+            -H "Content-Type: application/json")
           echo "HTTP status: $HTTP_CODE"
           echo "Respuesta de Render:"
           cat /tmp/render_response.json
