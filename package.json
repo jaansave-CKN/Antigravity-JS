@@ -73,7 +73,7 @@
     "@types/react-dom": "^19.2.4",
     "concurrently": "^10.0.3",
     "husky": "^9.1.7",
-    "pm2": "^7.0.1",
+    "pm2": "^7.0.3",
     "typescript": "^5.8.2",
     "vite": "^8.0.14"
   }
