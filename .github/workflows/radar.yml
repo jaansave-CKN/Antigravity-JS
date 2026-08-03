@@ -60,26 +60,20 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: TEMPORAL — corregir SUPABASE_ANON_KEY (corrupta) y SUPABASE_SERVICE_KEY (1 char de más)
+      - name: DIAGNÓSTICO TEMPORAL — estado real del servicio y del último deploy en Render
         env:
           RKEY: ${{ secrets.RENDER_API_KEY }}
           RSVC: ${{ secrets.RENDER_SERVICE_ID }}
-          SVC_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           node -e "
           const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
-          const vars = {
-            SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96aXZtc3Z4YmR0amt6bGVxYmN5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MDU2NjIsImV4cCI6MjA5NjA4MTY2Mn0.eIaSajaV46aGMM1FMPLSe0Rg8jsElO0H6L8m9JhrwTQ',
-            SUPABASE_SERVICE_KEY: process.env.SVC_KEY,
-          };
           (async () => {
-            for (const [key, value] of Object.entries(vars)) {
-              const r = await fetch('https://api.render.com/v1/services/' + RSVC + '/env-vars/' + key, {
-                method: 'PUT',
-                headers: { Authorization: 'Bearer ' + RKEY, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ value }),
-              });
-              console.log(key, '->', r.status, '| longitud enviada:', value.length);
+            const svc = await (await fetch('https://api.render.com/v1/services/' + RSVC, { headers: { Authorization: 'Bearer ' + RKEY } })).json();
+            console.log('Servicio:', svc.name, '| suspended:', svc.suspended, '| suspenders:', JSON.stringify(svc.suspenders||[]));
+            const deploys = await (await fetch('https://api.render.com/v1/services/' + RSVC + '/deploys?limit=5', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
+            for (const d of deploys) {
+              const dep = d.deploy || d;
+              console.log('Deploy', dep.id, '| status:', dep.status, '| commit:', (dep.commit&&dep.commit.id||'').slice(0,7), '| createdAt:', dep.createdAt, '| finishedAt:', dep.finishedAt);
             }
           })();
           "
