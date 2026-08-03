@@ -74,6 +74,15 @@ Regla, sin excepciones:
 - Un hallazgo sin evidencia adjunta se descarta explícitamente, no se documenta como válido ni se actúa sobre él.
 - Aplica igual a hallazgos de seguridad, de arquitectura, de rendimiento y de estado de CI/CD.
 
+### Antes de confiar en cualquier auditoría (propia o de terceros)
+
+Motivo adicional (2026-08-03): al ir a "solucionar" los pendientes de este mismo archivo, 7 de los "hallazgos grandes" (Formulador sin persistencia, motor de coherencia como cáscara vacía, Viabilidad IA desconectada, Exportación sin construir, endpoint huérfano, RadarGridRealTime roto) resultaron **falsos al leer el código real** — heredados de un plan/PDF viejo, nunca reverificados, ni siquiera por Claude en este mismo proyecto.
+
+- **Verificar primero que la herramienta/agente que audita tiene acceso real de ejecución** (shell, lectura de archivos) al repo — no solo texto/notas que se le pegaron. Sin eso, no es un auditor, es un generador de prosa con forma de auditoría, y ningún ajuste de prompt lo arregla.
+- **Un subagente o herramienta externa puede proponer un hallazgo; solo tras re-verificarlo contra el repo real se puede marcar como confirmado** — nunca se hereda un hallazgo de una auditoría anterior (propia o ajena) sin releer el archivo/código que supuestamente lo prueba.
+- Documentación acumulada (este archivo, `pendientes.md`, planes previos) es hipótesis a re-verificar periódicamente, no hecho asentado — sobre todo en sesiones largas.
+- Para auditorías nuevas dentro de Claude Code, preferir `/code-review` o `/security-review` (evidencia estructurada integrada) sobre herramientas externas de acceso/configuración desconocidos.
+
 ## Señal de cierre
 
 Al completar cualquier orden, terminar siempre con: **Mision Cumplida**
