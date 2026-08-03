@@ -257,6 +257,62 @@ const SectorDropdown = React.memo(function SectorDropdown({
   );
 });
 
+// ── Paginador — limita la lista a bloques de 100, ventana actual resaltada ────
+const ITEMS_POR_PAGINA = 100;
+
+interface PaginadorProps {
+  pagina: number;
+  totalPaginas: number;
+  onChange: (p: number) => void;
+}
+
+function rangoPaginas(pagina: number, totalPaginas: number): (number | '…')[] {
+  if (totalPaginas <= 7) return Array.from({ length: totalPaginas }, (_, i) => i + 1);
+  const set = new Set<number>([1, totalPaginas, pagina, pagina - 1, pagina + 1]);
+  const nums = [...set].filter(n => n >= 1 && n <= totalPaginas).sort((a, b) => a - b);
+  const out: (number | '…')[] = [];
+  nums.forEach((n, i) => {
+    if (i > 0 && n - (nums[i - 1] as number) > 1) out.push('…');
+    out.push(n);
+  });
+  return out;
+}
+
+const Paginador = React.memo(function Paginador({ pagina, totalPaginas, onChange }: PaginadorProps) {
+  if (totalPaginas <= 1) return null;
+  return (
+    <div className="radx__paginador" role="navigation" aria-label="Paginación de convocatorias">
+      <button
+        className="radx__pag-btn"
+        onClick={() => onChange(pagina - 1)}
+        disabled={pagina === 1}
+        aria-label="Vista anterior"
+      >‹</button>
+      {rangoPaginas(pagina, totalPaginas).map((p, i) =>
+        p === '…'
+          ? <span key={`e${i}`} className="radx__pag-ellipsis">…</span>
+          : (
+            <button
+              key={p}
+              className={`radx__pag-btn${p === pagina ? ' radx__pag-btn--activa' : ''}`}
+              onClick={() => onChange(p)}
+              aria-current={p === pagina ? 'page' : undefined}
+            >{p}</button>
+          )
+      )}
+      <button
+        className="radx__pag-btn"
+        onClick={() => onChange(pagina + 1)}
+        disabled={pagina === totalPaginas}
+        aria-label="Vista siguiente"
+      >›</button>
+      <span className="radx__pag-total">
+        Vista <strong className="radx__pag-actual">{pagina}</strong> de {totalPaginas}
+      </span>
+    </div>
+  );
+});
+
 // ── RadarHeader props ─────────────────────────────────────────────────────────
 interface RadarHeaderProps {
   entidadId: string | null;
@@ -285,6 +341,9 @@ interface RadarHeaderProps {
   onSortBy: (val: string) => void;
   onClearFilters: () => void;
   onClearEntity: () => void;
+  pagina: number;
+  totalPaginas: number;
+  onCambiarPagina: (p: number) => void;
 }
 
 // ── RadarHeader — memoizado: no re-renderiza cuando cambia la lista ───────────
@@ -294,6 +353,7 @@ const RadarHeader = React.memo(function RadarHeader({
   filtroPais, filtroSectores, filtroEstado, filtroAplicaColombia, metaPaises,
   onRastreo1, onRefresh, onBusqueda, onPais,
   onSectores, onEstado, onToggleAplicaColombia, sortBy, onSortBy, onClearFilters, onClearEntity,
+  pagina, totalPaginas, onCambiarPagina,
 }: RadarHeaderProps) {
   const countLabel = loading ? 'Cargando...' : (() => {
     const total = totalCount;
@@ -319,7 +379,10 @@ const RadarHeader = React.memo(function RadarHeader({
         </div>
       )}
 
-      {/* Header */}
+      {/* Header — título+conteo a la izquierda y los 3 controles (Rastreo 1 /
+          Aplica Colombia / buscador) a la derecha, EXACTAMENTE en su lugar de
+          siempre. El paginador se inserta en el hueco entre ambos, sin mover
+          ni redimensionar ninguno de los dos costados. */}
       <header className="radx__header">
         <div>
           <h1 className="radx__title">RADAR</h1>
@@ -329,6 +392,7 @@ const RadarHeader = React.memo(function RadarHeader({
             {filtroAplicaColombia && <span className="radx__rastreo-badge radx__rastreo-badge--col"> · 🇨🇴 Colombia</span>}
           </p>
         </div>
+        <Paginador pagina={pagina} totalPaginas={totalPaginas} onChange={onCambiarPagina} />
         <div className="radx__header-right">
           <button
             className={[
@@ -462,6 +526,7 @@ const RadarHeader = React.memo(function RadarHeader({
 // ── ConvocatoriasList — componente hijo puro (solo renderiza datos) ────────────
 interface ListProps {
   items: (Convocatoria & { favorito: boolean })[];
+  offset: number;
   loading: boolean;
   error: string | null;
   busqueda: string;
@@ -473,7 +538,7 @@ interface ListProps {
 }
 
 const ConvocatoriasList = React.memo(function ConvocatoriasList({
-  items, loading, error, busqueda, filtroPais, filtroSectores, copRates,
+  items, offset, loading, error, busqueda, filtroPais, filtroSectores, copRates,
   onToggleFavorito, onRetry,
 }: ListProps) {
   if (error) {
@@ -541,8 +606,8 @@ const ConvocatoriasList = React.memo(function ConvocatoriasList({
               </svg>
             </button>
 
-            {/* Col 2 — Rank */}
-            <span className="radx__rank">#{i + 1}</span>
+            {/* Col 2 — Rank (posición global, no reinicia en cada vista) */}
+            <span className="radx__rank">#{offset + i + 1}</span>
 
             {/* Col 3 — Logo */}
             <div className="radx__logo radx__logo--conv">{getLogoText(c)}</div>
@@ -682,6 +747,7 @@ export default function LayoutPadre() {
   const [rastreo1Msg,   setRastreo1Msg]   = useState('');
   const [filtroAplicaColombia, setFiltroAplicaColombia] = useState(false);
   const [error,         setError]         = useState<string | null>(null);
+  const [pagina,        setPagina]        = useState(1);
 
   // ── Filtros ───────────────────────────────────────────────────────────────
   const [busqueda,       setBusqueda]       = useState('');
@@ -754,7 +820,11 @@ export default function LayoutPadre() {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ limit: '500' });
+      // 2000 en vez de 500 — el backend no tiene tope propio (ver server.js,
+      // ruta GET /api/convocatorias), así que el límite real siempre fue este
+      // número acá. Con 605 convocatorias hoy se quedaban 105 sin poder verse
+      // nunca, ni siquiera cambiando de vista en el paginador.
+      const params = new URLSearchParams({ limit: '2000' });
       if (rastreoActivo)       params.set('rastreo', rastreoActivo);
       if (q)                   params.set('q', q);
       if (entidadId)           params.set('entidad_id', entidadId);
@@ -952,6 +1022,26 @@ export default function LayoutPadre() {
     });
   }, [sortedItems, filtroAplicaColombia]);
 
+  // ── Paginación — 100 por vista, se resetea a la vista 1 cuando cambia
+  // cualquier filtro/búsqueda/orden (una vista vieja ya no tendría sentido
+  // sobre un resultado distinto), y se ajusta si el total encoge.
+  const totalPaginas = Math.max(1, Math.ceil(visibleItems.length / ITEMS_POR_PAGINA));
+  useEffect(() => {
+    setPagina(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busqueda, filtroPais, filtroSectores, filtroEstado, filtroAplicaColombia, sortBy, activeRastreo, entidadId]);
+  useEffect(() => {
+    setPagina(p => Math.min(p, totalPaginas));
+  }, [totalPaginas]);
+  const pageItems = useMemo(
+    () => visibleItems.slice((pagina - 1) * ITEMS_POR_PAGINA, pagina * ITEMS_POR_PAGINA),
+    [visibleItems, pagina]
+  );
+  const cambiarPagina = useCallback((p: number) => {
+    setPagina(p);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="radx">
@@ -984,11 +1074,15 @@ export default function LayoutPadre() {
           onSortBy={setSortBy}
           onClearFilters={onClearFilters}
           onClearEntity={onClearEntity}
+          pagina={pagina}
+          totalPaginas={totalPaginas}
+          onCambiarPagina={cambiarPagina}
         />
 
         <div className="radx__scroll-area">
           <ConvocatoriasList
-            items={visibleItems}
+            items={pageItems}
+            offset={(pagina - 1) * ITEMS_POR_PAGINA}
             loading={loading}
             error={error}
             busqueda={busqueda}

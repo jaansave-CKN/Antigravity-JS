@@ -44,6 +44,47 @@
   display: contents;
 }
 
+/* ── Paginador — 100 convocatorias por vista. Vive en el hueco entre el
+   bloque de título y los 3 controles del header; flex:1 para ocupar ESE
+   espacio sin afectar el ancho ni la posición de ninguno de los dos. ── */
+.radx__paginador {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.radx__paginador::-webkit-scrollbar { display: none; }
+.radx__pag-btn {
+  min-width: 24px;
+  height: 28px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  border: 1px solid #dde1e6;
+  border-radius: 6px;
+  background: #fff;
+  color: #45464d;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.radx__pag-btn:hover:not(:disabled) { border-color: #0058be; color: #0058be; }
+.radx__pag-btn:disabled { opacity: .35; cursor: not-allowed; }
+.radx__pag-btn--activa {
+  background: #0058be;
+  border-color: #0058be;
+  color: #fff;
+  font-weight: 700;
+}
+.radx__pag-btn--activa:hover { color: #fff; }
+.radx__pag-ellipsis { color: #9ca3af; padding: 0 2px; font-size: 12px; flex-shrink: 0; }
+.radx__pag-total { margin-left: 8px; font-size: 12px; color: #76777d; white-space: nowrap; flex-shrink: 0; }
+.radx__pag-actual { color: #0058be; font-weight: 700; }
+
 /* ── Status bar — altura fija reservada para mensajes, nunca mueve el layout ── */
 .radx__status-bar {
   min-height: 22px;
@@ -54,7 +95,7 @@
 
 .radx__header {
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* el tope de "RADAR" define el tope de toda la fila */
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 12px;
@@ -76,7 +117,9 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 280px;
+  width: 220px;
+  height: 40px;
+  box-sizing: border-box;
   background: #eceef0;
   border: 1px solid #c6c6cd;
   border-radius: 2rem;
@@ -101,7 +144,7 @@
   color: #191c1e;
   font-size: 14px;
   font-family: inherit;
-  padding: 9px 0;
+  padding: 0;
   outline: none;
 }
 .radx__search::placeholder { color: #c6c6cd; }
@@ -177,7 +220,11 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 68px;
+  min-height: 48px; /* .radx__card tiene align-items:stretch, así que esta
+    caja siempre termina en 48px reales (altura del logo) sin importar este
+    valor — se deja en 48 solo para que coincida con lo que de verdad se
+    renderiza. El ajuste real de posición de la fila de badges se hace con
+    transform en .radx__meta (ver abajo), no aquí. */
 }
 .radx__name {
   font-size: 15px;
@@ -198,8 +245,18 @@
   grid-template-columns: 100px 96px 110px 120px 110px 160px 1fr;
   align-items: center;
   gap: 0;
-  margin-top: 6px;
+  margin-top: 0;
+  transform: translateY(-4px); /* mueve la fila hacia arriba, garantizado —
+    margin-top no funcionaba porque .radx__info se estira (align-items:
+    stretch en .radx__card) a la altura del logo (48px) sin importar su
+    min-height, así que el espacio libre de justify-content:space-between
+    se recalculaba igual y absorbía el margin. transform se aplica después
+    del layout, sin ese problema. */
   font-size: 12px;
+  line-height: 1; /* sin esto, el line-height por defecto (~1.2) deja más
+    hueco debajo del texto que arriba (espacio reservado para descendentes
+    que estas palabras no usan) — el centro matemático de la caja quedaba
+    más abajo que el centro visual del texto. */
   color: #45464d;
   overflow: hidden;
 }
@@ -315,14 +372,6 @@
   color: #76777d;
   padding: 48px 0;
 }
-
-/* ── Header right group (search + refresh) ── */
-.radx__header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-@media (max-width: 768px) { .radx__header-right { width: 100%; flex-direction: column; } }
 
 /* ── Refresh button ── */
 .radx__refresh-btn {
@@ -508,7 +557,9 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 14px;
   background: #eceef0;
   border: 1px solid #c6c6cd;
   border-radius: 0.5rem;
@@ -548,8 +599,10 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0; /* nunca se comprime ni envuelve — el paginador cede espacio, no estos 3 */
 }
+@media (max-width: 768px) { .radx__header-right { width: 100%; flex-wrap: wrap; flex-shrink: 1; } }
 
 /* ── Rastreo active badge ── */
 .radx__rastreo-badge {

@@ -178,6 +178,16 @@ export default function LoginPage() {
   const REMEMBER_KEY = 'rf360_remember_creds';
   const [recordar, setRecordar] = useState(false);
   useEffect(() => {
+    // Vía de purga explícita (?olvidar=1): borra cualquier correo recordado
+    // en ESTE navegador sin restaurarlo primero — usada, por ejemplo, para
+    // limpiar el rastro de una cuenta que un administrador acaba de purgar
+    // en el servidor (el borrado en base de datos no toca este localStorage,
+    // son almacenes independientes).
+    if (new URLSearchParams(location.search).get('olvidar') === '1') {
+      localStorage.removeItem(REMEMBER_KEY);
+      navigate('/login', { replace: true });
+      return;
+    }
     try {
       const raw = localStorage.getItem(REMEMBER_KEY);
       if (raw) {

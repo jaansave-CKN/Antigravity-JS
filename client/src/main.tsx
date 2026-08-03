@@ -11,7 +11,6 @@ import { RadarProvider } from './contexts/RadarContext';
 import { SearchProvider } from './contexts/SearchContext';
 import FormuladorLayout from './components/FormuladorLayout';
 import AppLeftNav from './components/AppLeftNav';
-import EmailVerificationBanner from './components/EmailVerificationBanner';
 import './index.css';
 
 // ── Code-splitting: cada página (y sus dependencias pesadas — leaflet, xlsx,
@@ -21,7 +20,7 @@ const Dashboard              = lazy(() => import('./Dashboard'));
 const LoginPage              = lazy(() => import('./pages/LoginPage'));
 const RegisterPage           = lazy(() => import('./pages/RegisterPage'));
 const PasswordResetPage      = lazy(() => import('./pages/PasswordResetPage'));
-const VerificacionEmailPage  = lazy(() => import('./pages/VerificacionEmailPage'));
+const ValidarCuentaPage      = lazy(() => import('./pages/ValidarCuentaPage'));
 const ControlPanel           = lazy(() => import('./pages/ControlPanel'));
 const DirectoryPage          = lazy(() => import('./pages/DirectoryPage'));
 const ImportPage             = lazy(() => import('./pages/ImportPage'));
@@ -263,7 +262,6 @@ function AppLayout() {
       <SearchProvider>
         <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
           <TopNavBar />
-          <EmailVerificationBanner />
           <div style={{ display: 'flex', flex: 1 }}>
             <AppLeftNav />
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -301,7 +299,7 @@ function AppRoutes() {
       <Route path="/login"          element={realAuth ? toHome : <LoginPage />} />
       <Route path="/register"       element={realAuth ? toHome : <RegisterPage />} />
       <Route path="/reset-password" element={<PasswordResetPage />} />
-      <Route path="/verificar-email" element={<VerificacionEmailPage />} />
+      <Route path="/validar"         element={<ValidarCuentaPage />} />
       <Route path="/terminos"       element={<TerminosPage />} />
       <Route path="/privacidad"     element={<PrivacidadPage />} />
 
