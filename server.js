@@ -680,10 +680,16 @@ async function initDb() {
     value      TEXT      NOT NULL DEFAULT '{}',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
-  // Limpieza: funder-* fueron auto-seeded por error — el Directorio es 100% manual.
-  // Resetear entidad_id en sus convocatorias para que sweepEndsWith las reclasifique.
-  try { await runSql(`UPDATE convocatorias SET entidad_id = NULL WHERE entidad_id LIKE 'funder-%'`); } catch {}
-  try { await runSql(`DELETE FROM directorio_entidades WHERE id LIKE 'funder-%'`); } catch {}
+  // ELIMINADO 2026-08-02: este DELETE corría en CADA arranque del backend
+  // (no era una migración de un solo uso), borrando de forma permanente y
+  // sin soft-delete cualquier entidad cuyo id empezara con "funder-" — sin
+  // importar si el usuario ya la había validado manualmente en el Directorio,
+  // porque validar solo actualiza validation_status, no el id. Con los
+  // múltiples reinicios de esta sesión (pm2 restart), esto borró entidades
+  // reales y validadas de forma irrecuperable (no hay auditoría de acciones
+  // sobre directorio_entidades, solo sobre usuarios). Confirmado: la tabla
+  // ya no tiene ninguna fila con id "funder-%" — no queda nada que limpiar,
+  // y dejar la línea viva era una mina para cualquier futura colisión de id.
   // V8.0 — Tabla de suscripciones por módulo (RBAC)
   await runSql(`CREATE TABLE IF NOT EXISTS user_subscriptions (
     id TEXT PRIMARY KEY,
@@ -1245,15 +1251,6 @@ async function start() {
   // AUTH ROUTES
   // ════════════════════════════════════════════════════════════════════════════
 
-  // Double Opt-In — token JWT autoexpirable (mismo patrón que password_reset),
-  // sin columnas de token en BD. 24h de vigencia.
-  async function enviarCorreoVerificacion(userId, email) {
-    const verifyToken = jwt.sign({ sub: userId, email, purpose: 'email_verification' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '24h' });
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const verifyLink = `${frontendUrl}/verificar-email?token=${verifyToken}`;
-    await emailAdapter.sendEmailVerification(email, verifyLink);
-  }
-
   // POST /api/auth/register
   app.post('/api/auth/register', authLimiter, sanitizeAuthBody, tryCatch(async (req, res) => {
      const { email, password, nombre, role } = req.body;
@@ -1306,12 +1303,6 @@ async function start() {
       aprobarUrl:  `${backendUrl}/api/admin/usuarios/${id}/aprobar-por-correo?token=${decisionToken}`,
       rechazarUrl: `${backendUrl}/api/admin/usuarios/${id}/rechazar-por-correo?token=${decisionToken}`,
     }).catch(e => console.warn('[register] No se pudo notificar al admin:', e.message));
-
-    // Double Opt-In — independiente del gate is_approved (admin). Mismo patrón
-    // de token que /api/auth/forgot-password: JWT autoexpirable, sin columnas
-    // de token en BD. No bloquea la respuesta si el correo falla.
-    enviarCorreoVerificacion(id, email.trim().toLowerCase())
-      .catch(e => console.warn('[register] No se pudo enviar verificación de correo:', e.message));
 
     // No se emite token: la cuenta queda con is_approved=0 hasta que el
     // administrador la apruebe manualmente (ver PUT /api/admin/usuarios/:id/aprobar).
@@ -1492,43 +1483,43 @@ async function start() {
     });
   }));
 
-  // POST /api/auth/enviar-verificacion — reenvío protegido (banner "Reenviar correo")
-  app.post('/api/auth/enviar-verificacion', authenticateToken, authLimiter, tryCatch(async (req, res) => {
-    const user = await getRow('SELECT id, email, email_verified FROM usuarios WHERE id = ? AND deleted_at IS NULL', [req.userId]);
-    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
-    if (user.email_verified) return res.json({ success: true, message: 'Este correo ya está verificado.' });
-    await enviarCorreoVerificacion(user.id, user.email);
-    res.json({ success: true, message: 'Correo de verificación reenviado.' });
-  }));
-
-  // POST /api/auth/confirmar-verificacion — público, consume el JWT del enlace
-  app.post('/api/auth/confirmar-verificacion', tryCatch(async (req, res) => {
+  // POST /api/auth/validar-por-correo — intercambia el token de un solo uso
+  // que llega en el correo "tu cuenta ya fue validada" (enviado justo después
+  // de que el admin aprueba, ver aprobar-por-correo más abajo) por una sesión
+  // real. Reemplaza al viejo doble-opt-in de verificación de correo — un
+  // usuario nuevo ya no ve dos "validaciones" distintas y sin relación entre
+  // sí (confirmar correo + esperar aprobación admin), solo una: cuando el
+  // admin aprueba, el usuario recibe un único botón que lo mete directo al
+  // portal ya con sesión iniciada.
+  app.post('/api/auth/validar-por-correo', authLimiter, tryCatch(async (req, res) => {
     const { token } = req.body || {};
     if (!token) return res.status(400).json({ success: false, message: 'token es requerido' });
     if (isRevoked(token)) {
-      return res.status(400).json({ success: false, message: 'Este enlace ya fue usado. Si necesitas verificar tu correo de nuevo, pide que te reenvíen el correo.' });
+      return res.status(400).json({ success: false, message: 'Este enlace ya fue usado. Inicia sesión normalmente con tu correo y contraseña.' });
     }
     let payload;
     try {
       payload = jwt.verify(token, JWT_SECRET);
     } catch {
-      return res.status(400).json({ success: false, message: 'El enlace de verificación es inválido o expiró. Solicita uno nuevo.' });
+      return res.status(400).json({ success: false, message: 'El enlace es inválido o expiró. Inicia sesión normalmente con tu correo y contraseña.' });
     }
-    if (payload.purpose !== 'email_verification' || !payload.sub) {
-      return res.status(400).json({ success: false, message: 'El enlace de verificación es inválido.' });
+    if (payload.purpose !== 'account_activated' || !payload.sub) {
+      return res.status(400).json({ success: false, message: 'El enlace no es válido.' });
     }
-    const user = await getRow('SELECT id, email FROM usuarios WHERE id = ? AND deleted_at IS NULL', [payload.sub]);
-    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
-    // El email pudo cambiar desde que se emitió el token — no confirmes una dirección distinta a la actual.
-    if (user.email !== payload.email) {
-      return res.status(400).json({ success: false, message: 'El enlace de verificación ya no corresponde al correo actual de la cuenta.' });
+    const user = await getRow('SELECT * FROM usuarios WHERE id = ? AND deleted_at IS NULL', [payload.sub]);
+    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado.' });
+    if (!user.is_approved) {
+      return res.status(403).json({ success: false, code: 'PENDING_APPROVAL', message: 'Tu cuenta todavía no ha sido aprobada por el administrador.' });
     }
-    // OJO: literal SQL (TRUE) en el SET no funciona bajo el fallback REST —
-    // restUpdate() en database.config.js solo traduce placeholders $N, no
-    // literales/expresiones — se descartaría en silencio. Usar siempre "?".
-    await runSql('UPDATE usuarios SET email_verified = ? WHERE id = ?', [true, user.id]);
+    if (!user.is_active) return res.status(403).json({ success: false, message: 'Cuenta desactivada.' });
+
     await revokeToken(token, user.id, payload.exp, runSql);
-    res.json({ success: true, message: 'Correo verificado correctamente.' });
+    const sessionToken = jwt.sign({ sub: user.id, role: user.tipousuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
+    res.json({
+      success: true,
+      token: sessionToken,
+      user: { id: user.id, email: user.email, nombre: user.nombre, role: user.tipousuario, plan: user.plan || 'free', created_at: user.createdat, is_active: !!user.is_active },
+    });
   }));
 
   // ── Aprobación manual de registros (admin) ───────────────────────────────────
@@ -1570,12 +1561,29 @@ async function start() {
   // POST /api/admin/usuarios/:id/aprobar
   app.post('/api/admin/usuarios/:id/aprobar', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+
+    // Verificar que el usuario existe ANTES de aprobar — un id inválido no
+    // debe responder success:true (falso positivo real, confirmado en
+    // auditoría: el UPDATE contra un id inexistente afecta 0 filas y el
+    // endpoint igual devolvía éxito).
+    const objetivo = await getRow('SELECT id, email, nombre FROM usuarios WHERE id = ?', [req.params.id]);
+    if (!objetivo) {
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    }
+
     // Placeholder real (no literal "1"): bajo el fallback REST, restUpdate()
     // en database.config.js solo traduce placeholders $N en el SET — un
     // literal se descarta en silencio y el UPDATE no cambia nada.
     await runSql('UPDATE usuarios SET is_approved = ? WHERE id = ?', [1, req.params.id]);
-    const objetivo = await getRow('SELECT email FROM usuarios WHERE id = ?', [req.params.id]);
-    await registrarAuditoriaAdmin(req, 'aprobar', { id: req.params.id, email: objetivo?.email });
+    await registrarAuditoriaAdmin(req, 'aprobar', { id: req.params.id, email: objetivo.email });
+
+    const activationToken = jwt.sign({ sub: objetivo.id, purpose: 'account_activated' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '30d' });
+    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+    emailAdapter.sendAccountActivatedNotice(objetivo.email, {
+      nombre: objetivo.nombre,
+      validarUrl: `${frontendUrl}/validar?token=${activationToken}`,
+    }).catch(e => console.warn('[aprobar] No se pudo notificar al usuario aprobado:', e.message));
+
     res.json({ success: true, message: 'Usuario aprobado — ya puede iniciar sesión.' });
   }));
 
@@ -1639,7 +1647,7 @@ async function start() {
     const check = await verificarTokenAprobacionCorreo(req.params.id, req.query.token);
     if (!check.ok) return res.status(400).send(paginaResultadoAprobacion('No se pudo aprobar', check.message, false));
 
-    const objetivo = await getRow('SELECT id, email, is_approved FROM usuarios WHERE id = ?', [req.params.id]);
+    const objetivo = await getRow('SELECT id, email, nombre, is_approved FROM usuarios WHERE id = ?', [req.params.id]);
     if (!objetivo) return res.status(404).send(paginaResultadoAprobacion('Usuario no encontrado', 'La cuenta ya no existe.', false));
 
     if (objetivo.is_approved) {
@@ -1650,7 +1658,19 @@ async function start() {
     await runSql('UPDATE usuarios SET is_approved = ? WHERE id = ?', [1, req.params.id]);
     await revokeToken(req.query.token, req.params.id, check.payload.exp, runSql);
     await registrarAuditoriaAdminSinSesion('aprobar', objetivo, req);
-    res.send(paginaResultadoAprobacion('Cuenta aprobada', `${objetivo.email} ya puede iniciar sesión.`, true));
+
+    // Cierra el círculo: el usuario recién aprobado recibe un correo con UN
+    // botón ("Validar") que lo mete directo al portal ya con sesión iniciada
+    // — token de un solo uso, 30 días de validez (no todos revisan el correo
+    // el mismo día que se aprueban).
+    const activationToken = jwt.sign({ sub: objetivo.id, purpose: 'account_activated' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '30d' });
+    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+    emailAdapter.sendAccountActivatedNotice(objetivo.email, {
+      nombre: objetivo.nombre,
+      validarUrl: `${frontendUrl}/validar?token=${activationToken}`,
+    }).catch(e => console.warn('[aprobar-por-correo] No se pudo notificar al usuario aprobado:', e.message));
+
+    res.send(paginaResultadoAprobacion('Cuenta aprobada', `${objetivo.email} ya puede iniciar sesión. Le enviamos un correo con acceso directo al portal.`, true));
   }));
 
   app.get('/api/admin/usuarios/:id/rechazar-por-correo', tryCatch(async (req, res) => {
