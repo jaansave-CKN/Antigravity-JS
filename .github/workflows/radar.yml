@@ -60,27 +60,30 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: FIX TEMPORAL — sincronizar GOOGLE_API_KEY a Render
-        # Confirmado por auditoría 2026-08-03: valor real existe en .env local
-        # (53 caracteres) pero nunca se sincronizó a Render — el log de arranque
-        # mostraba "GOOGLE_API_KEY no configurada — IA deshabilitada (árbol
-        # objetivos + match scoring en modo mock)". PUT de una sola key, no
-        # destructivo. Autorizado explícitamente por el usuario 2026-08-03.
+      - name: VERIFICACIÓN TEMPORAL — log de arranque del deploy live más reciente
         env:
           RKEY: ${{ secrets.RENDER_API_KEY }}
           RSVC: ${{ secrets.RENDER_SERVICE_ID }}
-          GKEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
           node -e "
-          const RKEY = process.env.RKEY, RSVC = process.env.RSVC, GKEY = process.env.GKEY;
+          const RKEY = process.env.RKEY, RSVC = process.env.RSVC;
           (async () => {
-            const r = await fetch('https://api.render.com/v1/services/' + RSVC + '/env-vars/GOOGLE_API_KEY', {
-              method: 'PUT',
-              headers: { Authorization: 'Bearer ' + RKEY, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ value: GKEY })
-            });
-            console.log('GOOGLE_API_KEY → HTTP', r.status);
-            if (r.status < 200 || r.status >= 300) { console.log(await r.text()); process.exit(1); }
+            const deploys = (await (await fetch('https://api.render.com/v1/services/' + RSVC + '/deploys?limit=5', { headers: { Authorization: 'Bearer ' + RKEY } })).json()).map(d => d.deploy || d);
+            const live = deploys.find(d => d.status === 'live');
+            if (!live) { console.log('sin deploy live todavía:', deploys.map(d=>d.status)); return; }
+            console.log('Deploy live:', live.id, '| commit:', live.commit && live.commit.id);
+            const owners = await (await fetch('https://api.render.com/v1/owners', { headers: { Authorization: 'Bearer ' + RKEY } })).json();
+            const ownerId = (owners[0].owner || owners[0]).id;
+            const url = 'https://api.render.com/v1/logs?ownerId=' + ownerId + '&resource=' + RSVC + '&startTime=' + encodeURIComponent(live.createdAt) + '&endTime=' + encodeURIComponent(new Date().toISOString()) + '&limit=300';
+            const r = await fetch(url, { headers: { Authorization: 'Bearer ' + RKEY } });
+            const j = await r.json();
+            const entries = (j.logs || j || []).map(e => (e.message||'').replace(/\x1b\[[0-9;]*m/g,''));
+            const envBlock = entries.filter(m => m.includes('[ENV]') || m.includes('GOOGLE_API_KEY') || m.includes('IA deshabilitada'));
+            console.log('--- Líneas relevantes de configuración ---');
+            for (const m of envBlock) console.log(m.slice(0,300));
+            if (!envBlock.some(m => m.includes('GOOGLE_API_KEY') || m.includes('IA deshabilitada'))) {
+              console.log('✓ Ninguna advertencia de GOOGLE_API_KEY/IA deshabilitada en este arranque.');
+            }
           })();
           "
 
