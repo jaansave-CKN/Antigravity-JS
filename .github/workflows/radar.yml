@@ -60,6 +60,30 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
+      - name: FIX TEMPORAL — sincronizar GOOGLE_API_KEY a Render
+        # Confirmado por auditoría 2026-08-03: valor real existe en .env local
+        # (53 caracteres) pero nunca se sincronizó a Render — el log de arranque
+        # mostraba "GOOGLE_API_KEY no configurada — IA deshabilitada (árbol
+        # objetivos + match scoring en modo mock)". PUT de una sola key, no
+        # destructivo. Autorizado explícitamente por el usuario 2026-08-03.
+        env:
+          RKEY: ${{ secrets.RENDER_API_KEY }}
+          RSVC: ${{ secrets.RENDER_SERVICE_ID }}
+          GKEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          node -e "
+          const RKEY = process.env.RKEY, RSVC = process.env.RSVC, GKEY = process.env.GKEY;
+          (async () => {
+            const r = await fetch('https://api.render.com/v1/services/' + RSVC + '/env-vars/GOOGLE_API_KEY', {
+              method: 'PUT',
+              headers: { Authorization: 'Bearer ' + RKEY, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ value: GKEY })
+            });
+            console.log('GOOGLE_API_KEY → HTTP', r.status);
+            if (r.status < 200 || r.status >= 300) { console.log(await r.text()); process.exit(1); }
+          })();
+          "
+
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook: el servicio
         # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
