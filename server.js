@@ -16,10 +16,11 @@ import { createGitHubRouter }        from './skills/ingenieria/GitHubRouter.js';
 import { createFormuladorRouter }    from './src/modules/formulador/FormuladorRouter.js';
 import { AuditLogger }               from './src/shared/infrastructure/AuditLogger.js';
 import { cacheInfo }                 from './src/shared/infrastructure/cache.js';
-import { issueToken, verifyToken, revokeSession, sessionStats, checkQuota } from './src/shared/infrastructure/session-manager.js';
+import { issueToken, verifyToken, revokeSession, sessionStats, checkQuota, burstLimiter } from './src/shared/infrastructure/session-manager.js';
 import './src/shared/infrastructure/FirebaseAdmin.js';
 import { verifyFirebaseAuth }        from './src/shared/infrastructure/FirebaseAuthMiddleware.js';
-import { m1Router }                  from './src/modules/radar/m1Pipeline.js';
+import { validateBody, schemas }     from './src/shared/infrastructure/validation.js';
+import { m1Router, runM1Pipeline }   from './src/modules/radar/m1Pipeline.js';
 import './scripts/generar_reporte.cjs'; // regenera public/estado_antigravity.json con inventario real de agents/ al arrancar + cada 10 min
 
 dotenv.config();
@@ -82,6 +83,11 @@ app.use((req, res, next) => {
   if (isPublic) return next();
   return verifyFirebaseAuth(req, res, next);
 });
+
+// Rate limit por ráfaga — corre después del gate de auth (req.user ya está poblado si
+// aplica) sobre todo /api/*, autenticado o público. Distinto de checkQuota (cuota diaria
+// de IA): esto protege contra ráfagas cortas en cualquier endpoint, no solo los de IA.
+app.use('/api', burstLimiter);
 
 // ── 2. ENDPOINTS /api/* (ANTES de archivos estáticos) ─────────────────────────
 
@@ -199,10 +205,9 @@ app.use('/api/radar', m1Router);
 // =============================================================================
 
 // POST /api/session/login — intercambia Firebase ID token por JWT propio
-app.post('/api/session/login', async (req, res) => {
+app.post('/api/session/login', validateBody(schemas.sessionLogin), async (req, res) => {
   try {
     const { firebaseToken } = req.body;
-    if (!firebaseToken) return res.status(400).json({ error: 'firebaseToken requerido' });
     const admin   = (await import('./src/shared/infrastructure/FirebaseAdmin.js')).default;
     const decoded = await admin.auth().verifyIdToken(firebaseToken);
     const session = await issueToken(decoded.uid, decoded.role || 'user', { email: decoded.email });
@@ -214,10 +219,9 @@ app.post('/api/session/login', async (req, res) => {
 });
 
 // POST /api/session/verify — verifica JWT propio
-app.post('/api/session/verify', async (req, res) => {
+app.post('/api/session/verify', validateBody(schemas.sessionVerify), async (req, res) => {
   try {
     const { token } = req.body;
-    if (!token) return res.status(400).json({ error: 'token requerido' });
     const payload = await verifyToken(token);
     res.json({ valid: true, payload });
   } catch (err) {
@@ -347,7 +351,7 @@ app.use('/api',            createCommunicationRouter(sendEmailUseCase));
 app.use('/api/github',     createGitHubRouter());
 app.use('/api/formulador', createFormuladorRouter());
 
-app.post('/api/execute', (req, res) => {
+app.post('/api/execute', validateBody(schemas.execute), (req, res) => {
   const { user, action } = req.body;
   AuditLogger.log('FORMAL_ORDER', { user, action });
   res.json({ status: 'SUCCESS' });
@@ -385,28 +389,52 @@ wss.on('connection', (ws) => {
   ws.on('error', (err) => console.error('[WS] Error:', err.message));
 });
 
-// ⚠️ HONESTIDAD TÉCNICA (AGENTS.md, axioma II.4): este intervalo NO consulta al
-// pipeline real (m1Pipeline.js / Claude+Tavily en /api/radar) — cicla sobre el
-// mismo CONVOCATORIAS_SEED estático y le cambia el estado al azar para simular
-// actividad. Conectar esto a hallazgos reales de m1Pipeline es un rediseño de
-// backend con costo recurrente por llamada (Tavily+Claude por búsqueda) y
-// requiere decidir la cadencia/programación — no se fabrica esa decisión aquí;
-// mientras tanto, cada evento emitido se marca `_simulado: true` para que ningún
-// consumidor (frontend, logs, health check) lo confunda con un hallazgo real.
-const SECTORES = ['Transporte','Agua Potable','Educación','Salud','Tecnología','Vivienda'];
-const ESTADOS  = ['Abierta','Próxima','En revisión'];
-let _broadcastCounter = 0;
+// ── Feed "Live" real — cron único de baja frecuencia para todo el sistema ──────
+// Oleada 2, Grupo Elite (2026-08-06). Reemplaza el setInterval simulado anterior
+// (cicla el seed con estado aleatorio, marcado _simulado:true) por una llamada
+// real a m1Pipeline.js (Claude+Tavily), compartida entre todos los clientes
+// conectados — un pipeline sirve a N usuarios, no uno por conexión. Reutiliza el
+// cache dual de 24h ya existente en m1Pipeline.js: si el cron corre más seguido
+// que la vigencia del cache, la 2ª corrida es gratis (cache HIT), no una llamada
+// nueva a Claude/Tavily. Cadencia configurable — sin tráfico real que justifique
+// algo distinto de un setInterval simple (ver docs/RADFOR360_ARQUITECTURA_OPTIMIZACION.md §2).
+const RADAR_CRON_HOURS = Number(process.env.RADAR_CRON_HOURS) || 6;
+const RADAR_CRON_QUERY = 'oportunidades y convocatorias de inversión pública vigentes en Colombia';
 
-setInterval(() => {
-  _broadcastCounter++;
-  if (wss.clients.size === 0) return;
-  const target = radarData[_broadcastCounter % radarData.length];
-  const updated = { ...target, status: ESTADOS[_broadcastCounter % ESTADOS.length], _ts: Date.now(), _simulado: true };
-  const idx = radarData.findIndex(r => r.id === target.id);
-  if (idx >= 0) radarData[idx] = updated;
-  broadcastRadar('STATUS_UPDATE', updated);
-  console.log('[WS] Broadcast STATUS_UPDATE (simulado) →', updated.id, '→', updated.status);
-}, 30_000);
+function slugId(entidad, titulo) {
+  return `${entidad}-${titulo}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60);
+}
+
+async function refreshRadarLive() {
+  if (wss.clients.size === 0) {
+    console.log('[Radar Cron] Sin clientes conectados — se omite esta corrida (cero costo).');
+    return;
+  }
+  try {
+    console.log('[Radar Cron] Ejecutando m1Pipeline compartido...');
+    const { oportunidades, fromCache } = await runM1Pipeline({ query: RADAR_CRON_QUERY, filters: {} });
+    console.log(`[Radar Cron] ${oportunidades.length} oportunidades (${fromCache ? 'cache' : 'IA en vivo'})`);
+
+    for (const op of oportunidades) {
+      const id = slugId(op.entidad || 'entidad', op.titulo || 'oportunidad');
+      const item = {
+        id, entidad: op.entidad || 'Por confirmar', objeto: op.titulo || 'Por confirmar',
+        monto: op.monto || 'Por confirmar', sector: op.sector || 'Multisectorial',
+        region: op.cobertura || 'Nacional', status: 'Abierta', fechaCierre: op.fechaCierre || 'Por confirmar',
+        _ts: Date.now(),
+      };
+      const idx = radarData.findIndex(r => r.id === id);
+      const isNew = idx < 0;
+      if (isNew) radarData.unshift(item); else radarData[idx] = item;
+      broadcastRadar(isNew ? 'NEW_FUND_DETECTED' : 'STATUS_UPDATE', item);
+    }
+  } catch (err) {
+    console.error('[Radar Cron] Falló la corrida:', err.message);
+  }
+}
+
+setInterval(refreshRadarLive, RADAR_CRON_HOURS * 60 * 60 * 1000);
 
 // ── Arranque ──────────────────────────────────────────────────────────────────
 httpServer.listen(PORT, () => {

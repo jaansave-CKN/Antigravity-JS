@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import FrozenPage from './pages/FrozenPage';
 import InicioPage from './pages/InicioPage';
 import RadarApp from './RadarApp';
+import Modulo10Page from './pages/Modulo10Page';
 import RequireAuth from './components/RequireAuth';
 import {
   BarChart3, BookOpen, Star, Calendar,
@@ -24,7 +25,7 @@ export default function App() {
         <Route path="calendario"  element={<FrozenPage title="Calendario de Favoritos" module="A" Icon={Calendar}   />} />
 
         {/* MÓDULO B — Formulación AI 7.0 */}
-        <Route path="modulo10"    element={<FrozenPage title="Módulo 10"              module="B" Icon={Layers}       />} />
+        <Route path="modulo10"    element={<Modulo10Page />} />
         <Route path="anexos"      element={<FrozenPage title="Anexos"                 module="B" Icon={Paperclip}   />} />
         <Route path="logistica"   element={<FrozenPage title="Logística"              module="B" Icon={Truck}       />} />
         <Route path="dialetica"   element={<FrozenPage title="Dialéctica"             module="B" Icon={MessageSquare}/>} />

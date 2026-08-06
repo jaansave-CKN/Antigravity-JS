@@ -634,6 +634,12 @@
       </div>
       <div class="module-card__body">
         <div class="form-row">
+          <div class="form-group" style="flex:1 1 100%;">
+            <label>Nombre del Proyecto</label>
+            <input type="text" id="nombre_proyecto" placeholder="Ej: Construcción aulas escuela rural vereda El Progreso">
+          </div>
+        </div>
+        <div class="form-row">
           <div class="form-group">
             <label>Tipo de Proponente</label>
             <select id="user_type">
@@ -1405,6 +1411,55 @@
 
   </div><!-- end app-shell -->
 
+  <!-- Firebase Auth (compat, vía CDN) — página estática fuera del SPA React, sin bundler.
+       Reutiliza la MISMA sesión ya iniciada en /inicio (persistencia de Firebase Auth es
+       por origen, no por página) para obtener el ID token real que exige /api/formulador/*.
+       2026-08-06, Oleada 1 (Grupo Elite) — antes esta página no tenía ningún SDK de auth. -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-auth-compat.js"></script>
+  <script src="firebase-config.js" type="module"></script>
+  <script>
+    // firebase-config.js es un módulo ESM (export default) — no expone la config al scope
+    // global directo, así que se duplica aquí el mismo objeto ya usado por public/src/lib/firebase.js
+    // (mismo proyecto antigravity-jairo-2026). Evita depender de imports ESM cross-origin
+    // para el SDK compat, que espera el global `firebase`.
+    const firebaseConfig = {
+      apiKey: "AIzaSyBdaIbBKlPn1yTxB2g7zuycPk-B1WF9TPk",
+      authDomain: "antigravity-jairo-2026.firebaseapp.com",
+      projectId: "antigravity-jairo-2026",
+      storageBucket: "antigravity-jairo-2026.firebasestorage.app",
+      messagingSenderId: "48939331003",
+      appId: "1:48939331003:web:450caf121f1b53693b689e"
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+
+    // Expuesto para app.js (script no-module en la misma página, mismo scope global).
+    window.__antigravityAuth = {
+      getIdToken: async () => {
+        const user = firebase.auth().currentUser
+          || await new Promise(resolve => {
+               const unsub = firebase.auth().onAuthStateChanged(u => { unsub(); resolve(u); });
+             });
+        if (!user) return null;
+        return user.getIdToken();
+      },
+      requireLogin: () => {
+        const banner = document.getElementById('auth-required-banner');
+        if (banner) banner.style.display = 'flex';
+      },
+    };
+
+    firebase.auth().onAuthStateChanged(user => {
+      const banner = document.getElementById('auth-required-banner');
+      if (banner) banner.style.display = user ? 'none' : 'flex';
+    });
+  </script>
+
+  <!-- Aviso de sesión requerida — mismo sistema visual (bg oscuro, acento dorado) que el resto -->
+  <div id="auth-required-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9998;background:#1a1400;border-bottom:1px solid #c9a227;color:#fde68a;padding:10px 16px;text-align:center;font-size:13px;">
+    ⚠️ No hay sesión activa — <a href="/inicio" style="color:#c9a227;text-decoration:underline;">inicia sesión</a> para poder guardar la Fase 1.
+  </div>
+
   <script type="module" src="app.js"></script>
   <script>
     document.getElementById('oxi-trigger').addEventListener('click', () => {
@@ -1560,83 +1615,11 @@
       }
     });
 
-    document.getElementById('btn-generar-ficha').addEventListener('click', () => {
-      const selectedODS = Array.from(document.querySelectorAll('.ods-item input:checked')).map(i => parseInt(i.closest('.ods-item').dataset.ods));
-      const smartRows = Array.from(document.querySelectorAll('#smart-tbody tr')).map(tr => ({
-        indicador: tr.cells[0].querySelector('input').value,
-        valor_actual: tr.cells[1].querySelector('input').value,
-        meta: tr.cells[2].querySelector('input').value,
-        unidad: tr.cells[3].querySelector('input').value
-      })).filter(r => r.indicador);
-
-      const insumos = Array.from(document.querySelectorAll('#insumos-tbody tr')).map(tr => {
-        const inputs = tr.querySelectorAll('input');
-        return {
-          item: inputs[0].value,
-          descripcion: inputs[1].value,
-          unidad: inputs[2].value,
-          cantidad: parseFloat(inputs[3].value) || 0,
-          precio_unitario: parseFloat(inputs[4].value) || 0
-        };
-      }).filter(r => r.descripcion);
-
-      const latLngStr = document.getElementById('lat_lng').value.trim();
-      let lat_lng = null;
-      if (latLngStr) {
-        const parts = latLngStr.split(',').map(p => p.trim());
-        if (parts.length === 2) lat_lng = { lat: parseFloat(parts[0]), lng: parseFloat(parts[1]) };
-      }
-
-      const ficha = {
-        metadata: {
-          user_type: document.getElementById('user_type').value,
-          sector: document.getElementById('sector').value,
-          mecanismo: document.querySelector('input[name="mecanismo"]:checked').value,
-          is_oxi: document.querySelector('input[name="mecanismo"]:checked').value === 'oxi',
-          oxi_modality: document.getElementById('oxi_modality').value || null
-        },
-        geography: {
-          departamento: document.getElementById('depto').value,
-          municipio: document.getElementById('municipio').value,
-          vereda: document.getElementById('vereda').value,
-          lat_lng,
-          is_zomac_pdet: document.getElementById('is_zomac').checked || document.getElementById('is_pdet').checked,
-          territorialidad: {
-            zomac: document.getElementById('is_zomac').checked,
-            pdet: document.getElementById('is_pdet').checked,
-            frontera: document.getElementById('is_frontera').checked,
-            territorio_indigena: document.getElementById('is_territorio_indigena').checked
-          },
-          kml_file: fileStores.kml[0] ? fileStores.kml[0].name : null
-        },
-        population: {
-          total: parseInt(document.getElementById('poblacion_total').value) || 0,
-          beneficiarios_directos: parseInt(document.getElementById('beneficiarios_directos').value) || 0,
-          caracterizacion: Array.from(document.querySelectorAll('[id^="modulo-4"] input[type="checkbox"]:checked')).map(c => c.value)
-        },
-        technical_core: {
-          problem_statement: document.getElementById('problem_statement').value,
-          root_cause: document.getElementById('root_cause').value,
-          expected_effect: document.getElementById('expected_effect').value,
-          intervention_nature: document.getElementById('intervention_nature').value,
-          construction_system: document.getElementById('construction_system').value,
-          intervention_description: document.getElementById('intervention_desc').value,
-          smart_indicators: smartRows,
-          ods_goals: selectedODS,
-          bill_of_materials: insumos
-        },
-        attachments: {
-          tenencia: fileStores.tenencia[0] ? fileStores.tenencia[0].name : null,
-          personeria: fileStores.personeria[0] ? fileStores.personeria[0].name : null,
-          confis_certificate: fileStores.confis[0] ? fileStores.confis[0].name : null,
-          cotizaciones: fileStores.cotizaciones.map(f => f.name)
-        }
-      };
-
-      sessionStorage.setItem('ficha_fase1', JSON.stringify(ficha));
-      window.dispatchEvent(new CustomEvent('ficha:generated', { detail: ficha }));
-      alert('✅ Ficha Técnica FASE 1 generada. Guardada en sesión.\n\nJSON: ' + JSON.stringify(ficha, null, 2).substring(0, 200) + '...');
-    });
+    // El envío real de "Finalizar Fase 1" vive en app.js (FinalizarFase1, cargado como
+    // <script type="module" src="app.js"> más abajo) — único dueño del listener de
+    // #btn-generar-ficha desde 2026-08-06 (Oleada 1, Grupo Elite). Antes había un segundo
+    // listener duplicado aquí mismo que solo guardaba en sessionStorage y nunca llegaba
+    // a /api/formulador/fase1 — eliminado para que no compita con el flujo real.
 
     /* ═══════════════════════════════════════════════════════
        MÓDULO 7 — Formulación de Objetivos

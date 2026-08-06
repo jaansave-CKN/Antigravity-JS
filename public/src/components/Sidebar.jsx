@@ -134,7 +134,7 @@ export default function Sidebar() {
       <div style={S.section}>
         <span style={S.secLabel}>Módulo B · Formulación AI 7.0</span>
         <NavItem to="/fase1-entrada.html" label="Entrada (1–9)"    Icon={Zap}           external badge="ACTIVO" />
-        <NavItem to="/modulo10"           label="Módulo 10"        Icon={Layers}        frozen />
+        <NavItem to="/modulo10"           label="Módulo 10"        Icon={Layers}        badge="ACTIVO" />
         <NavItem to="/anexos"             label="Anexos"           Icon={Paperclip}     frozen />
         <NavItem to="/logistica"          label="Logística"        Icon={Truck}         frozen />
         <NavItem to="/dialetica"          label="Dialéctica"       Icon={MessageSquare} frozen />

@@ -10,12 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "api": "node server.js",
-    "fastapi": "python backend_fastapi.py",
-    "server": "python backend_fastapi.py",
-    "sim": "node server-sim.js",
-    "start": "concurrently \"npm run dev\" \"npm run api\"",
-    "start:full": "concurrently \"npm run dev\" \"npm run api\" \"npm run fastapi\"",
-    "start:sim": "concurrently \"npm run dev\" \"npm run sim\""
+    "start": "concurrently \"npm run dev\" \"npm run api\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",
@@ -44,7 +39,8 @@
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0",
     "ws": "^8.21.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@_davideast/stitch-mcp": "^0.5.3",

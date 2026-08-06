@@ -1,8 +1,17 @@
 /**
  * APP.JS — FASE 1: dark theme
+ *
+ * 2026-08-06 (Oleada 1, Grupo Elite): reescrito. Antes importaba
+ * Orchestrator000 directamente desde '../src/orchestrator-engine.js' — un import
+ * que solo resuelve en `npm run dev` (Vite); en el build de producción (dist/,
+ * servido por Express) esa ruta da 404 y el flujo entero quedaba roto en silencio.
+ * Ahora este archivo no importa nada de src/ — llama al backend real
+ * (POST /api/formulador/fase1 para persistir, POST /api/formulador/ficha-tecnica
+ * para generar el borrador, que sí corre Orchestrator000 del lado del servidor).
+ * También es, desde esta misma sesión, el único dueño del listener de
+ * #btn-generar-ficha (antes había un segundo handler duplicado e inline en
+ * fase1-entrada.html que solo guardaba en sessionStorage y nunca llegaba al backend).
  */
-
-import { Orchestrator000 } from '../src/orchestrator-engine.js';
 
 const Fase1App = {
   version: '1.0.0',
@@ -21,6 +30,7 @@ const Fase1App = {
 const Fase1Validator = {
   validate(ficha) {
     const errors = [], warnings = [];
+    if (!ficha.ficha_fase1?.nombre_proyecto) errors.push({ mod: 1, field: 'nombre_proyecto', msg: 'Nombre del proyecto requerido' });
     if (!ficha.metadata?.user_type) errors.push({ mod: 1, field: 'user_type', msg: 'Tipo de proponente requerido' });
     if (!ficha.metadata?.sector) errors.push({ mod: 1, field: 'sector', msg: 'Sector requerido' });
     if (ficha.metadata?.is_oxi) {
@@ -36,32 +46,67 @@ const Fase1Validator = {
 
 window.Fase1App = Fase1App;
 
+// ── Auth — expuesto por fase1-entrada.html (SDK compat vía CDN, ver ese archivo) ──
+async function getAuthToken() {
+  if (!window.__antigravityAuth) return null;
+  return window.__antigravityAuth.getIdToken();
+}
+
+async function apiPost(path, body, token) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status, data });
+  return data;
+}
+
 window.FinalizarFase1 = async function FinalizarFase1() {
   console.log('🚀 Disparador:', Fase1App.actions.submit);
-  const ficha = gatherFormData();
-  const validation = Fase1Validator.validate(ficha);
-  console.log('📋 Ficha:', ficha);
-  console.log('✅ Validación:', validation);
-  if (validation.blocking.length > 0) { showBlockingErrors(validation.blocking); return; }
 
-  const orchestrator = new Orchestrator000();
-
-  // GATE DE ARQUITECTURA — validar el diseño de la ficha antes de generar nada.
-  const disenoAprobado = await orchestrator.validarDiseno(ficha);
-  console.log('🏛️ Gate de arquitectura:', disenoAprobado);
-  if (!disenoAprobado.aprobado) {
-    showBlockingErrors(disenoAprobado.checks.filter(c => !c.pass).map(c => ({ mod: 0, field: c.test, msg: c.msg || c.test })));
+  const token = await getAuthToken();
+  if (!token) {
+    window.__antigravityAuth?.requireLogin?.();
+    showBlockingErrors([{ mod: 0, field: 'auth', msg: 'Debes iniciar sesión (botón arriba) antes de generar la Ficha Técnica.' }]);
     return;
   }
 
-  const result = await orchestrator.run(ficha, disenoAprobado);
-  if (result.success) renderDashboard(result);
-  return result;
+  const { ficha_fase1, modulo_7, modulo_8, modulo_9, ficha } = gatherFormData();
+  const validation = Fase1Validator.validate({ ficha_fase1, ...ficha });
+  console.log('📋 Ficha Fase 1:', ficha_fase1, modulo_7, modulo_8, modulo_9);
+  console.log('✅ Validación:', validation);
+  if (validation.blocking.length > 0) { showBlockingErrors(validation.blocking); return; }
+
+  const btn = document.getElementById('btn-generar-ficha');
+  const originalLabel = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando Fase 1…'; }
+
+  try {
+    const guardado = await apiPost('/api/formulador/fase1', { ficha_fase1, modulo_7, modulo_8, modulo_9 }, token);
+    console.log('💾 Fase 1 guardada en Supabase:', guardado);
+
+    if (btn) btn.textContent = 'Generando Ficha Técnica (IA)…';
+    const result = await apiPost('/api/formulador/ficha-tecnica', { ficha }, token);
+    if (result.success) renderDashboard(result, guardado);
+    return result;
+  } catch (err) {
+    console.error('[FinalizarFase1] Error:', err);
+    showBlockingErrors([{ mod: 0, field: 'backend', msg: err.message || 'No se pudo completar el guardado.' }]);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  }
 };
 
 window._fileStores = { kml: [], tenencia: [], personeria: [], confis: [], cotizaciones: [] };
 
 function gatherFormData() {
+  const val = (id) => document.getElementById(id)?.value || '';
+
   const selectedODS = Array.from(document.querySelectorAll('.ods-item input:checked')).map(i => parseInt(i.closest('.ods-item').dataset.ods));
   const smartRows = Array.from(document.querySelectorAll('#smart-tbody tr')).map(tr => {
     const inputs = tr.querySelectorAll('input');
@@ -71,18 +116,97 @@ function gatherFormData() {
     const inputs = tr.querySelectorAll('input');
     return { item: inputs[0]?.value || '', descripcion: inputs[1]?.value || '', unidad: inputs[2]?.value || '', cantidad: parseFloat(inputs[3]?.value) || 0, precio_unitario: parseFloat(inputs[4]?.value) || 0 };
   }).filter(r => r.descripcion);
-  const latLngStr = document.getElementById('lat_lng')?.value?.trim() || '';
+  const latLngStr = val('lat_lng').trim();
   let lat_lng = null;
   if (latLngStr) { const parts = latLngStr.split(',').map(p => p.trim()); if (parts.length === 2) lat_lng = { lat: parseFloat(parts[0]), lng: parseFloat(parts[1]) }; }
   const mecanismo = document.querySelector('input[name="mecanismo"]:checked')?.value || 'inversion_directa';
   const isOxi = mecanismo === 'oxi';
-  return {
-    metadata: { user_type: document.getElementById('user_type')?.value || '', sector: document.getElementById('sector')?.value || '', metodologia: isOxi ? 'oxi' : 'inversion_directa', mecanismo, is_oxi: isOxi, oxi_modality: isOxi ? document.getElementById('oxi_modality')?.value || null : null },
-    geography: { departamento: document.getElementById('depto')?.value || '', municipio: document.getElementById('municipio')?.value || '', vereda: document.getElementById('vereda')?.value || '', lat_lng, is_zomac_pdet: document.getElementById('is_zomac')?.checked || document.getElementById('is_pdet')?.checked, territorialidad: { zomac: document.getElementById('is_zomac')?.checked || false, pdet: document.getElementById('is_pdet')?.checked || false, frontera: document.getElementById('is_frontera')?.checked || false, territorio_indigena: document.getElementById('is_territorio_indigena')?.checked || false }, kml_file: window._fileStores?.kml?.[0]?.name || null },
-    population: { total: parseInt(document.getElementById('poblacion_total')?.value) || 0, beneficiarios_directos: parseInt(document.getElementById('beneficiarios_directos')?.value) || 0, caracterizacion: Array.from(document.querySelectorAll('#modulo-4 input[type="checkbox"]:checked')).map(c => c.value) },
-    technical_core: { problem_statement: document.getElementById('problem_statement')?.value || '', root_cause: document.getElementById('root_cause')?.value || '', expected_effect: document.getElementById('expected_effect')?.value || '', intervention_nature: document.getElementById('intervention_nature')?.value || '', construction_system: document.getElementById('construction_system')?.value || 'Convencional', intervention_description: document.getElementById('intervention_desc')?.value || '', smart_indicators: smartRows, ods_goals: selectedODS, bill_of_materials: insumos },
-    attachments: { tenencia: window._fileStores?.tenencia?.[0]?.name || null, personeria: window._fileStores?.personeria?.[0]?.name || null, confis_certificate: window._fileStores?.confis?.[0]?.name || null, cotizaciones: (window._fileStores?.cotizaciones || []).map(f => f.name) }
+
+  const metadata = { user_type: val('user_type'), sector: val('sector'), metodologia: isOxi ? 'oxi' : 'inversion_directa', mecanismo, is_oxi: isOxi, oxi_modality: isOxi ? (val('oxi_modality') || null) : null };
+  const geography = { departamento: val('depto'), municipio: val('municipio'), vereda: val('vereda'), lat_lng, is_zomac_pdet: document.getElementById('is_zomac')?.checked || document.getElementById('is_pdet')?.checked, territorialidad: { zomac: document.getElementById('is_zomac')?.checked || false, pdet: document.getElementById('is_pdet')?.checked || false, frontera: document.getElementById('is_frontera')?.checked || false, territorio_indigena: document.getElementById('is_territorio_indigena')?.checked || false }, kml_file: window._fileStores?.kml?.[0]?.name || null };
+  const population = { total: parseInt(val('poblacion_total')) || 0, beneficiarios_directos: parseInt(val('beneficiarios_directos')) || 0, caracterizacion: Array.from(document.querySelectorAll('#modulo-4 input[type="checkbox"]:checked')).map(c => c.value) };
+  const technical_core = { problem_statement: val('problem_statement'), root_cause: val('root_cause'), expected_effect: val('expected_effect'), intervention_nature: val('intervention_nature'), construction_system: val('construction_system') || 'Convencional', intervention_description: val('intervention_desc'), smart_indicators: smartRows, ods_goals: selectedODS, bill_of_materials: insumos };
+  const attachments = { tenencia: window._fileStores?.tenencia?.[0]?.name || null, personeria: window._fileStores?.personeria?.[0]?.name || null, confis_certificate: window._fileStores?.confis?.[0]?.name || null, cotizaciones: (window._fileStores?.cotizaciones || []).map(f => f.name) };
+
+  // Shape que Orchestrator000 (server-side) espera — ver src/orchestrator-engine.js.
+  const ficha = { metadata, geography, population, technical_core, attachments };
+
+  // Shape que insertar_fase1() (Supabase RPC) espera — ver migrations/005_fix_insertar_fase1.sql.
+  const ficha_fase1 = {
+    nombre_proyecto: val('nombre_proyecto'),
+    sector_codigo:   metadata.sector,
+    enfoque:         metadata.metodologia,
+    regimen:         metadata.mecanismo,
+    departamento:    geography.departamento,
+    municipio:       geography.municipio,
+    zona:            geography.vereda,
+    diagnostico:     technical_core.problem_statement,
+    poblacion_total: population.total,
   };
+
+  // Módulo 7 — Objetivos
+  const oeItems = Array.from(document.querySelectorAll('#oe-container .oe-item')).map((el, i) => {
+    const inputs = el.querySelectorAll('.oe-sub input');
+    return {
+      descripcion: el.querySelector('.oe-textarea')?.value || '',
+      indicador:   inputs[0]?.value || '',
+      meta:        inputs[1]?.value || '',
+      linea_base:  inputs[2]?.value || '',
+      unidad:      '',
+    };
+  }).filter(oe => oe.descripcion);
+  const cadena_valor = {
+    insumos:     Array.from(document.querySelectorAll('#cadena-insumos .cadena-input')).map(i => i.value).filter(Boolean),
+    actividades: Array.from(document.querySelectorAll('#cadena-actividades .cadena-input')).map(i => i.value).filter(Boolean),
+    productos:   Array.from(document.querySelectorAll('#cadena-productos .cadena-input')).map(i => i.value).filter(Boolean),
+    resultados:  Array.from(document.querySelectorAll('#cadena-resultados .cadena-input')).map(i => i.value).filter(Boolean),
+    impacto:     val('cadena-impacto-text'),
+  };
+  const modulo_7 = {
+    objetivo_general: val('objetivo_general'),
+    objetivo_general_indicador: '',
+    objetivo_general_meta: '',
+    objetivo_general_linea_base: '',
+    cadena_valor,
+    objetivos_especificos: oeItems,
+  };
+
+  // Módulo 8 — Cronograma
+  const fases = Array.from(document.querySelectorAll('#fases-tbody tr')).map((tr, i) => ({
+    id: `F${i + 1}`,
+    nombre: tr.querySelector('[data-field="nombre"]')?.value || '',
+    inicio_mes: parseInt(tr.querySelector('[data-field="inicio"]')?.value) || null,
+    fin_mes: parseInt(tr.querySelector('[data-field="fin"]')?.value) || null,
+    responsable: tr.querySelector('[data-field="responsable"]')?.value || '',
+    porcentaje: parseFloat(tr.querySelector('[data-field="pct"]')?.value) || 0,
+  })).filter(f => f.nombre);
+  const hitos = Array.from(document.querySelectorAll('#hitos-tbody tr')).map((tr, i) => {
+    const inputs = tr.querySelectorAll('input');
+    return { id: `H${i + 1}`, descripcion: inputs[0]?.value || '', mes: parseInt(inputs[1]?.value) || null, entregable: inputs[2]?.value || '' };
+  }).filter(h => h.descripcion);
+  const modulo_8 = { duracion_meses: parseInt(val('crono_duracion')) || null, fecha_inicio: val('crono_inicio') || null, fecha_fin: val('crono_fin') || null, fases, hitos };
+
+  // Módulo 9 — Presupuesto (columnas: SGR/SGP/Cooperación/Contrapartida por fila)
+  let totSgr = 0, totSgp = 0, totCoop = 0, totContraMon = 0, totGeneral = 0;
+  Array.from(document.querySelectorAll('#presup-tbody tr')).forEach(tr => {
+    const num = sel => parseFloat(tr.querySelector(sel)?.value) || 0;
+    totSgr += num('.p-sgr'); totSgp += num('.p-sgp'); totCoop += num('.p-coop'); totContraMon += num('.p-contra');
+  });
+  totGeneral = totSgr + totSgp + totCoop + totContraMon;
+  const fuentes = [];
+  if (totSgr  > 0) fuentes.push({ nombre: 'SGR', tipo: 'SGR', aporte: totSgr, es_publica: true });
+  if (totSgp  > 0) fuentes.push({ nombre: 'SGP', tipo: 'SGP', aporte: totSgp, es_publica: true });
+  if (totCoop > 0) fuentes.push({ nombre: 'Cooperación Internacional', tipo: 'Cooperación', aporte: totCoop, es_publica: true });
+  const modulo_9 = {
+    presupuesto_total: totGeneral,
+    moneda: 'COP',
+    fuentes,
+    contrapartida: { monetaria: totContraMon, especie: 0, descripcion: '' },
+    resumen: { total_sgr: totSgr, total_sgp: totSgp, total_cooperacion: totCoop, total_contrapartida: totContraMon },
+    viabilidad_financiera: null,
+  };
+
+  return { ficha_fase1, modulo_7, modulo_8, modulo_9, ficha };
 }
 
 function showBlockingErrors(blocking) {
@@ -94,16 +218,18 @@ function showBlockingErrors(blocking) {
 
 function formatCurrency(n) { return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n); }
 
-function renderDashboard(result) {
+function renderDashboard(result, guardado) {
   const b = result.borrador, e = result.evaluation;
   const area = document.getElementById('results-area');
   if (!area) return;
   area.innerHTML = `
+    ${guardado?.proyecto_id ? `<div class="result-card" style="border-color:var(--status-success)"><div class="result-card__body" style="font-size:13px;">✅ Guardado en Supabase — <strong>proyecto_id:</strong> <code>${guardado.proyecto_id}</code> · <strong>estado:</strong> ${guardado.estado_validacion}</div></div>` : ''}
     <div class="result-card"><div class="result-card__header"><span class="result-card__agent-badge badge--052">AGT-052</span><span class="result-card__title">${b.componente_administrativo.titulo}</span></div><div class="result-card__body"><p><strong>Sector:</strong> ${b.componente_administrativo.sector}</p><p><strong>Normativa:</strong> ${b.componente_administrativo.normativa_aplicable}</p><p><strong>Mecanismo:</strong> ${b.componente_administrativo.mecanismo}</p><p><strong>Territorialidad:</strong> ${b.componente_administrativo.territorialidad}</p><p style="margin-top:12px;padding:12px;background:var(--divider);border-radius:var(--radius-md);font-size:13px;line-height:1.6">${b.componente_administrativo.justificacion_legal}</p></div></div>
     <div class="result-card"><div class="result-card__header"><span class="result-card__agent-badge badge--053">AGT-053</span><span class="result-card__title">${b.componente_operativo.titulo}</span></div><div class="result-card__body"><div class="budget-grid"><div class="budget-item"><div class="budget-item__label">Costo Directo</div><div class="budget-item__value">${formatCurrency(b.componente_operativo.resumen_financiero.costo_directo)}</div></div><div class="budget-item"><div class="budget-item__label">AIU (25%)</div><div class="budget-item__value">${formatCurrency(b.componente_operativo.resumen_financiero.aiu_25)}</div></div><div class="budget-item"><div class="budget-item__label">IVA sobre AIU</div><div class="budget-item__value">${formatCurrency(b.componente_operativo.resumen_financiero.iva_sobre_aiu)}</div></div><div class="budget-item budget-item--total"><div class="budget-item__label">Presupuesto Total</div><div class="budget-item__value">${formatCurrency(b.componente_operativo.resumen_financiero.presupuesto_total)}</div></div></div></div></div>
     <div class="result-card"><div class="result-card__header"><span class="result-card__agent-badge badge--054">AGT-054</span><span class="result-card__title">${b.componente_riesgos.titulo}</span></div><div class="result-card__body"><p><strong>Riesgo Global:</strong> <span class="risk-badge risk-badge--${b.componente_riesgos.riesgo_global.toLowerCase()}">${b.componente_riesgos.riesgo_global}</span></p><table class="risk-table"><thead><tr><th>Categoría</th><th>Tipo</th><th>Prob.</th><th>Impacto</th><th>Nivel</th><th>Mitigación</th></tr></thead><tbody>${b.componente_riesgos.riesgos.map(r => `<tr><td>${r.categoria}</td><td><strong>${r.tipo}</strong></td><td>${r.probabilidad}</td><td>${r.impacto}</td><td><span class="risk-badge risk-badge--${r.nivel_riesgo.toLowerCase()}">${r.nivel_riesgo}</span></td><td style="font-size:12px">${r.mitigacion}</td></tr>`).join('')}</tbody></table></div></div>
     <div class="result-card" style="border-color:${e.aprobado ? 'var(--status-success)' : 'var(--status-error)'}"><div class="result-card__header" style="background:${e.aprobado ? 'var(--status-success-glow)' : 'var(--status-error-glow)'}"><span class="result-card__agent-badge badge--056">AGT-056</span><span class="result-card__title">${e.titulo}</span></div><div class="result-card__body"><div class="eval-score"><div class="eval-score__ring"><svg width="80" height="80" viewBox="0 0 80 80"><circle class="ring-bg" cx="40" cy="40" r="36"/><circle class="ring-fill" cx="40" cy="40" r="36" style="stroke-dashoffset:${(1 - e.porcentaje / 100) * 226.2};stroke:${e.aprobado ? 'var(--status-success)' : 'var(--status-error)'}"/></svg><div class="eval-score__value" style="color:${e.aprobado ? 'var(--status-success)' : 'var(--status-error)'}">${e.porcentaje}%</div></div><div class="eval-score__label">${e.veredicto}<span>${e.puntaje}/${e.puntaje_maximo} puntos</span></div></div><ul class="check-list">${e.checks.map(c => `<li class="check-item check-item--${c.pass ? 'pass' : 'fail'}">${c.pass ? '✅' : '❌'} ${c.test}${c.msg ? ` — ${c.msg}` : ''}</li>`).join('')}</ul></div></div>
   `;
+  area.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function handleFiles(files, type) { Array.from(files).forEach(file => { window._fileStores[type].push(file); renderAttachments(type); }); }

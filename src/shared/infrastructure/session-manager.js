@@ -89,6 +89,40 @@ export function checkQuota(uid, max = 50) {
   return { allowed: true, remaining: max - entry.count, resetAt: entry.resetAt };
 }
 
+// ── Rate limit por ráfaga — ventana corta, distinto de checkQuota (cuota diaria) ──
+// Mismo patrón deliberadamente en memoria (Map, sin Redis): una ráfaga solo tiene
+// sentido dentro del proceso que la está sirviendo ahora mismo, igual que
+// activeQueries. Ventana deslizante simple: descarta timestamps fuera de la ventana
+// en cada llamada — barato, sin dependencias nuevas (ver docs/analisis_gaps_v1.md A4).
+const BURST_WINDOW_MS = 10_000; // 10 s
+const BURST_MAX       = 20;     // 20 requests / 10 s por clave
+const burstBuckets = new Map(); // clave (uid o ip) → number[] timestamps
+
+export function checkBurst(key, max = BURST_MAX, windowMs = BURST_WINDOW_MS) {
+  const now = Date.now();
+  const hits = (burstBuckets.get(key) || []).filter(ts => now - ts < windowMs);
+  if (hits.length >= max) {
+    burstBuckets.set(key, hits);
+    return { allowed: false, retryAfterMs: windowMs - (now - hits[0]) };
+  }
+  hits.push(now);
+  burstBuckets.set(key, hits);
+  return { allowed: true, remaining: max - hits.length };
+}
+
+// Middleware Express — aplica checkBurst usando uid (si ya pasó auth) o IP como clave.
+export function burstLimiter(req, res, next) {
+  const key = req.user?.uid || req.ip;
+  const result = checkBurst(key);
+  if (!result.allowed) {
+    return res.status(429).json({
+      error: 'Demasiadas solicitudes en poco tiempo, intenta de nuevo en unos segundos.',
+      retryAfterMs: result.retryAfterMs,
+    });
+  }
+  next();
+}
+
 // ── Guard de consultas pesadas — evita que el frontend lance duplicados ─────────
 // Nota: ya no depende de si existe alguna sesión activa en el proceso (ese chequeo
 // era incorrecto — rechazaba usuarios válidos si el Map local estaba vacío, p.ej.

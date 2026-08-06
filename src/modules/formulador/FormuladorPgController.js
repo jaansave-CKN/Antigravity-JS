@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import sb from './supabaseClient.js';
+import { Orchestrator000, setServerAuthToken } from '../../orchestrator-engine.js';
 
 const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -107,5 +108,96 @@ export async function obtenerFase1(req, res) {
   } catch (err) {
     console.error('[FormuladorController] obtenerFase1:', err.message);
     return res.status(err.status ?? 500).json({ error: err.message });
+  }
+}
+
+/**
+ * GET /api/formulador/proyectos — lista los proyectos del tenant actual.
+ * Oleada 3, Grupo Elite (2026-08-06) — requerido por el selector de proyecto
+ * en Módulo 10/Anexos/Logística/Dialéctica (antes no existía forma de listar
+ * los proyectos ya guardados; solo GET /fase1/:id, que exige conocer el UUID).
+ */
+export async function listarProyectos(req, res) {
+  const tenant = getTenant(req);
+  if (!tenant) return res.status(400).json({ error: 'Identificador de tenant inválido (se requiere UUID).' });
+  const userJwt = getUserJwt(req);
+  try {
+    const proyectos = await sb.rpc('listar_proyectos', { p_tenant_id: tenant }, userJwt);
+    return res.json({ proyectos });
+  } catch (err) {
+    console.error('[FormuladorController] listarProyectos:', err.message);
+    return res.status(err.status ?? 500).json({ error: err.message });
+  }
+}
+
+/**
+ * POST /api/formulador/:id/modulo10 — reemplaza los indicadores del proyecto.
+ * GET  /api/formulador/:id/modulo10 — recupera los indicadores del proyecto.
+ */
+export async function guardarModulo10(req, res) {
+  const tenant = getTenant(req);
+  if (!tenant) return res.status(400).json({ error: 'Identificador de tenant inválido (se requiere UUID).' });
+  if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Identificador de proyecto inválido (se requiere UUID).' });
+  const userJwt = getUserJwt(req);
+  try {
+    const result = await sb.rpc('guardar_modulo10', {
+      p_tenant_id: tenant, p_proyecto_id: req.params.id, p_indicadores: req.body.indicadores || [],
+    }, userJwt);
+    return res.status(201).json(result);
+  } catch (err) {
+    console.error('[FormuladorController] guardarModulo10:', err.message, err.data ?? '');
+    return res.status(err.status ?? 500).json({ error: err.message, detail: err.data });
+  }
+}
+
+export async function obtenerModulo10(req, res) {
+  const tenant = getTenant(req);
+  if (!tenant) return res.status(400).json({ error: 'Identificador de tenant inválido (se requiere UUID).' });
+  if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Identificador de proyecto inválido (se requiere UUID).' });
+  const userJwt = getUserJwt(req);
+  try {
+    const data = await sb.rpc('obtener_modulo10', { p_tenant_id: tenant, p_proyecto_id: req.params.id }, userJwt);
+    return res.json(data);
+  } catch (err) {
+    console.error('[FormuladorController] obtenerModulo10:', err.message);
+    return res.status(err.status ?? 500).json({ error: err.message });
+  }
+}
+
+/**
+ * POST /api/formulador/ficha-tecnica
+ * Body: { ficha } — mismo shape que espera Orchestrator000 (metadata/geography/
+ * population/technical_core/attachments), no el shape de insertar_fase1().
+ * Corre AGT-052/053/054/056 (src/orchestrator-engine.js) del lado del servidor —
+ * antes solo se importaba desde el navegador con una ruta que 404 en producción
+ * (ver docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4, Oleada 1 Grupo Elite).
+ * Sin persistencia propia: es un borrador ejecutado sobre la ficha recibida,
+ * desacoplado de si esa ficha ya se guardó en Supabase o no.
+ */
+export async function generarFichaTecnica(req, res) {
+  const { ficha } = req.body || {};
+  if (!ficha || typeof ficha !== 'object') {
+    return res.status(400).json({ error: 'Se requiere "ficha" (objeto) en el body.' });
+  }
+
+  const userJwt = getUserJwt(req);
+  if (userJwt) setServerAuthToken(userJwt);
+
+  try {
+    const orchestrator = new Orchestrator000();
+    const disenoAprobado = await orchestrator.validarDiseno(ficha);
+    if (!disenoAprobado.aprobado) {
+      return res.status(422).json({
+        success: false,
+        error: 'GATE_ARQUITECTURA: la ficha no pasó la evaluación de completitud.',
+        evaluation: disenoAprobado,
+      });
+    }
+    const result = await orchestrator.run(ficha, disenoAprobado);
+    if (!result.success) return res.status(500).json({ error: result.error });
+    return res.json(result);
+  } catch (err) {
+    console.error('[FormuladorController] generarFichaTecnica:', err.message);
+    return res.status(500).json({ error: err.message });
   }
 }

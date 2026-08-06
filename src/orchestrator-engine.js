@@ -4,7 +4,13 @@
 // Corre en el navegador (ESM puro). Llama al backend via /api/chat (Claude / Anthropic).
 // =============================================================================
 
-const AI_ENDPOINT = '/api/chat';
+// Browser: relativa (el propio origen de la app). Node (Oleada 1, Grupo Elite,
+// 2026-08-06): este motor ahora también corre server-side desde
+// FormuladorPgController.js — `fetch` de Node no acepta URLs relativas sin base,
+// así que se resuelve a localhost:PORT cuando no hay `window`.
+const AI_ENDPOINT = typeof window !== 'undefined'
+  ? '/api/chat'
+  : `http://localhost:${process.env.PORT || 5000}/api/chat`;
 
 // ── Hash estable de la ficha (integridad diseño↔ejecución, sin dependencias Node) ──
 function stableStringify(value) {
@@ -37,12 +43,23 @@ const NORMATIVA_MAP = {
   general:      'Ley 152/1994 (LOPD), Decreto 111/1996, CONPES vigente',
 };
 
+// ── Token de auth para las llamadas server-side a /api/chat ───────────────────
+// /api/chat exige Firebase Bearer token (gate universal, server.js:76-84) — sin esto,
+// callAI() SIEMPRE caía silenciosamente al fallback local (hallazgo real, Oleada 1,
+// Grupo Elite 2026-08-06: esta llamada nunca llevó Authorization, en navegador ni
+// server, así que el texto "generado por IA" de AGT-052 nunca fue IA real).
+let _serverAuthToken = null;
+export function setServerAuthToken(token) { _serverAuthToken = token; }
+
 // ── Llamada unificada al proxy de IA con fallback local ───────────────────────
 async function callAI(systemPrompt, userContent, { maxTokens = 1200 } = {}) {
   try {
     const res = await fetch(AI_ENDPOINT, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(_serverAuthToken ? { Authorization: `Bearer ${_serverAuthToken}` } : {}),
+      },
       body: JSON.stringify({
         max_tokens: maxTokens,
         messages: [
