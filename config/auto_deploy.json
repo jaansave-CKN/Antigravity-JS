@@ -1,0 +1,9 @@
+# AUTO-DEPLOY CONFIG
+# Todo cambio se despliega automáticamente a Firebase
+
+last_deploy: "2026-04-28T10:55Z"
+auto_sync: true
+hosting_url: "https://antigravity-jairo-2026.web.app"
+
+# Proceso: cada vez q guardo cambio → firebase deploy automático
+# Nota: Los cambios son visibles en ~30-60 segundos después del deploy

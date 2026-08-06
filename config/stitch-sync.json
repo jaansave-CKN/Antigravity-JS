@@ -1,0 +1,8 @@
+﻿{
+  "project": "dotaciones",
+  "sync_mode": "real-time",
+  "web_endpoint": "http://localhost:3000",
+  "backup_on_save": true,
+  "versions_path": "./versions",
+  "agents_lock": true
+}

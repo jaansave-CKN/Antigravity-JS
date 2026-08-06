@@ -1,0 +1,30 @@
+{
+  "directiva": "Interfaz_Visualizacion_Tiempo_Real",
+  "tipo": "Directiva de Autonomía de Interfaz",
+  "descripcion": "Ventana de previsualización real-time con borde cyan para todos los proyectos",
+  "configuracion": {
+    "borde_ventana": "#00FFFF",
+    "color_borde": "cyan",
+    "sincronizacion": "tiempo_real",
+    "refresco_automatico": true,
+    "preview_activa": true
+  },
+  "interfaz_salida": "ventana_borde_azul_celeste",
+  "livePreview": {
+    "autoStart": true,
+    "defaultPreviewPath": "./index.html",
+    "url": "http://localhost:5000"
+  },
+  "habilitada_para": ["Proyecto 01", "todos_los_proyectos"],
+  "radio_buttons": {
+    "sectores": "seleccion_unica",
+    "enfoque": "seleccion_unica"
+  },
+  "geografia": {
+    "divipola": "32_departamentos",
+    "cascada_dinamica": true
+  },
+  "regla_oro": "Si no lo veo en el espejo, no está terminado",
+  "estado": "activa",
+  "timestamp": "2026-04-25T18:40:00Z"
+}

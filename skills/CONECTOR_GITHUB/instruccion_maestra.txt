@@ -1,0 +1,15 @@
+# 🧠 INSTRUCCIÓN MAESTRA: CONECTOR_GITHUB
+Estandar de despliegue y control de versiones para Antigravity OS.
+
+## 🔓 SEGURIDAD
+- Uso de **Personal Access Tokens (PAT)** almacenados en `.env`.
+- El archivo `.gitignore` debe proteger estrictamente el `.env` y los `node_modules`.
+
+## 🕹️ FUNCIONALIDADES
+1. Verificación del estado del repositorio (Local vs Remoto).
+2. Reporte de últimos commits realizados por los agentes de IA.
+3. Integración con flujos de despliegue continuo (Vercel/GitHub Actions).
+
+## 🛡️ CONTROL DE CALIDAD
+- Cada push debe ser auditado en `logs/audit.log`.
+- Se prohíbe el push directo a `main` sin que el Agente Interventor (Gemini 1.5 Pro) valide el código.

@@ -1,0 +1,1929 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FASE 1 — Datos de Entrada | Antigravity OS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    :root {
+      --bg-page: #0b1326;
+      --bg-card: #171f33;
+      --bg-card-hover: #222a3d;
+      --border-card: #3e484f;
+      --accent: #38bdf8;
+      --accent-glow: rgba(56,189,248,0.2);
+      --text-primary: #dae2fd;
+      --text-secondary: #bdc8d1;
+      --text-muted: #87929a;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow-card: 0 4px 24px rgba(0,0,0,0.5);
+      --font-body: 'Hanken Grotesk', system-ui, sans-serif;
+      --sidebar-w: 260px;
+      --gold: #c9a227;
+      --gold-light: #f0c040;
+      --navy: #131b2e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-body); background: var(--bg-page); color: var(--text-primary); min-height: 100vh; }
+
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 32px; background: var(--bg-card);
+      border-bottom: 1px solid var(--border-card);
+    }
+    .topbar__brand { display: flex; align-items: center; gap: 12px; }
+    .topbar__logo {
+      width: 40px; height: 40px; background: var(--accent); border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 16px; color: #fff;
+    }
+    .topbar__title { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+    .topbar__subtitle { font-size: 13px; color: var(--text-muted); }
+    .topbar__phase { font-size: 12px; background: var(--accent-glow); color: var(--accent); padding: 4px 12px; border-radius: 20px; font-weight: 600; }
+
+    /* === LAYOUT CON SIDEBAR === */
+    .app-shell {
+      display: flex;
+      min-height: calc(100vh - 73px);
+    }
+    .main-content {
+      flex: 1;
+      overflow-x: hidden;
+      padding-right: var(--sidebar-w);
+    }
+
+    /* === SIDEBAR DERECHO === */
+    .sidebar-right {
+      position: fixed;
+      top: 73px;
+      right: 0;
+      width: var(--sidebar-w);
+      height: calc(100vh - 73px);
+      background: var(--navy);
+      border-left: 1px solid rgba(201,162,39,0.2);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      z-index: 90;
+      box-shadow: -4px 0 24px rgba(0,0,0,0.4);
+      transition: transform 0.3s ease;
+    }
+    .sidebar-right::-webkit-scrollbar { width: 4px; }
+    .sidebar-right::-webkit-scrollbar-track { background: transparent; }
+    .sidebar-right::-webkit-scrollbar-thumb { background: rgba(201,162,39,0.3); border-radius: 2px; }
+
+    .sidebar-logo {
+      padding: 20px 16px 16px;
+      border-bottom: 1px solid rgba(201,162,39,0.15);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(180deg, rgba(13,27,46,0.9) 0%, transparent 100%);
+    }
+    .sidebar-logo img {
+      width: 120px;
+      object-fit: contain;
+      filter: drop-shadow(0 2px 8px rgba(201,162,39,0.3));
+    }
+    .sidebar-logo__brand {
+      font-size: 11px;
+      color: var(--gold);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    /* Progress */
+    .sidebar-progress {
+      padding: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .sidebar-progress__label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .progress-bar-wrap {
+      background: rgba(255,255,255,0.07);
+      border-radius: 20px;
+      height: 6px;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--gold), var(--accent));
+      border-radius: 20px;
+      transition: width 0.5s ease;
+      width: 0%;
+    }
+    .progress-pct {
+      font-size: 12px;
+      color: var(--gold-light);
+      font-weight: 700;
+      text-align: right;
+    }
+
+    /* Nav modules */
+    .sidebar-nav {
+      flex: 1;
+      padding: 12px 8px;
+    }
+    .sidebar-nav__title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-muted);
+      padding: 6px 8px 8px;
+      font-weight: 600;
+    }
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 2px;
+      text-decoration: none;
+      color: var(--text-secondary);
+      position: relative;
+    }
+    .sidebar-nav-item:hover {
+      background: rgba(59,130,246,0.1);
+      color: var(--text-primary);
+    }
+    .sidebar-nav-item.active {
+      background: rgba(59,130,246,0.15);
+      color: var(--accent);
+    }
+    .sidebar-nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 60%;
+      background: var(--accent);
+      border-radius: 0 3px 3px 0;
+    }
+    .sidebar-nav-item.done {
+      color: #22c55e;
+    }
+    .sidebar-nav-item.done .nav-num {
+      background: rgba(34,197,94,0.2);
+      color: #22c55e;
+      border-color: rgba(34,197,94,0.3);
+    }
+    .nav-num {
+      width: 26px;
+      height: 26px;
+      min-width: 26px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .active .nav-num {
+      background: rgba(59,130,246,0.2);
+      border-color: rgba(59,130,246,0.4);
+      color: var(--accent);
+    }
+    .nav-label { font-size: 13px; font-weight: 500; line-height: 1.2; }
+    .nav-badge {
+      margin-left: auto;
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      background: rgba(239,68,68,0.15);
+      color: #ef4444;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .nav-check {
+      margin-left: auto;
+      color: #22c55e;
+      font-size: 14px;
+    }
+
+    /* Divider */
+    .sidebar-divider {
+      height: 1px;
+      background: rgba(255,255,255,0.05);
+      margin: 8px 16px;
+    }
+
+    /* Quick actions */
+    .sidebar-actions {
+      padding: 12px 8px;
+    }
+    .sidebar-actions__title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-muted);
+      padding: 0 8px 8px;
+      font-weight: 600;
+    }
+    .sidebar-action-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.2s;
+      margin-bottom: 4px;
+      color: var(--text-secondary);
+      background: rgba(255,255,255,0.03);
+      text-align: left;
+    }
+    .sidebar-action-btn:hover {
+      background: rgba(255,255,255,0.07);
+      color: var(--text-primary);
+    }
+    .sidebar-action-btn.primary {
+      background: rgba(59,130,246,0.15);
+      color: var(--accent);
+      border: 1px solid rgba(59,130,246,0.2);
+    }
+    .sidebar-action-btn.primary:hover {
+      background: rgba(59,130,246,0.25);
+    }
+    .btn-icon { font-size: 16px; }
+
+    /* Contact footer */
+    .sidebar-contact {
+      padding: 14px 16px;
+      border-top: 1px solid rgba(201,162,39,0.15);
+      background: rgba(13,27,46,0.6);
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+      line-height: 1.7;
+    }
+    .sidebar-contact a {
+      color: var(--gold);
+      text-decoration: none;
+    }
+    .sidebar-contact a:hover { color: var(--gold-light); }
+    .sidebar-contact .contact-city {
+      color: var(--text-secondary);
+      font-weight: 600;
+      font-size: 12px;
+      display: block;
+      margin-bottom: 3px;
+    }
+    .sidebar-contact .contact-phone {
+      color: var(--gold);
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.5px;
+      display: block;
+    }
+
+    /* Mobile toggle button */
+    .sidebar-toggle {
+      display: none;
+      position: fixed;
+      bottom: 80px;
+      right: 16px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      font-size: 20px;
+      cursor: pointer;
+      z-index: 200;
+      box-shadow: 0 4px 16px rgba(59,130,246,0.4);
+      align-items: center;
+      justify-content: center;
+    }
+
+    .fase1-container {
+      max-width: 900px; margin: 0 auto; padding: 32px 16px 120px;
+    }
+    .fase1-header {
+      text-align: center; margin-bottom: 40px;
+    }
+    .fase1-header h1 {
+      font-size: 28px; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px;
+    }
+    .fase1-header p {
+      font-size: 14px; color: var(--text-secondary);
+    }
+
+    .module-card {
+      background: var(--bg-card); border: 1px solid var(--border-card);
+      border-radius: var(--radius); margin-bottom: 20px; overflow: hidden;
+      box-shadow: var(--shadow-card);
+      transition: border-color 0.2s;
+    }
+    .module-card:hover { border-color: #3a3f4f; }
+    .module-card__header {
+      display: flex; align-items: center; gap: 16px;
+      padding: 20px 24px; border-bottom: 1px solid var(--border-card);
+      background: linear-gradient(135deg, rgba(255,255,255,0.02), transparent);
+    }
+    .module-number {
+      width: 36px; height: 36px; min-width: 36px; border-radius: 50%;
+      background: #000; color: #fff; font-weight: 800; font-size: 15px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .module-card__title {
+      font-size: 16px; font-weight: 700; flex: 1;
+    }
+    .module-card__badge {
+      font-size: 11px; background: var(--accent-glow); color: var(--accent);
+      padding: 3px 10px; border-radius: 12px; font-weight: 600;
+    }
+    .module-card__body { padding: 24px; }
+
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .form-row.full { grid-template-columns: 1fr; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group label {
+      font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .form-group input, .form-group select, .form-group textarea {
+      background: var(--bg-page); border: 1px solid var(--border-card);
+      border-radius: var(--radius-sm); padding: 10px 14px;
+      color: var(--text-primary); font-size: 14px; font-family: var(--font-body);
+      transition: border-color 0.2s, box-shadow 0.2s;
+      outline: none;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+      border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .form-group textarea { resize: vertical; min-height: 80px; }
+
+    .radio-group { display: flex; flex-direction: column; gap: 10px; }
+    .radio-item {
+      display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+      background: var(--bg-page); border: 1px solid var(--border-card);
+      border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;
+    }
+    .radio-item:hover { border-color: var(--accent); }
+    .radio-item input[type="radio"] { accent-color: var(--accent); width: 16px; height: 16px; }
+    .radio-item span { font-size: 14px; }
+
+    .oxi-suboptions { margin-top: 12px; padding-left: 26px; display: none; flex-direction: column; gap: 8px; }
+    .oxi-suboptions.visible { display: flex; }
+
+    .checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+    .checkbox-item {
+      display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+      background: var(--bg-page); border: 1px solid var(--border-card);
+      border-radius: var(--radius-sm); font-size: 13px; cursor: pointer;
+    }
+    .checkbox-item input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+    .ods-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+    .ods-item {
+      display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+      background: var(--bg-page); border: 1px solid var(--border-card);
+      border-radius: var(--radius-sm); font-size: 12px; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .ods-item:hover { border-color: var(--accent); }
+    .ods-item.selected { border-color: var(--accent); background: var(--accent-glow); }
+    .ods-item input { accent-color: var(--accent); width: 13px; height: 13px; }
+    .ods-item span { font-weight: 600; color: var(--accent); }
+
+    .smart-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .smart-table th, .smart-table td {
+      padding: 8px 12px; text-align: left; border: 1px solid var(--border-card);
+      font-size: 13px;
+    }
+    .smart-table th { background: var(--bg-page); font-weight: 600; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; }
+    .smart-table td input, .smart-table td select {
+      width: 100%; background: transparent; border: none; color: var(--text-primary); font-size: 13px; outline: none; padding: 4px 0;
+    }
+    .smart-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .insumos-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .insumos-table th, .insumos-table td {
+      padding: 8px 12px; text-align: left; border: 1px solid var(--border-card); font-size: 13px;
+    }
+    .insumos-table th { background: var(--bg-page); font-weight: 600; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; }
+    .insumos-table td input { width: 100%; background: transparent; border: none; color: var(--text-primary); font-size: 13px; outline: none; padding: 4px 0; }
+    .btn-add-row {
+      margin-top: 8px; background: var(--accent-glow); color: var(--accent);
+      border: 1px dashed var(--accent); border-radius: var(--radius-sm);
+      padding: 8px 16px; font-size: 13px; cursor: pointer; font-weight: 600;
+      transition: all 0.2s;
+    }
+    .btn-add-row:hover { background: var(--accent); color: #fff; border-style: solid; }
+
+    .drop-zone {
+      border: 2px dashed var(--border-card); border-radius: var(--radius);
+      padding: 24px; text-align: center; transition: all 0.2s; cursor: pointer;
+      background: var(--bg-page);
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: var(--accent-glow); }
+    .drop-zone__icon { font-size: 28px; margin-bottom: 8px; }
+    .drop-zone__text { font-size: 13px; color: var(--text-secondary); }
+    .drop-zone__text strong { color: var(--accent); }
+    .drop-zone input[type="file"] { display: none; }
+
+    .attachments-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .attachment-item {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--bg-page); border: 1px solid var(--border-card);
+      border-radius: var(--radius-sm); padding: 8px 12px; font-size: 13px;
+    }
+    .attachment-item__name { color: var(--text-secondary); }
+    .attachment-item__remove { color: #ef4444; cursor: pointer; font-size: 16px; background: none; border: none; }
+
+    .btn-submit-bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 16px 32px; background: var(--bg-card);
+      border-top: 1px solid var(--border-card);
+      display: flex; align-items: center; justify-content: center; gap: 16px;
+      z-index: 100;
+    }
+    .btn-submit {
+      background: var(--accent); color: #fff; border: none;
+      padding: 14px 40px; border-radius: var(--radius);
+      font-size: 15px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 0 24px rgba(59,130,246,0.4);
+      transition: all 0.2s;
+    }
+    .btn-submit:hover { transform: translateY(-1px); box-shadow: 0 0 32px rgba(59,130,246,0.5); }
+    .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .actor-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+    .actor-item {
+      display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+      background: var(--bg-page); border: 1px solid var(--border-card);
+      border-radius: var(--radius-sm);
+    }
+    .actor-item input { accent-color: var(--accent); width: 15px; height: 15px; }
+    .actor-item label { font-size: 13px; cursor: pointer; flex: 1; }
+.actor-item select {
+       background: var(--bg-page); border: 1px solid var(--border-card);
+       border-radius: 6px; padding: 4px 8px; color: var(--text-primary); font-size: 12px;
+     }
+    .btn-formato-trigger {
+      display: flex; align-items: center; gap: 4px;
+      background: var(--accent); color: #fff; border: none;
+      padding: 8px 12px; border-radius: 6px; font-size: 13px;
+      cursor: pointer; transition: opacity 0.2s;
+    }
+    .btn-formato-trigger:hover { opacity: 0.9; }
+    .modal-sectores-overlay {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;
+    }
+    .modal-sectores-overlay.active { display: flex; }
+    .modal-sectores-content {
+      background: var(--bg-card); border: 1px solid var(--border-card);
+      border-radius: 12px; width: 90%; max-width: 500px; max-height: 80vh;
+      display: flex; flex-direction: column;
+    }
+    .modal-sectores-header {
+      padding: 16px 20px; border-bottom: 1px solid var(--border-card);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .modal-sectores-header h3 { margin: 0; font-size: 16px; }
+    .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-secondary); }
+    .modal-sectores-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+    .modal-instruccion { font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; }
+    .sectores-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .sector-item { display: flex; align-items: center; gap: 6px; padding: 8px; background: var(--bg-page); border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .sector-item:hover { background: var(--accent-glow); }
+    .sector-item input { width: 14px; height: 14px; }
+    .modal-sectores-footer {
+      padding: 12px 20px; border-top: 1px solid var(--border-card);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .btn-primary, .btn-secondary { padding: 8px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+    .btn-primary { background: var(--accent); color: #fff; border: none; }
+    .btn-secondary { background: var(--bg-page); color: var(--text-primary); border: 1px solid var(--border-card); }
+    .panel-formato-oculto { display: none; }
+    .panel-formato-header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: var(--bg-page); border: 1px solid var(--accent); border-radius: 8px; margin-top: 16px; }
+    .panel-formato-header h4 { margin: 0; font-size: 14px; color: var(--accent); }
+    .formato-contenido { padding: 16px; background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 8px; margin-top: 12px; font-size: 13px; }
+
+    /* ── Módulos 7-9 ──────────────────────────────────── */
+    /* OE (Objetivos Específicos) */
+    .oe-item { background: var(--bg-page); border: 1px solid var(--border-card); border-radius: var(--radius-sm); padding: 14px; transition: border-color 0.2s; }
+    .oe-item:hover { border-color: var(--accent); }
+    .oe-header { display: flex; align-items: flex-start; gap: 10px; }
+    .oe-num { width: 28px; height: 28px; min-width: 28px; border-radius: 50%; background: var(--accent-glow); border: 1px solid rgba(59,130,246,0.3); display: flex; align-items: center; justify-content: center; color: var(--accent); font-size: 12px; font-weight: 700; margin-top: 2px; }
+    .oe-textarea { width: 100%; background: transparent; border: none; color: var(--text-primary); font-size: 13px; font-family: var(--font-body); resize: none; outline: none; line-height: 1.6; padding: 2px 0; }
+    .oe-delete { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 4px; transition: color 0.2s; display: flex; align-items: center; }
+    .oe-delete:hover { color: #ef4444; }
+    .oe-sub { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 10px; padding-left: 38px; }
+    /* Cadena de Valor */
+    .cadena-valor-wrap { display: grid; grid-template-columns: repeat(5,1fr); gap: 0; border: 1px solid var(--border-card); border-radius: var(--radius); overflow: hidden; }
+    .cadena-col { border-right: 1px solid var(--border-card); display: flex; flex-direction: column; min-height: 180px; }
+    .cadena-col:last-child { border-right: none; }
+    .cadena-col__header { padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--border-card); }
+    .cadena-col__items { flex: 1; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .cadena-item { display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.03); border-radius: 5px; padding: 3px 6px; }
+    .cadena-input { flex: 1; background: transparent; border: none; color: var(--text-primary); font-size: 12px; outline: none; padding: 4px 0; }
+    .cadena-add-btn { margin: 6px 8px 8px; background: var(--accent-glow); color: var(--accent); border: 1px dashed rgba(59,130,246,0.3); border-radius: 5px; padding: 5px; cursor: pointer; font-size: 16px; transition: all 0.2s; }
+    .cadena-add-btn:hover { background: var(--accent); color: #fff; }
+    .cadena-impacto { width: 100%; background: transparent; border: none; color: var(--text-primary); font-size: 12px; font-family: var(--font-body); resize: none; outline: none; line-height: 1.6; padding: 8px; flex: 1; }
+    /* Cronograma / Gantt */
+    .gantt-container { border: 1px solid var(--border-card); border-radius: var(--radius-sm); overflow: hidden; min-height: 80px; background: var(--bg-page); }
+    .gantt-header { display: flex; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-card); }
+    .gantt-label-col { width: 150px; min-width: 150px; padding: 8px 12px; font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; border-right: 1px solid var(--border-card); }
+    .gantt-months { flex: 1; display: flex; overflow: hidden; }
+    .gantt-month { flex: 1; text-align: center; padding: 8px 2px; font-size: 10px; font-weight: 700; color: var(--text-muted); border-right: 1px solid rgba(255,255,255,0.04); }
+    .gantt-row { display: flex; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .gantt-row:last-child { border-bottom: none; }
+    .gantt-row-label { width: 150px; min-width: 150px; padding: 8px 12px; font-size: 12px; color: var(--text-secondary); border-right: 1px solid var(--border-card); display: flex; align-items: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .gantt-row-track { flex: 1; display: grid; position: relative; align-items: center; }
+    .gantt-cell { border-right: 1px solid rgba(255,255,255,0.04); height: 38px; }
+    .gantt-bar { height: 22px; border-radius: 4px; display: flex; align-items: center; padding: 0 8px; font-size: 10px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; position: absolute; top: 8px; z-index: 1; }
+    /* Presupuesto */
+    .presup-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .presup-table th { background: var(--bg-page); color: var(--text-muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; padding: 8px 10px; text-align: left; border: 1px solid var(--border-card); white-space: nowrap; }
+    .presup-table td { padding: 5px 8px; border: 1px solid var(--border-card); vertical-align: middle; }
+    .presup-table td input { width: 100%; background: transparent; border: none; color: var(--text-primary); font-size: 12px; outline: none; min-width: 0; }
+    .presup-totals td { background: rgba(59,130,246,0.08); font-weight: 700; color: var(--text-primary); padding: 9px 10px; font-size: 13px; }
+    .presup-resumen-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; }
+    .presup-fuente-card { background: var(--bg-page); border: 1px solid var(--border-card); border-radius: var(--radius-sm); padding: 12px 14px; transition: border-color 0.2s; }
+    .presup-fuente-card:hover { border-color: var(--accent); }
+    .presup-fuente-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 6px; }
+    .presup-fuente-val { font-size: 18px; font-weight: 800; color: var(--accent); font-family: monospace; letter-spacing: -0.5px; }
+    .presup-fuente-pct { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+    /* Sección divider label */
+    .section-divider { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .section-divider span { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+    .section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-card); }
+
+    @media (max-width: 900px) {
+      .main-content { padding-right: 0; }
+      .sidebar-right { transform: translateX(100%); }
+      .sidebar-right.open { transform: translateX(0); }
+      .sidebar-toggle { display: flex; }
+      .cadena-valor-wrap { grid-template-columns: 1fr 1fr !important; }
+      .presup-resumen-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 640px) {
+      .form-row { grid-template-columns: 1fr; }
+      .topbar { padding: 12px 16px; }
+      .sectores-grid { grid-template-columns: 1fr; }
+      .cadena-valor-wrap { grid-template-columns: 1fr !important; }
+      .oe-sub { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar__brand">
+      <div class="topbar__logo">AG</div>
+      <div>
+        <div class="topbar__title">Antigravity OS</div>
+        <div class="topbar__subtitle">FASE 1 — Formulación Multisectorial</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <a href="/" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);text-decoration:none;padding:6px 12px;border-radius:8px;border:1px solid var(--border-card);transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border-card)';this.style.color='var(--text-secondary)'">
+        <span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span> Radar 360
+      </a>
+      <div class="topbar__phase">FASE 1</div>
+    </div>
+  </header>
+
+  <!-- SIDEBAR TOGGLE MÓVIL -->
+  <button class="sidebar-toggle" id="sidebar-toggle" title="Abrir menú">
+    ☰
+  </button>
+
+  <div class="app-shell">
+  <div class="main-content">
+  <div class="fase1-container">
+    <div class="fase1-header">
+      <h1>Datos de Entrada</h1>
+      <p>Complete los 6 módulos para generar la Ficha Técnica Integral</p>
+    </div>
+
+    <!-- MODULE 1: ENFOQUE Y RÉGIMEN -->
+    <div class="module-card" id="modulo-1">
+      <div class="module-card__header">
+        <div class="module-number">1</div>
+        <div class="module-card__title">Enfoque y Régimen</div>
+        <div class="module-card__badge">OBLIGATORIO</div>
+      </div>
+      <div class="module-card__body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo de Proponente</label>
+            <select id="user_type">
+              <option value="">Seleccionar...</option>
+              <option value="alcaldia">Alcaldía Municipal</option>
+              <option value="gobernacion">Gobernación</option>
+              <option value="ong">ONG / Organización Social</option>
+              <option value="comunidad">Comunidad Organizada (JAC)</option>
+              <option value="privado">Sector Privado</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Sector</label>
+            <div style="display:flex;gap:8px;align-items:flex-end;">
+              <select id="sector" style="flex:1;">
+                <option value="">Seleccionar...</option>
+                <option value="educacion">Educación</option>
+                <option value="salud">Salud</option>
+                <option value="vivienda">Vivienda de Interés Social</option>
+                <option value="transporte">Infraestructura Vial / Transporte</option>
+                <option value="agropecuario">Agropecuario</option>
+                <option value="agua_potable">Agua Potable y Saneamiento</option>
+                <option value="cultura">Cultura</option>
+                <option value="deporte">Deporte y Recreación</option>
+                <option value="general">General / Multisectorial</option>
+              </select>
+              <button type="button" id="btn-formato-formulacion" class="btn-formato-trigger" title="Abrir selector de sectores interactivo">
+                <span class="material-symbols-outlined">open_in_new</span> Formato
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal de Sectores Interactivo -->
+        <div id="modal-sectores" class="modal-sectores-overlay">
+          <div class="modal-sectores-content">
+            <div class="modal-sectores-header">
+              <h3>Sector(es) de Intervención</h3>
+              <button id="close-modal-sectores" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-sectores-body">
+              <p class="modal-instruccion">Seleccione uno o más sectores que aplican a su proyecto:</p>
+              <div class="sectores-grid">
+                <label class="sector-item"><input type="checkbox" value="educacion"> <span>📚 Educación</span></label>
+                <label class="sector-item"><input type="checkbox" value="salud"> <span>🏥 Salud</span></label>
+                <label class="sector-item"><input type="checkbox" value="vivienda"> <span>🏠 Vivienda</span></label>
+                <label class="sector-item"><input type="checkbox" value="transporte"> <span>🛣️ Transporte</span></label>
+                <label class="sector-item"><input type="checkbox" value="agropecuario"> <span>🌾 Agropecuario</span></label>
+                <label class="sector-item"><input type="checkbox" value="agua_potable"> <span>💧 Agua y Saneamiento</span></label>
+                <label class="sector-item"><input type="checkbox" value="cultura"> <span>🎭 Cultura</span></label>
+                <label class="sector-item"><input type="checkbox" value="deporte"> <span>⚽ Deporte</span></label>
+                <label class="sector-item"><input type="checkbox" value="seguridad"> <span>🛡️ Seguridad</span></label>
+                <label class="sector-item"><input type="checkbox" value="medio_ambiente"> <span>🌍 Medio Ambiente</span></label>
+                <label class="sector-item"><input type="checkbox" value="tecnologia"> <span>💻 Tecnología</span></label>
+                <label class="sector-item"><input type="checkbox" value="turismo"> <span>🌴 Turismo</span></label>
+              </div>
+            </div>
+            <div class="modal-sectores-footer">
+              <span id="selected-count">0 sectores seleccionados</span>
+              <div>
+                <button id="btn-limpiar-sectores" class="btn-secondary">Limpiar</button>
+                <button id="btn-aplicar-sectores" class="btn-primary">Aplicar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel de Formato de Formulación (Renderizado Condicional) -->
+        <div id="panel-formato-formulacion" class="panel-formato-oculto">
+          <div class="panel-formato-header">
+            <span class="material-symbols-outlined">description</span>
+            <h4>Formato de Formulación Activo</h4>
+          </div>
+          <div id="formato-contenido" class="formato-contenido">
+            <!-- Renderizado dinámico según sector seleccionado -->
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Mecanismo de Financiación</label>
+          <div class="radio-group">
+            <label class="radio-item">
+              <input type="radio" name="mecanismo" value="inversion_directa" checked>
+              <span>Inversión Directa (SGR / SGP)</span>
+            </label>
+            <label class="radio-item" id="oxi-trigger">
+              <input type="radio" name="mecanismo" value="oxi">
+              <span>Obras por Impuestos (OxI) — Art. 238 Ley 1819/2016</span>
+            </label>
+          </div>
+          <div class="oxi-suboptions" id="oxi-options">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Modalidad OxI</label>
+                <select id="oxi_modality">
+                  <option value="">Seleccionar...</option>
+                  <option value="convenio">Convenio Directo</option>
+                  <option value="fiducia">Fiducia</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>NIT Entidad Ejecutora</label>
+                <input type="text" id="oxi_nit" placeholder="901234567-8">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODULE 2: UBICACIÓN -->
+    <div class="module-card" id="modulo-2">
+      <div class="module-card__header">
+        <div class="module-number">2</div>
+        <div class="module-card__title">Ubicación Geográfica</div>
+        <div class="module-card__badge">OBLIGATORIO</div>
+      </div>
+      <div class="module-card__body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Departamento</label>
+            <input type="text" id="depto" placeholder="Ej: Cauca">
+          </div>
+          <div class="form-group">
+            <label>Municipio</label>
+            <input type="text" id="municipio" placeholder="Ej: Popayán">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Vereda / Corregimiento</label>
+            <input type="text" id="vereda" placeholder="Ej: La Rejoya">
+          </div>
+          <div class="form-group">
+            <label>Coordenadas (Lat, Lng)</label>
+            <input type="text" id="lat_lng" placeholder="Ej: 2.4411, -76.6140">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Territorialidad Especial</label>
+          <div class="checkbox-grid">
+            <label class="checkbox-item">
+              <input type="checkbox" id="is_zomac">
+              <span>ZOMAC</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="is_pdet">
+              <span>PDET</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="is_frontera">
+              <span>Zona de Frontera</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="is_territorio_indigena">
+              <span>Territorio Indígena</span>
+            </label>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top: 16px;">
+          <label>Archivo Geográfico (KML / Shapefile)</label>
+          <div class="drop-zone" id="drop-kml" data-type="kml">
+            <div class="drop-zone__icon">📍</div>
+            <div class="drop-zone__text">Arrastre aquí o <strong>haga clic para seleccionar</strong><br><small>Formatos: .kml, .kmz, .zip (Shapefile)</small></div>
+            <input type="file" accept=".kml,.kmz,.zip" id="file-kml">
+          </div>
+          <div class="attachments-list" id="list-kml"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODULE 3: DIAGNÓSTICO -->
+    <div class="module-card" id="modulo-3">
+      <div class="module-card__header">
+        <div class="module-number">3</div>
+        <div class="module-card__title">Diagnóstico — Árbol de Problemas</div>
+        <div class="module-card__badge">OBLIGATORIO</div>
+      </div>
+      <div class="module-card__body">
+        <div class="form-group">
+          <label>Declaración del Problema</label>
+          <textarea id="problem_statement" rows="3" placeholder="Describa la problemática central que justifica la intervención..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Causa Raíz</label>
+          <textarea id="root_cause" rows="2" placeholder="Cuál es la causa raíz del problema..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Efecto Esperado</label>
+          <textarea id="expected_effect" rows="2" placeholder="Cuál es el efecto esperado tras la intervención..."></textarea>
+        </div>
+        <div class="form-group" style="margin-top: 20px;">
+          <label>Indicadores SMART</label>
+          <table class="smart-table" id="smart-table">
+            <thead>
+              <tr>
+                <th>Indicador</th>
+                <th>Valor Actual</th>
+                <th>Meta</th>
+                <th>Unidad</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="smart-tbody">
+              <tr>
+                <td><input type="text" placeholder="Ej: Tasa de deserción escolar"></td>
+                <td><input type="text" placeholder="0%"></td>
+                <td><input type="text" placeholder="5%"></td>
+                <td><input type="text" placeholder="%"></td>
+                <td style="text-align:center;color:#ef4444;cursor:pointer" onclick="this.closest('tr').remove()">✕</td>
+              </tr>
+            </tbody>
+          </table>
+          <button class="btn-add-row" onclick="addSmartRow()">+ Agregar Indicador</button>
+        </div>
+        <div class="form-group" style="margin-top: 20px;">
+          <label>Alineación ODS — Seleccione los aplicables</label>
+          <div class="ods-grid">
+            <label class="ods-item" data-ods="1"><input type="checkbox"><span>ODS 1</span> Fin de la pobreza</label>
+            <label class="ods-item" data-ods="2"><input type="checkbox"><span>ODS 2</span> Hambre cero</label>
+            <label class="ods-item" data-ods="3"><input type="checkbox"><span>ODS 3</span> Salud y bienestar</label>
+            <label class="ods-item" data-ods="4"><input type="checkbox"><span>ODS 4</span> Educación de calidad</label>
+            <label class="ods-item" data-ods="5"><input type="checkbox"><span>ODS 5</span> Igualdad de género</label>
+            <label class="ods-item" data-ods="6"><input type="checkbox"><span>ODS 6</span> Agua limpia y saneamiento</label>
+            <label class="ods-item" data-ods="7"><input type="checkbox"><span>ODS 7</span> Energía asequible</label>
+            <label class="ods-item" data-ods="8"><input type="checkbox"><span>ODS 8</span> Trabajo decente</label>
+            <label class="ods-item" data-ods="9"><input type="checkbox"><span>ODS 9</span> Industria e innovación</label>
+            <label class="ods-item" data-ods="10"><input type="checkbox"><span>ODS 10</span> Reducción desigualdades</label>
+            <label class="ods-item" data-ods="11"><input type="checkbox"><span>ODS 11</span> Ciudades sostenibles</label>
+            <label class="ods-item" data-ods="12"><input type="checkbox"><span>ODS 12</span> Producción responsable</label>
+            <label class="ods-item" data-ods="13"><input type="checkbox"><span>ODS 13</span> Acción climática</label>
+            <label class="ods-item" data-ods="14"><input type="checkbox"><span>ODS 14</span> Vida submarina</label>
+            <label class="ods-item" data-ods="15"><input type="checkbox"><span>ODS 15</span> Vida de ecosistemas</label>
+            <label class="ods-item" data-ods="16"><input type="checkbox"><span>ODS 16</span> Paz y justicia</label>
+            <label class="ods-item" data-ods="17"><input type="checkbox"><span>ODS 17</span> Alianzas para los objetivos</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODULE 4: POBLACIÓN -->
+    <div class="module-card" id="modulo-4">
+      <div class="module-card__header">
+        <div class="module-number">4</div>
+        <div class="module-card__title">Población Objetivo</div>
+      </div>
+      <div class="module-card__body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Población Total Estimada</label>
+            <input type="number" id="poblacion_total" placeholder="Ej: 1250">
+          </div>
+          <div class="form-group">
+            <label>Número de Beneficiarios Directos</label>
+            <input type="number" id="beneficiarios_directos" placeholder="Ej: 480">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Caracterización</label>
+          <div class="checkbox-grid">
+            <label class="checkbox-item"><input type="checkbox" value="genero_f"><span>Mujeres</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="genero_m"><span>Hombres</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="genero_lgbtiq"><span>LGBTIQ+</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="infancia"><span>Primera infancia</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="adolescentes"><span>Adolescentes</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="juventud"><span>Juventud</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="adultos_mayores"><span>Adultos mayores</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="etnia_indigena"><span>Pueblo indígena</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="etnia_afro"><span>Comunidad afro</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="etnia_rom"><span>Pueblo ROM</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="victimas_conflicto"><span>Víctimas del conflicto</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="discapacidad"><span>Personas con discapacidad</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="migrantes"><span>Migrantes / Refugiados</span></label>
+            <label class="checkbox-item"><input type="checkbox" value="desplazados"><span>Desplazados</span></label>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top: 16px;">
+          <label>Mapeo de Actores (Stakeholders)</label>
+          <div class="actor-map">
+            <div class="actor-item">
+              <input type="checkbox" checked>
+              <label>Junta de Acción Comunal</label>
+              <select><option>Aliado</option><option>Responsable</option><option>Consultar</option><option>Informar</option></select>
+            </div>
+            <div class="actor-item">
+              <input type="checkbox" checked>
+              <label>Alcaldía Municipal</label>
+              <select><option>Responsable</option><option>Aliado</option><option>Consultar</option><option>Informar</option></select>
+            </div>
+            <div class="actor-item">
+              <input type="checkbox">
+              <label>Gobernación</label>
+              <select><option>Aliado</option><option>Responsable</option><option>Consultar</option><option>Informar</option></select>
+            </div>
+            <div class="actor-item">
+              <input type="checkbox">
+              <label>ONG / Cooperativa</label>
+              <select><option>Aliado</option><option>Responsable</option><option>Consultar</option><option>Informar</option></select>
+            </div>
+            <div class="actor-item">
+              <input type="checkbox">
+              <label>ICBF</label>
+              <select><option>Consultar</option><option>Aliado</option><option>Responsable</option><option>Informar</option></select>
+            </div>
+            <div class="actor-item">
+              <input type="checkbox">
+              <label>Secretaría de Salud</label>
+              <select><option>Consultar</option><option>Aliado</option><option>Responsable</option><option>Informar</option></select>
+            </div>
+            <div class="actor-item">
+              <input type="checkbox">
+              <label> Sena </label>
+              <select><option>Aliado</option><option>Responsable</option><option>Consultar</option><option>Informar</option></select>
+            </div>
+            <div class="actor-item">
+              <input type="checkbox">
+              <label>Ejército Nacional</label>
+              <select><option>Informar</option><option>Aliado</option><option>Responsable</option><option>Consultar</option></select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODULE 5: MATERIALIDAD TÉCNICA -->
+    <div class="module-card" id="modulo-5">
+      <div class="module-card__header">
+        <div class="module-number">5</div>
+        <div class="module-card__title">Materialidad Técnica — Insumos Cuantificables</div>
+        <div class="module-card__badge">OBLIGATORIO</div>
+      </div>
+      <div class="module-card__body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Naturaleza de Intervención</label>
+            <select id="intervention_nature">
+              <option value="">Seleccionar...</option>
+              <option value="construccion">Construcción nueva</option>
+              <option value="rehabilitacion">Rehabilitación / Mejora</option>
+              <option value="ampliacion">Ampliación</option>
+              <option value="mejoramiento">Mejoramiento de vivienda</option>
+              <option value="dotacion">Dotación de equipos</option>
+              <option value="servicio">Prestacion de servicio</option>
+              <option value="混">Obra mixta</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Sistema Constructivo</label>
+            <select id="construction_system">
+              <option value="Convencional">Convencional</option>
+              <option value="Industrializado">Industrializado / Prefabricado</option>
+              <option value="Modular">Modular</option>
+              <option value="Liviano">Estructura liviana</option>
+              <option value="Mixta">Mixta</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Descripción de la Intervención</label>
+          <textarea id="intervention_desc" rows="3" placeholder="Describa en detalle qué se va a construir o realizar..."></textarea>
+        </div>
+        <div class="form-group" style="margin-top: 20px;">
+          <label>Insumos / Materiales / Servicios Requeridos</label>
+          <table class="insumos-table" id="insumos-table">
+            <thead>
+              <tr>
+                <th>Ítem</th>
+                <th>Descripción</th>
+                <th>Unidad</th>
+                <th>Cantidad</th>
+                <th>Precio Unit.</th>
+                <th>Subtotal</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="insumos-tbody">
+              <tr>
+                <td><input type="text" placeholder="1"></td>
+                <td><input type="text" placeholder="Ej: Cemento Portland"></td>
+                <td><input type="text" placeholder="Bolsas"></td>
+                <td><input type="number" placeholder="0" class="qty-input"></td>
+                <td><input type="number" placeholder="0" class="price-input"></td>
+                <td class="subtotal-cell">$0</td>
+                <td style="text-align:center;color:#ef4444;cursor:pointer" onclick="this.closest('tr').remove()">✕</td>
+              </tr>
+            </tbody>
+          </table>
+          <button class="btn-add-row" onclick="addInsumoRow()">+ Agregar Ítem</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODULE 6: GESTIÓN DOCUMENTAL -->
+    <div class="module-card" id="modulo-6">
+      <div class="module-card__header">
+        <div class="module-number">6</div>
+        <div class="module-card__title">Gestión Documental</div>
+      </div>
+      <div class="module-card__body">
+        <div class="form-group">
+          <label>1. Certificado de Tenencia de Tierra</label>
+          <div class="drop-zone" id="drop-tenencia" data-type="tenencia">
+            <div class="drop-zone__icon">📄</div>
+            <div class="drop-zone__text">Arrastre aquí o <strong>haga clic para seleccionar</strong><br><small>Formato: PDF, JPG, PNG</small></div>
+            <input type="file" accept=".pdf,.jpg,.jpeg,.png" id="file-tenencia">
+          </div>
+          <div class="attachments-list" id="list-tenencia"></div>
+        </div>
+        <div class="form-group" style="margin-top: 16px;">
+          <label>2. Personería Jurídica / Acta de Constitución JAC</label>
+          <div class="drop-zone" id="drop-personeria" data-type="personeria">
+            <div class="drop-zone__icon">📋</div>
+            <div class="drop-zone__text">Arrastre aquí o <strong>haga clic para seleccionar</strong><br><small>Formato: PDF</small></div>
+            <input type="file" accept=".pdf" id="file-personeria">
+          </div>
+          <div class="attachments-list" id="list-personeria"></div>
+        </div>
+        <div class="form-group" style="margin-top: 16px;">
+          <label>3. Certificado de Cupo CONFIS <small style="color:#f59e0b">(Solo si Obras por Impuestos)</small></label>
+          <div class="drop-zone" id="drop-confis" data-type="confis">
+            <div class="drop-zone__icon">🔐</div>
+            <div class="drop-zone__text">Arrastre aquí o <strong>haga clic para seleccionar</strong><br><small>Formato: PDF</small></div>
+            <input type="file" accept=".pdf" id="file-confis">
+          </div>
+          <div class="attachments-list" id="list-confis"></div>
+        </div>
+        <div class="form-group" style="margin-top: 16px;">
+          <label>4. Cotizaciones de Mercado (mínimo 3)</label>
+          <div class="drop-zone" id="drop-cotizaciones" data-type="cotizaciones">
+            <div class="drop-zone__icon">💰</div>
+            <div class="drop-zone__text">Arrastre aquí o <strong>haga clic para seleccionar</strong><br><small>Formato: PDF, XLSX (puede seleccionar múltiples archivos)</small></div>
+            <input type="file" accept=".pdf,.xlsx,.xls" id="file-cotizaciones" multiple>
+          </div>
+          <div class="attachments-list" id="list-cotizaciones"></div>
+        </div>
+      </div>
+    </div>
+    <!-- MODULE 7: OBJETIVOS — ACTIVO -->
+    <div class="module-card" id="modulo-7">
+      <div class="module-card__header">
+        <div class="module-number" style="background:var(--accent)">7</div>
+        <div class="module-card__title">Formulación de Objetivos</div>
+        <div class="module-card__badge">OBLIGATORIO</div>
+      </div>
+      <div class="module-card__body">
+
+        <!-- Objetivo General -->
+        <div class="form-group" style="margin-bottom:20px;">
+          <label>Objetivo General del Proyecto</label>
+          <textarea id="objetivo_general" rows="4" placeholder="Describe el propósito central de la intervención. Debe iniciar con verbo en infinitivo. Ej: 'Mejorar las condiciones de educación básica primaria en la zona rural del municipio de Cantagallo mediante la construcción y dotación de infraestructura educativa...'"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Indicador Principal del OG</label>
+            <input type="text" id="obj_gen_indicador" placeholder="Ej: % de cobertura escolar zona rural">
+          </div>
+          <div class="form-group">
+            <label>Línea Base</label>
+            <input type="text" id="obj_gen_linea_base" placeholder="Ej: 62% — Censo DANE 2025">
+          </div>
+          <div class="form-group">
+            <label>Meta Esperada</label>
+            <input type="text" id="obj_gen_meta" placeholder="Ej: 90% al mes 24">
+          </div>
+        </div>
+
+        <!-- Objetivos Específicos -->
+        <div class="form-group" style="margin-top:24px;">
+          <label style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <span>Objetivos Específicos</span>
+            <span style="color:var(--text-muted);font-size:11px;font-weight:400;" id="oe-counter">0 objetivos</span>
+          </label>
+          <div id="oe-container" style="display:flex;flex-direction:column;gap:10px;"></div>
+          <button type="button" class="btn-add-row" style="margin-top:10px;" onclick="addObjetivoEspecifico()">+ Agregar nuevo objetivo</button>
+        </div>
+
+        <!-- Cadena de Valor -->
+        <div style="margin-top:28px;">
+          <div class="section-divider">
+            <span>Cadena de Valor — Lógica de Intervención</span>
+          </div>
+          <div class="cadena-valor-wrap" id="cadena-valor-grid">
+            <!-- Rendered by buildCadenaValor() on DOMContentLoaded -->
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- MODULE 8: CRONOGRAMA — ACTIVO -->
+    <div class="module-card" id="modulo-8">
+      <div class="module-card__header">
+        <div class="module-number" style="background:var(--accent)">8</div>
+        <div class="module-card__title">Cronograma de Ejecución</div>
+        <div class="module-card__badge">OBLIGATORIO</div>
+      </div>
+      <div class="module-card__body">
+
+        <!-- Rango de fechas -->
+        <div class="form-row" style="margin-bottom:20px;">
+          <div class="form-group">
+            <label>Fecha de Inicio del Proyecto</label>
+            <input type="date" id="crono_inicio" onchange="calcDuracion()">
+          </div>
+          <div class="form-group">
+            <label>Fecha de Finalización</label>
+            <input type="date" id="crono_fin" onchange="calcDuracion()">
+          </div>
+          <div class="form-group">
+            <label>Duración Total (meses)</label>
+            <input type="text" id="crono_duracion" readonly placeholder="Auto-calculado" style="cursor:default;background:rgba(59,130,246,0.05);color:var(--accent);font-weight:700;">
+          </div>
+        </div>
+
+        <!-- Tabla de Fases -->
+        <div style="margin-bottom:20px;">
+          <div class="section-divider" style="margin-bottom:10px;"><span>Fases del Proyecto</span></div>
+          <table class="smart-table" id="fases-table">
+            <thead>
+              <tr>
+                <th style="width:40px;">F#</th>
+                <th>Nombre de la Fase</th>
+                <th style="width:100px;">Inicio (Mes)</th>
+                <th style="width:100px;">Fin (Mes)</th>
+                <th>Responsable</th>
+                <th style="width:80px;">% Previsto</th>
+                <th style="width:32px;"></th>
+              </tr>
+            </thead>
+            <tbody id="fases-tbody"></tbody>
+          </table>
+          <button class="btn-add-row" style="margin-top:8px;" onclick="addFase()">+ Agregar Fase</button>
+        </div>
+
+        <!-- Diagrama de Gantt Visual -->
+        <div style="margin-bottom:20px;">
+          <div class="section-divider" style="margin-bottom:10px;">
+            <span>Diagrama de Gantt</span>
+            <button type="button" onclick="renderGantt()" style="font-size:11px;padding:4px 12px;background:var(--accent-glow);color:var(--accent);border:1px solid rgba(59,130,246,0.3);border-radius:6px;cursor:pointer;font-weight:700;margin-left:8px;">↻ Actualizar</button>
+          </div>
+          <div id="gantt-container" class="gantt-container">
+            <div style="color:var(--text-muted);font-size:13px;text-align:center;padding:28px 0;">
+              Agregue fases y pulse <strong style="color:var(--accent);">↻ Actualizar</strong> para generar el diagrama.
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabla de Hitos -->
+        <div>
+          <div class="section-divider" style="margin-bottom:10px;"><span>Hitos Clave</span></div>
+          <table class="smart-table" id="hitos-table">
+            <thead>
+              <tr>
+                <th style="width:40px;">H#</th>
+                <th>Descripción del Hito</th>
+                <th style="width:90px;">Mes</th>
+                <th>Entregable</th>
+                <th style="width:32px;"></th>
+              </tr>
+            </thead>
+            <tbody id="hitos-tbody"></tbody>
+          </table>
+          <button class="btn-add-row" style="margin-top:8px;" onclick="addHito()">+ Agregar Hito</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- MODULE 9: PRESUPUESTO — ACTIVO -->
+    <div class="module-card" id="modulo-9">
+      <div class="module-card__header">
+        <div class="module-number" style="background:var(--accent)">9</div>
+        <div class="module-card__title">Presupuesto y Fuentes de Financiación</div>
+        <div class="module-card__badge">OBLIGATORIO</div>
+      </div>
+      <div class="module-card__body">
+
+        <!-- Tabla principal de presupuesto -->
+        <div style="overflow-x:auto;margin-bottom:12px;">
+          <table class="presup-table" id="presup-table">
+            <thead>
+              <tr>
+                <th style="width:28px;">#</th>
+                <th style="min-width:200px;">Concepto / Ítem</th>
+                <th style="width:70px;">Unidad</th>
+                <th style="width:65px;">Cant.</th>
+                <th style="width:120px;">V. Unitario ($)</th>
+                <th style="width:110px;background:rgba(59,130,246,0.08);">SGR</th>
+                <th style="width:120px;background:rgba(139,92,246,0.08);">SGP / Regalías</th>
+                <th style="width:110px;background:rgba(6,182,212,0.08);">Cooperación</th>
+                <th style="width:110px;background:rgba(201,162,39,0.08);">Contrapartida</th>
+                <th style="width:120px;background:rgba(34,197,94,0.08);">Total Fila ($)</th>
+                <th style="width:28px;"></th>
+              </tr>
+            </thead>
+            <tbody id="presup-tbody"></tbody>
+            <tfoot>
+              <tr class="presup-totals">
+                <td colspan="5" style="text-align:right;letter-spacing:1px;font-size:11px;">TOTALES →</td>
+                <td id="total-sgr"   style="color:#60a5fa;">$0</td>
+                <td id="total-sgp"   style="color:#c4b5fd;">$0</td>
+                <td id="total-coop"  style="color:#67e8f9;">$0</td>
+                <td id="total-contra" style="color:#fde68a;">$0</td>
+                <td id="total-general" style="color:#4ade80;font-size:14px;">$0</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <button class="btn-add-row" onclick="addPresupItem()">+ Agregar Ítem</button>
+
+        <!-- Resumen por fuente -->
+        <div style="margin-top:24px;">
+          <div class="section-divider" style="margin-bottom:12px;"><span>Resumen por Fuente de Financiación</span></div>
+          <div class="presup-resumen-grid">
+            <div class="presup-fuente-card">
+              <div class="presup-fuente-label" style="color:#60a5fa;">SGR</div>
+              <div class="presup-fuente-val" id="resumen-sgr">$0</div>
+              <div class="presup-fuente-pct" id="pct-sgr">0% del total</div>
+            </div>
+            <div class="presup-fuente-card">
+              <div class="presup-fuente-label" style="color:#c4b5fd;">SGP / Regalías</div>
+              <div class="presup-fuente-val" id="resumen-sgp">$0</div>
+              <div class="presup-fuente-pct" id="pct-sgp">0% del total</div>
+            </div>
+            <div class="presup-fuente-card">
+              <div class="presup-fuente-label" style="color:#67e8f9;">Cooperación</div>
+              <div class="presup-fuente-val" id="resumen-coop">$0</div>
+              <div class="presup-fuente-pct" id="pct-coop">0% del total</div>
+            </div>
+            <div class="presup-fuente-card">
+              <div class="presup-fuente-label" style="color:#fde68a;">Contrapartida</div>
+              <div class="presup-fuente-val" id="resumen-contra">$0</div>
+              <div class="presup-fuente-pct" id="pct-contra">0% del total</div>
+            </div>
+          </div>
+          <!-- Notas de contrapartida y viabilidad -->
+          <div class="form-row" style="margin-top:16px;">
+            <div class="form-group">
+              <label>Descripción de la Contrapartida</label>
+              <textarea id="contrapartida_desc" rows="2" placeholder="Describe la naturaleza de la contrapartida (especie, monetaria, terrenos, mano de obra, etc.)..."></textarea>
+            </div>
+            <div class="form-group">
+              <label>Viabilidad y Sostenibilidad Financiera</label>
+              <textarea id="viabilidad_financiera" rows="2" placeholder="Sustente la viabilidad financiera y la estrategia de sostenibilidad post-proyecto..."></textarea>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- end fase1-container -->
+  </div><!-- end main-content -->
+
+  <!-- ================================================ -->
+  <!-- SIDEBAR DERECHO                                  -->
+  <!-- ================================================ -->
+  <aside class="sidebar-right" id="sidebar-right">
+
+    <!-- LOGO ASFALTICA -->
+    <div class="sidebar-logo">
+      <img src="assets/1 logo.png" alt="Asfáltica S.A.S." onerror="this.style.display='none';document.getElementById('logo-text').style.display='block'">
+      <div id="logo-text" style="display:none;font-size:20px;font-weight:900;color:var(--gold);letter-spacing:1px;">ASFÁLTICA</div>
+      <div class="sidebar-logo__brand">Consultoría y Construcción</div>
+    </div>
+
+    <!-- PROGRESO -->
+    <div class="sidebar-progress">
+      <div class="sidebar-progress__label">Progreso del Formulario</div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <div class="progress-pct" id="progress-pct">0% completado</div>
+    </div>
+
+    <!-- NAVEGACIÓN MÓDULOS -->
+    <nav class="sidebar-nav">
+      <div class="sidebar-nav__title">Módulos FASE 1</div>
+
+      <a class="sidebar-nav-item active" id="nav-m1" onclick="scrollToModule('modulo-1',1)" href="#modulo-1">
+        <div class="nav-num">1</div>
+        <div class="nav-label">Enfoque y Régimen</div>
+        <span class="nav-badge">REQ</span>
+      </a>
+
+      <a class="sidebar-nav-item" id="nav-m2" onclick="scrollToModule('modulo-2',2)" href="#modulo-2">
+        <div class="nav-num">2</div>
+        <div class="nav-label">Ubicación Geográfica</div>
+        <span class="nav-badge">REQ</span>
+      </a>
+
+      <a class="sidebar-nav-item" id="nav-m3" onclick="scrollToModule('modulo-3',3)" href="#modulo-3">
+        <div class="nav-num">3</div>
+        <div class="nav-label">Diagnóstico</div>
+        <span class="nav-badge">REQ</span>
+      </a>
+
+      <a class="sidebar-nav-item" id="nav-m4" onclick="scrollToModule('modulo-4',4)" href="#modulo-4">
+        <div class="nav-num">4</div>
+        <div class="nav-label">Población Objetivo</div>
+      </a>
+
+      <a class="sidebar-nav-item" id="nav-m5" onclick="scrollToModule('modulo-5',5)" href="#modulo-5">
+        <div class="nav-num">5</div>
+        <div class="nav-label">Materialidad Técnica</div>
+        <span class="nav-badge">REQ</span>
+      </a>
+
+      <a class="sidebar-nav-item" id="nav-m6" onclick="scrollToModule('modulo-6',6)" href="#modulo-6">
+        <div class="nav-num">6</div>
+        <div class="nav-label">Gestión Documental</div>
+      </a>
+
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-nav__title" style="margin-top:4px;">Próximos módulos</div>
+
+      <a class="sidebar-nav-item" id="nav-m7" onclick="scrollToModule('modulo-7',7)" href="#modulo-7">
+        <div class="nav-num">7</div>
+        <div class="nav-label">Formulación Objetivos</div>
+        <span class="nav-badge">REQ</span>
+      </a>
+
+      <a class="sidebar-nav-item" id="nav-m8" onclick="scrollToModule('modulo-8',8)" href="#modulo-8">
+        <div class="nav-num">8</div>
+        <div class="nav-label">Cronograma</div>
+        <span class="nav-badge">REQ</span>
+      </a>
+
+      <a class="sidebar-nav-item" id="nav-m9" onclick="scrollToModule('modulo-9',9)" href="#modulo-9">
+        <div class="nav-num">9</div>
+        <div class="nav-label">Presupuesto</div>
+        <span class="nav-badge">REQ</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-divider"></div>
+
+    <!-- ACCIONES RÁPIDAS -->
+    <div class="sidebar-actions">
+      <div class="sidebar-actions__title">Acciones</div>
+      <button class="sidebar-action-btn primary" onclick="document.getElementById('btn-generar-ficha').click()">
+        <span class="btn-icon">📋</span> Generar Ficha Técnica
+      </button>
+      <button class="sidebar-action-btn" onclick="limpiarFormulario()">
+        <span class="btn-icon">🗑️</span> Limpiar Formulario
+      </button>
+      <button class="sidebar-action-btn" onclick="guardarBorrador()">
+        <span class="btn-icon">💾</span> Guardar Borrador
+      </button>
+      <button class="sidebar-action-btn" onclick="window.location.href='monitoreo-tiempo-real.html'">
+        <span class="btn-icon">📊</span> Ver Monitoreo
+      </button>
+    </div>
+
+    <!-- DATOS DE CONTACTO -->
+    <div class="sidebar-contact">
+      <span class="contact-city">📍 Bucaramanga — Santander</span>
+      <a href="mailto:asfaltica.sas@gmail.com">asfaltica.sas@gmail.com</a><br>
+      <span class="contact-phone">📞 310 760 89 49</span>
+    </div>
+
+  </aside>
+
+  <!-- SUBMIT BAR -->
+  <div class="btn-submit-bar">
+    <button class="btn-submit" id="btn-generar-ficha">Finalizar Fase 1 — Generar Ficha Técnica Integral</button>
+  </div>
+
+  </div><!-- end app-shell -->
+
+  <script type="module" src="app.js"></script>
+  <script>
+    document.getElementById('oxi-trigger').addEventListener('click', () => {
+      document.getElementById('oxi-options').classList.add('visible');
+    });
+    document.querySelectorAll('input[name="mecanismo"]').forEach(r => {
+      if (r.value !== 'oxi') r.addEventListener('click', () => {
+        document.getElementById('oxi-options').classList.remove('visible');
+      });
+    });
+
+    document.querySelectorAll('.ods-item').forEach(el => {
+      el.addEventListener('click', () => el.classList.toggle('selected'));
+    });
+
+    function addSmartRow() {
+      const tbody = document.getElementById('smart-tbody');
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td><input type="text" placeholder="Ej: Tasa de deserción escolar"></td><td><input type="text" placeholder="0%"></td><td><input type="text" placeholder="5%"></td><td><input type="text" placeholder="%"></td><td style="text-align:center;color:#ef4444;cursor:pointer" onclick="this.closest(\'tr\').remove()">✕</td>';
+      tbody.appendChild(tr);
+    }
+
+    function addInsumoRow() {
+      const tbody = document.getElementById('insumos-tbody');
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td><input type="text" placeholder="' + (tbody.children.length + 1) + '"></td><td><input type="text" placeholder="Descripción del insumo"></td><td><input type="text" placeholder="Unidad"></td><td><input type="number" placeholder="0" class="qty-input"></td><td><input type="number" placeholder="0" class="price-input"></td><td class="subtotal-cell">$0</td><td style="text-align:center;color:#ef4444;cursor:pointer" onclick="this.closest(\'tr\').remove()">✕</td>';
+      tbody.appendChild(tr);
+      tr.querySelector('.qty-input').addEventListener('input', calcSubtotal);
+      tr.querySelector('.price-input').addEventListener('input', calcSubtotal);
+    }
+
+    function calcSubtotal(e) {
+      const tr = e.target.closest('tr');
+      const qty = parseFloat(tr.querySelector('.qty-input').value) || 0;
+      const price = parseFloat(tr.querySelector('.price-input').value) || 0;
+      tr.querySelector('.subtotal-cell').textContent = '$' + (qty * price).toLocaleString('es-CO');
+    }
+
+    document.querySelectorAll('.qty-input, .price-input').forEach(el => {
+      el.addEventListener('input', calcSubtotal);
+    });
+
+    document.querySelectorAll('.drop-zone').forEach(zone => {
+      zone.addEventListener('click', () => zone.querySelector('input').click());
+      zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+      zone.addEventListener('drop', e => {
+        e.preventDefault(); zone.classList.remove('dragover');
+        handleFiles(e.dataTransfer.files, zone.dataset.type);
+      });
+      zone.querySelector('input').addEventListener('change', e => handleFiles(e.target.files, zone.dataset.type));
+    });
+
+    const fileStores = { kml: [], tenencia: [], personeria: [], confis: [], cotizaciones: [] };
+
+    function handleFiles(files, type) {
+      Array.from(files).forEach(file => {
+        fileStores[type].push(file);
+        renderAttachments(type);
+      });
+    }
+
+    function renderAttachments(type) {
+      const list = document.getElementById('list-' + type);
+      list.innerHTML = '';
+      fileStores[type].forEach((file, idx) => {
+        const item = document.createElement('div');
+        item.className = 'attachment-item';
+        item.innerHTML = '<span class="attachment-item__name">' + file.name + '</span><button class="attachment-item__remove" onclick="removeFile(\'' + type + '\',' + idx + ')">✕</button>';
+        list.appendChild(item);
+      });
+    }
+
+    function removeFile(type, idx) {
+      fileStores[type].splice(idx, 1);
+      renderAttachments(type);
+    }
+
+    // === SECTORES MODAL Y RENDERIZADO CONDICIONAL ===
+    const modalSectores = document.getElementById('modal-sectores');
+    const btnFormato = document.getElementById('btn-formato-formulacion');
+    const closeModal = document.getElementById('close-modal-sectores');
+    const btnAplicar = document.getElementById('btn-aplicar-sectores');
+    const btnLimpiar = document.getElementById('btn-limpiar-sectores');
+    const selectedCount = document.getElementById('selected-count');
+    const panelFormato = document.getElementById('panel-formato-formulacion');
+    const formatoContenido = document.getElementById('formato-contenido');
+
+    // Abrir modal
+    btnFormato?.addEventListener('click', () => {
+      modalSectores?.classList.add('active');
+    });
+
+    // Cerrar modal
+    closeModal?.addEventListener('click', () => {
+      modalSectores?.classList.remove('active');
+    });
+
+    // Limpiar selecciones
+    btnLimpiar?.addEventListener('click', () => {
+      document.querySelectorAll('.sector-item input').forEach(cb => cb.checked = false);
+      selectedCount.textContent = '0 sectores seleccionados';
+    });
+
+    // Actualizar contador
+    document.querySelectorAll('.sector-item input').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const count = document.querySelectorAll('.sector-item input:checked').length;
+        selectedCount.textContent = `${count} sector${count !== 1 ? 'es' : ''} seleccionado${count !== 1 ? 's' : ''}`;
+      });
+    });
+
+    // Aplicar y mostrar renderizado condicional
+    btnAplicar?.addEventListener('click', () => {
+      const sectoresSeleccionados = Array.from(document.querySelectorAll('.sector-item input:checked')).map(cb => cb.value);
+      const sectorSelect = document.getElementById('sector');
+      
+      if (sectoresSeleccionados.length > 0) {
+        // Actualizar dropdown principal
+        sectorSelect.value = sectoresSeleccionados[0];
+        
+        // Mostrar panel de formato con contenido dinámico
+        panelFormato.classList.remove('panel-formato-oculto');
+        
+        // Generar contenido dinámico según sectores
+        let contenidoHTML = '';
+        const formatosPorSector = {
+          educacion: { titulo: 'Formato Educación', items: ['Población objetivo', 'Nivel educativo', 'Infraestructura requerida', 'Cronograma académico'] },
+          salud: { titulo: 'Formato Salud', items: ['Tipo de atención', 'Equipamiento médico', 'Personal requerido', 'Indicadores de salud'] },
+          vivienda: { titulo: 'Formato Vivienda', items: ['Unidades habitacionales', 'Metras cuadradas', 'Sistema constructivo', 'Dotación básica'] },
+          transporte: { titulo: 'Formato Transporte', items: ['Tipo de vía', 'Longitud (km)', 'Ancho de calzada', 'Drenaje'] },
+          agropecuario: { titulo: 'Formato Agropecuario', items: ['Área sembrada (ha)', 'Tipo de cultivo', 'Riego', 'Manejo post-cosecha'] },
+          agua_potable: { titulo: 'Formato Agua Potable', items: ['Caudal (L/s)', 'Número de usuarios', 'Tipo de planta', 'Calidad del agua'] }
+        };
+
+        sectoresSeleccionados.forEach(sector => {
+          const formato = formatosPorSector[sector] || { titulo: `Formato ${sector}`, items: ['Item 1', 'Item 2', 'Item 3'] };
+          contenidoHTML += `<div style="margin-bottom:12px;"><strong>${formato.titulo}:</strong><ul style="margin:4px 0 0 16px;">${formato.items.map(i => `<li>${i}</li>`).join('')}</ul></div>`;
+        });
+
+        formatoContenido.innerHTML = contenidoHTML || '<em>Seleccione al menos un sector para ver su formato de formulación</em>';
+      } else {
+        panelFormato.classList.add('panel-formato-oculto');
+      }
+      
+      modalSectores?.classList.remove('active');
+    });
+
+    // Cerrar modal con ESC
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modalSectores?.classList.contains('active')) {
+        modalSectores.classList.remove('active');
+      }
+    });
+
+    document.getElementById('btn-generar-ficha').addEventListener('click', () => {
+      const selectedODS = Array.from(document.querySelectorAll('.ods-item input:checked')).map(i => parseInt(i.closest('.ods-item').dataset.ods));
+      const smartRows = Array.from(document.querySelectorAll('#smart-tbody tr')).map(tr => ({
+        indicador: tr.cells[0].querySelector('input').value,
+        valor_actual: tr.cells[1].querySelector('input').value,
+        meta: tr.cells[2].querySelector('input').value,
+        unidad: tr.cells[3].querySelector('input').value
+      })).filter(r => r.indicador);
+
+      const insumos = Array.from(document.querySelectorAll('#insumos-tbody tr')).map(tr => {
+        const inputs = tr.querySelectorAll('input');
+        return {
+          item: inputs[0].value,
+          descripcion: inputs[1].value,
+          unidad: inputs[2].value,
+          cantidad: parseFloat(inputs[3].value) || 0,
+          precio_unitario: parseFloat(inputs[4].value) || 0
+        };
+      }).filter(r => r.descripcion);
+
+      const latLngStr = document.getElementById('lat_lng').value.trim();
+      let lat_lng = null;
+      if (latLngStr) {
+        const parts = latLngStr.split(',').map(p => p.trim());
+        if (parts.length === 2) lat_lng = { lat: parseFloat(parts[0]), lng: parseFloat(parts[1]) };
+      }
+
+      const ficha = {
+        metadata: {
+          user_type: document.getElementById('user_type').value,
+          sector: document.getElementById('sector').value,
+          mecanismo: document.querySelector('input[name="mecanismo"]:checked').value,
+          is_oxi: document.querySelector('input[name="mecanismo"]:checked').value === 'oxi',
+          oxi_modality: document.getElementById('oxi_modality').value || null
+        },
+        geography: {
+          departamento: document.getElementById('depto').value,
+          municipio: document.getElementById('municipio').value,
+          vereda: document.getElementById('vereda').value,
+          lat_lng,
+          is_zomac_pdet: document.getElementById('is_zomac').checked || document.getElementById('is_pdet').checked,
+          territorialidad: {
+            zomac: document.getElementById('is_zomac').checked,
+            pdet: document.getElementById('is_pdet').checked,
+            frontera: document.getElementById('is_frontera').checked,
+            territorio_indigena: document.getElementById('is_territorio_indigena').checked
+          },
+          kml_file: fileStores.kml[0] ? fileStores.kml[0].name : null
+        },
+        population: {
+          total: parseInt(document.getElementById('poblacion_total').value) || 0,
+          beneficiarios_directos: parseInt(document.getElementById('beneficiarios_directos').value) || 0,
+          caracterizacion: Array.from(document.querySelectorAll('[id^="modulo-4"] input[type="checkbox"]:checked')).map(c => c.value)
+        },
+        technical_core: {
+          problem_statement: document.getElementById('problem_statement').value,
+          root_cause: document.getElementById('root_cause').value,
+          expected_effect: document.getElementById('expected_effect').value,
+          intervention_nature: document.getElementById('intervention_nature').value,
+          construction_system: document.getElementById('construction_system').value,
+          intervention_description: document.getElementById('intervention_desc').value,
+          smart_indicators: smartRows,
+          ods_goals: selectedODS,
+          bill_of_materials: insumos
+        },
+        attachments: {
+          tenencia: fileStores.tenencia[0] ? fileStores.tenencia[0].name : null,
+          personeria: fileStores.personeria[0] ? fileStores.personeria[0].name : null,
+          confis_certificate: fileStores.confis[0] ? fileStores.confis[0].name : null,
+          cotizaciones: fileStores.cotizaciones.map(f => f.name)
+        }
+      };
+
+      sessionStorage.setItem('ficha_fase1', JSON.stringify(ficha));
+      window.dispatchEvent(new CustomEvent('ficha:generated', { detail: ficha }));
+      alert('✅ Ficha Técnica FASE 1 generada. Guardada en sesión.\n\nJSON: ' + JSON.stringify(ficha, null, 2).substring(0, 200) + '...');
+    });
+
+    /* ═══════════════════════════════════════════════════════
+       MÓDULO 7 — Formulación de Objetivos
+    ═══════════════════════════════════════════════════════ */
+    let oeCount = 0;
+
+    function addObjetivoEspecifico() {
+      oeCount++;
+      const num = document.querySelectorAll('#oe-container .oe-item').length + 1;
+      const id  = `oe-item-${oeCount}`;
+      const container = document.getElementById('oe-container');
+      const el = document.createElement('div');
+      el.id = id;
+      el.className = 'oe-item';
+      el.innerHTML = `
+        <div class="oe-header">
+          <div class="oe-num">${num}</div>
+          <div style="flex:1;">
+            <textarea class="oe-textarea" rows="2"
+              placeholder="Describe el objetivo específico ${num}. Inicia con verbo en infinitivo. Ej: 'Construir 4 aulas de clase en la escuela rural...'"></textarea>
+          </div>
+          <button type="button" class="oe-delete" onclick="removeOE('${id}')" title="Eliminar objetivo">
+            <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
+          </button>
+        </div>
+        <div class="oe-sub">
+          <div class="form-group">
+            <label>Indicador</label>
+            <input type="text" placeholder="Ej: N° de aulas construidas">
+          </div>
+          <div class="form-group">
+            <label>Meta</label>
+            <input type="text" placeholder="Ej: 4 aulas al mes 18">
+          </div>
+          <div class="form-group">
+            <label>Línea Base</label>
+            <input type="text" placeholder="Ej: 0 — Estado actual">
+          </div>
+        </div>
+      `;
+      container.appendChild(el);
+      updateOECounter();
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function removeOE(id) {
+      document.getElementById(id)?.remove();
+      updateOECounter();
+      /* renumber remaining items */
+      document.querySelectorAll('#oe-container .oe-item').forEach((el, i) => {
+        const numEl = el.querySelector('.oe-num');
+        if (numEl) numEl.textContent = i + 1;
+      });
+    }
+
+    function updateOECounter() {
+      const n = document.querySelectorAll('#oe-container .oe-item').length;
+      const el = document.getElementById('oe-counter');
+      if (el) el.textContent = `${n} objetivo${n !== 1 ? 's' : ''}`;
+    }
+
+    /* Cadena de Valor ── */
+    const CADENA_COLS = [
+      { key: 'insumos',     label: 'Insumos',      icon: '🔧', color: '#3b82f6',  hint: 'ej: mano de obra, materiales' },
+      { key: 'actividades', label: 'Actividades',   icon: '⚡', color: '#8b5cf6',  hint: 'ej: construcción, capacitación' },
+      { key: 'productos',   label: 'Productos',     icon: '📦', color: '#06b6d4',  hint: 'ej: 4 aulas dotadas' },
+      { key: 'resultados',  label: 'Resultados',    icon: '📊', color: '#10b981',  hint: 'ej: 80% cobertura alcanzada' },
+      { key: 'impacto',     label: 'Impacto',       icon: '🎯', color: '#c9a227',  hint: 'Efecto a largo plazo...', single: true },
+    ];
+
+    function buildCadenaValor() {
+      const grid = document.getElementById('cadena-valor-grid');
+      if (!grid) return;
+      grid.innerHTML = CADENA_COLS.map(col => `
+        <div class="cadena-col">
+          <div class="cadena-col__header" style="background:${col.color}18;color:${col.color};">
+            <span>${col.icon}</span><span>${col.label}</span>
+          </div>
+          <div class="cadena-col__items" id="cadena-${col.key}">
+            ${col.single
+              ? `<textarea id="cadena-impacto-text" class="cadena-impacto" rows="5"
+                   placeholder="${col.hint}"></textarea>`
+              : ''}
+          </div>
+          ${!col.single
+            ? `<button type="button" class="cadena-add-btn"
+                 onclick="addCadenaItem('${col.key}','${col.hint}')">+</button>`
+            : ''}
+        </div>
+      `).join('');
+    }
+
+    function addCadenaItem(key, hint) {
+      const container = document.getElementById(`cadena-${key}`);
+      if (!container) return;
+      const item = document.createElement('div');
+      item.className = 'cadena-item';
+      item.innerHTML = `
+        <input type="text" class="cadena-input" placeholder="${hint}">
+        <button type="button" onclick="this.closest('.cadena-item').remove()"
+          style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;" title="Eliminar">×</button>
+      `;
+      container.appendChild(item);
+      container.querySelector('input')?.focus();
+    }
+
+    document.addEventListener('DOMContentLoaded', buildCadenaValor);
+
+    /* ═══════════════════════════════════════════════════════
+       MÓDULO 8 — Cronograma
+    ═══════════════════════════════════════════════════════ */
+    let faseCount = 0, hitoCount = 0;
+    const FASE_COLORS = ['#3b82f6','#8b5cf6','#06b6d4','#10b981','#f59e0b','#ef4444','#ec4899'];
+
+    function calcDuracion() {
+      const ini = document.getElementById('crono_inicio')?.value;
+      const fin = document.getElementById('crono_fin')?.value;
+      if (!ini || !fin) return;
+      const meses = Math.round((new Date(fin) - new Date(ini)) / (1000*60*60*24*30.4375));
+      const el = document.getElementById('crono_duracion');
+      if (el) el.value = meses > 0 ? `${meses} meses` : '—';
+    }
+
+    function addFase() {
+      faseCount++;
+      const tbody = document.getElementById('fases-tbody');
+      const color = FASE_COLORS[(faseCount - 1) % FASE_COLORS.length];
+      const tr = document.createElement('tr');
+      tr.id = `fase-row-${faseCount}`;
+      tr.innerHTML = `
+        <td style="text-align:center;font-weight:700;color:${color};">F${faseCount}</td>
+        <td><input type="text" placeholder="Nombre de la fase ${faseCount}" data-field="nombre"></td>
+        <td><input type="number" min="1" placeholder="1" data-field="inicio" style="text-align:center;"></td>
+        <td><input type="number" min="1" placeholder="3" data-field="fin"    style="text-align:center;"></td>
+        <td><input type="text" placeholder="Responsable" data-field="responsable"></td>
+        <td><input type="number" min="0" max="100" placeholder="0" data-field="pct" style="text-align:center;"></td>
+        <td style="text-align:center;">
+          <button type="button" onclick="this.closest('tr').remove()"
+            style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;" title="Eliminar">✕</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    function addHito() {
+      hitoCount++;
+      const tbody = document.getElementById('hitos-tbody');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="text-align:center;font-weight:700;color:var(--accent);">H${hitoCount}</td>
+        <td><input type="text" placeholder="Descripción del hito ${hitoCount}"></td>
+        <td><input type="number" min="1" placeholder="Mes" style="text-align:center;"></td>
+        <td><input type="text" placeholder="Entregable esperado"></td>
+        <td style="text-align:center;">
+          <button type="button" onclick="this.closest('tr').remove()"
+            style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;" title="Eliminar">✕</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    function renderGantt() {
+      const rows = Array.from(document.querySelectorAll('#fases-tbody tr'));
+      const container = document.getElementById('gantt-container');
+      if (!rows.length) {
+        container.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:28px 0;">Agrega fases primero.</div>';
+        return;
+      }
+      const fases = rows.map((tr, i) => ({
+        nombre: tr.querySelector('[data-field="nombre"]')?.value || `Fase ${i+1}`,
+        inicio: parseInt(tr.querySelector('[data-field="inicio"]')?.value) || 1,
+        fin:    parseInt(tr.querySelector('[data-field="fin"]')?.value)    || 1,
+        color:  FASE_COLORS[i % FASE_COLORS.length],
+      }));
+      const maxMes = Math.max(...fases.map(f => f.fin), 12);
+      const months = Array.from({length: maxMes}, (_, i) => `M${i+1}`);
+
+      let html = `<div class="gantt-header">
+        <div class="gantt-label-col">Fase</div>
+        <div class="gantt-months">${months.map(m => `<div class="gantt-month">${m}</div>`).join('')}</div>
+      </div>`;
+
+      fases.forEach(f => {
+        const startPct = ((f.inicio - 1) / maxMes * 100).toFixed(2);
+        const widthPct  = ((f.fin - f.inicio + 1) / maxMes * 100).toFixed(2);
+        const cells = months.map(() => '<div class="gantt-cell"></div>').join('');
+        html += `<div class="gantt-row">
+          <div class="gantt-row-label" title="${f.nombre}">${f.nombre}</div>
+          <div class="gantt-row-track" style="grid-template-columns:repeat(${maxMes},1fr);">
+            ${cells}
+            <div class="gantt-bar" style="left:${startPct}%;width:${widthPct}%;background:${f.color};">
+              ${f.nombre.length > 18 ? f.nombre.substring(0,16)+'…' : f.nombre}
+            </div>
+          </div>
+        </div>`;
+      });
+
+      container.innerHTML = html;
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       MÓDULO 9 — Presupuesto
+    ═══════════════════════════════════════════════════════ */
+    let presupCount = 0;
+
+    function fmtCOP(n) {
+      return n > 0 ? '$' + n.toLocaleString('es-CO') : '$0';
+    }
+
+    function addPresupItem() {
+      presupCount++;
+      const tbody = document.getElementById('presup-tbody');
+      const tr = document.createElement('tr');
+      tr.id = `presup-row-${presupCount}`;
+      tr.innerHTML = `
+        <td style="text-align:center;color:var(--text-muted);font-size:11px;">${presupCount}</td>
+        <td><input type="text" placeholder="Ej: Cemento Portland 50kg" class="p-concepto"></td>
+        <td><input type="text" placeholder="Bolsa" class="p-unidad" style="text-align:center;"></td>
+        <td><input type="number" placeholder="0" class="p-cant p-calc" oninput="calcPresupTotals()" style="text-align:center;"></td>
+        <td><input type="number" placeholder="0" class="p-vu p-calc"   oninput="calcPresupTotals()" style="text-align:right;font-family:monospace;"></td>
+        <td style="background:rgba(59,130,246,0.05);">
+          <input type="number" placeholder="0" class="p-sgr p-calc"   oninput="calcPresupTotals()" style="text-align:right;font-family:monospace;color:#60a5fa;">
+        </td>
+        <td style="background:rgba(139,92,246,0.05);">
+          <input type="number" placeholder="0" class="p-sgp p-calc"   oninput="calcPresupTotals()" style="text-align:right;font-family:monospace;color:#c4b5fd;">
+        </td>
+        <td style="background:rgba(6,182,212,0.05);">
+          <input type="number" placeholder="0" class="p-coop p-calc"  oninput="calcPresupTotals()" style="text-align:right;font-family:monospace;color:#67e8f9;">
+        </td>
+        <td style="background:rgba(201,162,39,0.05);">
+          <input type="number" placeholder="0" class="p-contra p-calc" oninput="calcPresupTotals()" style="text-align:right;font-family:monospace;color:#fde68a;">
+        </td>
+        <td class="p-total-fila" style="text-align:right;font-family:monospace;font-weight:700;color:#4ade80;background:rgba(34,197,94,0.05);">$0</td>
+        <td style="text-align:center;">
+          <button type="button" onclick="this.closest('tr').remove();calcPresupTotals()"
+            style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;" title="Eliminar">✕</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    function calcPresupTotals() {
+      let totSgr = 0, totSgp = 0, totCoop = 0, totContra = 0, totGen = 0;
+
+      document.querySelectorAll('#presup-tbody tr').forEach(tr => {
+        const val = sel => parseFloat(tr.querySelector(sel)?.value) || 0;
+        const sgr    = val('.p-sgr');
+        const sgp    = val('.p-sgp');
+        const coop   = val('.p-coop');
+        const contra = val('.p-contra');
+        const rowTotal = sgr + sgp + coop + contra;
+
+        tr.querySelector('.p-total-fila').textContent = fmtCOP(rowTotal);
+        totSgr   += sgr;
+        totSgp   += sgp;
+        totCoop  += coop;
+        totContra += contra;
+        totGen   += rowTotal;
+      });
+
+      document.getElementById('total-sgr').textContent    = fmtCOP(totSgr);
+      document.getElementById('total-sgp').textContent    = fmtCOP(totSgp);
+      document.getElementById('total-coop').textContent   = fmtCOP(totCoop);
+      document.getElementById('total-contra').textContent = fmtCOP(totContra);
+      document.getElementById('total-general').innerHTML  = `<strong>${fmtCOP(totGen)}</strong>`;
+
+      /* Resumen cards */
+      const pct = v => totGen > 0 ? (v / totGen * 100).toFixed(1) + '% del total' : '0% del total';
+      document.getElementById('resumen-sgr').textContent   = fmtCOP(totSgr);
+      document.getElementById('resumen-sgp').textContent   = fmtCOP(totSgp);
+      document.getElementById('resumen-coop').textContent  = fmtCOP(totCoop);
+      document.getElementById('resumen-contra').textContent= fmtCOP(totContra);
+      document.getElementById('pct-sgr').textContent   = pct(totSgr);
+      document.getElementById('pct-sgp').textContent   = pct(totSgp);
+      document.getElementById('pct-coop').textContent  = pct(totCoop);
+      document.getElementById('pct-contra').textContent= pct(totContra);
+    }
+
+    /* Extend scrollToModule to handle 7-9 */
+    const _origScrollToModule = typeof scrollToModule === 'function' ? scrollToModule : null;
+    function scrollToModule(id, num) {
+      const el = document.getElementById(id);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      document.querySelectorAll('.sidebar-nav-item').forEach(a => a.classList.remove('active'));
+      const navEl = document.getElementById(`nav-m${num}`);
+      if (navEl) navEl.classList.add('active');
+    }
+  </script>
+</body>
+</html>

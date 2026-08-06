@@ -1,0 +1,2895 @@
+{
+  "status": "ACTIVE",
+  "healthScore": 50,
+  "mode": "ACTIVE",
+  "startTime": "2026-04-26T18:22:16.665Z",
+  "lastCheck": "2026-04-26T18:29:49.701Z",
+  "activeAlerts": [
+    {
+      "id": "alert_1777072320290_mxl20vx56",
+      "severity": "CRITICAL",
+      "message": "Salud crítica: 25%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 928
+          },
+          "server": {
+            "status": "UNHEALTHY",
+            "error": "fetch failed"
+          }
+        },
+        "score": 25
+      },
+      "timestamp": "2026-04-24T23:12:00.290Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777072352712_i9t92lqv5",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 787
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 436
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-24T23:12:32.712Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777152760268_tbo7riw81",
+      "severity": "CRITICAL",
+      "message": "Salud crítica: 25%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 911
+          },
+          "server": {
+            "status": "UNHEALTHY",
+            "error": "fetch failed"
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 25
+      },
+      "timestamp": "2026-04-25T21:32:40.268Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777152791823_7bj09x8ce",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 853
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 403
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:33:11.823Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777152821772_85kih8e23",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 807
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 400
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:33:41.772Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777152851912_lrdlsxykh",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 823
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 540
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:34:11.912Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777152881780_6xd6mb715",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 791
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 370
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:34:41.780Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777152911808_ww3noptfr",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 795
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 403
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:35:11.808Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777152941873_23ogl903n",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 772
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 386
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:35:41.873Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777152971857_2zluhbsep",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 780
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 383
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:36:11.857Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777153001900_xcvcxu7ij",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 775
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 387
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:36:41.900Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777153031938_19qc1a9up",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 806
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 393
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:37:11.938Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777153061889_zcctnw8ae",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 863
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 397
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:37:41.889Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777153092219_re2heias1",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 917
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 461
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:38:12.219Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777153121837_yor7i4s9l",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 796
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 401
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:38:41.837Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777153151866_uj9zmp4wi",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 818
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 373
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:39:11.866Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777153181866_q8tlsg592",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 797
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 383
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:39:41.866Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777153212382_tcxqp1200",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 1264
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 366
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:40:12.382Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777153242293_da43ponsf",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 800
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 399
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:40:42.293Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777153271809_rqlqchakb",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 764
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 384
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-25T21:41:11.809Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227188793_oid3e1sjy",
+      "severity": "CRITICAL",
+      "message": "Salud crítica: 25%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 1038
+          },
+          "server": {
+            "status": "UNHEALTHY",
+            "error": "fetch failed"
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 25
+      },
+      "timestamp": "2026-04-26T18:13:08.793Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227220474_b104v94xm",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 932
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 492
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:13:40.474Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227250355_1vhi0msbe",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 831
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 387
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:14:10.355Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227280511_kghl3z4vm",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 929
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 393
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:14:40.511Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227310634_6iuktpn0s",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 923
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 397
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:15:10.634Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227340618_53ud1tddz",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 867
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 375
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:15:40.618Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227414522_blj66aap2",
+      "severity": "CRITICAL",
+      "message": "Salud crítica: 25%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 823
+          },
+          "server": {
+            "status": "UNHEALTHY",
+            "error": "fetch failed"
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 25
+      },
+      "timestamp": "2026-04-26T18:16:54.522Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227446129_uyijnprhc",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 920
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 411
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:17:26.129Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227476244_g3nnh6wnb",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 939
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 385
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:17:56.244Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227506183_c1aprclqf",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 894
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 378
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:18:26.183Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227536156_dsob23eu9",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 797
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 421
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:18:56.156Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227566043_lzjajm0x0",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 827
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 385
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:19:26.043Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227596134_9wpk5njh2",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 879
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 387
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:19:56.134Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227626126_cpw6tf1sp",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 853
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 405
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:20:26.126Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227656170_lgbbm8fbs",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 882
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 391
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:20:56.170Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227686323_rtbj9iaz7",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 905
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 385
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:21:26.323Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227738006_mwjl4ya1b",
+      "severity": "CRITICAL",
+      "message": "Salud crítica: 25%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 913
+          },
+          "server": {
+            "status": "UNHEALTHY",
+            "error": "fetch failed"
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 25
+      },
+      "timestamp": "2026-04-26T18:22:18.006Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227769645_up7acmpvu",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 900
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 411
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:22:49.645Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227799504_s7vnkfw8b",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 784
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 407
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:23:19.504Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227829720_wdsa943of",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 871
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 380
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:23:49.720Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227859609_lelaql3pe",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 828
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 478
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:24:19.609Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227889647_c9xmtiu83",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 815
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 385
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:24:49.647Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227919665_5v2nigi1e",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 923
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 389
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:25:19.665Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227949568_k2yjcvuxr",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 806
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 388
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:25:49.568Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777227979786_ydiw6uc83",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 839
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 384
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:26:19.786Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777228009631_cx9k48ry1",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 781
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 389
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:26:49.631Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777228039730_j7c5z8lo0",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 918
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 394
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:27:19.730Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777228069867_vmakbduwk",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 799
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 384
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:27:49.867Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777228099787_orsfbmyvg",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 906
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 383
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:28:19.787Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777228129833_xkizvypmm",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 846
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 373
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:28:49.833Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777228159890_dygrpt48t",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 959
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 446
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:29:19.890Z",
+      "resolved": false
+    },
+    {
+      "id": "alert_1777228189702_vey77fc59",
+      "severity": "HIGH",
+      "message": "Salud degradada: 50%",
+      "data": {
+        "checks": {
+          "firebase": {
+            "status": "UNHEALTHY",
+            "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+          },
+          "trello": {
+            "status": "UNHEALTHY",
+            "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+          },
+          "brevo": {
+            "status": "HEALTHY",
+            "latency": 799
+          },
+          "server": {
+            "status": "HEALTHY",
+            "latency": 379
+          },
+          "mcp": {
+            "status": "HEALTHY",
+            "serverCount": 10,
+            "servers": [
+              "trello-mcp",
+              "notebooklm",
+              "trello",
+              "StitchMCP",
+              "google-cloud",
+              "mongodb",
+              "filesystem",
+              "github",
+              "Stitch",
+              "claude-code"
+            ],
+            "sources": [
+              "cline_mcp_settings.json",
+              "mcp_config.json",
+              "mcp_config.json",
+              ".mcp.json",
+              "opencode.json"
+            ]
+          },
+          "mcpToolLimit": {
+            "status": "HEALTHY",
+            "message": "Límite de herramientas dentro del rango"
+          }
+        },
+        "score": 50
+      },
+      "timestamp": "2026-04-26T18:29:49.702Z",
+      "resolved": false
+    }
+  ],
+  "services": {
+    "firebase": {
+      "status": "UNHEALTHY",
+      "error": "Cannot find module 'C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\src\\shared\\infrastructure\\FirebaseAdmin.js' imported from C:\\2026 AI EGIOC5\\Antigravity JS\\scripts\\supervisor\\supervisor.js"
+    },
+    "trello": {
+      "status": "UNHEALTHY",
+      "error": "Unexpected token 'i', \"invalid key\" is not valid JSON"
+    },
+    "brevo": {
+      "status": "HEALTHY",
+      "latency": 799
+    },
+    "server": {
+      "status": "HEALTHY",
+      "latency": 379
+    },
+    "mcp": {
+      "status": "HEALTHY",
+      "serverCount": 10,
+      "servers": [
+        "trello-mcp",
+        "notebooklm",
+        "trello",
+        "StitchMCP",
+        "google-cloud",
+        "mongodb",
+        "filesystem",
+        "github",
+        "Stitch",
+        "claude-code"
+      ],
+      "sources": [
+        "cline_mcp_settings.json",
+        "mcp_config.json",
+        "mcp_config.json",
+        ".mcp.json",
+        "opencode.json"
+      ]
+    },
+    "mcpToolLimit": {
+      "status": "HEALTHY",
+      "message": "Límite de herramientas dentro del rango"
+    }
+  },
+  "repairs": [],
+  "discovery": {
+    "timestamp": "2026-04-26T18:22:16.667Z",
+    "firebase": {
+      "configured": true,
+      "projectId": "antigravity-jairo-2026"
+    },
+    "trello": {
+      "configured": true,
+      "hasToken": true
+    },
+    "brevo": {
+      "configured": true,
+      "sender": "asfaltica.comercial@gmail.com"
+    },
+    "groq": {
+      "configured": true
+    },
+    "openrouter": {
+      "configured": true
+    },
+    "google": {
+      "configured": true
+    },
+    "mongo": {
+      "configured": false
+    }
+  },
+  "metrics": {
+    "uptime": 0,
+    "checks": 52,
+    "repairs": 57,
+    "alerts": 52,
+    "errors": 0
+  }
+}

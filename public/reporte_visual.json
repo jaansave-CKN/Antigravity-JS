@@ -1,0 +1,10 @@
+﻿{
+  "proyecto": "Antigravity OS - Control Maestro",
+  "ubicacion": "Bucaramanga, Santander",
+  "estado_servidor": "ONLINE",
+  "frentes": [
+    {"nombre": "Donaciones", "estado": "Esperando datos", "carpeta": "./PROYECTOS_ACTIVOS/Proy_01_Donaciones"},
+    {"nombre": "SECOP II", "estado": "Listo para escaneo", "carpeta": "./PROYECTOS_ACTIVOS/Proy_02_Licita_secop1y2"},
+    {"nombre": "Auditoría Forense", "estado": "Verificando Firestore", "carpeta": "./PROYECTOS_ACTIVOS/Proy_03_AuditoriaForence"}
+  ]
+}

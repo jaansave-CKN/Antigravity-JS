@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "fecha_creacion": "2026-04-27",
+  "director": "Jairo Salinas",
+  "empresa": "Asfáltica S.A.S.",
+  "proyecto_activo": "Proy_01",
+  "ultimo_acceso": {
+    "proyecto": "Proy_01",
+    "fecha": "2026-04-27"
+  },
+  "configuracion": {
+    "firebase_project": "antigravity-jairo-2026",
+    "hosting_url": "https://antigravity-jairo-2026.web.app"
+  }
+}

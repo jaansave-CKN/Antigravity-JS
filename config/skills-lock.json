@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "skills": {
+    "api-and-interface-design": {
+      "source": "addyosmani/agent-skills",
+      "sourceType": "github",
+      "computedHash": "0fabf9c3fc2577eab57833f660efef943b78d5c6ae5f0d8e82b600cc22563dbc"
+    },
+    "bmad-generate-project-context": {
+      "source": "bmad-code-org/bmad-method",
+      "sourceType": "github",
+      "computedHash": "eac16b56e7df6857d302ff7a60bfb99ed6f0aacdf00376dcd613b0b9d50147ab"
+    },
+    "browser-automation": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "0ac9523763188634a86eae1186e458c2d9f7b3db383b40144724a37fdd350183"
+    },
+    "docker-expert": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "b712d6d1a6ac8bc2b67e366571106e63cfcc6df7fe4596a326e39969a1999113"
+    },
+    "docx-official": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "8fbc7afe67f8229759ddda85b9565e57031fc1d726f964a9891106afbb10fe63"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "computedHash": "9e1c8b3103f92fa8092568a44fe64858de7c5c9dc65ce4bea8f168080e889cfd"
+    },
+    "humanizer": {
+      "source": "softaworks/agent-toolkit",
+      "sourceType": "github",
+      "computedHash": "c948e831d5fdfbe2e1fbbba1ebf8ab410a8f077ba529ddd522fd9ae40e6cc653"
+    },
+    "interface-design": {
+      "source": "dammyjay93/interface-design",
+      "sourceType": "github",
+      "computedHash": "4d5fe1dacfebc0c1b3837b061405150ed2e4971c096543afc46c23161c5a4f7a"
+    },
+    "linkly": {
+      "source": "membranedev/application-skills",
+      "sourceType": "github",
+      "computedHash": "9499014692b68df9f3c2e65ae935f57bd21c4c2a81e6acca42b51dde0a60d088"
+    },
+    "make-interfaces-feel-better": {
+      "source": "jakubkrehel/make-interfaces-feel-better",
+      "sourceType": "github",
+      "computedHash": "2c3576e63d8c39d75ed327f1dcf6aab7aec0edf293a55f6cb3f7b8571974a01c"
+    },
+    "nodejs-best-practices": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "b321f6e20876f5433c6d2abac50381c15fb1dc17417e940faa514ef99b0ae030"
+    },
+    "paddleocr-text-recognition": {
+      "source": "aidenwu0209/paddleocr-skills",
+      "sourceType": "github",
+      "computedHash": "e03da17f9da3b4210f4b4da71ee4fefd45725d5baf90a811e142955b0886a393"
+    },
+    "product-manager-toolkit": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "9e9b7e07b8be9219ef39ac35c3ce319256f06aea3e222fe91d0c22bc3dd125b8"
+    },
+    "project-profiler": {
+      "source": "yelban/orz99-skills",
+      "sourceType": "github",
+      "computedHash": "c41f48345eb612979d3c1b54d477b17a8ac0e85e53764c7d70f04f391b143705"
+    },
+    "react:components": {
+      "source": "google-labs-code/stitch-skills",
+      "sourceType": "github",
+      "computedHash": "5e786773a89012ae15b01b5c11942db30b09f935929283d8eb8a30b2da5fabf7"
+    },
+    "stitch-mcp-get-screen": {
+      "source": "gabelul/stitch-kit",
+      "sourceType": "github",
+      "computedHash": "3f78d7cf0db2d086cc5fcaf657d53004b0403c577b1cdfa1b647a49ed8858db6"
+    },
+    "stitch-ui-design": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "9385fcd5e3326d71102ee6d93f2d6bbb7b9eb03dbdf79116c69e702664237e90"
+    }
+  }
+}

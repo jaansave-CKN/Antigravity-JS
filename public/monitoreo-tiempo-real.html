@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antigravity OS - Monitoreo en Tiempo Real</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --border-cyan: #00FFFF; }
+        
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+        .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+        
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 5px currentColor; }
+            50% { box-shadow: 0 0 20px currentColor, 0 0 30px currentColor; }
+        }
+        .glow-animation { animation: glow 2s ease-in-out infinite; }
+        
+        .glass-card {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Borde cyan para previsualizaci&oacute;n en tiempo real */
+        .preview-window {
+            border: 2px solid var(--border-cyan);
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.3), inset 0 0 30px rgba(0, 255, 255, 0.05);
+            border-radius: 8px;
+            animation: cyanGlow 3s ease-in-out infinite;
+        }
+        
+        @keyframes cyanGlow {
+            0%, 100% { box-shadow: 0 0 10px rgba(0, 255, 255, 0.3); }
+            50% { box-shadow: 0 0 25px rgba(0, 255, 255, 0.6); }
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen font-sans">
+    
+    <!-- HEADER -->
+    <header class="fixed top-0 left-0 right-0 z-50 glass-card border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <div class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-purple-500 bg-clip-text text-transparent">
+                    ANTIGRAVITY OS
+                </div>
+                <span class="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-semibold border border-green-500/50">
+                    <span class="inline-block w-2 h-2 bg-green-400 rounded-full mr-2 pulse-dot"></span>
+                    EN L&Iacute;NEA
+                </span>
+            </div>
+            <div class="flex items-center gap-6">
+                <span class="text-slate-400 text-sm" id="reloj">--:--:--</span>
+                <div class="flex items-center gap-2">
+                    <span class="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-purple-500 flex items-center justify-center text-sm font-bold">
+                        JS
+                    </span>
+                    <span class="text-sm">Jairo Salinas</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="pt-24 pb-8 px-6 max-w-7xl mx-auto">
+        
+        <!-- STATUS CARDS -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 preview-window" id="status-cards">
+            <div class="glass-card rounded-xl p-5">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                        <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-400">MongoDB</div>
+                        <div class="text-lg font-bold" id="mongo-status">Conectando...</div>
+                    </div>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2">
+                    <div class="bg-cyan-500 h-2 rounded-full transition-all duration-500" id="mongo-progress" style="width: 60%"></div>
+                </div>
+            </div>
+
+            <div class="glass-card rounded-xl p-5">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-10 h-10 rounded-lg bg-green-500/20 flex items-center justify-center">
+                        <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-400">Firebase</div>
+                        <div class="text-lg font-bold text-green-400" id="firebase-status">ACTIVO</div>
+                    </div>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2">
+                    <div class="bg-green-500 h-2 rounded-full" style="width: 100%"></div>
+                </div>
+            </div>
+
+            <div class="glass-card rounded-xl p-5">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-10 h-10 rounded-lg bg-yellow-500/20 flex items-center justify-center">
+                        <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-400">Stitch</div>
+                        <div class="text-lg font-bold text-yellow-400" id="stitch-status">PENDIENTE</div>
+                    </div>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2">
+                    <div class="bg-yellow-500 h-2 rounded-full transition-all duration-500" id="stitch-progress" style="width: 30%"></div>
+                </div>
+            </div>
+
+            <div class="glass-card rounded-xl p-5">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                        <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-400">Trello</div>
+                        <div class="text-lg font-bold text-purple-400" id="trello-status">PENDIENTE</div>
+                    </div>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2">
+                    <div class="bg-purple-500 h-2 rounded-full transition-all duration-500" id="trello-progress" style="width: 10%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PROJECT INFO & DONATIONS -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            
+            <!-- PROJECT DETAILS -->
+            <div class="glass-card rounded-xl p-6">
+                <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+                    <span class="w-2 h-2 bg-cyan-400 rounded-full pulse-dot"></span>
+                    Proyecto 01 - Donaciones
+                </h2>
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">Arquitecto</span>
+                        <span class="font-semibold">Jairo Salinas</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">Sector</span>
+                        <span class="px-2 py-0.5 bg-teal-500/20 text-teal-400 rounded text-sm">Educaci&oacute;n</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">Formato</span>
+                        <span class="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-sm">Cadena MGA</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">Geograf&iacute;a</span>
+                        <span class="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-sm">Colombia</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">M&oacute;dulos</span>
+                        <span class="font-bold">10/10</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- METRICS -->
+            <div class="glass-card rounded-xl p-6">
+                <h2 class="text-lg font-bold mb-4">M&eacute;tricas del Proyecto</h2>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="text-center p-4 bg-slate-800/50 rounded-lg">
+                        <div class="text-3xl font-bold text-cyan-400" id="meta-total">$5M</div>
+                        <div class="text-xs text-slate-400 mt-1">Meta Total USD</div>
+                    </div>
+                    <div class="text-center p-4 bg-slate-800/50 rounded-lg">
+                        <div class="text-3xl font-bold text-green-400" id="costo-modulo">$50K</div>
+                        <div class="text-xs text-slate-400 mt-1">Costo por M&oacute;dulo</div>
+                    </div>
+                    <div class="text-center p-4 bg-slate-800/50 rounded-lg">
+                        <div class="text-3xl font-bold text-purple-400" id="unidades">100</div>
+                        <div class="text-xs text-slate-400 mt-1">Unidades Objetivo</div>
+                    </div>
+                    <div class="text-center p-4 bg-slate-800/50 rounded-lg">
+                        <div class="text-3xl font-bold text-yellow-400" id="total-donaciones">0</div>
+                        <div class="text-xs text-slate-400 mt-1">C&oacute;digos Generados</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LIVE LOGS -->
+            <div class="glass-card rounded-xl p-6">
+                <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+                    <span class="w-2 h-2 bg-red-400 rounded-full pulse-dot"></span>
+                    Actividad en Vivo
+                </h2>
+                <div class="bg-slate-900/50 rounded-lg p-3 h-48 overflow-y-auto font-mono text-xs" id="live-logs">
+                    <div class="text-slate-500">[Sistema iniciado]</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CHARTS ROW -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            
+            <!-- DONATION CHART -->
+            <div class="glass-card rounded-xl p-6">
+                <h2 class="text-lg font-bold mb-4">Distribuci&oacute;n por Tipo</h2>
+                <div class="h-64">
+                    <canvas id="donutChart"></canvas>
+                </div>
+            </div>
+
+            <!-- REGIONS MAP -->
+            <div class="glass-card rounded-xl p-6">
+                <h2 class="text-lg font-bold mb-4">C&oacute;digos por Regi&oacute;n</h2>
+                <div class="space-y-2 max-h-64 overflow-y-auto" id="regions-list">
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span>Antioquia</span>
+                        <span class="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-xs">0</span>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span>Bogot&aacute;</span>
+                        <span class="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-xs">0</span>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span>Valle del Cauca</span>
+                        <span class="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-xs">0</span>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span>Santander</span>
+                        <span class="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-xs">0</span>
+                    </div>
+                    <div class="flex justify-between items-center py-2 border-b border-slate-700">
+                        <span>Cundinamarca</span>
+                        <span class="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-xs">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GENERATE CODE -->
+        <div class="glass-card rounded-xl p-6">
+            <h2 class="text-lg font-bold mb-4">Generador de C&oacute;digos de Donaci&oacute;n</h2>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-sm text-slate-400 mb-2">Tipo</label>
+                    <select id="cod-tipo" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white">
+                        <option value="EDU">🎓 Educaci&oacute;n</option>
+                        <option value="SAL">🏥 Salud</option>
+                        <option value="VIV">🏠 Vivienda</option>
+                        <option value="COM" selected>🤝 Comunidad</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm text-slate-400 mb-2">Departamento</label>
+                    <select id="cod-departamento" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white">
+                        <option value="">Cargando...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm text-slate-400 mb-2">Municipio</label>
+                    <select id="cod-municipio" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white" disabled>
+                        <option value="">Seleccione departamento</option>
+                    </select>
+                </div>
+                <div class="flex items-end">
+                    <button id="btn-generar" class="w-full py-3 bg-gradient-to-r from-cyan-500 to-purple-500 text-black font-bold rounded-lg hover:opacity-90 transition flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        GENERAR C&Oacute;DIGO
+                    </button>
+                </div>
+                <div class="flex items-center justify-center bg-slate-800/50 rounded-lg p-4">
+                    <div id="codigo-resultado" class="text-2xl font-mono font-bold text-cyan-400">AG-...-...-0001</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RECENT CODES -->
+        <div class="glass-card rounded-xl p-6 mt-6">
+            <h2 class="text-lg font-bold mb-4">C&oacute;digos Recientes</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-slate-700">
+                            <th class="text-left py-2 px-4 text-slate-400">C&oacute;digo</th>
+                            <th class="text-left py-2 px-4 text-slate-400">Tipo</th>
+                            <th class="text-left py-2 px-4 text-slate-400">Regi&oacute;n</th>
+                            <th class="text-left py-2 px-4 text-slate-400">Estado</th>
+                            <th class="text-left py-2 px-4 text-slate-400">Fecha</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla-codigos">
+                        <tr class="border-b border-slate-800">
+                            <td class="py-3 px-4" colspan="5" class="text-center text-slate-500">Sin c&oacute;digos generados</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Clock
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('reloj').textContent = now.toLocaleTimeString('es-CO');
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Log activity
+        function addLog(message, type = 'info') {
+            const logs = document.getElementById('live-logs');
+            const time = new Date().toLocaleTimeString('es-CO');
+            const colors = {
+                info: 'text-cyan-400',
+                success: 'text-green-400',
+                warning: 'text-yellow-400',
+                error: 'text-red-400'
+            };
+            const div = document.createElement('div');
+            div.className = `${colors[type]} mb-1`;
+            div.textContent = `[${time}] ${message}`;
+            logs.insertBefore(div, logs.firstChild);
+            if (logs.children.length > 50) logs.removeChild(logs.lastChild);
+        }
+
+        // Chart
+        const ctx = document.getElementById('donutChart').getContext('2d');
+        const donutChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Educaci&oacute;n', 'Salud', 'Vivienda', 'Comunidad'],
+                datasets: [{
+                    data: [0, 0, 0, 0],
+                    backgroundColor: ['#06b6d4', '#10b981', '#8b5cf6', '#f59e0b']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
+            }
+        });
+
+        // Load stats
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/donaciones/estadisticas');
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('total-donaciones').textContent = data.estadisticas.total;
+                    document.getElementById('meta-total').textContent = '$5M';
+                    document.getElementById('costo-modulo').textContent = '$50K';
+                    
+                    donutChart.data.datasets[0].data = [
+                        data.estadisticas.porTipo.educacion,
+                        data.estadisticas.porTipo.salud,
+                        data.estadisticas.porTipo.vivienda,
+                        data.estadisticas.porTipo.comunidad
+                    ];
+                    donutChart.update();
+                    addLog('Estad&iacute;sticas actualizadas', 'success');
+                }
+            } catch (e) {
+                addLog('Error cargando estad&iacute;sticas', 'error');
+            }
+        }
+
+        // Load project state
+        async function loadProjectState() {
+            try {
+                const res = await fetch('/proyecto01-estado.json');
+                const data = await res.json();
+                
+                // Update MongoDB
+                document.getElementById('mongo-status').textContent = data.components.mongodb.estado.toUpperCase();
+                document.getElementById('mongo-progress').style.width = data.components.mongodb.progress + '%';
+                document.getElementById('mongo-status').className = data.components.mongodb.progress > 80 ? 'text-lg font-bold text-green-400' : 'text-lg font-bold text-yellow-400';
+                
+                // Update Stitch
+                document.getElementById('stitch-status').textContent = data.components.stitch.estado.toUpperCase();
+                document.getElementById('stitch-progress').style.width = data.components.stitch.progress + '%';
+                
+                // Update Trello
+                document.getElementById('trello-status').textContent = data.components.trello.estado.toUpperCase();
+                document.getElementById('trello-progress').style.width = data.components.trello.progress + '%';
+                
+                addLog('Estado del proyecto cargado', 'info');
+            } catch (e) {
+                addLog('Error cargando estado del proyecto', 'error');
+            }
+        }
+
+        // Load DIVIPOLA
+        let divipolaData = {};
+        
+        async function loadDepartamentos() {
+            try {
+                const res = await fetch('/api/divipola/municipios');
+                const data = await res.json();
+                if (data.success) {
+                    divipolaData = data.departamentos;
+                    const deptSelect = document.getElementById('cod-departamento');
+                    const deptNames = Object.keys(divipolaData).sort();
+                    deptSelect.innerHTML = '<option value="">Seleccionar departamento</option>';
+                    deptNames.forEach(d => {
+                        deptSelect.innerHTML += `<option value="${d}">${d} (${divipolaData[d].length})</option>`;
+                    });
+                    addLog(`DIVIPOLA: ${data.total} municipios cargados`, 'success');
+                }
+            } catch (e) {
+                addLog('Error cargando DIVIPOLA', 'error');
+            }
+        }
+        
+        document.getElementById('cod-departamento').addEventListener('change', function() {
+            const dept = this.value;
+            const munSelect = document.getElementById('cod-municipio');
+            munSelect.innerHTML = '<option value="">Cargando...</option>';
+            if (!dept) {
+                munSelect.innerHTML = '<option value="">Seleccione departamento</option>';
+                munSelect.disabled = true;
+                return;
+            }
+            const municipios = divipolaData[dept] || [];
+            munSelect.innerHTML = '<option value="">Seleccionar municipio</option>';
+            municipios.forEach(m => {
+                munSelect.innerHTML += `<option value="${m.codigo}">${m.nombre}</option>`;
+            });
+            munSelect.disabled = false;
+            addLog(`Municipios de ${dept} cargados`, 'info');
+        });
+        
+        // Generate code
+        document.getElementById('btn-generar').addEventListener('click', async () => {
+            const tipo = document.getElementById('cod-tipo').value;
+            const departamento = document.getElementById('cod-departamento').value;
+            const municipio = document.getElementById('cod-municipio').value;
+            const region = municipio || departamento || 'COL';
+            
+            try {
+                const res = await fetch('/api/donaciones/crear', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tipo, region })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('codigo-resultado').textContent = data.codigo;
+                    addLog(`C&oacute;digo generado: ${data.codigo}`, 'success');
+                    loadStats();
+                    updateRecentCodes(data.codigo, tipo, region);
+                } else {
+                    addLog(`Error: ${data.error}`, 'error');
+                }
+            } catch (e) {
+                addLog('Error de conexi&oacute;n al generar c&oacute;digo', 'error');
+            }
+        });
+
+        function updateRecentCodes(codigo, tipo, region) {
+            const tbody = document.getElementById('tabla-codigos');
+            if (tbody.firstChild && tbody.firstChild.colSpan === 5) {
+                tbody.innerHTML = '';
+            }
+            const tipos = { EDU: '🎓 Educaci&oacute;n', SAL: '🏥 Salud', VIV: '🏠 Vivienda', COM: '🤝 Comunidad' };
+            
+            const tr = document.createElement('tr');
+            tr.className = 'border-b border-slate-800 hover:bg-slate-800/50';
+            tr.innerHTML = `
+                <td class="py-3 px-4 font-mono text-cyan-400">${codigo}</td>
+                <td class="py-3 px-4">${tipos[tipo] || tipo}</td>
+                <td class="py-3 px-4">${region}</td>
+                <td class="py-3 px-4"><span class="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded text-xs">PENDIENTE</span></td>
+                <td class="py-3 px-4 text-slate-500">${new Date().toLocaleString('es-CO')}</td>
+            `;
+            tbody.insertBefore(tr, tbody.firstChild);
+        }
+
+        // Initial load
+        loadDepartamentos();
+        loadProjectState();
+        loadStats();
+
+        // Auto refresh every 10 seconds
+        setInterval(() => {
+            loadStats();
+            loadProjectState();
+        }, 10000);
+
+        addLog('Monitoreo en tiempo real iniciado', 'success');
+    </script>
+</body>
+</html>

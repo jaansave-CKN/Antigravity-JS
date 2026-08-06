@@ -1,0 +1,35 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\2026 AI EGIOC5\\Antigravity JS"]
+    },
+    "mongodb": {
+      "type": "stdio",
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
+      "args": ["-y", "@modelcontextprotocol/server-mongodb"],
+      "env": {
+        "MONGODB_CONNECTION_STRING": "${MONGODB_CONNECTION_STRING}"
+      }
+    },
+    "notebooklm": {
+      "command": "notebooklm-mcp",
+      "args": []
+    },
+    "trello": {
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
+      "args": ["-y", "mcp-server-trello"],
+      "env": {
+        "TRELLO_API_KEY": "${TRELLO_API_KEY}",
+        "TRELLO_TOKEN": "${TRELLO_TOKEN}"
+      }
+    },
+    "stitch": {
+      "type": "http",
+      "url": "https://stitch.googleapis.com/mcp",
+      "headers": {
+        "X-Goog-Api-Key": "${STITCH_API_KEY}"
+      }
+    }
+  }
+}

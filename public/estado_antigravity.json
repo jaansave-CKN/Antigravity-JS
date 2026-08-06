@@ -1,0 +1,77 @@
+{
+  "titulo": "REPORTE INTEGRAL ANTIGRAVITY OS",
+  "disenador": "Jairo Salinas",
+  "fecha": "6/8/2026, 2:17:59 a. m.",
+  "estado": "ONLINE",
+  "agentes_activos": 17,
+  "detalles": [
+    {
+      "id": "000_ORQUESTADOR",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "001_gestor_datos",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "002_redactor_tecnico",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "005_Radar1_minero",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "006_Radar2_Estratega",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "015_intelligence-core",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "03-analista-secop",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "050_Formulador_proy",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "051_Form_Lluvia_de_ideas",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "052_Form_Administrativo",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "054_Form_Gestion_de_riesgos",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "056_Form_Evaluador",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "07-ing-concreto_GFRC",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "08-estratega-neuromarketing",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "10-admin-trello",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "12-gestor-mongodb",
+      "status": "READY 24/7"
+    },
+    {
+      "id": "14-analista-comportamiento",
+      "status": "READY 24/7"
+    }
+  ]
+}

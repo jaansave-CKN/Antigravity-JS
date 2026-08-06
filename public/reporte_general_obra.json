@@ -1,0 +1,128 @@
+{
+    "Servidor":  "ONLINE (Firestore)",
+    "Ubicacion":  "Bucaramanga, Santander",
+    "Proyecto":  "Antigravity OS - Control de Obra",
+    "Detalle_Equipo":  [
+                           {
+                               "Agente":  "00-coordinador",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065576234)\/"
+                           },
+                           {
+                               "Agente":  "01-gestor-datos",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1776892697758)\/"
+                           },
+                           {
+                               "Agente":  "02-redactor-tecnico",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1776892704990)\/"
+                           },
+                           {
+                               "Agente":  "03-analista-secop",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000930)\/"
+                           },
+                           {
+                               "Agente":  "04-auditor-forense",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000936)\/"
+                           },
+                           {
+                               "Agente":  "05-especialista-donaciones",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000941)\/"
+                           },
+                           {
+                               "Agente":  "06-arquitecto-modular",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000946)\/"
+                           },
+                           {
+                               "Agente":  "07-ing-concreto",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000952)\/"
+                           },
+                           {
+                               "Agente":  "08-estratega-neuromarketing",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000958)\/"
+                           },
+                           {
+                               "Agente":  "09-legal-licitaciones",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065709111)\/"
+                           },
+                           {
+                               "Agente":  "09-legal-licitaciones",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000964)\/"
+                           },
+                           {
+                               "Agente":  "10-admin-trello",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000967)\/"
+                           },
+{
+                                "Agente":  "11-ESP-DISENO-GRAFICO-Y-STITCH",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000974)\/"
+                           },
+                           {
+                               "Agente":  "12-gestor-mongodb",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000980)\/"
+                           },
+                           {
+                               "Agente":  "13-seguridad-hidrocarburos",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000984)\/"
+                           },
+                           {
+                               "Agente":  "14-analista-comportamiento",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000990)\/"
+                           },
+                           {
+                               "Agente":  "15-automatizador-whatsapp",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065000995)\/"
+                           },
+                           {
+                               "Agente":  "16-supervisor-antigravity",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065001000)\/"
+                           },
+                           {
+                               "Agente":  "intelligence-core",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065709116)\/"
+                           },
+                           {
+                               "Agente":  "skills",
+                               "Estado":  "READY 24/7",
+                               "Identidad":  true,
+                               "Ultima_Actividad":  "\/Date(1777065709118)\/"
+                           }
+                       ],
+    "Designer":  "Jairo Salinas"
+}

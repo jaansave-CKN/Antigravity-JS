@@ -1,0 +1,52 @@
+{
+  "proyecto": "01-gestor-datos",
+  "fecha_inicio": "25/4/2026",
+  "estado": "funcionando",
+  "components": {
+    "mongodb": {
+      "nombre": "MongoDB Atlas",
+      "estado": "activo",
+      "progress": 100,
+      "mensaje": "Cluster0 conectado y operativo"
+    },
+    "firebase": {
+      "nombre": "Firebase",
+      "estado": "activo",
+      "progress": 100,
+      "mensaje": "Firestore + Hosting + Auth activos"
+    },
+    "stitch": {
+      "nombre": "Stitch",
+      "estado": "activo",
+      "progress": 100,
+      "mensaje": "Autorizado y conectado"
+    },
+    "trello": {
+      "nombre": "Trello",
+      "estado": "activo",
+      "progress": 100,
+      "mensaje": "Sincronizado y operativo"
+    }
+  },
+  "modulos_implementados": [
+    {
+      "id": "donaciones",
+      "nombre": "Códigos de Donación",
+      "archivos": [
+        "src/modules/donaciones/application/CodigosDonacion.js",
+        "src/modules/donaciones/infrastructure/DonacionesRouter.js",
+        "src/modules/donaciones/infrastructure/ProyectosRepository.js"
+      ],
+      "estado": "implementado"
+    }
+  ],
+  "tareas": [
+    { "id": 1, "descripcion": "Conectar MongoDB Atlas", "estado": "completado" },
+    { "id": 2, "descripcion": "Estructurar base de datos", "estado": "completado" },
+    { "id": 3, "descripcion": "Sincronizar con Trello", "estado": "completado" },
+    { "id": 4, "descripcion": "Autorizar Stitch", "estado": "completado" },
+    { "id": 5, "descripcion": "Implementar códigos de donación", "estado": "completado" }
+  ],
+  "ultima_actualizacion": "27/4/2026",
+  "arquitecto": "Jairo Salinas Velasco"
+}

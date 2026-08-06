@@ -1,0 +1,53 @@
+services:
+  - type: web
+    name: radar-formulador-360
+    runtime: node
+    buildCommand: npm install && npm run build && node scripts/db-check.js
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+
+      # ── IA — requeridos ────────────────────────────────────────────────────
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+
+      # ── Base de datos Supabase (REST) — requerido para buildCommand y runtime ──
+      # La app usa Supabase vía REST/PostgREST (src/modules/formulador/supabaseClient.js),
+      # no una conexión pg directa. Estas dos son las que scripts/db-check.js valida.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+
+      # ── Seguridad ──────────────────────────────────────────────────────────
+      - key: JWT_SECRET
+        sync: false
+      # CORS — dominio(s) reales del frontend en producción, separados por coma.
+      # Sin esto, server.js cae al default de localhost y bloquea el tráfico real (ver FASE 1, 2026-08-04).
+      - key: ALLOWED_ORIGINS
+        sync: false
+
+      # ── OpenRouter (fallback de IA, usado por /api/openrouter/*) ────────────
+      - key: OPENROUTER_API_KEY
+        sync: false
+
+      # ── Caché Redis Upstash (opcional) ─────────────────────────────────────
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+
+      # ── Servicios secundarios ──────────────────────────────────────────────
+      - key: FIREBASE_CONFIG_PATH
+        value: ./config/serviceAccountKey.json
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false

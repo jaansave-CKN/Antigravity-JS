@@ -1,0 +1,42 @@
+/node_modules
+node_modules/
+.env
+.env.local
+logs/
+dist/
+.DS_Store
+*.log
+.vercel
+.vscode/
+
+# Seguridad — credenciales y claves
+serviceAccountKey.json
+config/serviceAccountKey.json
+claves_privadas.txt
+config/mcp_config.json
+config/.mcp.json
+mcp_config.json
+
+# Herramientas de IA de terceros con credenciales propias (no forman parte del backend)
+opencode.json
+
+# Sub-proyectos hermanos con su propio repo git — NUNCA deben entrar al repo raíz
+# (esto es lo que causó que RadarFondos terminara pisando este repo en GitHub)
+/proyectos/
+/Repositorios/
+/EGIOC5/
+/Radar_Resultados/
+/ObsidianVault/
+/.firebase/
+
+# Skills globales de herramientas de IA (no son código del proyecto)
+/.agents/
+
+# Artefactos locales pesados / binarios que no son código fuente
+/lib/*.traineddata
+cloudflared.exe
+tools/cloudflared.exe
+*.exe
+ui-inject
+rf_rastreo2_*.png
+tests/test_mcp.cjs

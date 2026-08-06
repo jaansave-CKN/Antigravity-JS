@@ -1,0 +1,7 @@
+﻿{
+  "id": "SKILL_UNIVERSAL_01",
+  "nombre": "Protocolo_Multidominio_Antigravity",
+  "descripcion": "Procesamiento de cualquier proyecto sin categorias fijas",
+  "reglas_oro": ["Cero columnas en circulaciones", "Max 80kg por pieza (ONU)"],
+  "matriz_salida": {"variantes": 3, "tonos": 5}
+}

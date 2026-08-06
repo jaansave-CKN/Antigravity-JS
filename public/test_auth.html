@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <title>AUTH EXTREME | Antigravity</title>
+    <style>
+        body { background: #000; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; gap: 1rem; }
+        button { padding: 1rem 2rem; background: #FFB000; border: none; font-weight: bold; cursor: pointer; border-radius: 4px; font-size: 1rem; }
+        button:hover { filter: brightness(1.15); }
+        #status { color: #FFB000; font-family: monospace; font-size: 1rem; text-align: center; max-width: 480px; }
+    </style>
+</head>
+<body>
+    <h1>SOLDADURA DE IDENTIDAD</h1>
+    <button onclick='login()'>EJECUTAR AUTHENTICATE</button>
+    <div id='status'>ESTADO: ESPERANDO...</div>
+
+    <!-- Firebase SDK — sin carga dinámica, sin /__firebase/init.js -->
+    <script src='https://www.gstatic.com/firebasejs/10.7.2/firebase-app-compat.js'></script>
+    <script src='https://www.gstatic.com/firebasejs/10.7.2/firebase-auth-compat.js'></script>
+
+    <script>
+        // ==============================================
+        // DATOS SOLDADOS — ADN REAL — NO MODIFICAR
+        // Project: antigravity-jairo-2026
+        // ==============================================
+        localStorage.clear();
+        sessionStorage.clear();
+
+        const firebaseConfig = {
+            apiKey:            "AIzaSyBdaIbBKlPn1yTxB2g7zuycPk-B1WF9TPk",
+            authDomain:        "antigravity-jairo-2026.firebaseapp.com",
+            projectId:         "antigravity-jairo-2026",
+            storageBucket:     "antigravity-jairo-2026.firebasestorage.app",
+            messagingSenderId: "48939331003",
+            appId:             "1:48939331003:web:450caf121f1b53693b689e"
+        };
+
+        // Guard: evita la doble inicialización que causa configuration-not-found
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+
+        const auth = firebase.auth();
+        document.getElementById('status').innerText = 'ESTADO: SDK ONLINE → ' + firebaseConfig.projectId;
+        console.log('[Antigravity] Firebase SDK inicializado:', firebaseConfig.projectId);
+
+        async function login() {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            provider.setCustomParameters({ prompt: 'select_account' });
+            const statusEl = document.getElementById('status');
+            statusEl.innerText = 'ESTADO: INICIANDO PROTOCOLO...';
+            try {
+                const res = await auth.signInWithPopup(provider);
+                statusEl.innerText = '✅ ACCESO CONCEDIDO: ' + res.user.email;
+                console.log('[Auth] Token obtenido para:', res.user.email);
+            } catch (e) {
+                console.error('[Auth] Error:', e);
+                statusEl.innerText = '❌ ERROR: ' + e.code + ' — ' + e.message;
+            }
+        }
+    </script>
+</body>
+</html>

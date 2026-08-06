@@ -1,0 +1,13 @@
+# 🧠 INSTRUCCIÓN MAESTRA: CONECTOR_DATOS_EXTERNOS
+Este componente es el puente oficial entre Antigravity OS y Trello.
+
+## 🔓 CREDENCIALES
+Las llaves se gestionan exclusivamente a través del archivo `.env` en la raíz del proyecto para cumplir con los estándares de seguridad de AGENTS.md.
+
+## 🕹️ FUNCIONALIDADES
+1. Lectura de tableros activos (boards).
+2. Sincronización de listas y tarjetas para gestión de proyectos legales.
+3. Trazabilidad de cada conexión registrada en `logs/audit.log`.
+
+## 🛡️ CONTROL DE CALIDAD
+Para verificar la conexión, el sistema debe ser capaz de listar al menos los tableros de Trello del usuario sin errores de autenticación.

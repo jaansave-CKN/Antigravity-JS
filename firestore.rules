@@ -1,0 +1,17 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Core Traceability: Allow authorized user to view their activity logs
+    match /audit_logs/{logId} {
+      allow read: if request.auth != null && request.auth.token.email == 'jaansave@gmail.com';
+      allow write: if false; // Only Admin SDK (Backend) can write logs
+    }
+
+    // Default: Deny all other client-side access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

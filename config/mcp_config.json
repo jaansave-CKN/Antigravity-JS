@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "Stitch": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://stitch.googleapis.com/mcp", "--header", "X-Goog-Api-Key: ${STITCH_API_KEY}"],
+      "env": {}
+    },
+    "trello-mcp": {
+      "command": "npx",
+      "args": ["-y", "trello-mcp"],
+      "env": {
+        "TRELLO_TOKEN": "${TRELLO_TOKEN}",
+        "TRELLO_API_KEY": "${TRELLO_API_KEY}"
+      }
+    },
+    "mongodb": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-mongodb"],
+      "env": {
+        "MONGODB_CONNECTION_STRING": "${MONGODB_CONNECTION_STRING}"
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+const fs = require('fs');
+const path = require('path');
+
+function asciiPuro(str) {
+    const map = {
+        'á':'a','é':'e','í':'i','ó':'o','ú':'u',
+        'Á':'A','É':'E','Í':'I','Ó':'O','Ú':'U',
+        'ñ':'n','Ñ':'N','ü':'u','Ü':'U'
+    };
+    return str.replace(/[áéíóúñÁÉÍÓÚÑü]/g, c => map[c]);
+}
+
+function processDir(dir) {
+    let count = 0;
+    const items = fs.readdirSync(dir);
+    for (let item of items) {
+        if (item === 'node_modules' || item === '.git') continue;
+        const p = path.join(dir, item);
+        const stat = fs.statSync(p);
+        if (stat.isDirectory()) count += processDir(p);
+        else if (p.endsWith('.html')) {
+            let content = fs.readFileSync(p, 'utf8');
+            if (/[áéíóúñÁÉÍÓÚÑü]/.test(content)) {
+                fs.writeFileSync(p, asciiPuro(content), 'utf8');
+                console.log('OK:', item);
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+console.log('=== ASCII PURO - ELIMINAR TODOS LOS ACENTOS ===');
+const r = processDir('C:\\2026 AI EGIOC5\\Antigravity JS\\public');
+console.log('Archivos corregidos en public:', r);
+
+const r2 = processDir('C:\\2026 AI EGIOC5\\Antigravity JS\\proyectos');
+console.log('Archivos corregidos en proyectos:', r2);

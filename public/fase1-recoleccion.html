@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Fase 1: Recolección en Terreno - Antigravity</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+    body { font-family: 'Manrope', sans-serif; background: #f8f9ff; }
+    .solution-checkbox:checked + div {
+        border-color: #00897b !important;
+        background: rgba(0,137,123,0.1);
+    }
+    .solution-checkbox:not(:checked) + div {
+        border-color: #e2e8f0;
+    }
+</style>
+</head>
+<body class="min-h-screen">
+<header class="bg-slate-900 text-white px-6 py-4">
+<div class="flex justify-between items-center max-w-4xl mx-auto">
+<div>
+<h1 class="text-xl font-bold">Fase 1: Recolección en Terreno</h1>
+<p class="text-xs text-slate-400">PROYECTO 01 - Donaciones</p>
+</div>
+<div class="text-right">
+<span class="text-xs bg-teal-600 px-2 py-1 rounded">Requiere Validación</span>
+</div>
+</div>
+</header>
+
+<main class="max-w-4xl mx-auto p-6">
+<form id="fase1-form" class="space-y-6">
+
+<!-- Información del Colaborador -->
+<section class="bg-white rounded-lg shadow p-4">
+<h2 class="font-bold text-slate-900 mb-4">👤 Datos del Colaborador</h2>
+<div class="grid grid-cols-2 gap-4">
+<div>
+<label class="block text-sm font-medium text-slate-700 mb-1">Nombre completo</label>
+<input required class="w-full border border-slate-300 rounded px-3 py-2" id="colaborador-nombre" type="text"/>
+</div>
+<div>
+<label class="block text-sm font-medium text-slate-700 mb-1">Teléfono</label>
+<input required class="w-full border border-slate-300 rounded px-3 py-2" id="colaborador-telefono" type="tel"/>
+</div>
+</div>
+</section>
+
+<!-- Ubicación Geográfica -->
+<section class="bg-white rounded-lg shadow p-4">
+<h2 class="font-bold text-slate-900 mb-4">📍 Ubicación Geográfica</h2>
+<div class="grid grid-cols-2 gap-4">
+<div>
+<label class="block text-sm font-medium text-slate-700 mb-1">Departamento</label>
+<select required class="w-full border border-slate-300 rounded px-3 py-2" id="departamento"></select>
+</div>
+<div>
+<label class="block text-sm font-medium text-slate-700 mb-1">Municipio</label>
+<select required class="w-full border border-slate-300 rounded px-3 py-2" id="municipio" disabled></select>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4 mt-4">
+<div>
+<label class="block text-sm font-medium text-slate-700 mb-1">Latitud (WGS84)</label>
+<input required class="w-full border border-slate-300 rounded px-3 py-2" id="latitud" placeholder="ej: 4.5981" type="text"/>
+</div>
+<div>
+<label class="block text-sm font-medium text-slate-700 mb-1">Longitud (WGS84)</label>
+<input required class="w-full border border-slate-300 rounded px-3 py-2" id="longitud" placeholder="ej: -74.0758" type="text"/>
+</div>
+</div>
+</section>
+
+<!-- fotos Obligatorias -->
+<section class="bg-white rounded-lg shadow p-4">
+<h2 class="font-bold text-slate-900 mb-4">📷 Carga de 3 Fotos Obligatorias</h2>
+<div class="grid grid-cols-3 gap-4">
+<div>
+<label class="block text-sm font-medium text-slate-700 mb-1">1. Foto Inicial</label>
+<input required accept="image/*" class="w-full border border-slate-300 rounded px-3 py-2" id="foto-inicial" type="file"/>
+</div>
+<div>
+<label class="block text-sm font-medium text-slate-700 mb-1">2. Foto Proceso</label>
+<input required accept="image/*" class="w-full border border-slate-300 rounded px-3 py-2" id="foto-proceso" type="file"/>
+</div>
+<div>
+<label class="block text-sm font-medium text-slate-700 mb-1">3. Foto Final</label>
+<input required accept="image/*" class="w-full border border-slate-300 rounded px-3 py-2" id="foto-final" type="file"/>
+</div>
+</div>
+</section>
+
+<!-- Soluciones Obligatorias -->
+<section class="bg-white rounded-lg shadow p-4 border-l-4 border-teal-600">
+<h2 class="font-bold text-slate-900 mb-4">✅ Validación de Soluciones Técnicas</h2>
+<p class="text-sm text-slate-600 mb-4">⚠️ Debe validar las 3 soluciones en campo para poder avanzar</p>
+
+<label class="flex items-start gap-3 mb-3 cursor-pointer">
+<input class="solution-checkbox hidden" id="sol-aula" name="solucion" required type="checkbox"/>
+<div class="border-2 border-slate-200 rounded p-3 w-full">
+<h3 class="font-bold text-slate-900">1. Aula Modular con Paneles Solares</h3>
+<p class="text-xs text-slate-500">Implementación de aulas modulares con paneles solares integrados.</p>
+<textarea class="w-full border border-slate-200 rounded mt-2 p-2 text-sm" id="detalle-aula" placeholder="Describa especificaciones técnicas..." rows="2"></textarea>
+</div>
+</label>
+
+<label class="flex items-start gap-3 mb-3 cursor-pointer">
+<input class="solution-checkbox hidden" id="sol-agua" name="solucion" required type="checkbox"/>
+<div class="border-2 border-slate-200 rounded p-3 w-full">
+<h3 class="font-bold text-slate-900">2. Sistema de Recolección de Agua Lluvia</h3>
+<p class="text-xs text-slate-500">Sistema de recolección de agua lluvia para baterías sanitarias.</p>
+<textarea class="w-full border border-slate-200 rounded mt-2 p-2 text-sm" id="detalle-agua" placeholder="Describa especificaciones técnicas..." rows="2"></textarea>
+</div>
+</label>
+
+<label class="flex items-start gap-3 mb-3 cursor-pointer">
+<input class="solution-checkbox hidden" id="sol-estructura" name="solucion" required type="checkbox"/>
+<div class="border-2 border-slate-200 rounded p-3 w-full">
+<h3 class="font-bold text-slate-900">3. Estructura Liviana para Transporte</h3>
+<p class="text-xs text-slate-500">Uso de estructuras livianas para transporte multimodal en zonas de difícil acceso.</p>
+<textarea class="w-full border border-slate-200 rounded mt-2 p-2 text-sm" id="detalle-estructura" placeholder="Describa especificaciones técnicas..." rows="2"></textarea>
+</div>
+</label>
+</section>
+
+<!-- Selección de Materiales -->
+<section class="bg-white rounded-lg shadow p-4">
+<h2 class="font-bold text-slate-900 mb-4">🏗 Selección de Materiales</h2>
+<div class="flex gap-4">
+<label class="flex items-center gap-2">
+<input required name="material" type="radio" value="concreto"/>
+<span class="text-sm">Concreto Híbrido (GFRC)</span>
+</label>
+<label class="flex items-center gap-2">
+<input required name="material" type="radio" value="metalica"/>
+<span class="text-sm">Estructura Metálica</span>
+</label>
+</div>
+</section>
+
+<!-- Código de Donación -->
+<section class="bg-slate-100 rounded-lg shadow p-4">
+<h2 class="font-bold text-slate-900 mb-2">🏷 Código de Donación</h2>
+<p class="text-sm text-slate-600 mb-2">Se generará automáticamente al completar</p>
+<div class="text-2xl font-bold text-teal-600" id="codigo-donacion">AG-??/????</div>
+</section>
+
+<!-- Botón de Envío -->
+<button class="w-full bg-teal-600 text-white font-bold py-4 rounded-lg hover:bg-teal-700 disabled:bg-slate-300 disabled:cursor-not-allowed" id="btn-enviar" type="submit">
+Enviar y Sincronizar con Firebase
+</button>
+
+</form>
+</main>
+
+<script src="data.js"></script>
+<script>
+// Validación de checkbox requiere texto
+document.getElementById('fase1-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const solAula = document.getElementById('sol-aula').checked && document.getElementById('detalle-aula').value.trim();
+    const solAgua = document.getElementById('sol-agua').checked && document.getElementById('detalle-agua').value.trim();
+    const solEstructura = document.getElementById('sol-estructura').checked && document.getElementById('detalle-estructura').value.trim();
+    
+    if (!solAula || !solAgua || !solEstructura) {
+        alert('⚠️ Debe marcar Y especificar las 3 soluciones técnicas');
+        return;
+    }
+    
+    // Generar código
+    const depto = document.getElementById('departamento').value;
+    const codigo = 'AG-' + (document.querySelector('input[name="material"]:checked')?.value === 'concreto' ? 'EDU' : 'SAL') + '/' + new Date().toISOString().slice(0,10).replace(/-/g,'');
+    document.getElementById('codigo-donacion').textContent = codigo;
+    
+    alert('✅ Datos validados. Código: ' + codigo);
+});
+</script>
+</body>
+</html>

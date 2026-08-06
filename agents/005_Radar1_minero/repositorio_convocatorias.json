@@ -1,0 +1,126 @@
+{
+  "metadatos": {
+    "total_indexado": 8,
+    "ultima_actualizacion": "2026-05-16",
+    "fuentes_procesadas": [
+      "BID Procurement (bloqueado)",
+      "Colombia SECOP (URL obsolete)",
+      "UNDP (bloqueado)",
+      "WebSearch indexación Google"
+    ]
+  },
+  "convocatorias_activas": [
+    {
+      "id": "PY-MITC-2025-LPI-003",
+      "url": "https://www.contrataciones.gov.py/licitaciones-no-reguladas/5210-adquisicion-e-implementacion-llave-mano-data-center-modular-responsabilidad-unica-cert.html",
+      "pais": "Paraguay",
+      "entidad": "Ministerio de Tecnologías Información y Comunicación (MITIC)",
+      "objeto": "Adquisición e Implementación Llave en Mano de Data Center Modulares – Certificación Tier III (Diseño y Construcción)",
+      "presupuesto_usd": null,
+      "estado": "Vigente",
+      "sector": "Infraestructura Modular",
+      "tipo": "Licitación Pública Internacional",
+      "fecha_cierre_estimada": "2025-11-19",
+      "financiamiento": "BID - Programa Agenda Digital",
+      "proceso": "MITIC PAAD N.º 03/2025 (ID DNCP 5210)",
+      "notas": "70% equipamiento, 30% obra civil"
+    },
+    {
+      "id": "CO-MINVIVIENDA-2025-483622",
+      "url": "https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.8244872",
+      "pais": "Colombia",
+      "entidad": "Ministerio de Vivienda, Ciudad y Territorio",
+      "objeto": "Consultoría para análisis del estado de la política pública de vivienda rural, con formulación de recomendaciones para fortalecimiento del hábitat integral",
+      "presupuesto_usd": null,
+      "estado": "Vigente",
+      "sector": "Vivienda Rural",
+      "tipo": "Invitación expresiones interés",
+      "fecha_cierre_estimada": "2025-06-05",
+      "financiamiento": "SECOP II",
+      "proceso": "CO-Minvivienda-483622-CS-CQS"
+    },
+    {
+      "id": "CO-MINVIVIENDA-2025-489858",
+      "url": "https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index",
+      "pais": "Colombia",
+      "entidad": "Ministerio de Vivienda, Ciudad y Territorio",
+      "objeto": "Elaboración de cartografía básica oficial en áreas urbanas y/o periurbanas de municipios priorizados - Vectoriales, Modelos Digitales de Terreno y Ortoimágenes escala 1:1",
+      "presupuesto_usd": null,
+      "estado": "Vigente",
+      "sector": "Cartografía",
+      "tipo": "Compra Nacional",
+      "fecha_cierre_estimada": "2025",
+      "financiamiento": "FONVIVIENDA",
+      "proceso": "CO-MINVIVIENDA-489858-NC-RFQ"
+    },
+    {
+      "id": "HN-ENEE-2021-LPI-100-010",
+      "url": "https://licitaciones.enee.hn/",
+      "pais": "Honduras",
+      "entidad": "Empresa Nacional de Energía Eléctrica (ENEE)",
+      "objeto": "Licitación Pública Internacional para contratación de 1500 MW de Capacidad Firme - Mayor proceso de la historia del sector eléctrico Hondureño",
+      "presupuesto_usd": null,
+      "estado": "Vigente",
+      "sector": "Energía Eléctrica",
+      "tipo": "LPI-100-010-2021",
+      "fecha_cierre_estimada": "2030",
+      "financiamiento": "Plan de Rescate - Ley Especial de Energía",
+      "notas": "Costo documentos: USD 10,000 | Subasta Inversa por Rondas"
+    },
+    {
+      "id": "CR-MOF-2022-267122",
+      "url": "https://www.hacienda.go.cr/docs/SDO_CR-MOF-267122-NC-RFB_con_Enmiendas_Tributario.pdf",
+      "pais": "Costa Rica",
+      "entidad": "Ministerio de Hacienda",
+      "objeto": "Adaptación, configuración e implementación del Sistema Integrado de Administración Tributaria - Proyecto Hacienda Digital para el Bicentenario",
+      "presupuesto_usd": null,
+      "estado": "Vigente",
+      "sector": "Sistemas Informáticos",
+      "tipo": "Solicitud de Ofertas",
+      "fecha_cierre_estimada": "2022-03-15",
+      "financiamiento": "Banco Internacional de Reconstrucción y Fomento (BIRF) - Préstamo No.9075-CR"
+    },
+    {
+      "id": "DO-DGCP-2025-LPI",
+      "url": "https://www.hacienda.gob.do/transparencia/wp-content/uploads/2025/08/DDL-Infraestructura-Tecnologica-de-Ciberseguridad-DGCP-1.pdf",
+      "pais": "República Dominicana",
+      "entidad": "Dirección General de Contrataciones Públicas",
+      "objeto": "Actualización infraestructura tecnológica de ciberseguridad, recuperación ante desastres y servicios TI - 5 lotes",
+      "presupuesto_usd": null,
+      "estado": "Vigente",
+      "sector": "Ciberseguridad",
+      "tipo": "Licitación Pública Internacional",
+      "fecha_cierre_estimada": "2025",
+      "financiamiento": "Fondo propio",
+      "proceso": "Lotes: Respaldo Datos, Seguridad Perímetro, Fortalecimiento Red, Centro Operaciones Seguridad, Infraestructura Cloud"
+    },
+    {
+      "id": "PY-IPS-2024-LPN-SBE",
+      "url": "https://portal.ips.gov.py/sistemas/ipsportal/archivos/archivos/1736949584.pdf",
+      "pais": "Paraguay",
+      "entidad": "Instituto de Previsión Social (IPS)",
+      "objeto": "Adjudicaciones último trimestre 2024 - Múltiples procesos: Servicios mantenimiento, Equipos biomédicos, Medicamentos, Equipos clínicos",
+      "presupuesto_usd": 3564851200,
+      "estado": "Adjudicado",
+      "sector": "Salud",
+      "tipo": "LPN SBE",
+      "fecha_cierre_estimada": "2024-12",
+      "financiamiento": "IPS",
+      "procesos_adj": "LPN SBE 90-23, 73-23, 30-23, 56-23"
+    },
+    {
+      "id": "GT-MICIVI-2024",
+      "url": "https://guatemala.gob.gt/ministerio-de-comunicaciones-infraestructura-y-vivienda",
+      "pais": "Guatemala",
+      "entidad": "Ministerio de Comunicaciones, Infraestructura y Vivienda (MICIVI)",
+      "objeto": "Diseño, construcción, rehabilitación, mantenimiento y supervisión de obras e infraestructura - Transporte terrestre, fluvial, marítimo y aéreo",
+      "presupuesto_usd": null,
+      "estado": "Vigente",
+      "sector": "Infraestructura",
+      "tipo": "Contratación pública",
+      "fecha_cierre_estimada": "Continuo",
+      "financiamiento": "Varios",
+      "contacto": "uip@comunicaciones.gob.gt | 2304-2222"
+    }
+  ]
+}

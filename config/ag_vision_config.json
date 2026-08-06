@@ -1,0 +1,1 @@
+{"skill_id":"ag_vision_engine","config":{"auto_trigger":true,"mode":"hybrid_analysis","capabilities":{"extract_tables":"enabled","detect_handwriting":"high_precision","format_output":"markdown_table"},"workflow":{"step_1":"OCR_Scan (Paddle)","step_2":"Technical_Context_Check (Architectural_Validation)","step_3":"Output_Structuring (JSON_for_Asfaltica_Database)"}}}
