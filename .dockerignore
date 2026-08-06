@@ -4,7 +4,6 @@ client/node_modules/
 
 # Control de versiones y herramientas de desarrollo
 .git/
-.kilo/
 *.log
 logs/
 

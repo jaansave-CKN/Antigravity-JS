@@ -31,9 +31,9 @@ function contieneMonedaNoCOP(obj) {
 
 /**
  * @param {import('express').Application} app
- * @param {{ authenticateToken: Function, runSql: Function, getRow: Function, getRows: Function }} deps
+ * @param {{ authenticateToken: Function, requireAccess: Function, runSql: Function, getRow: Function, getRows: Function, verifyPassword: Function }} deps
  */
-export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow, getRows }) {
+export function registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, getRow, getRows, verifyPassword }) {
 
   /**
    * POST /api/proyectos
@@ -44,7 +44,7 @@ export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow
    *   fichaTecnica   object  { metaFisicaTotal, descripcion, ... }  — Módulo 3b
    *   presupuesto    object  { fasesNegra:[], fasesGris:[], fasesBlanca:[] } — Módulo 4
    */
-  app.post('/api/proyectos', authenticateToken, sanitizeFormuladorBody, wrap(async (req, res) => {
+  app.post('/api/proyectos', authenticateToken, requireAccess('formulador'), sanitizeFormuladorBody, wrap(async (req, res) => {
     const { nombre, fichaTecnica = {}, presupuesto = {} } = req.body;
 
     if (contieneMonedaNoCOP(fichaTecnica) || contieneMonedaNoCOP(presupuesto)) {
@@ -153,7 +153,7 @@ export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow
    * como punto de partida en blanco para la copia (evita duplicar archivos
    * reales subidos, que pertenecen al proyecto original).
    */
-  app.post('/api/proyectos/:id/duplicar', authenticateToken, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/duplicar', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const original = await getRow(
       'SELECT nombre, ficha_tecnica, presupuesto FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]
@@ -184,7 +184,7 @@ export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow
    * Actualiza nombre, ficha_tecnica o presupuesto mientras el proyecto
    * no esté en estado Finalizado.
    */
-  app.patch('/api/proyectos/:id', authenticateToken, sanitizeFormuladorBody, wrap(async (req, res) => {
+  app.patch('/api/proyectos/:id', authenticateToken, requireAccess('formulador'), sanitizeFormuladorBody, wrap(async (req, res) => {
     const proyecto = await getRow(
       'SELECT id, estado FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]
@@ -235,6 +235,40 @@ export function registerProyectosRoutes(app, { authenticateToken, runSql, getRow
     );
 
     return res.json({ success: true, message: 'Proyecto actualizado' });
+  }));
+
+  /**
+   * DELETE /api/proyectos/:id
+   * Borrado (soft-delete vía deleted_at, mismo patrón que /api/usuarios/:id/purgar
+   * y el resto del proyecto — nunca DELETE físico salvo el Habeas Data explícito
+   * de cuentas). Requiere la contraseña real de la cuenta en el body — mismo
+   * mecanismo que POST /api/auth/validate-action (verifyPassword + password_hash),
+   * verificado aquí mismo en vez de depender de un paso previo separado, para
+   * que no exista ventana entre "validar" y "borrar".
+   */
+  app.delete('/api/proyectos/:id', authenticateToken, wrap(async (req, res) => {
+    const { password } = req.body || {};
+    if (!password) {
+      return res.status(400).json({ success: false, message: 'Se requiere tu contraseña para confirmar el borrado.' });
+    }
+
+    const proyecto = await getRow(
+      'SELECT id, nombre FROM proyectos WHERE id = ? AND org_id = ? AND deleted_at IS NULL',
+      [req.params.id, req.userId]
+    );
+    if (!proyecto) {
+      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    }
+
+    const user = await getRow('SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
+    const valid = user?.password_hash && await verifyPassword(password, user.password_hash);
+    if (!valid) {
+      return res.status(401).json({ success: false, message: 'Contraseña incorrecta — el proyecto no fue borrado.' });
+    }
+
+    await runSql('UPDATE proyectos SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
+
+    return res.json({ success: true, message: `Proyecto "${proyecto.nombre}" eliminado.` });
   }));
 
   /**

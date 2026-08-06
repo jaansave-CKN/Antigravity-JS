@@ -74,7 +74,11 @@ export default function Modulo10Page() {
   const [cargando, setCargando] = useState(!!proyectoId);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [normas, setNormas] = useState<any[]>([]);
+  const [citas, setCitas] = useState<any[]>([]);
+  const [notasAdicionales, setNotasAdicionales] = useState('');
   const [genNormas, setGenNormas] = useState(false);
+  const [guardandoNormas, setGuardandoNormas] = useState(false);
+  const [normasGuardadas, setNormasGuardadas] = useState(false);
   const [normasErr, setNormasErr] = useState<string | null>(null);
 
   // Hidrata desde el servidor real — antes esta pantalla no tenía ningún
@@ -107,6 +111,42 @@ export default function Modulo10Page() {
     })();
     return () => { cancelled = true; };
   }, [proyectoId]);
+
+  // Hidrata el Marco Normativo (M8) ya guardado — antes GET /api/m8/normas/:proyectoId
+  // existía en el backend pero nadie lo llamaba: cada recarga de página perdía las
+  // normas generadas/editadas porque solo vivían en el estado `normas` en memoria.
+  interface MarcoNormativoRow { normas_aplicables?: string; citas_bibliograficas?: string; notas_adicionales?: string }
+  useEffect(() => {
+    if (!proyectoId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const body = await http.get<{ success: boolean; data?: MarcoNormativoRow }>(`/api/m8/normas/${proyectoId}`);
+        if (cancelled || !body.data) return;
+        try { setNormas(JSON.parse(body.data.normas_aplicables || '[]')); } catch { /* noop */ }
+        try { setCitas(JSON.parse(body.data.citas_bibliograficas || '[]')); } catch { /* noop */ }
+        setNotasAdicionales(body.data.notas_adicionales || '');
+      } catch { /* sin marco normativo guardado aún */ }
+    })();
+    return () => { cancelled = true; };
+  }, [proyectoId]);
+
+  const handleGuardarNormas = async () => {
+    if (!proyectoId) { setNormasErr('No hay proyecto activo — completa Entrada primero.'); return; }
+    setGuardandoNormas(true);
+    setNormasErr(null);
+    try {
+      await http.post(`/api/m8/normas/${proyectoId}`, {
+        normas_aplicables: normas, citas_bibliograficas: citas, notas_adicionales: notasAdicionales,
+      });
+      setNormasGuardadas(true);
+      setTimeout(() => setNormasGuardadas(false), 2200);
+    } catch {
+      setNormasErr('No se pudo guardar el marco normativo.');
+    } finally {
+      setGuardandoNormas(false);
+    }
+  };
 
   const update = <K extends keyof ComplianceData>(key: K, value: ComplianceData[K]) => {
     setData(prev => ({ ...prev, [key]: value }));
@@ -161,8 +201,10 @@ export default function Modulo10Page() {
         body: JSON.stringify({ proyecto_id: proyectoId, sector: 'General', municipio: 'Colombia' }),
       });
       const d = await r.json();
-      if (d.success) setNormas(d.data?.normas_aplicables || []);
-      else setNormasErr(d.message || 'Error generando normas');
+      if (d.success) {
+        setNormas(d.data?.normas_aplicables || []);
+        setCitas(d.data?.citas_bibliograficas || []); // antes se descartaban silenciosamente
+      } else setNormasErr(d.message || 'Error generando normas');
     } catch { setNormasErr('Sin conexión con el servidor'); }
     finally { setGenNormas(false); }
   };
@@ -395,6 +437,31 @@ export default function Modulo10Page() {
                 ))}
               </div>
             )}
+
+            <div style={{ marginTop: 16 }}>
+              <label style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: '#60c9ff', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 8 }}>
+                Notas adicionales (edición manual)
+              </label>
+              <textarea
+                style={{ ...textareaStyle, minHeight: 70, borderColor: '#60c9ff33' }}
+                value={notasAdicionales}
+                onChange={e => setNotasAdicionales(e.target.value)}
+                placeholder="Precisiones sobre el marco normativo aplicable no cubiertas por la generación automática..."
+              />
+              <button
+                onClick={handleGuardarNormas}
+                disabled={guardandoNormas}
+                style={{
+                  marginTop: 10, padding: '8px 18px',
+                  background: normasGuardadas ? '#14532d' : '#001c2e', border: '1px solid #1a3a50',
+                  borderRadius: 8, color: normasGuardadas ? '#86efac' : '#60c9ff',
+                  fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700,
+                  cursor: guardandoNormas ? 'not-allowed' : 'pointer', letterSpacing: '0.08em', textTransform: 'uppercase',
+                }}
+              >
+                {guardandoNormas ? 'Guardando…' : normasGuardadas ? '✓ Marco Normativo Guardado' : 'Guardar Marco Normativo'}
+              </button>
+            </div>
           </Section>
 
           <p style={{ textAlign: 'center', fontSize: 7, color: '#1a3a50', letterSpacing: '0.14em', textTransform: 'uppercase', paddingBottom: 8, fontFamily: "'JetBrains Mono', monospace" }}>

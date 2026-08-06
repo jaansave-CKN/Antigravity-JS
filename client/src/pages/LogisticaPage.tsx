@@ -11,9 +11,11 @@
  *   surface-container-low #f2f4f6 · font Public Sans
  *   glass-card: rgba(255,255,255,0.7) blur(10px) border rgba(255,255,255,0.3)
  */
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import './LogisticaPage.css';
 import { http, ApiError } from '../lib/apiClient';
+import ProyectoSelectorModal from '../components/ProyectoSelectorModal';
+import ConfigProponente from '../components/ConfigProponente';
 
 function mensajeSyncError(e: unknown, contexto: 'cargar' | 'sincronizar'): string {
   const base = contexto === 'cargar'
@@ -78,7 +80,19 @@ const CALIDAD_EFICIENCIA: Record<CalidadVia, number> = {
 export default function LogisticaPage() {
   const NUEVO_VACIO = { origen: '', destino: '', duracion: '', distancia: '', medio: 'Camión Turbo', estado_via: 'Pavimentada' as EstadoVia, calidad: 'Óptimo' as CalidadVia, tipo_transporte: 'Carga Pesada', orden_publico: 'No' };
 
-  const proyectoId = useMemo(() => localStorage.getItem(ACTIVE_PROJECT_KEY), []);
+  // Reactivo a ProyectoSelectorModal (dispara un evento 'storage' al cambiar
+  // de proyecto) — mismo patrón que useProyectoActivo() en
+  // DashboardFormuladorPage.tsx. Con useMemo (versión anterior) el valor
+  // quedaba congelado desde el primer render: si el proyecto activo dejaba
+  // de existir, la página nunca se enteraba de que el usuario había elegido
+  // uno nuevo sin recargar toda la pestaña.
+  const [proyectoId, setProyectoId] = useState<string | null>(() => localStorage.getItem(ACTIVE_PROJECT_KEY));
+  const [selectorAbierto, setSelectorAbierto] = useState(false);
+  useEffect(() => {
+    const onStorage = () => setProyectoId(localStorage.getItem(ACTIVE_PROJECT_KEY));
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   const [tramos, setTramos] = useState<Tramo[]>(() => {
     if (proyectoId) return []; // se hidrata desde el servidor abajo
@@ -122,6 +136,15 @@ export default function LogisticaPage() {
       } catch (e) {
         console.error('[Logística] Error cargando tramos:', e);
         setErrorSync(mensajeSyncError(e, 'cargar'));
+        // 404 = el proyecto referenciado en localStorage ya no existe o no es
+        // del usuario actual (cuenta distinta, proyecto borrado). Sin esto el
+        // mismo error reaparecía en cada recarga porque nada limpiaba la
+        // referencia muerta ni le daba al usuario una salida.
+        if (e instanceof ApiError && e.status === 404) {
+          localStorage.removeItem(ACTIVE_PROJECT_KEY);
+          setProyectoId(null);
+          setSelectorAbierto(true);
+        }
       } finally {
         if (!cancelled) { setCargando(false); hidratado.current = true; }
       }
@@ -245,6 +268,14 @@ export default function LogisticaPage() {
           {(cargando || guardando || errorSync) && (
             <span style={{ fontSize: 12, color: errorSync ? '#ba1a1a' : '#434655', fontWeight: 600 }}>
               {errorSync ? errorSync : cargando ? 'Cargando tramos…' : 'Guardando…'}
+              {errorSync && !proyectoId && (
+                <button
+                  onClick={() => setSelectorAbierto(true)}
+                  style={{ marginLeft: 8, background: 'none', border: 'none', padding: 0, color: '#ba1a1a', fontSize: 12, fontWeight: 700, textDecoration: 'underline', cursor: 'pointer' }}
+                >
+                  Seleccionar proyecto
+                </button>
+              )}
             </span>
           )}
           <button
@@ -263,6 +294,8 @@ export default function LogisticaPage() {
       </header>
 
       <div className="logx__content">
+      <ConfigProponente proyectoId={proyectoId} />
+
       {/* Summary Cards (Bento) — layout horizontal compacto */}
       <section className="logx__bento">
         {/* Tramos Activos */}
@@ -521,6 +554,9 @@ export default function LogisticaPage() {
         </div>
         );
       })()}
+      {selectorAbierto && (
+        <ProyectoSelectorModal onClose={() => setSelectorAbierto(false)} />
+      )}
     </main>
   );
 }

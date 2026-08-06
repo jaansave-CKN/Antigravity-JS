@@ -1,3 +1,9 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(node --check backend/routes/proyectos.routes.js)",
+      "Bash(npm run *)"
+    ]
+  },
   "enableAllProjectMcpServers": true
 }

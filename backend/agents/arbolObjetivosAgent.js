@@ -5,6 +5,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from '../utils/logger.js';
 import { geminiCB, isQuotaError } from '../services/geminiCircuitBreaker.js';
+import { logTokenUsage } from '../services/aiTokenLogger.js';
 
 export const ARBOL_SYSTEM_PROMPT = `Eres un experto en formulación de proyectos de cooperación internacional, \
 contratación pública colombiana y Metodología General Ajustada (MGA).
@@ -39,7 +40,7 @@ function buildMockArbol(objetivoCentral) {
   ];
 }
 
-export async function generarArbolConIA(objetivoCentral, apiKey) {
+export async function generarArbolConIA(objetivoCentral, apiKey, userId) {
   // Intentar con Gemini real; caer en mock estructurado si no hay clave
   const key = apiKey && apiKey !== 'api_key_placeholder'
     ? apiKey
@@ -94,6 +95,15 @@ export async function generarArbolConIA(objetivoCentral, apiKey) {
 
     console.log(`[ArbolAgent] Árbol generado con ${nodos.length} nodos via Gemini`);
     geminiCB.recordSuccess();
+    // SDK oficial @google/generative-ai — forma distinta a las llamadas fetch
+    // directas de los otros agentes (data.usage.prompt_tokens): acá viene en
+    // result.response.usageMetadata.{promptTokenCount,candidatesTokenCount}.
+    const usage = result.response.usageMetadata || {};
+    logTokenUsage({
+      userId, agentName: 'arbol_objetivos',
+      tokensInput: usage.promptTokenCount ?? 0,
+      tokensOutput: usage.candidatesTokenCount ?? 0,
+    }).catch(() => {});
     return nodos;
   } catch (err) {
     if (isQuotaError(err)) {

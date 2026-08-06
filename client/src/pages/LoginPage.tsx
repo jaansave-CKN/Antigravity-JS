@@ -210,7 +210,15 @@ export default function LoginPage() {
   useEffect(() => {
     if (sessionStorage.getItem('rf360_session_expired')) {
       sessionStorage.removeItem('rf360_session_expired');
-      setError('Tu sesión expiró (por seguridad, se renovaron las credenciales del servidor). Inicia sesión de nuevo.');
+      const code = sessionStorage.getItem('rf360_session_expired_code');
+      const msg  = sessionStorage.getItem('rf360_session_expired_msg');
+      sessionStorage.removeItem('rf360_session_expired_code');
+      sessionStorage.removeItem('rf360_session_expired_msg');
+      setError(
+        code === 'ACCOUNT_BLOCKED'      ? (msg || 'Tu cuenta fue bloqueada por el administrador.') :
+        code === 'SUBSCRIPTION_EXPIRED' ? (msg || 'Tu membresía expiró. Contacta al administrador para renovarla.') :
+        'Tu sesión expiró (por seguridad, se renovaron las credenciales del servidor). Inicia sesión de nuevo.'
+      );
     }
   }, []);
 

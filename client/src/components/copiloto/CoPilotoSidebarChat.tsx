@@ -16,7 +16,11 @@ export default function CoPilotoSidebarChat({ proyectoId }: { proyectoId: string
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!proyectoId) { setMensajes([]); return; }
+    // Reset en cada cambio de proyectoId (no solo al pasar a undefined) —
+    // sin esto, al cambiar de proyecto el historial del chat anterior seguía
+    // visible mientras se cargaba el del nuevo, o indefinidamente si fallaba.
+    setMensajes([]);
+    if (!proyectoId) { return; }
     let cancelado = false;
     fetch(`/api/proyectos/${proyectoId}/copiloto/historial`, { headers: { ...getAuthHeaders() }, credentials: 'include' })
       .then(r => r.json())

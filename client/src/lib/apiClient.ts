@@ -96,7 +96,7 @@ async function parseResponse<T>(resp: Response): Promise<T> {
     // genérico de "no se pudo sincronizar". AuthContextNew.tsx escucha esto
     // y limpia la sesión local para forzar un re-login real.
     if (resp.status === 401 && getAuthToken() && getAuthToken() !== 'demo-mode-token') {
-      window.dispatchEvent(new CustomEvent('auth-session-expired'));
+      window.dispatchEvent(new CustomEvent('auth-session-expired', { detail: { code: parsed.code, message: parsed.message } }));
     }
 
     throw new ApiError(

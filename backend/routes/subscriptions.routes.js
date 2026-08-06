@@ -1,17 +1,8 @@
 import crypto from 'crypto';
 import { paymentProvider } from '../payments/index.js';
+import { PLANES } from '../config/planes.config.js';
 
-// Precios en pesos colombianos (COP), mensuales — mercado B2B institucional
-// (consultores, ONG, entidades territoriales que formulan proyectos de
-// inversión/cooperación). Ver docs/PRECIOS.md para el razonamiento completo;
-// única fuente de verdad — el frontend (PlanesPage.tsx) consume GET /api/plans,
-// no mantiene su propia copia de estos números.
-export const PLANES = {
-  free:        { nombre: 'Gratis',     access_radar: 0, access_formulador: 0, precio: 0,       moneda: 'COP', descripcion: 'Acceso de exploración limitado' },
-  radar:       { nombre: 'Radar',      access_radar: 1, access_formulador: 0, precio: 149000,  moneda: 'COP', descripcion: 'M1 Radar de Oportunidades + M2 Puente (solo vista)' },
-  formulador:  { nombre: 'Formulador', access_radar: 0, access_formulador: 1, precio: 399000,  moneda: 'COP', descripcion: 'M3–M12 Caja Negra de Formulación completa' },
-  suite:       { nombre: 'Suite',      access_radar: 1, access_formulador: 1, precio: 499000,  moneda: 'COP', descripcion: 'Acceso total al ecosistema Radar + Formulador' },
-};
+export { PLANES };
 
 export function registerSubscriptionRoutes(app, { authenticateToken, runSql, getRow, tryCatch }) {
 

@@ -86,8 +86,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // el servidor) — disparado por apiClient.ts en cualquier request de la app,
   // no solo en la pantalla donde el usuario esté parado en ese momento.
   useEffect(() => {
-    function onSessionExpired() {
+    function onSessionExpired(e: Event) {
+      const detail = (e as CustomEvent<{ code?: string; message?: string }>).detail;
       sessionStorage.setItem('rf360_session_expired', '1');
+      if (detail?.code)    sessionStorage.setItem('rf360_session_expired_code', detail.code);
+      if (detail?.message) sessionStorage.setItem('rf360_session_expired_msg', detail.message);
       clearSession();
     }
     window.addEventListener('auth-session-expired', onSessionExpired);

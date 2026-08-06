@@ -8,9 +8,8 @@ import {
   Lightbulb, Wallet, BarChart2, ArrowLeftRight, Settings,
   List, Grid, CheckSquare, Download, ChevronDown,
   ChevronRight, ChevronUp, Leaf, Users, TrendingUp,
-  TrendingDown, Scale, Cog, Droplets, RefreshCw, TreePine,
-  DollarSign, Percent, Cpu, HelpCircle, User, AlertTriangle,
-  Clock, Activity, Zap, CheckCircle2, Heart, Globe, Network,
+  Scale, Cog, HelpCircle, AlertTriangle,
+  Clock, CheckCircle2, Heart, Globe, Network,
   BookOpen, Building2, Waves, Equal, Utensils,
 } from 'lucide-react';
 
@@ -33,19 +32,8 @@ export const C = {
 } as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type BadgeStatus = 'Validado' | 'En Borrador' | 'Pendiente';
 type RiskLevel   = 'CRÍTICO' | 'ALTO' | 'MEDIO' | 'BAJO';
 
-interface Indicator {
-  name: string;
-  value: string;
-  unit: string;
-  status: BadgeStatus;
-  date: string;
-  user: string;
-  icon: React.ReactNode;
-  valueColor?: string;
-}
 interface ImpactSection {
   id: string;
   roman: string;
@@ -56,7 +44,6 @@ interface ImpactSection {
   fuente?: string | null;
   color: string;
   icon: React.ReactNode;
-  indicators: Indicator[];
 }
 
 // ── Scoring dinámico — GET /api/proyectos/:id/scoring-dinamico ──────────────
@@ -76,61 +63,18 @@ interface Risk    { level: RiskLevel; title: string; description: string; sectio
 interface Action  { title: string; section: string; priority?: 'Alta'|'Media'|'Baja'; progress?: number; due?: string }
 interface LogEntry{ date: string; time: string; user: string; action: string }
 
-// ── Datos estáticos — pesos e indicadores ilustrativos de UI por dimensión.
-// Los SCORES vienen siempre del backend real (mergeScoring); estos indicadores
-// individuales (nombre/valor/usuario) son marcadores de layout, no datos reales
-// — no existe todavía una fuente de verdad backend por indicador atómico.
+// ── Definición estática de las 5 dimensiones — solo layout (id/título/peso/
+// color/ícono). El score, pendiente y fuente SIEMPRE vienen del backend real
+// (mergeScoring + calcularScoringDinamico en backend/services/scoringDinamico.js)
+// — nunca hay un número de negocio hardcodeado aquí. score:0 es el valor antes
+// de que mergeScoring reemplace con el dato real (o con 0/pendiente si el
+// proyecto todavía no tiene datos suficientes para esa dimensión).
 const SECTIONS: ImpactSection[] = [
-  {
-    id: 'ambiental', roman: 'I', title: 'IMPACTO AMBIENTAL',
-    weight: 25, score: 78, color: '#22c55e', icon: <Leaf size={15}/>,
-    indicators: [
-      { name:'Huella de Carbono',                    value:'2.45',    unit:'tCO₂e / año',        status:'Validado',    date:'23/06', user:'Ana L.',    icon:<Activity size={20}/> },
-      { name:'Eficiencia de Recursos (Agua / Energía)',value:'82%',   unit:'Índice de eficiencia',status:'Validado',    date:'21/06', user:'Ana L.',    icon:<Droplets size={20}/> },
-      { name:'Economía Circular',                    value:'65%',     unit:'Materiales valorizados',status:'En Borrador',date:'20/06', user:'Ana L.',    icon:<RefreshCw size={20}/> },
-      { name:'Impacto Ecosistémico',                 value:'72',      unit:'Índice (0-100)',      status:'Pendiente',   date:'19/06', user:'Ana L.',    icon:<TreePine size={20}/> },
-    ],
-  },
-  {
-    id: 'social', roman: 'II', title: 'IMPACTO SOCIAL',
-    weight: 20, score: 74, color: '#3b82f6', icon: <Users size={15}/>,
-    indicators: [
-      { name:'Generación de Valor Social', value:'68',  unit:'Índice (0-100)',      status:'En Borrador', date:'22/06', user:'Carlos M.', icon:<Zap size={20}/> },
-      { name:'Estabilidad Territorial',    value:'71%', unit:'Índice de estabilidad',status:'Validado',    date:'23/06', user:'Carlos M.', icon:<Target size={20}/> },
-      { name:'Equidad e Inclusión',        value:'63%', unit:'Índice de inclusión',  status:'En Borrador', date:'18/06', user:'Carlos M.', icon:<Users size={20}/> },
-      { name:'Gobernanza y Licencia Social',value:'80%',unit:'Índice de confianza',  status:'Validado',    date:'21/06', user:'Carlos M.', icon:<Grid size={20}/> },
-    ],
-  },
-  {
-    id: 'economico', roman: 'III', title: 'IMPACTO ECONÓMICO',
-    weight: 25, score: 76, color: '#f59e0b', icon: <BarChart2 size={15}/>,
-    indicators: [
-      { name:'VAN (Valor Actual Neto)',      value:'$ 2.45 M', unit:'COP',             status:'Validado',    date:'23/06', user:'Juliana R.', icon:<TrendingUp size={20}/> },
-      { name:'TIR (Tasa Interna de Retorno)',value:'18.6%',    unit:'Porcentaje',       status:'Validado',    date:'22/06', user:'Juliana R.', icon:<Percent size={20}/> },
-      { name:'Punto de Equilibrio',          value:'3.2',      unit:'Año',              status:'En Borrador', date:'19/06', user:'Juliana R.', icon:<Scale size={20}/> },
-      { name:'Sensibilidad (Esc. Pesimista)',value:'-12.4%',   unit:'Variación VAN',    status:'Pendiente',   date:'18/06', user:'Juliana R.', icon:<TrendingDown size={20}/>, valueColor:'#ef4444' },
-    ],
-  },
-  {
-    id: 'normativo', roman: 'IV', title: 'IMPACTO NORMATIVO',
-    weight: 15, score: 81, color: '#a855f7', icon: <Scale size={15}/>,
-    indicators: [
-      { name:'Cumplimiento Regulatorio',      value:'88%', unit:'Índice de cumplimiento', status:'Validado',    date:'20/06', user:'Andrés G.', icon:<CheckSquare size={20}/> },
-      { name:'Alineación Políticas Públicas', value:'76%', unit:'Índice de alineación',   status:'En Borrador', date:'20/06', user:'Andrés G.', icon:<ArrowLeftRight size={20}/> },
-      { name:'Gestión Riesgo Jurídico',       value:'70%', unit:'Índice de gestión',      status:'En Borrador', date:'17/06', user:'Andrés G.', icon:<ShieldAlert size={20}/> },
-      { name:'Propiedad Intelectual',         value:'85%', unit:'Índice de protección',   status:'Validado',    date:'21/06', user:'Andrés G.', icon:<FileText size={20}/> },
-    ],
-  },
-  {
-    id: 'operativo', roman: 'V', title: 'IMPACTO OPERATIVO',
-    weight: 15, score: 73, color: '#ef4444', icon: <Cog size={15}/>,
-    indicators: [
-      { name:'Sostenibilidad Operativa',       value:'72%', unit:'Índice operativo',    status:'En Borrador', date:'19/06', user:'Laura P.', icon:<Cog size={20}/> },
-      { name:'Autonomía Tecnológica',          value:'65%', unit:'Índice de autonomía', status:'Pendiente',   date:'18/06', user:'Laura P.', icon:<Cpu size={20}/> },
-      { name:'Capacidad de Absorción',         value:'70%', unit:'Índice de absorción', status:'En Borrador', date:'18/06', user:'Laura P.', icon:<Activity size={20}/> },
-      { name:'Eficiencia del Gasto Operativo', value:'75%', unit:'Índice de eficiencia',status:'Validado',    date:'23/06', user:'Laura P.', icon:<DollarSign size={20}/> },
-    ],
-  },
+  { id: 'ambiental',  roman: 'I',   title: 'IMPACTO AMBIENTAL',  weight: 25, score: 0, color: '#22c55e', icon: <Leaf size={15}/> },
+  { id: 'social',     roman: 'II',  title: 'IMPACTO SOCIAL',     weight: 20, score: 0, color: '#3b82f6', icon: <Users size={15}/> },
+  { id: 'economico',  roman: 'III', title: 'IMPACTO ECONÓMICO',  weight: 25, score: 0, color: '#f59e0b', icon: <BarChart2 size={15}/> },
+  { id: 'normativo',  roman: 'IV',  title: 'IMPACTO NORMATIVO',  weight: 15, score: 0, color: '#a855f7', icon: <Scale size={15}/> },
+  { id: 'operativo',  roman: 'V',   title: 'IMPACTO OPERATIVO',  weight: 15, score: 0, color: '#ef4444', icon: <Cog size={15}/> },
 ];
 
 // ── ODS — íconos oficiales recortados de FOTOS PROY3/arq radar formulador 360/ODS.webp
@@ -176,24 +120,6 @@ const QUICK_ACCESS = [
 ];
 
 // ── Sub-componentes ───────────────────────────────────────────────────────────
-const BADGE_STYLE: Record<BadgeStatus, { bg:string; color:string; border:string }> = {
-  'Validado':    { bg:'#dcfce7', color:'#15803d', border:'#86efac'  },
-  'En Borrador': { bg:'#fef3c7', color:'#b45309', border:'#fcd34d'  },
-  'Pendiente':   { bg:'#f3f4f6', color:'#6b7280', border:'#d1d5db'  },
-};
-
-function StatusBadge({ status }: { status: BadgeStatus }) {
-  const s = BADGE_STYLE[status];
-  return (
-    <span style={{
-      padding:'3px 10px', borderRadius:12, fontSize:10, fontWeight:600,
-      background:s.bg, color:s.color, border:`1px solid ${s.border}`,
-      whiteSpace:'nowrap', flexShrink:0, lineHeight:'14px',
-    }}>
-      {status}
-    </span>
-  );
-}
 
 const RISK_COLOR: Record<RiskLevel, string> = {
   CRÍTICO:'#dc2626', ALTO:'#d97706', MEDIO:'#ca8a04', BAJO:'#16a34a',
@@ -243,117 +169,6 @@ function DonutChart({ value, color, size=110 }: { value:number; color:string; si
   );
 }
 
-// ── Tarjeta de indicador ──────────────────────────────────────────────────────
-function IndicatorCard({ ind, sectionColor, compact = false, mini = false }: {
-  ind:Indicator; sectionColor:string; compact?: boolean; mini?: boolean
-}) {
-  const dotColor = ind.status === 'Validado' ? '#22c55e' : ind.status === 'Pendiente' ? '#f59e0b' : '#94a3b8';
-
-  /* ── Modo MINI: layout vertical para 4 columnas en panel compact ── */
-  if (mini) {
-    return (
-      <div style={{
-        background:C.bgCard, borderRadius:8,
-        padding:'7px 8px',
-        border:`1px solid ${C.border}`,
-        boxShadow:'0 1px 2px rgba(0,0,0,0.05)',
-        display:'flex', flexDirection:'column', minWidth:0,
-      }}>
-        {/* Fila 1: icono + dot estado */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:5 }}>
-          <div style={{
-            width:20, height:20, borderRadius:'50%', flexShrink:0,
-            background:`${sectionColor}18`, border:`1.5px solid ${sectionColor}55`,
-            display:'flex', alignItems:'center', justifyContent:'center',
-          }}>
-            <span style={{ color:sectionColor, fontSize:10, display:'flex' }}>{ind.icon}</span>
-          </div>
-          <div style={{ width:6, height:6, borderRadius:'50%', background:dotColor, flexShrink:0 }}/>
-        </div>
-        {/* Nombre: altura fija 2 líneas → valor siempre en la misma posición */}
-        <div style={{
-          fontSize:9, color:C.textMuted, fontWeight:500, lineHeight:1.3,
-          overflow:'hidden', height:24, marginBottom:4,
-        }}>{ind.name}</div>
-        {/* Valor */}
-        <div style={{ fontSize:14, fontWeight:700, color:ind.valueColor ?? C.text, lineHeight:1, marginBottom:2 }}>
-          {ind.value}
-        </div>
-        {/* Unidad */}
-        <div style={{ fontSize:8, color:C.textDim, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-          {ind.unit}
-        </div>
-        {/* Separador — anclado al fondo con marginTop:auto */}
-        <div style={{ borderTop:`1px solid ${C.border}`, marginTop:'auto', paddingTop:5, marginBottom:5 }}/>
-        {/* Footer minimalista */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <span style={{ fontSize:8, color:C.textDim }}>{ind.date}</span>
-          <ChevronRight size={8} color={C.textDim} style={{ cursor:'pointer', flexShrink:0 }}/>
-        </div>
-      </div>
-    );
-  }
-
-  /* ── Modo normal / compact ── */
-  return (
-    <div style={{
-      background:C.bgCard, borderRadius:8,
-      padding: compact ? '9px 11px' : '14px 16px',
-      border:`1px solid ${C.border}`,
-      boxShadow:'0 1px 3px rgba(0,0,0,0.06)',
-      display:'flex', flexDirection:'column', gap:0,
-    }}>
-      {/* Fila principal: icono circular + contenido */}
-      <div style={{ display:'flex', gap: compact ? 8 : 12, alignItems:'flex-start' }}>
-        {/* Icono circular */}
-        <div style={{
-          width: compact ? 30 : 46, height: compact ? 30 : 46,
-          borderRadius:'50%', flexShrink:0,
-          background:`${sectionColor}18`,
-          border:`1.5px solid ${sectionColor}55`,
-          display:'flex', alignItems:'center', justifyContent:'center',
-        }}>
-          <span style={{ color:sectionColor, fontSize: compact ? 13 : 16, display:'flex' }}>{ind.icon}</span>
-        </div>
-
-        {/* Contenido derecho */}
-        <div style={{ flex:1, minWidth:0 }}>
-          {/* Nombre + badge + dot */}
-          <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:4 }}>
-            <span style={{ fontSize: compact ? 10 : 11, color:C.textMuted, fontWeight:500, lineHeight:1.3, flex:1, overflow:'hidden', height: compact ? 26 : 'auto' }}>{ind.name}</span>
-            <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
-              <StatusBadge status={ind.status}/>
-              <div style={{ width:6, height:6, borderRadius:'50%', background:dotColor, flexShrink:0 }}/>
-            </div>
-          </div>
-
-          {/* Valor + unidad */}
-          <div style={{ marginTop: compact ? 4 : 6 }}>
-            <span style={{ fontSize: compact ? 18 : 26, fontWeight:700, color:ind.valueColor ?? C.text, lineHeight:1 }}>
-              {ind.value}
-            </span>
-          </div>
-          <span style={{ fontSize:10, color:C.textMuted, display:'block', marginTop:2 }}>{ind.unit}</span>
-        </div>
-      </div>
-
-      {/* Separador — anclado al fondo para alinear todos los cards */}
-      <div style={{ borderTop:`1px solid ${C.border}`, marginTop:'auto', marginBottom: compact ? 6 : 8, paddingTop: compact ? 7 : 10 }}/>
-
-      {/* Footer */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-        <span style={{ fontSize:10, color:C.textDim }}>
-          {ind.date} · <User size={9} style={{ display:'inline', verticalAlign:'middle' }}/> {ind.user}
-        </span>
-        <div style={{ display:'flex', gap:6, color:C.textDim }}>
-          <Paperclip size={10} style={{ cursor:'pointer' }}/>
-          <ChevronRight size={10} style={{ cursor:'pointer' }}/>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Sección de impacto ────────────────────────────────────────────────────────
 function ImpactBlock({ section, compact = false }: { section:ImpactSection; compact?: boolean }) {
   const [open, setOpen] = useState(true);
@@ -387,9 +202,6 @@ function ImpactBlock({ section, compact = false }: { section:ImpactSection; comp
         }}>
           {section.weight}%
         </span>
-        <span style={{ fontSize:10, color:C.textMuted, whiteSpace:'nowrap', flexShrink:0 }}>
-          {section.indicators.length}/{section.indicators.length} ✓
-        </span>
         {section.pendiente ? (
           <span style={{ fontSize:10, fontWeight:600, color:C.textDim, whiteSpace:'nowrap', flexShrink:0, fontStyle:'italic' }}>
             Pendiente de cálculo
@@ -404,22 +216,31 @@ function ImpactBlock({ section, compact = false }: { section:ImpactSection; comp
         </span>
       </button>
 
-      {/* Grid: tantas columnas como indicadores tiene el pilar */}
+      {/* Estado real de la dimensión — sin indicadores individuales inventados:
+          no existe todavía una fuente de verdad backend por indicador atómico
+          (ver backend/services/scoringDinamico.js), así que se muestra
+          exactamente lo que sí es real: el puntaje calculado y su fuente, o
+          un estado vacío honesto si el proyecto aún no tiene datos. */}
       {open && (
         <div style={{
-          display:'grid',
-          gridTemplateColumns: `repeat(${section.indicators.length}, 1fr)`,
-          gap: compact ? 8 : 10,
           padding: compact ? '10px 12px 12px' : '12px 16px 16px',
           background:C.bgSection,
           borderTop:`1px solid ${C.border}`,
         }}>
-          {section.indicators.map((ind, i) => (
-            <IndicatorCard
-              key={i} ind={ind} sectionColor={section.color} compact={compact}
-              mini={compact && section.indicators.length >= 4}
-            />
-          ))}
+          {section.pendiente ? (
+            <p style={{ fontSize:11, color:C.textMuted, fontStyle:'italic', margin:0 }}>
+              Sin datos ingresados aún — este puntaje se calcula automáticamente al completar la información correspondiente en el Formulador.
+            </p>
+          ) : (
+            <div style={{ display:'flex', alignItems:'baseline', gap:10, flexWrap:'wrap' }}>
+              <span style={{ fontSize: compact ? 20 : 28, fontWeight:700, color:section.color, lineHeight:1 }}>
+                {section.score}<span style={{ fontSize:11, fontWeight:400, color:C.textMuted }}>/100</span>
+              </span>
+              {section.fuente && (
+                <span style={{ fontSize:10, color:C.textDim }}>Calculado a partir de: {section.fuente}</span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -716,7 +537,13 @@ function useScoringDinamico(proyectoId: string | undefined) {
   const [error, setError]     = useState<string | null>(null);
 
   useEffect(() => {
-    if (!proyectoId) { setData(null); setError(null); return; }
+    // Reset explícito en CADA cambio de proyectoId (no solo cuando pasa a
+    // undefined): sin esto, al cambiar de un proyecto A a un proyecto B, el
+    // dashboard seguía mostrando el scoring de A mientras el fetch de B
+    // estaba en curso — o indefinidamente si ese fetch fallaba. Aislamiento
+    // real entre proyectos, no solo entre "hay proyecto" / "no hay proyecto".
+    setData(null);
+    if (!proyectoId) { setError(null); return; }
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -785,8 +612,17 @@ function useComplianceRiesgo(proyectoId: string | undefined) {
   const [estadoLegal, setEstadoLegal] = useState<EstadoLegal>('sin_evaluar');
   const [tick, setTick]               = useState(0);
 
+  // Reset SOLO en cambio de proyectoId (no en cada `tick` — ese efecto abajo
+  // también corre en el refetch tras "Saneamiento Aprobado", donde SÍ interesa
+  // conservar el dato anterior visible hasta que llegue el nuevo, sin parpadeo).
   useEffect(() => {
-    if (!proyectoId) { setRiesgo(null); setEstadoLegal('sin_evaluar'); return; }
+    setRiesgo(null);
+    setEstadoLegal('sin_evaluar');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyectoId]);
+
+  useEffect(() => {
+    if (!proyectoId) { return; }
     let cancelled = false;
     // cache: 'no-store' — sin esto, el navegador puede servir una respuesta
     // vieja tras "Saneamiento Aprobado" (mismo GET, mismo momento) y el badge
@@ -822,7 +658,10 @@ function useConteosProyecto(proyectoId: string | undefined) {
   const [anexos, setAnexos]           = useState<AnexoRow[]>([]);
 
   useEffect(() => {
-    if (!proyectoId) { setIndicadores(0); setAnexos([]); return; }
+    // Reset en cada cambio de proyectoId — mismo fix de aislamiento.
+    setIndicadores(0);
+    setAnexos([]);
+    if (!proyectoId) { return; }
     let cancelled = false;
     Promise.all([
       fetch(`/api/proyectos/${proyectoId}/indicadores`, { headers: { ...getAuthHeaders() }, credentials: 'include' })

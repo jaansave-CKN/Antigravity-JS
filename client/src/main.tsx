@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate, useLocatio
 import { AuthProvider, useAuth } from './contexts/AuthContextNew';
 import TopNavBar from './components/TopNavBar';
 import AuthGuard from './components/AuthGuard';
+import AdminGuard from './components/AdminGuard';
 import { FavoritosProvider } from './contexts/FavoritosContext';
 import { SubscriptionProvider, useSubscription } from './contexts/SubscriptionContext';
 import { LanguageProvider } from './contexts/LanguageContext';
@@ -35,6 +36,8 @@ const FavoritosPage          = lazy(() => import('./pages/FavoritosPage'));
 const AnexosPage             = lazy(() => import('./pages/AnexosPage'));
 const PanelPage              = lazy(() => import('./pages/PanelPage'));
 const AdminUsuariosPendientesPage = lazy(() => import('./pages/AdminUsuariosPendientesPage'));
+const AdminPermisosPage           = lazy(() => import('./pages/AdminPermisosPage'));
+const AdminPage                   = lazy(() => import('./pages/AdminPage'));
 const FormulacionViewer      = lazy(() => import('./components/FormulacionViewer'));
 const LogisticaPage          = lazy(() => import('./pages/LogisticaPage'));
 // Revertido a pedido del usuario: el diseño Stitch (PestañaRadar) reemplazó
@@ -48,10 +51,12 @@ const ContextoPage           = lazy(() => import('./pages/ContextoPage'));
 const ArbolObjetivosPage     = lazy(() => import('./pages/ArbolObjetivosPage'));
 const ExportacionPage        = lazy(() => import('./pages/ExportacionPage'));
 const Modulo10Page           = lazy(() => import('./pages/Modulo10Page'));
+const PresupuestoPage        = lazy(() => import('./pages/PresupuestoPage'));
 const PopulationObjectiveWizard = lazy(() => import('./components/formulador/PopulationObjectiveWizard'));
 import 'leaflet/dist/leaflet.css';
 import { validateEnv } from './utils/envValidator';
 import { captureError } from './lib/sentry';
+import './lib/posthog';
 
 // Falla rápido y explícito si faltan llaves críticas — evita arranques fantasma en producción
 validateEnv();
@@ -323,6 +328,8 @@ function AppRoutes() {
           <PlanGate require="radar"><CalendarioPage /></PlanGate>
         } />
         <Route path="/admin/usuarios-pendientes" element={<AdminUsuariosPendientesPage />} />
+        <Route path="/admin/permisos" element={<AdminPermisosPage />} />
+        <Route path="/admin" element={<AdminGuard><AdminPage /></AdminGuard>} />
       </Route>
 
       {/* ── Pilar B (Ejecución IA 7.0) — acceso libre con demo mode ─────── */}
@@ -351,6 +358,9 @@ function AppRoutes() {
           <Route path="/exportacion" element={
             <PlanGate require="formulador"><ExportacionPage /></PlanGate>
           } />
+          <Route path="/presupuesto" element={
+            <PlanGate require="formulador"><PresupuestoPage /></PlanGate>
+          } />
           <Route path="/compliance" element={
             <PlanGate require="formulador"><Modulo10Page /></PlanGate>
           } />
@@ -373,15 +383,23 @@ function AppRoutes() {
         <Route path="/apis"       element={<CredentialsPage isOnboarding={hasCredentials === false} />} />
       </Route>
 
-      {/* ── Rutas experimentales (WIP) — auth requerida ───────────────────── */}
-      <Route element={<AuthGuard mode="require-auth"><AppLayout /></AuthGuard>}>
-        <Route path="/dev/dashboard"   element={<RadarProvider><Dashboard /></RadarProvider>} />
-        <Route path="/dev/formulacion" element={<FormulacionViewer />} />
-      </Route>
-
-      {/* ── Rutas de preview DEV — sin auth (solo import.meta.env.DEV) ────── */}
+      {/* ── Rutas experimentales (WIP) — solo DEV + rol admin ──────────────
+          Antes solo requerían auth (cualquier usuario logueado) y no tenían
+          exclusión de build de producción — a diferencia de las 6 rutas
+          /dev/* de abajo, que ya estaban dentro de `import.meta.env.DEV &&`.
+          Ahora ambas quedan con el mismo tratamiento: fuera del bundle de
+          producción (Vite elimina la rama completa) y, en dev, exigen rol
+          admin real (AdminGuard), no solo estar logueado. */}
       {import.meta.env.DEV && (
-        <Route element={<AppLayout />}>
+        <Route element={<AuthGuard mode="require-auth"><AdminGuard><AppLayout /></AdminGuard></AuthGuard>}>
+          <Route path="/dev/dashboard"   element={<RadarProvider><Dashboard /></RadarProvider>} />
+          <Route path="/dev/formulacion" element={<FormulacionViewer />} />
+        </Route>
+      )}
+
+      {/* ── Rutas de preview DEV — solo import.meta.env.DEV + rol admin ───── */}
+      {import.meta.env.DEV && (
+        <Route element={<AuthGuard mode="require-auth"><AdminGuard><AppLayout /></AdminGuard></AuthGuard>}>
           <Route path="/dev/logistica"  element={<LogisticaPage />} />
           <Route path="/dev/calendario" element={<CalendarioPage />} />
           <Route path="/dev/entrada"    element={<EntradaPage />} />

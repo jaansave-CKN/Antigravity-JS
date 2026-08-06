@@ -127,6 +127,45 @@ export async function checkSessionValid(userId, tokenIat, getRow) {
   }
 }
 
+// ── Verificar estado de cuenta: bloqueo manual + vigencia de membresía ───────
+// Distinto de checkSessionValid (revocación bulk por iat) — esto responde
+// "¿esta cuenta puede seguir usando el sistema AHORA?", en vivo, en cada
+// request autenticado — no solo al iniciar sesión. Así un admin que bloquea
+// a un usuario o una membresía que expira cortan el acceso de inmediato,
+// incluso con un JWT de 7 días todavía válido.
+export async function checkAccountStatus(userId, userRole, getRow) {
+  if (!userId || String(userId).startsWith('trial-')) return { ok: true };
+
+  // is_active: interruptor general — aplica a TODOS los roles, incluido admin
+  // (mismo criterio que /purgar: protege al "último admin activo", no exime).
+  try {
+    const user = await getRow(`SELECT is_active FROM usuarios WHERE id = $1`, [userId]);
+    if (user && !user.is_active) {
+      return { ok: false, code: 'ACCOUNT_BLOCKED', message: 'Tu cuenta fue bloqueada por el administrador. Contacta al equipo de soporte.' };
+    }
+  } catch (e) {
+    console.warn('[blacklist] checkAccountStatus(is_active) error (fail-closed):', e.message);
+    return { ok: false, code: 'ACCOUNT_STATUS_UNKNOWN', message: 'No se pudo verificar el estado de tu cuenta. Intenta de nuevo.' };
+  }
+
+  // expires_at: vigencia de membresía paga — NO aplica a admin (mismo
+  // criterio que requireAccess(), que ya exime admins de la matriz de módulos).
+  if (userRole !== 'admin') {
+    try {
+      const sub = await getRow(`SELECT expires_at FROM user_subscriptions WHERE user_id = $1`, [userId]);
+      if (sub?.expires_at && new Date(sub.expires_at).getTime() < Date.now()) {
+        return { ok: false, code: 'SUBSCRIPTION_EXPIRED', message: 'Tu membresía expiró. Contacta al administrador para renovarla.' };
+      }
+    } catch (e) {
+      // Fail-OPEN a propósito (a diferencia de is_active arriba): expires_at
+      // es columna nueva — un error aquí no debe tumbar a todos los usuarios
+      // autenticados si algún entorno todavía no corrió la migración 033.
+      console.warn('[blacklist] checkAccountStatus(expires_at) error (fail-open):', e.message);
+    }
+  }
+  return { ok: true };
+}
+
 // ── Purga periódica (ejecutar cada hora) ─────────────────────────────────────
 export async function purgeExpiredTokens(runSql) {
   const before = revokedSet.size;
