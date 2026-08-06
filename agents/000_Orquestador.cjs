@@ -27,7 +27,6 @@ const ESCUADRON_ELITE = {
             '001_gestor_datos', '005_Radar1_minero', '006_Radar2_Estratega',
             '050_Formulador_proy', '051_Form_Lluvia_de_ideas',
             '07-ing-concreto_GFRC', '08-estratega-neuromarketing',
-            '10-admin-trello', '12-gestor-mongodb',
         ],
     },
     '003_DEVSECOPS_Y_AUDITORIA': {

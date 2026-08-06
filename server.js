@@ -14,9 +14,6 @@ import { SendEmailUseCase }          from './src/modules/communications/applicat
 import { createCommunicationRouter } from './src/modules/communications/infrastructure/CommunicationRouter.js';
 import { createGitHubRouter }        from './skills/ingenieria/GitHubRouter.js';
 import { createFormuladorRouter }    from './src/modules/formulador/FormuladorRouter.js';
-import { SaveTrelloConfigUseCase }   from './src/modules/settings/application/SaveTrelloConfigUseCase.js';
-import { createSettingsRouter }      from './src/modules/settings/infrastructure/SettingsRouter.js';
-import { createTrelloRouter }        from './skills/ingenieria/TrelloRouter.js';
 import { AuditLogger }               from './src/shared/infrastructure/AuditLogger.js';
 import { cacheInfo }                 from './src/shared/infrastructure/cache.js';
 import { issueToken, verifyToken, revokeSession, sessionStats, checkQuota } from './src/shared/infrastructure/session-manager.js';
@@ -349,8 +346,6 @@ const sendEmailUseCase = new SendEmailUseCase(emailAdapter);
 app.use('/api',            createCommunicationRouter(sendEmailUseCase));
 app.use('/api/github',     createGitHubRouter());
 app.use('/api/formulador', createFormuladorRouter());
-app.use('/api/settings',   createSettingsRouter(new SaveTrelloConfigUseCase()));
-app.use('/api/trello',     createTrelloRouter());
 
 app.post('/api/execute', (req, res) => {
   const { user, action } = req.body;

@@ -235,15 +235,6 @@
       "skills": [],
       "location": "./agents/08-estratega-neuromarketing/skills/"
     },
-    "10_admin_trello": {
-      "skills": [],
-      "location": "./agents/10-admin-trello/skills/",
-      "sync_note": "Tiene además un SKILL.md suelto en la raíz del agente (fuera de skills/) — anomalía pendiente de mover, no corregida en esta pasada."
-    },
-    "12_gestor_mongodb": {
-      "skills": [],
-      "location": "./agents/12-gestor-mongodb/skills/"
-    },
     "14_analista_comportamiento": {
       "skills": [],
       "location": "./agents/14-analista-comportamiento/skills/"
@@ -417,16 +408,6 @@
       "id": "validate",
       "file": "agents/skills/react-components/scripts/validate.js",
       "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "TrelloProvider",
-      "file": "skills/ingenieria/TrelloProvider.js",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04. Reubicado en Fase 2 \"Almacén Central\"."
-    },
-    {
-      "id": "TrelloRouter",
-      "file": "skills/ingenieria/TrelloRouter.js",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04. Reubicado en Fase 2 \"Almacén Central\"."
     },
     {
       "id": "GitHubProvider",
