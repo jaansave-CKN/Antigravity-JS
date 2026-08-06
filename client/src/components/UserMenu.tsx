@@ -10,8 +10,13 @@ import { useAuth } from '../contexts/AuthContextNew';
 // position:absolute) porque el <nav> de TopNavBar tiene overflow:hidden —
 // un absolute anclado ahí quedaba recortado e invisible.
 export default function UserMenu() {
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
+  // DEV: visible para cualquier sesión en desarrollo, para no depender de
+  // promover manualmente la cuenta a admin solo para llegar al link — la
+  // protección real sigue siendo AdminGuard al entrar a /admin, esto es
+  // solo visibilidad del atajo.
+  const mostrarAdmin = isAdmin || import.meta.env.DEV;
   const [abierto, setAbierto] = useState(false);
   const [coords, setCoords] = useState({ top: 0, right: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -81,6 +86,22 @@ export default function UserMenu() {
                 {user.email}
               </p>
             </div>
+            {mostrarAdmin && (
+              <button
+                onClick={() => { setAbierto(false); navigate('/admin'); }}
+                style={{
+                  width: '100%', textAlign: 'left', padding: '9px 12px',
+                  background: 'none', border: 'none', borderBottom: '1px solid #1a3a50', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  fontSize: 11, color: '#38bdf8', fontWeight: 600,
+                }}
+              >
+                🛡️ Panel Admin
+                {!isAdmin && (
+                  <span style={{ fontSize: 8.5, color: '#94a3b8', fontWeight: 500, marginLeft: 'auto' }}>DEV</span>
+                )}
+              </button>
+            )}
             <button
               onClick={handleLogout}
               style={{

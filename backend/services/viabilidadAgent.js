@@ -25,6 +25,7 @@
  * un resultado real utilizable, con el MISMO esquema en ambos casos.
  */
 import { geminiCB, isQuotaError } from './geminiCircuitBreaker.js';
+import { logTokenUsage } from './aiTokenLogger.js';
 
 function safeParseJson(val, fallback = {}) {
   if (val && typeof val === 'object') return val;
@@ -212,6 +213,11 @@ export async function calcularViabilidadIA(ctx) {
     }
 
     geminiCB.recordSuccess();
+    logTokenUsage({
+      userId: ctx.userId, agentName: 'viabilidad',
+      tokensInput: data?.usage?.prompt_tokens ?? 0,
+      tokensOutput: data?.usage?.completion_tokens ?? 0,
+    }).catch(() => {});
     return {
       estado_auditoria: parsed.estado_auditoria,
       score_viabilidad: Math.max(0, Math.min(100, Math.round(parsed.score_viabilidad))),

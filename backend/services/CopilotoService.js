@@ -14,6 +14,7 @@
 import { supabaseAdmin } from '../config/supabase.config.js';
 import { geminiCB, isQuotaError } from './geminiCircuitBreaker.js';
 import { SMMLV_2026_COP } from './ValorExponencialService.js';
+import { logTokenUsage } from './aiTokenLogger.js';
 
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 const MAX_HISTORIAL_CONTEXTO = 12; // últimos N mensajes enviados a Gemini como contexto
@@ -81,21 +82,22 @@ function formatearSnapshot(snapshot) {
 }
 
 function buildSystemPrompt(snapshotTexto, moduloActivo) {
-  return `Eres el Co-Piloto RadFor-360, asistente de auditoría forense financiera y normativa para proyectos de infraestructura/inversión en Colombia.
+  return `Eres el Co-Piloto RadFor-360, asesor integral del módulo Formulador para proyectos de infraestructura/inversión en Colombia: acompañas formulación (ficha técnica, anexos, logística), evaluación de viabilidad/scoring y evaluación de impacto integral (social, financiero, ambiental y HSEQ) — no solo temas financieros.
 
 REGLAS INQUEBRANTABLES:
-1. Responde y calcula EXCLUSIVAMENTE en Pesos Colombianos (COP). SMMLV 2026 = ${fmtCOP(SMMLV_2026_COP)} (Decretos 1469/1470 de 2025).
-2. Fundamenta tu razonamiento en Ley 80, POT, NSR-10 e ISO 9001/ISO 45001 (HSEQ) cuando sea pertinente a la pregunta.
-3. Usa ÚNICAMENTE los datos reales del snapshot de abajo. Si el snapshot no tiene el dato que te preguntan, dilo explícitamente ("no tengo ese dato cargado en el proyecto") — nunca inventes cifras, escenarios ni hallazgos.
-4. Sé breve y directo, en tono de auditor técnico, no de chatbot genérico.
+1. Si la pregunta es financiera o de presupuesto, responde y calcula EXCLUSIVAMENTE en Pesos Colombianos (COP). SMMLV 2026 = ${fmtCOP(SMMLV_2026_COP)} (Decretos 1469/1470 de 2025).
+2. Fundamenta tu razonamiento en la normativa pertinente a la pregunta: Ley 80 (contratación pública), POT (uso de suelo), NSR-10 (sismorresistencia), ISO 9001/ISO 45001 (HSEQ), y buenas prácticas de formulación/evaluación de proyectos (marco lógico, cadena de valor, teoría de cambio) cuando aplique.
+3. Usa ÚNICAMENTE los datos reales del snapshot de abajo para cifras del proyecto. Si el snapshot no tiene el dato que te preguntan, dilo explícitamente ("no tengo ese dato cargado en el proyecto") — nunca inventes cifras, escenarios ni hallazgos. Fuera de lo financiero (formulación, metodología, impacto), puedes orientar y razonar libremente, aclarando siempre cuando una cifra específica del proyecto no está disponible.
+4. Sé breve y directo, en tono de asesor técnico senior, no de chatbot genérico.
 
-MÓDULO ACTUAL DEL FORMULADOR: ${moduloActivo || '(no especificado)'}
+MÓDULOS DEL FORMULADOR (puedes orientar sobre cualquiera, no solo el activo): Entrada, Checklist, Ficha Técnica, Anexos (presupuesto/APU), Logística, Dialéctica (marco lógico/coherencia), Viabilidad (scoring IA).
+MÓDULO ACTUAL: ${moduloActivo || '(no especificado)'}
 
-SNAPSHOT REAL DEL PROYECTO:
+SNAPSHOT REAL DEL PROYECTO (datos financieros/auditoría ya calculados):
 ${snapshotTexto}`;
 }
 
-async function llamarGemini(messages) {
+async function llamarGemini(messages, userId) {
   const GEMINI_KEY = process.env.GOOGLE_API_KEY;
   if (!GEMINI_KEY || !geminiCB.canCall()) return null;
 
@@ -116,6 +118,12 @@ async function llamarGemini(messages) {
     if (!texto) return null;
 
     geminiCB.recordSuccess();
+    // FinOps — fire-and-forget, nunca bloquea ni rompe la respuesta al usuario.
+    logTokenUsage({
+      userId, agentName: 'copiloto',
+      tokensInput: data?.usage?.prompt_tokens ?? 0,
+      tokensOutput: data?.usage?.completion_tokens ?? 0,
+    }).catch(() => {});
     return texto;
   } catch (err) {
     if (isQuotaError(err)) geminiCB.recordQuotaError();
@@ -156,7 +164,7 @@ export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo 
     { role: 'user', content: mensaje },
   ];
 
-  const respuestaGemini = await llamarGemini(messages);
+  const respuestaGemini = await llamarGemini(messages, orgId);
   const respuesta = respuestaGemini || respuestaRespaldo(snapshot);
   const fuente = respuestaGemini ? 'gemini-2.0-flash' : 'heuristica';
 

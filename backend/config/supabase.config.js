@@ -42,16 +42,5 @@ export const supabaseAdmin = (isConfigured && SUPABASE_SERVICE_KEY)
     })
   : null;
 
-/**
- * Valida un Bearer token de Supabase y retorna el usuario o null.
- * @param {string} token — JWT extraído de Authorization: Bearer <token>
- */
-export async function validateSupabaseToken(token) {
-  if (!supabaseAnon || !token) return null;
-  const { data: { user }, error } = await supabaseAnon.auth.getUser(token);
-  if (error || !user) return null;
-  return user;
-}
-
 export { isConfigured as supabaseConfigured };
 export default supabaseAnon;

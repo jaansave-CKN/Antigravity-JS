@@ -8,6 +8,7 @@
  * plantilla determinista — nunca lanza, siempre devuelve texto utilizable.
  */
 import { geminiCB, isQuotaError } from './geminiCircuitBreaker.js';
+import { logTokenUsage } from './aiTokenLogger.js';
 
 function buildPrompt({ nombreEntidad, urlLineamientos, problematicaCentral, poblacionObjetivo }) {
   return `Eres un experto en redacción de propuestas para cooperación internacional y fondos de inversión pública en Colombia.
@@ -69,6 +70,11 @@ export async function generarEnfoqueEntidad(ctx) {
     if (!text) return { enfoque: generarEnfoqueHeuristico(ctx), fuente: 'heuristica' };
 
     geminiCB.recordSuccess();
+    logTokenUsage({
+      userId: ctx.userId, agentName: 'enfoque_entidad',
+      tokensInput: data?.usage?.prompt_tokens ?? 0,
+      tokensOutput: data?.usage?.completion_tokens ?? 0,
+    }).catch(() => {});
     return { enfoque: text.slice(0, 800), fuente: 'gemini-2.0-flash' };
   } catch (err) {
     if (isQuotaError(err)) geminiCB.recordQuotaError();

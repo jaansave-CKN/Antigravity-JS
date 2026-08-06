@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { http, ApiError } from '../lib/apiClient';
 
 interface UsuarioPendiente {
@@ -62,8 +63,14 @@ export default function AdminUsuariosPendientesPage() {
   };
 
   return (
+    <div style={{ minHeight: '100%', background: '#f7f9fb' }}>
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '32px 24px', fontFamily: "'Public Sans', sans-serif", color: '#191c1e' }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Usuarios pendientes de aprobación</h1>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Usuarios pendientes de aprobación</h1>
+        <Link to="/admin/permisos" style={{ fontSize: 12, color: '#0058be', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+          Ir a Matriz de Permisos →
+        </Link>
+      </div>
       <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 24 }}>
         Verifica el pago (Nequi u otro medio) antes de aprobar. Mientras no apruebes, el usuario no puede iniciar sesión.
       </p>
@@ -107,6 +114,7 @@ export default function AdminUsuariosPendientesPage() {
           ))}
         </div>
       )}
+    </div>
     </div>
   );
 }

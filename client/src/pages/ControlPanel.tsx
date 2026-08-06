@@ -308,8 +308,15 @@ export default function ControlPanel() {
   const { user, logout, validateSessionAction, isAdmin } = useAuth();
   const navigate = useNavigate();
 
-  // Estado de motores SIE
-  const [engines, setEngines] = useState({ gemini: true });
+  // Estado de motores SIE — real, desde el servidor (antes hardcodeado a
+  // { gemini: true } sin importar si GOOGLE_API_KEY existía o no).
+  const [engines, setEngines] = useState({ gemini: false });
+  useEffect(() => {
+    fetch(`${API_BASE}/system/engines-status`, { headers: { ...getAuthHeaders() } })
+      .then(r => r.json())
+      .then(body => { if (body?.success) setEngines(body.data); })
+      .catch(() => {});
+  }, []);
 
   // Estado de validación de sesión administrativa
   const [sessionValidated, setSessionValidated]   = useState(false);
@@ -318,10 +325,11 @@ export default function ControlPanel() {
   const [validationError, setValidationError]     = useState('');
   const [showPwd, setShowPwd]                     = useState(false);
 
-  function toggleEngine(id: keyof typeof engines) {
-    if (!sessionValidated) return;
-    setEngines(prev => ({ ...prev, [id]: !prev[id] }));
-  }
+  // No hay una bandera runtime persistible para "apagar" Gemini — el estado
+  // real depende únicamente de si GOOGLE_API_KEY está configurada en el
+  // servidor (ver /api/system/engines-status). El switch queda de solo
+  // lectura a propósito: antes "alternaba" un estado que nunca se guardaba
+  // en ningún lado, dando una falsa sensación de control real.
 
   async function handleValidateSession(e: React.FormEvent) {
     e.preventDefault();
@@ -546,10 +554,10 @@ export default function ControlPanel() {
                       type="button"
                       role="switch"
                       aria-checked={active}
-                      aria-label={`${active ? 'Suspender' : 'Activar'} ${label}`}
-                      onClick={() => toggleEngine(id)}
-                      disabled={!sessionValidated}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:cursor-not-allowed ${
+                      aria-label={`${label} — gestionado por variable de entorno del servidor, no editable aquí`}
+                      title="Gestionado por GOOGLE_API_KEY en el servidor — no se puede alternar en runtime"
+                      disabled
+                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none cursor-not-allowed ${
                         active ? 'bg-emerald-500' : 'bg-[#cbd5e1]'
                       }`}
                     >

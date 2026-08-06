@@ -1,0 +1,39 @@
+---
+tipo: pendientes
+actualizado: 2026-08-03
+---
+
+# Pendientes — RadFor-360
+
+Vuelve a [[00_INDEX]]. Cada ítem enlaza a la nota donde tiene más contexto. Estado real verificado en vivo, no supuesto — actualizar la fecha de la fila al confirmar o cerrar un ítem.
+
+> **Nota de reescritura completa (2026-08-03):** este archivo tenía 7 ítems "grandes" (Formulador sin persistencia, motor de coherencia como cáscara vacía, Viabilidad IA desconectada, Exportación sin construir, RadarGridRealTime roto) heredados de un plan/PDF viejo **nunca reverificados contra el código actual**. Al leer los archivos reales uno por uno, los 7 resultaron ser falsos — el trabajo ya estaba hecho. Este archivo ahora refleja solo lo que de verdad se verificó hoy, leyendo el código, no asumiendo desde documentación anterior.
+
+## Crítico / seguridad — lo único que sigue realmente pendiente
+
+- [ ] **Purgar el historial de git** de las 2 llaves API filtradas (Gemini, Firebase) — ambas ya revocadas (sin riesgo financiero activo), pero siguen recuperables en el repo público. Script `purgar.ps1` listo; el primer intento del usuario falló porque `git filter-repo` no estaba en el PATH de esa sesión de PowerShell (pip lo instaló pero el ejecutable no quedó accesible) — fix: agregar `$env:APPDATA\Python\Python314\Scripts` al PATH antes de reintentar. **Bloqueado para mí (no para el usuario)**: el clasificador de seguridad de Claude Code impide que el asistente haga force-push/borrado masivo de ramas — un borrado individual vía `gh api` sí pasó, un lote de 13 fue bloqueado.
+- [x] **RENDER_API_KEY / RENDER_SERVICE_ID** — resuelto 2026-08-03. Causa raíz real diagnosticada con `gh` (401 → llave inválida → key nueva del usuario corrigió a 404 → Service ID incorrecto → descubierto vía un step de diagnóstico temporal en el propio workflow que listó los servicios reales de la cuenta con la key ya válida → `srv-d89pvbb7uimc739q7vtg` (`radar360-app`). `CD — Deploy a Render` pasa en verde de forma consistente desde entonces.
+- [x] **`undici` no declarado** — causa raíz real de que Render nunca llegara a "Live" (`ERR_MODULE_NOT_FOUND` en `backend/utils/resilientFetch.js`, arranque del servidor crasheaba). Nunca lo detectó el CI de GitHub Actions porque ese job solo compila el frontend, nunca ejecuta `server.js` de verdad. Agregado como dependency real, auditoría sistemática de `backend/`+`server.js` confirma que no quedan más paquetes reales sin declarar.
+- [x] **Deploy a Render — LIVE y verificado (2026-08-03)**. El servicio `radar360-app` ya tiene las 12 env vars necesarias configuradas y el pipeline CI+CD+Smoke Test pasa 8/8 (`curl https://radar360-app.onrender.com/api/health` → `production_ready:true`, verificado en vivo). Cadena real de causas encontradas y corregidas con log real de Render como evidencia: (1) `"prepare": "husky"` sin guardia + `NODE_ENV=production` → npm install fatal, fix `"husky || true"`; (2) `NPM_CONFIG_PRODUCTION=false` porque el mismo `NODE_ENV=production` también omitía `vite`/`typescript`/etc. (devDependencies necesarias para el build); (3) build cache de Render sirviendo un `node_modules` viejo pese al fix — un `clearCache:"clear"` puntual lo resolvió; (4) `SUPABASE_URL`/`FRONTEND_URL` tenían el valor duplicado y envuelto en corchetes literales (bug de una escritura anterior vía API) → crash fatal al arrancar (`Invalid supabaseUrl`), corregido con PUT directo; (5) `DATABASE_URL` sigue apuntando a un host de Postgres de Render inalcanzable, pero no es bloqueante — la Capa 2 (Supabase REST) ya degrada con gracia, confirmado en logs; queda como mejora opcional de rendimiento (activar el pooler de Supabase) no urgente; (6) el smoke test fallaba 3/8 por timing (arranque en frío ~2-3 min por seeding vía REST antes de `app.listen()`), corregido con un poll real a `/api/health` en vez de un `sleep 45` fijo. Detalle completo en la memoria `project_deployment_stack.md`.
+- [ ] **Vulnerabilidades npm reales y explotables, sin fix disponible en npm**: `xlsx` (Prototype Pollution) — resuelto instalando desde el CDN oficial de SheetJS (`https://cdn.sheetjs.com/xlsx-latest/xlsx-latest.tgz`), ya no aparece en `npm audit`. `react-router-dom` actualizado a 7.18.2 pero el CVE de mayor severidad ("RSC Mode CSRF Bypass") requiere v8 (breaking) — verificado que esta app usa `<BrowserRouter>` clásico, no modo RSC, así que no aplica en la práctica.
+
+## Resuelto hoy (2026-08-03), con verificación real
+
+- [x] `esbuild` no declarado — causa raíz real del fallo de "Build frontend" en CI, encontrada con el log crudo de GitHub Actions (vía `gh run view --log-failed`). Agregado como devDependency, verificado con `npm ci` limpio + `tsc` + `build`, CI en verde.
+- [x] `multer` actualizado a `2.2.0` (resuelve el CVE de DoS) — usado de verdad en `anexos.routes.js`, endpoint con subida real de archivos.
+- [x] `.env.railway` — confirmado huérfano (cero referencias en todo el código) y borrado.
+- [x] **Tailwind CDN → build local**: migrado a PostCSS + `tailwindcss@3` + `autoprefixer`, config exacto de Stitch copiado carácter por carácter a `client/tailwind.config.cjs`, CDN removido de `index.html`, CSP de `vite.config.ts` limpiada. Verificado con `tsc`+`build`+captura de navegador — sin regresión visual.
+- [x] **Code-splitting** — ya estaba hecho (`React.lazy` en 25+ páginas de `main.tsx` + `manualChunks` en `vite.config.ts`), afirmación anterior de este archivo era incorrecta.
+- [x] **Viabilidad IA** — ya estaba conectada (`DictamenIACard` en `ViabilidadPage.tsx`), probado en vivo en navegador (respuesta real "Token requerido" con sesión demo, comportamiento correcto).
+- [x] **Motor de coherencia lógica** — ya estaba completamente implementado: `generar` inserta nodos reales en `objetivos_arbol`; `confirmar` valida nodo CENTRAL único, huérfanos, **ciclos** (más riguroso de lo pedido), ≥1 indicador, coherencia de teoría de cambio, y devuelve 422+`detail[]` correctamente. CRUD real de `project_indicators` y `project_change_theory` también ya existen.
+- [x] **Formulador — los 4 wizards ya tienen persistencia real en backend**: Ficha Técnica (`/api/m12/ficha/:proyectoId`), Logística (`/api/proyectos/:id/logistica-tramos`), Anexos (`FormData`/multipart real contra `/api/proyectos/:id/anexos`), Contexto (`PATCH /api/proyectos/:id/ficha-tecnica-merge`). El `localStorage` que usan es caché de borrador local, no el mecanismo de persistencia real.
+- [x] **Exportación MGA/BID/OXI** — ya construida: `exportacion.routes.js` + `backend/services/exportGenerator.js` (272 líneas), genera los 3 PDFs reales con los datos del proyecto y el texto de transparencia requerido ("generado según la estructura pública de X").
+- [x] `POST /api/modulo9/radicar/:proyectoId` — no era código muerto: es la implementación real del sello de auditoría Cross-Check (Hard-Lock legal, validación ficha vs. presupuesto, sello criptográfico). Solo le falta un botón "Radicar Proyecto" en la UI del Formulador que lo llame — mismo patrón que tenía Viabilidad IA antes de esta verificación.
+- [x] `RadarGridRealTime.tsx` — el archivo no existe en el código actual, afirmación heredada nunca verificada.
+
+## Genuinamente pendiente, no técnico (decisión de negocio)
+
+- [ ] Pagos: Stripe codificado y verificado pero deliberadamente inactivo (llaves vacías) — falta decidir montos reales en COP y si se usa Stripe o una pasarela local (Wompi/PayU vía PSE), más relevante para el mercado colombiano.
+- [ ] Radar: decidir si `PestañaRadar.tsx` (Stitch) reemplaza a `RadarCalcoPage`/`LayoutPadre` en `/radar`, o se archiva formalmente — decisión de diseño reservada al usuario, no se toca sin pedido explícito.
+- [ ] Botón "Radicar Proyecto" — conectar el endpoint ya terminado (`/api/modulo9/radicar/:proyectoId`) a una acción visible en el Formulador.
+- [ ] 10 PRs de Dependabot abiertos (bumps de versión) sin revisar/mergear.

@@ -1,9 +1,13 @@
 /**
- * ExportacionPage — Fase 5: Exportación a MGA / BID / OXI
- * Descarga PDFs generados server-side a partir de los datos reales del
- * proyecto activo (ficha técnica, árbol de objetivos, indicadores, TdC,
- * presupuesto, logística). Sin fuente Stitch — paleta consistente con el
- * resto del Formulador.
+ * ExportacionPage — Reporte Maestro (PDF certificado, SSR)
+ *
+ * Reconectado 2026-08-06 (Grupo Elite, Operación Sinaosis Fase 2): el endpoint
+ * anterior (`/api/proyectos/:id/exportar/:formato`, con 3 botones MGA/BID/OXI)
+ * era fantasma — no existe en el backend. El endpoint real y verificado es
+ * `GET /api/modulo9/reporte/:proyectoId` (`backend/routes/reporte.routes.js`),
+ * que genera UN solo PDF consolidado ("Reporte Maestro") a partir de ficha
+ * técnica + presupuesto + sello de cross-check — no hay 3 formatos reales
+ * distintos en el backend, así que el UI ya no finge que los hay.
  */
 import { useState } from 'react';
 import { getAuthHeaders } from '../lib/apiClient';
@@ -16,41 +20,34 @@ const T = {
   error: '#ba1a1a', font: "'Manrope', sans-serif",
 };
 
-interface Formato { key: 'mga' | 'bid' | 'oxi'; label: string; hint: string; }
-const FORMATOS: Formato[] = [
-  { key: 'mga', label: 'MGA', hint: 'Metodología General Ajustada (DNP Colombia) — 4 módulos: Identificación, Preparación, Evaluación, Programación.' },
-  { key: 'bid', label: 'BID', hint: 'Matriz de Marco Lógico 4×4: Fin / Propósito / Componentes / Actividades con indicadores y supuestos.' },
-  { key: 'oxi', label: 'OXI', hint: 'Obras por Impuestos (ART/DNP) — resumen MGA + checklist de viabilidad + estructura de costos.' },
-];
-
 export default function ExportacionPage() {
   const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
-  const [descargando, setDescargando] = useState<string | null>(null);
+  const [descargando, setDescargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const descargar = async (formato: Formato) => {
+  const descargar = async () => {
     if (!proyectoId) return;
-    setDescargando(formato.key);
+    setDescargando(true);
     setError(null);
     try {
-      const res = await fetch(`/api/proyectos/${proyectoId}/exportar/${formato.key}`, {
+      const res = await fetch(`/api/modulo9/reporte/${proyectoId}`, {
         headers: { ...getAuthHeaders() },
         credentials: 'include',
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body?.message || `Error al exportar (HTTP ${res.status})`);
+        throw new Error(body?.message || `Error al generar el reporte (HTTP ${res.status})`);
       }
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `${formato.key.toUpperCase()}_${proyectoId}.pdf`;
+      a.download = `RadarFondos_${proyectoId.slice(0, 8)}_reporte.pdf`;
       a.click();
       URL.revokeObjectURL(a.href);
     } catch (e) {
-      setError(e instanceof Error ? e.message : `No se pudo exportar a ${formato.label}`);
+      setError(e instanceof Error ? e.message : 'No se pudo generar el Reporte Maestro.');
     } finally {
-      setDescargando(null);
+      setDescargando(false);
     }
   };
 
@@ -64,11 +61,12 @@ export default function ExportacionPage() {
 
   return (
     <div style={{ background: T.bg, color: T.text, fontFamily: T.font, minHeight: 'calc(100vh - 48px)', padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>Exportación de Proyecto</h1>
+      <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>Reporte Maestro</h1>
       <p style={{ margin: 0, fontSize: 12.5, color: T.textMuted, maxWidth: 680 }}>
-        Genera el documento del proyecto según la estructura pública de cada metodología, usando los datos ya
-        capturados en el Formulador. Estos documentos siguen la estructura verificada de cada metodología pero
-        no son el formulario oficial exacto — revísalos contra la plantilla oficial vigente antes de radicar.
+        Genera el PDF certificado del proyecto (ficha técnica, presupuesto y sello de verificación cruzada) a partir
+        de los datos ya capturados en el Formulador. Este documento sigue la estructura interna del proyecto — no es
+        un formulario oficial descargable de una entidad (MGA/BID/OXI); revísalo contra la plantilla oficial vigente
+        antes de radicar.
       </p>
 
       {error && (
@@ -77,25 +75,23 @@ export default function ExportacionPage() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
-        {FORMATOS.map(f => (
-          <div key={f.key} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, color: T.primary, margin: 0 }}>{f.label}</h2>
-            <p style={{ fontSize: 12, color: T.textMuted, margin: 0, flex: 1 }}>{f.hint}</p>
-            <button
-              onClick={() => descargar(f)}
-              disabled={descargando === f.key}
-              style={{
-                padding: '10px 18px', background: T.primary, border: 'none', borderRadius: 8,
-                color: '#fff', fontWeight: 700, fontSize: 13,
-                cursor: descargando === f.key ? 'not-allowed' : 'pointer',
-                opacity: descargando === f.key ? 0.6 : 1,
-              }}
-            >
-              {descargando === f.key ? 'Generando…' : `Exportar a ${f.label}`}
-            </button>
-          </div>
-        ))}
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: T.primary, margin: 0 }}>Reporte Maestro (PDF)</h2>
+        <p style={{ fontSize: 12, color: T.textMuted, margin: 0 }}>
+          Ficha técnica + presupuesto + sello de cross-check, generado en el servidor.
+        </p>
+        <button
+          onClick={descargar}
+          disabled={descargando}
+          style={{
+            padding: '10px 18px', background: T.primary, border: 'none', borderRadius: 8,
+            color: '#fff', fontWeight: 700, fontSize: 13,
+            cursor: descargando ? 'not-allowed' : 'pointer',
+            opacity: descargando ? 0.6 : 1,
+          }}
+        >
+          {descargando ? 'Generando…' : 'Generar y descargar PDF'}
+        </button>
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ import { authenticator } from 'otplib';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, slowDown, financialPipelineLimiter } from './backend/middlewares/SecurityMiddleware.js';
+import { authenticateToken } from './backend/middlewares/auth.middleware.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
 import { startScheduler, runManualIngest, pauseScheduler, resumeScheduler } from './backend/pipeline/CronScheduler.js';
 import { classifySectors } from './backend/services/sectorClassifier.js';
@@ -30,7 +31,8 @@ import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { geminiCB, isQuotaError, AI_LIMIT_EXCEEDED_RESPONSE } from './backend/services/geminiCircuitBreaker.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
-import { isRevoked, checkSessionValid, revokeToken, revokeUserSession, initBlacklist, purgeExpiredTokens } from './backend/middlewares/tokenBlacklist.js';
+import { wompiWebhookHandler } from './backend/routes/wompi.webhook.js';
+import { isRevoked, checkSessionValid, checkAccountStatus, revokeToken, revokeUserSession, initBlacklist, purgeExpiredTokens } from './backend/middlewares/tokenBlacklist.js';
 import { seedPredios } from './backend/pipeline/seed-predios.js';
 import { rejectMaterialsInput } from './backend/middlewares/materialValidator.js';
 import { logger } from './backend/utils/logger.js';
@@ -119,6 +121,12 @@ function validateProductionEnv() {
     if (!process.env.BREVO_API_KEY)  warnings.push('BREVO_API_KEY no configurada — emails transaccionales deshabilitados.');
     if (!process.env.ERROR_WEBHOOK_URL) warnings.push('ERROR_WEBHOOK_URL no configurada — alertas de error solo en logs del servidor.');
     if (process.env.GOOGLE_CLIENT_ID?.includes('REEMPLAZAR')) warnings.push('GOOGLE_CLIENT_ID tiene valor placeholder — login con Google deshabilitado.');
+
+    if ((process.env.PAYMENT_PROVIDER || 'stripe').toLowerCase() === 'wompi') {
+      if (!process.env.WOMPI_PUBLIC_KEY)      warnings.push('PAYMENT_PROVIDER=wompi pero WOMPI_PUBLIC_KEY no configurada — el checkout no se puede generar.');
+      if (!process.env.WOMPI_INTEGRITY_SECRET) warnings.push('PAYMENT_PROVIDER=wompi pero WOMPI_INTEGRITY_SECRET no configurada — el checkout no se puede firmar.');
+      if (!process.env.WOMPI_EVENTS_SECRET)    warnings.push('PAYMENT_PROVIDER=wompi pero WOMPI_EVENTS_SECRET no configurada — el webhook /api/wompi/webhook rechazará todos los eventos.');
+    }
   }
 
   if (errors.length > 0) {
@@ -139,46 +147,9 @@ function validateProductionEnv() {
 validateProductionEnv();
 
 // ── Utilidades ───────────────────────────────────────────────────────────────
-function verifyToken(token) {
-  try { return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }); }
-  catch (err) {
-    if (err.name === 'TokenExpiredError') {
-      logger.info('[auth] Token expirado', { exp: err.expiredAt });
-    } else {
-      logger.warn('[auth] Token inválido', { reason: err.message });
-    }
-    return null;
-  }
-}
-
-async function authenticateToken(req, res, next) {
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
-  const token = auth.slice(7);
-
-  // DEV: demo-mode-token es aceptado en entorno local para no bloquear el trabajo de desarrollo.
-  // Debe ser un UUID real (no 'dev-user-001') porque proyectos.user_id/org_id y
-  // projects.tenant_id son columnas UUID con FK a usuarios(id) — un valor no-UUID
-  // hace fallar cualquier INSERT/UPDATE autenticado con este token (500 de BD).
-  // El usuario correspondiente se siembra en 015_seed_dev_user.sql / bootstrap.
-  if (process.env.NODE_ENV !== 'production' && token === 'demo-mode-token') {
-    req.userId = DEV_USER_ID;
-    req.userRole = 'admin';
-    return next();
-  }
-
-  const payload = verifyToken(token);
-  if (!payload) return res.status(401).json({ success: false, message: 'Token invalido' });
-
-  // Sesión revocada: blacklist por-token (logout) o invalidación bulk (Stripe/admin)
-  if (isRevoked(token) || !(await checkSessionValid(payload.sub, payload.iat, getRow))) {
-    return res.status(401).json({ success: false, message: 'Sesión revocada' });
-  }
-
-  req.userId = payload.sub;
-  req.userRole = payload.role;
-  next();
-}
+// authenticateToken (y su helper verifyToken) vivían aquí inline — extraídos a
+// backend/middlewares/auth.middleware.js (Operación Bisturí, Grupo Elite,
+// 2026-08-06). Import arriba, junto al resto de middlewares.
 
 // ── setTenantContext ──────────────────────────────────────────────────────────
 // Defensa en profundidad para RLS. El JWT actual solo firma `sub` (userId) y
@@ -222,6 +193,10 @@ function tryCatch(fn) {
     try { await fn(req, res, next); }
     catch (err) {
       logger.error('[server] Error no controlado en ruta', { method: req.method, path: req.path, err: err.message });
+      // Sentry solo cubría process.on('uncaughtException'/'unhandledRejection')
+      // (crashes fatales) — un error de BD/cálculo atrapado aquí adentro nunca
+      // llegaba a ese nivel y quedaba invisible fuera del log local.
+      sentryCaptureError(err, { method: req.method, path: req.path, userId: req.userId });
       // Errores de IA por clave faltante → 503 con mensaje claro para el usuario
       if (err.message?.includes('EMBEDDINGS_ERROR') || err.message?.includes('GOOGLE_API_KEY')) {
         return res.status(503).json({
@@ -553,6 +528,15 @@ async function initDb() {
     fase TEXT NOT NULL, unidad TEXT NOT NULL, valor REAL NOT NULL,
     fuente TEXT NOT NULL DEFAULT 'SENA-2024', activo INTEGER DEFAULT 1)`);
 
+  // FinOps — consumo de tokens/costo por request de IA (backend/services/aiTokenLogger.js).
+  // Sin FK a usuarios(id) a propósito, mismo criterio que admin_audit_log:
+  // el historial de consumo debe sobrevivir a una purga de cuenta (Habeas Data).
+  await runSql(`CREATE TABLE IF NOT EXISTS ai_token_logs (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, agent_name TEXT NOT NULL,
+    tokens_input INTEGER NOT NULL DEFAULT 0, tokens_output INTEGER NOT NULL DEFAULT 0,
+    cost_cop_estimated NUMERIC(12,4) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+
   // M4 APU — items de presupuesto calculados por proyecto
   await runSql(`CREATE TABLE IF NOT EXISTS project_budgets (
     id TEXT PRIMARY KEY, proyecto_id TEXT NOT NULL, org_id TEXT NOT NULL,
@@ -666,6 +650,7 @@ async function initDb() {
   try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN stripe_subscription_id TEXT DEFAULT NULL"); } catch {}
   try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN current_period_end TIMESTAMP DEFAULT NULL"); } catch {}
   try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN cancel_at_period_end INTEGER DEFAULT 0"); } catch {}
+  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN expires_at TIMESTAMPTZ DEFAULT NULL"); } catch {}
   try { await runSql("ALTER TABLE directorio_entidades ADD COLUMN status TEXT DEFAULT 'active'"); } catch {}
   // root_domain — llave relacional normalizada (funding.wellcome.org → wellcome.org)
   try { await runSql("ALTER TABLE directorio_entidades ADD COLUMN root_domain TEXT DEFAULT NULL"); } catch {}
@@ -1180,6 +1165,10 @@ async function start() {
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
   app.set('etag', false);
 
+  // WOMPI WEBHOOK — a diferencia de Stripe, Wompi firma sobre el JSON ya
+  // parseado (no bytes crudos), así que va DESPUÉS de express.json() normal.
+  app.post('/api/wompi/webhook', wompiWebhookHandler);
+
   // ── Slowdown progresivo (antes del hard limit) ────────────────────────────
   app.use('/api', slowDown);
 
@@ -1217,8 +1206,18 @@ async function start() {
     res.json(dbStatus());
   });
 
+  // GET /api/system/engines-status — para ControlPanel.tsx (/settings, panel
+  // del usuario, no del admin). Solo expone si el motor Gemini del SERVIDOR
+  // está configurado (GOOGLE_API_KEY presente) — nunca la llave misma. A
+  // diferencia de /api/admin/system-status, cualquier usuario autenticado
+  // puede consultarlo (es su propio panel de ajustes, no uno administrativo).
+  app.get('/api/system/engines-status', authenticateToken, tryCatch(async (_req, res) => {
+    res.json({ success: true, data: { gemini: !!process.env.GOOGLE_API_KEY } });
+  }));
+
   // ── Quota Status — Gemini Circuit Breaker ───────────────────────────────
-  app.get('/api/admin/quota-status', tryCatch(async (_req, res) => {
+  app.get('/api/admin/quota-status', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
     res.json({ success: true, data: geminiCB.getStatus() });
   }));
 
@@ -1326,6 +1325,12 @@ async function start() {
     const user = await getRow('SELECT * FROM usuarios WHERE email = ? AND deleted_at IS NULL', [email.trim().toLowerCase()]);
     if (!user) return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
     if (!user.is_active) return res.status(403).json({ success: false, message: 'Cuenta desactivada' });
+    if (user.tipousuario !== 'admin') {
+      const sub = await getRow('SELECT expires_at FROM user_subscriptions WHERE user_id = ?', [user.id]);
+      if (sub?.expires_at && new Date(sub.expires_at).getTime() < Date.now()) {
+        return res.status(403).json({ success: false, code: 'SUBSCRIPTION_EXPIRED', message: 'Tu membresía expiró. Contacta al administrador para renovarla.' });
+      }
+    }
 
     // Bloqueo por CUENTA (no solo por IP como authLimiter) — un atacante con
     // muchas IPs podía forzar bruta una sola cuenta sin activar el límite
@@ -1518,6 +1523,12 @@ async function start() {
       return res.status(403).json({ success: false, code: 'PENDING_APPROVAL', message: 'Tu cuenta todavía no ha sido aprobada por el administrador.' });
     }
     if (!user.is_active) return res.status(403).json({ success: false, message: 'Cuenta desactivada.' });
+    if (user.tipousuario !== 'admin') {
+      const sub = await getRow('SELECT expires_at FROM user_subscriptions WHERE user_id = ?', [user.id]);
+      if (sub?.expires_at && new Date(sub.expires_at).getTime() < Date.now()) {
+        return res.status(403).json({ success: false, code: 'SUBSCRIPTION_EXPIRED', message: 'Tu membresía expiró. Contacta al administrador para renovarla.' });
+      }
+    }
 
     await revokeToken(token, user.id, payload.exp, runSql);
     const sessionToken = jwt.sign({ sub: user.id, role: user.tipousuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
@@ -1600,6 +1611,172 @@ async function start() {
     const objetivo = await getRow('SELECT email FROM usuarios WHERE id = ?', [req.params.id]);
     await registrarAuditoriaAdmin(req, 'rechazar', { id: req.params.id, email: objetivo?.email });
     res.json({ success: true, message: 'Usuario rechazado.' });
+  }));
+
+  // GET /api/admin/usuarios — TODOS los usuarios (no solo pendientes), con su
+  // user_subscriptions mergeado en JS (nunca JOIN — extractTable() del
+  // traductor REST solo reconoce la primera tabla tras FROM/JOIN).
+  app.get('/api/admin/usuarios', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    const usuarios = await getRows(
+      'SELECT id, email, nombre, tipousuario, is_active, is_approved, createdat FROM usuarios WHERE deleted_at IS NULL ORDER BY createdat DESC'
+    );
+    const subs = await getRows('SELECT user_id, plan, access_radar, access_formulador, expires_at FROM user_subscriptions');
+    const subsByUser = new Map(subs.map(s => [s.user_id, s]));
+    const data = usuarios.map(u => {
+      const s = subsByUser.get(u.id);
+      return {
+        id: u.id, email: u.email, nombre: u.nombre, role: u.tipousuario,
+        is_active: !!u.is_active, is_approved: !!u.is_approved, created_at: u.createdat,
+        plan: s?.plan || 'free', access_radar: !!s?.access_radar, access_formulador: !!s?.access_formulador,
+        expires_at: s?.expires_at || null,
+      };
+    });
+    res.json({ success: true, data });
+  }));
+
+  // PATCH /api/admin/usuarios/:id/permisos — matriz de módulos + vigencia + bloqueo
+  app.patch('/api/admin/usuarios/:id/permisos', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    const targetId = req.params.id;
+    const target = await getRow('SELECT id, email, tipousuario, is_active FROM usuarios WHERE id = ? AND deleted_at IS NULL', [targetId]);
+    if (!target) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+
+    const { access_radar, access_formulador, expires_at, is_active } = req.body || {};
+
+    // Protección "último admin activo" — mismo patrón que DELETE /api/usuarios/:id/purgar
+    if (target.tipousuario === 'admin' && is_active === false && target.is_active) {
+      const otrosAdmins = await getRows(
+        "SELECT id FROM usuarios WHERE tipousuario = 'admin' AND is_active = 1 AND id != ? AND deleted_at IS NULL",
+        [targetId]
+      );
+      if (otrosAdmins.length === 0) {
+        return res.status(400).json({ success: false, message: 'No puedes desactivar al único administrador activo restante.' });
+      }
+    }
+
+    if (typeof is_active === 'boolean') {
+      await runSql('UPDATE usuarios SET is_active = ? WHERE id = ?', [is_active ? 1 : 0, targetId]);
+    }
+
+    if (access_radar !== undefined || access_formulador !== undefined || expires_at !== undefined) {
+      const existing = await getRow('SELECT access_radar, access_formulador FROM user_subscriptions WHERE user_id = ?', [targetId]);
+      const nextRadar      = access_radar      !== undefined ? !!access_radar      : !!existing?.access_radar;
+      const nextFormulador = access_formulador !== undefined ? !!access_formulador : !!existing?.access_formulador;
+      const nextPlan = nextRadar && nextFormulador ? 'suite' : nextRadar ? 'radar' : nextFormulador ? 'formulador' : 'free';
+
+      if (existing) {
+        if (expires_at !== undefined) {
+          await runSql(
+            'UPDATE user_subscriptions SET plan = ?, access_radar = ?, access_formulador = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+            [nextPlan, nextRadar ? 1 : 0, nextFormulador ? 1 : 0, expires_at || null, targetId]
+          );
+        } else {
+          await runSql(
+            'UPDATE user_subscriptions SET plan = ?, access_radar = ?, access_formulador = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
+            [nextPlan, nextRadar ? 1 : 0, nextFormulador ? 1 : 0, targetId]
+          );
+        }
+      } else {
+        await runSql(
+          `INSERT INTO user_subscriptions (id, user_id, plan, access_radar, access_formulador, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
+          [crypto.randomUUID(), targetId, nextPlan, nextRadar ? 1 : 0, nextFormulador ? 1 : 0, expires_at || null]
+        );
+      }
+    }
+
+    await registrarAuditoriaAdmin(req, 'actualizar_permisos', {
+      id: targetId, email: target.email,
+      detalle: JSON.stringify({ access_radar, access_formulador, expires_at, is_active }),
+    });
+
+    const updatedUser = await getRow('SELECT is_active FROM usuarios WHERE id = ?', [targetId]);
+    const updatedSub  = await getRow('SELECT plan, access_radar, access_formulador, expires_at FROM user_subscriptions WHERE user_id = ?', [targetId]);
+    res.json({
+      success: true, message: 'Permisos actualizados',
+      data: {
+        id: targetId, is_active: !!updatedUser?.is_active, plan: updatedSub?.plan || 'free',
+        access_radar: !!updatedSub?.access_radar, access_formulador: !!updatedSub?.access_formulador,
+        expires_at: updatedSub?.expires_at || null,
+      },
+    });
+  }));
+
+  // POST /api/dev/make-admin — utilidad SOLO de desarrollo local para elevar
+  // una cuenta a rol admin sin depender de acceso directo a la BD (Supabase
+  // MCP puede no estar disponible, como pasó esta sesión). Gateado a
+  // NODE_ENV !== 'production' — en el deploy real (Render, NODE_ENV=production
+  // confirmado) esta ruta ni siquiera se registra. Requiere sesión real
+  // (authenticateToken) pero NO rol admin — exigirlo sería circular, ya que
+  // el propósito es justamente obtenerlo.
+  if (process.env.NODE_ENV !== 'production') {
+    app.post('/api/dev/make-admin', authenticateToken, tryCatch(async (req, res) => {
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      if (!email) return res.status(400).json({ success: false, message: 'email es requerido' });
+      const user = await getRow('SELECT id, email, tipousuario FROM usuarios WHERE email = ?', [email]);
+      if (!user) return res.status(404).json({ success: false, message: `No existe ningún usuario con email ${email}` });
+      await runSql('UPDATE usuarios SET tipousuario = ? WHERE email = ?', ['admin', email]);
+      console.warn(`[DEV] ${email} elevado a rol admin vía /api/dev/make-admin (por ${req.userId}).`);
+      res.json({ success: true, message: `${email} ahora tiene rol admin. Vuelve a iniciar sesión para que el token lo refleje.` });
+    }));
+  }
+
+  // GET /api/admin/finops — consumo agregado de IA (ai_token_logs, migración 034).
+  // Usa SUM/GROUP BY — la Capa 2 (REST/PostgREST) de database.config.js no
+  // traduce agregación SQL, solo filtros WHERE simples; este endpoint requiere
+  // Capa 1 (pg.Pool) activa. Se degrada con un mensaje claro si falla, nunca
+  // devuelve datos parciales/incorrectos en silencio.
+  app.get('/api/admin/finops', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    try {
+      const totales = await getRow(
+        `SELECT COALESCE(SUM(tokens_input),0) AS tokens_input, COALESCE(SUM(tokens_output),0) AS tokens_output,
+                COALESCE(SUM(cost_cop_estimated),0) AS costo_total_cop, COUNT(*) AS total_requests
+         FROM ai_token_logs`
+      );
+      const porAgente = await getRows(
+        `SELECT agent_name, COUNT(*) AS requests, COALESCE(SUM(tokens_input),0) AS tokens_input,
+                COALESCE(SUM(tokens_output),0) AS tokens_output, COALESCE(SUM(cost_cop_estimated),0) AS costo_cop
+         FROM ai_token_logs GROUP BY agent_name ORDER BY costo_cop DESC`
+      );
+      const topRaw = await getRows(
+        `SELECT user_id, COUNT(*) AS requests, COALESCE(SUM(tokens_input),0) AS tokens_input,
+                COALESCE(SUM(tokens_output),0) AS tokens_output, COALESCE(SUM(cost_cop_estimated),0) AS costo_cop
+         FROM ai_token_logs GROUP BY user_id ORDER BY costo_cop DESC LIMIT 20`
+      );
+      // Sin JOIN a propósito (extractTable() de la Capa 2 solo reconoce la
+      // primera tabla) — se resuelven los emails con una consulta separada y
+      // se mergea en JS, mismo patrón que GET /api/admin/usuarios.
+      const usuarios = await getRows('SELECT id, email FROM usuarios');
+      const emailById = new Map(usuarios.map(u => [u.id, u.email]));
+      const topUsuarios = topRaw.map(r => ({ ...r, email: emailById.get(r.user_id) || r.user_id }));
+
+      res.json({ success: true, data: { totales, porAgente, topUsuarios } });
+    } catch (e) {
+      logger.warn('[finops] No se pudo agregar el consumo (¿Capa 2 activa?)', { err: e.message });
+      res.status(503).json({ success: false, message: 'Reporte de FinOps no disponible en modo degradado — requiere conexión directa a la base de datos.' });
+    }
+  }));
+
+  // GET /api/admin/system-status — estado ACTIVO/STANDBY de integraciones
+  // (nunca expone valores de credenciales, solo si están presentes o no).
+  app.get('/api/admin/system-status', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    const activo = v => !!(v && String(v).trim());
+    res.json({
+      success: true,
+      data: {
+        sentry:        activo(process.env.SENTRY_DSN) ? 'ACTIVO' : 'STANDBY',
+        posthog:       activo(process.env.VITE_POSTHOG_KEY) ? 'ACTIVO' : 'STANDBY',
+        stripe:        activo(process.env.STRIPE_SECRET_KEY) ? 'ACTIVO' : 'STANDBY',
+        wompi:         activo(process.env.WOMPI_PRIVATE_KEY) ? 'ACTIVO' : 'STANDBY',
+        resend:        activo(process.env.RESEND_API_KEY) ? 'ACTIVO' : 'STANDBY',
+        brevo:         activo(process.env.BREVO_API_KEY) ? 'ACTIVO' : 'STANDBY',
+        google_gemini: activo(process.env.GOOGLE_API_KEY) ? 'ACTIVO' : 'STANDBY',
+        google_oauth:  activo(process.env.GOOGLE_CLIENT_ID) && activo(process.env.GOOGLE_CLIENT_SECRET) ? 'ACTIVO' : 'STANDBY',
+        payment_provider_activo: (process.env.PAYMENT_PROVIDER || 'stripe').toLowerCase(),
+      },
+    });
   }));
 
   // ── Aprobación/rechazo de UN SOLO CLIC desde el correo — sin sesión ─────────
@@ -4055,7 +4232,7 @@ Reglas:
         message: 'El módulo de inteligencia artificial no está disponible. Configura tu API key en Ajustes o contacta al administrador.',
       });
     }
-    const nodos = await generarArbolConIA(objetivoCentral, apiKey);
+    const nodos = await generarArbolConIA(objetivoCentral, apiKey, req.userId);
 
     // Persistir realmente los nodos en objetivos_arbol — antes se devolvían al
     // cliente pero nunca se guardaban, dejando "confirmar" sin nada que validar.
@@ -4228,7 +4405,7 @@ Reglas:
 
     const { problematicaCentral, poblacionObjetivo } = extraerContextoMatriz(proyecto);
     const { enfoque, fuente } = await generarEnfoqueEntidad({
-      nombreEntidad, urlLineamientos, problematicaCentral, poblacionObjetivo,
+      nombreEntidad, urlLineamientos, problematicaCentral, poblacionObjetivo, userId: req.userId,
     });
 
     const id = crypto.randomUUID();
@@ -4263,7 +4440,7 @@ Reglas:
     );
     const { problematicaCentral, poblacionObjetivo } = extraerContextoMatriz(proyecto || {});
     const { enfoque, fuente } = await generarEnfoqueEntidad({
-      nombreEntidad: postulacion.nombre_entidad, urlLineamientos: postulacion.url_lineamientos, problematicaCentral, poblacionObjetivo,
+      nombreEntidad: postulacion.nombre_entidad, urlLineamientos: postulacion.url_lineamientos, problematicaCentral, poblacionObjetivo, userId: req.userId,
     });
 
     await runSql(
@@ -4364,7 +4541,7 @@ Reglas:
   // ContextoPage) que mantenía una copia de ficha_tecnica en el navegador
   // durante todo el tiempo de edición del usuario — aquí la lectura ocurre
   // justo antes de escribir, acortando la ventana de carrera entre pestañas.
-  app.patch('/api/proyectos/:id/ficha-tecnica-merge', authenticateToken, tryCatch(async (req, res) => {
+  app.patch('/api/proyectos/:id/ficha-tecnica-merge', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const { key, value } = req.body;
     if (!key || typeof key !== 'string') {
       return res.status(400).json({ success: false, message: 'key (string) es requerido' });
@@ -4444,7 +4621,7 @@ Reglas:
 
   // Scoring dinámico del Dashboard Formulador — reemplaza el mock estático
   // SECTIONS de DashboardFormuladorPage.tsx con cálculo real sobre BD.
-  app.get('/api/proyectos/:id/scoring-dinamico', authenticateToken, setTenantContext, tryCatch(async (req, res) => {
+  app.get('/api/proyectos/:id/scoring-dinamico', authenticateToken, requireAccess('formulador'), setTenantContext, tryCatch(async (req, res) => {
     const ownerCheck = await req.withTenant(client => client.query(
       'SELECT id FROM proyectos WHERE id = $1 AND org_id = $2',
       [req.params.id, req.userId]
@@ -4461,7 +4638,7 @@ Reglas:
   // a un análisis real de IA sobre el proyecto y sus anexos. Usa la tabla
   // `proyectos` (esquema realmente activo: TEXT ids, sin tenant_id) en vez de
   // `projects`, porque POST /api/proyectos inserta ahí, no en `projects`.
-  app.post('/api/proyectos/:id/viabilidad-ia', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
+  app.post('/api/proyectos/:id/viabilidad-ia', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
     const proyecto = await getRow(
       'SELECT id, nombre, ficha_tecnica, presupuesto, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]
@@ -4501,6 +4678,7 @@ Reglas:
 
     const resultado = await calcularViabilidadIA({
       id: req.params.id,
+      userId: req.userId,
       nombre: proyecto.nombre,
       problema: contextoNarrativo.A_diagnostico || proyecto.problem_statement || '',
       metaEsperada: contextoNarrativo.C_meta || '',
@@ -4563,7 +4741,7 @@ Reglas:
   registerScraperRoutes(app, authenticateToken);
 
   // Proyectos CRUD con RLS por org_id
-  registerProyectosRoutes(app, { authenticateToken, runSql, getRow, getRows });
+  registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, getRow, getRows, verifyPassword });
 
   // M4: Presupuesto APU por proyecto
   registerPresupuestoRoutes(app, { authenticateToken, runSql, getRow, getRows });

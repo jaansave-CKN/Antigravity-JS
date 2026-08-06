@@ -58,7 +58,6 @@ server.out
 *.log
 
 # Herramientas de desarrollo locales
-.kilo/
 .stitch/
 /data/
 /SIA_Radar/
