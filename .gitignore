@@ -4,6 +4,7 @@ dist/
 # Playwright — artefactos generados, no fuente
 playwright-report/
 test-results/
+tests/e2e/.auth/
 
 # Zero-Trust: bloqueo global de cualquier archivo de entorno (V9.0)
 *.env*
