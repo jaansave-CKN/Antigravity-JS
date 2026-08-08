@@ -173,8 +173,6 @@ export default function RadarApp() {
       {/* ── KPI Cards ── */}
       <KPICards data={data} status={status} loading={loading} />
 
-      {/* ── Header de sección (MiniMax/OpenRouter eliminado — el backend solo
-           expone el motor principal, Claude/Anthropic) ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '11px 22px', borderBottom: '1px solid #3e484f', background: '#131b2e', marginTop: 16 }}>
         <Database size={16} style={{ color: '#3b82f6' }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: '#3b82f6' }}>Radar Fondos 360</span>

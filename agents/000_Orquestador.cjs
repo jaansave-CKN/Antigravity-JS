@@ -103,7 +103,11 @@ async function pedirVeredictoArquitecto() {
         const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
         response = await client.messages.create({
             model: ANTHROPIC_MODEL,
-            max_tokens: 1500,
+            // 1500 no alcanzaba en diffs grandes (>15 archivos): el análisis
+            // narrativo agotaba el presupuesto antes de llegar al JSON final,
+            // y el veredicto quedaba truncado y sin parsear (hallazgo 2026-08-08,
+            // reproducido en vivo con el diff de esta misma sesión).
+            max_tokens: 4096,
             system: systemPrompt,
             messages: [{
                 role: 'user',
@@ -112,7 +116,9 @@ async function pedirVeredictoArquitecto() {
                     `no tienes acceso real a Read/Grep/Glob aquí pese a lo que indique tu system prompt para tu uso habitual. ` +
                     `No emitas tool_call ni nada similar: no se ejecutará. Basa tu fiscalización únicamente en el diff de texto ` +
                     `provisto abajo (línea de contexto suficiente para evaluar consistencia, completitud y alcance). ` +
-                    `Emite tu veredicto obligatorio en JSON al final, tal como exige tu system prompt.\n\n${diff.slice(0, 60000)}`,
+                    `Sé conciso en el análisis narrativo (párrafos cortos, sin repetir el diff) — el veredicto JSON obligatorio ` +
+                    `al final es lo único que este proceso puede parsear; si te quedas sin espacio antes de emitirlo, el gate ` +
+                    `entero falla. Prioriza terminar con el JSON sobre extender el análisis.\n\n${diff.slice(0, 60000)}`,
             }],
         });
     } catch (e) {
@@ -133,10 +139,21 @@ async function pedirVeredictoArquitecto() {
     return { aprobado: veredicto.aprobado === true, razones: veredicto.razones || [] };
 }
 
+// 000_ORQUESTADOR excluido a propósito: no es un agente subordinado con una
+// tarea de un solo disparo (como 050-056) — es la carpeta hogar del propio
+// orquestador, y contiene agents/000_ORQUESTADOR/puente_ejecutor.py, un daemon
+// de loop infinito. Antes de esta exclusión, ejecutarTodosLosAgentes() lo
+// recogía como "ejecutable" de esa carpeta y siempre agotaba el timeout de
+// 30s reportándolo como fallo — arquitectura incompatible, no un bug del
+// daemon (hallazgo 2026-08-08, docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §3.2).
+const CARPETAS_EXCLUIDAS_DEL_BATCH = new Set(['000_ORQUESTADOR']);
+
 function listarCarpetasAgentes() {
     return fs.readdirSync(dirAgents).filter(item => {
         const rutaItem = path.join(dirAgents, item);
-        return fs.lstatSync(rutaItem).isDirectory() && /^\d{2,3}[_-]/.test(item);
+        return fs.lstatSync(rutaItem).isDirectory()
+            && /^\d{2,3}[_-]/.test(item)
+            && !CARPETAS_EXCLUIDAS_DEL_BATCH.has(item);
     }).sort();
 }
 
@@ -190,6 +207,25 @@ function validarDisenoAprobado(carpetas) {
         return { aprobado: false, razon: 'El estado de agents/ cambió después de la firma — se requiere re-aprobación de 001_ARQUITECTO_CORE.' };
     }
     return { aprobado: true, firma: firma.firma, timestamp: firma.timestamp };
+}
+
+// Modo check: `node agents/000_Orquestador.cjs --check-gate` — para hooks de git
+// (pre-commit). Cero llamadas a la API de Anthropic: solo valida que ya exista
+// una firma vigente de una aprobación previa (--aprobar-diseno) contra el estado
+// actual de agents/+src/. Hace obligatorio "cero código sin diseño aprobado" sin
+// costo recurrente por commit — la API solo se paga cuando de verdad cambió algo
+// y hace falta un veredicto nuevo (2026-08-08).
+if (process.argv.includes('--check-gate')) {
+    const veredicto = validarDisenoAprobado(listarCarpetasAgentes());
+    if (!veredicto.aprobado) {
+        console.error('\n🛑 [GATE_ARQUITECTURA] Sin aprobación vigente: ' + veredicto.razon);
+        console.error('   Ejecuta: node agents/000_Orquestador.cjs --aprobar-diseno');
+        process.exitCode = 1;
+    } else {
+        console.log(`✅ [GATE_ARQUITECTURA] Aprobación vigente (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
+        process.exitCode = 0;
+    }
+    return;
 }
 
 // Modo firma: `node agents/000_Orquestador.cjs --aprobar-diseno`

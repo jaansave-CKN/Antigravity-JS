@@ -1,5 +1,13 @@
 # Agente 056 — Evaluador-Interventor (Motor SIV + Red Team)
 
+> **Nota de estado real (2026-08-08):** este documento es la especificación completa
+> del rol. La implementación real hoy en `src/orchestrator-engine.js`
+> (`AgentEvaluador.evaluate()`) es un checklist de 8 reglas booleanas con umbral
+> simple de 75% — sin IA. Ninguna de las fórmulas SIV de 6 pilares, los 6 Hard
+> Constraints, la Fase 2 Red Team adversarial ni la detección "Elephant White"
+> descritas abajo están implementadas en código. Ver
+> `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §10` para el detalle de la brecha.
+
 ## ROL UNIFICADO
 
 Este agente es el **núcleo de certificación y validación adversarial** del sistema.

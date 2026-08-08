@@ -1,6 +1,15 @@
 {
   "aprobado": true,
-  "firma": "08782e2e344749ee1e9d57fe28c23c6e4777458425d8cfc5a2cf547e7cf89d83",
-  "timestamp": "2026-08-06T06:32:55.710Z",
-  "firmado_por": "001_ARQUITECTO_CORE"
+  "firma": "088891863832ae0897b39fa3bb253f955e6276f4c481aa9f71e75d5a07c9020e",
+  "timestamp": "2026-08-08T07:55:37.224Z",
+  "firmado_por": "Agente Arquitecto (.claude/agents/architect.md, vía API Anthropic)",
+  "razones": [
+    "25 renombres son git mv puros a _archivo_historico/, patrón ya establecido; ningún consumidor roto (Skill_Loader.cjs no tenía importadores, confirmado por el propio documento de auditoría)",
+    "max_tokens 1500→4096 corrige el bug de truncamiento documentado con evidencia concreta (hallazgo 2026-08-08 en sesión real)",
+    "Exclusión de 000_ORQUESTADOR del batch executor resuelve el hallazgo §5 ítem 6 (daemon puente_ejecutor.py incompatible con timeout 30s) con implementación mínima y correcta",
+    "Nuevo modo --check-gate es solo-lectura, no llama a la API, adecuado para hooks de pre-commit; implementación con process.exitCode + return top-level es válida en CJS de Node.js",
+    "Instrucción de concisión al prompt del arquitecto es coherente con el objetivo de garantizar que el JSON llegue antes del límite de tokens",
+    "Notas de brecha en IDENTITY.md de 052/056 son declarativas y reducen la deuda de documentación sin tocar código de negocio",
+    "Alcance ajustado: el diff no introduce abstracciones nuevas ni toca módulos no relacionados con los hallazgos que cierra"
+  ]
 }

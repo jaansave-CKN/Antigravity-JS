@@ -1,5 +1,13 @@
 # Agente 052 — Formulador Administrativo
 
+> **Nota de estado real (2026-08-08):** este documento es la especificación completa
+> del rol. La implementación real hoy en `src/orchestrator-engine.js`
+> (`AgentAdministrativo.process()`) cubre una fracción mínima: un párrafo de
+> justificación legal de máx. 120 palabras vía una llamada a Claude, con fallback a
+> plantilla fija. Ninguno de los 7 checks de elegibilidad ni los 16 tipos de
+> documento descritos abajo están implementados en código. Ver
+> `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §10` para el detalle de la brecha.
+
 ## Rol y Especialidad
 
 Especialista en requisitos administrativos y legales para contratación pública colombiana

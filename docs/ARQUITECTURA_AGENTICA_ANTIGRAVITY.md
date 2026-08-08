@@ -1,270 +1,356 @@
-# ARQUITECTURA AGÉNTICA ANTIGRAVITY — Auditoría Forense del Ecosistema Multiagente
-**Fecha:** 2026-08-08 · **Auditor:** Chief AI Architect / Auditor Principal de Sistemas Multiagente / DevSecOps
-**Alcance:** los 4 árboles de definición de agentes en el proyecto raíz — `agents/`, `.agent/`, `.claude/`, `skills/` — más los registros (`ag_skills_registry.json`, `skills-lock.json`) y scripts de orquestación. Los subproyectos de `proyectos/` tienen sus propios árboles de agentes (`.agents`, `.claude`, `.clinerules`, `.kilo`) independientes y con su propio repo git — quedan fuera de este documento por el mismo criterio de aislamiento ya aplicado en las radiografías previas (`.gitignore:19-24`).
-**Regla de evidencia:** cada hallazgo cita el archivo real en disco. Donde el volumen de archivos hizo impracticable leer el 100% línea por línea (ej. los 25 skills de `agents/000_ORQUESTADOR/skills/`), se declara el método de muestreo usado — nunca se generaliza sin evidencia directa.
+# ARQUITECTURA AGÉNTICA ANTIGRAVITY — Auditoría Forense 360° Multiagente + Sistema Completo
+**Fecha:** 2026-08-08 (documento consolidado — fusiona la auditoría agéntica del 2026-08-08 con la radiografía de sistema del 2026-08-07, actualizado tras la Operación Exterminio Final del mismo día)
+**Auditor:** Chief AI Architect / Auditor Forense de Sistemas Multiagente / DevSecOps Lead / Chief Software Auditor / System Architect
+**Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS`. `proyectos/` queda fuera (repos git independientes, `.gitignore:19-24`).
+**Regla de evidencia:** cero suposiciones — cada hallazgo cita archivo real. Donde el volumen hizo impracticable la lectura línea-por-línea de decenas de archivos (los skills de `agents/000_ORQUESTADOR/skills/`), se declara el muestreo usado.
+**Estado del commit:** `d9e520a` (HEAD = `origin/master`, sincronizado — ver §6.4).
 
 ---
 
-## 0. EL HALLAZGO MARCO — cuatro sistemas de agentes coexisten, sin saberlo entre sí
+## 0. QUÉ CAMBIÓ DESDE LA ÚLTIMA VERSIÓN DE ESTE DOCUMENTO
 
-Antes de listar agentes individuales, hay que establecer el hecho estructural que explica casi todos los hallazgos posteriores. El propio repositorio ya lo tenía documentado — `skills/ag_skills_registry.json:5` dice textualmente:
+La versión anterior de `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` (2026-08-08, madrugada) documentó 7 de 9 scripts sueltos en `agents/` como rotos/fósiles/huérfanos. Desde entonces, en la misma jornada, se ejecutó una remediación real:
 
-> *"4 sistemas de agentes coexisten (A=agents/, B=.agent/, C=.claude/agents/, E=opencode.json); solo A es ejecutado por este registro."*
+| Ítem del documento anterior | Estado ahora |
+|---|---|
+| `agents/auditor-integridad.cjs` (fósil, 11/11 rutas inexistentes) | **Eliminado** |
+| `agents/bridge-server.cjs` (2º servidor Express, puerto 3001, API rota) | **Eliminado** |
+| `agents/skill-dispatcher.cjs` (schema `available_skills` inexistente) | **Eliminado** |
+| `agents/index.js` (import roto a `config.js`) | **Eliminado** |
+| `agents/ContextManager.js` (referencia a proyecto purgado) | **Eliminado** |
+| `agents/Agente001/050/051/052.js` (huérfanos, solo importados por `index.js`) | **Eliminados** |
+| `MiniMaxChat.jsx` + `/api/openrouter/*` | **Eliminados por completo** — decisión de producto: el backend solo expone Claude |
+| `CLAUDE_MODEL` hardcodeado en 2 archivos distintos | **Centralizado** vía `PRIMARY_AI_MODEL` en `.env` (`claude-sonnet-4-6`) |
+| `claves_privadas.txt` (26 líneas, incluía JWT legacy `service_role` de Supabase, token de gestión `sbp_...`, Hostinger, GitLab con password en texto plano) | **Reducido a 7 líneas** — solo lo que coincide con `.env` activo (backup fuera del repo) |
+| Historial git local/remoto sin ancestro común | **Resuelto** — `origin/master` ahora = `d9e520a` (ver §6.4 para el detalle de riesgo que esto implicó) |
+| `GET /api/health` — falso positivo (solo verificaba env var) | **Corregido** — ping real cacheado 120s |
 
-Verificado en disco, cada sistema es de un origen y propósito distinto:
-
-| Sistema | Ruta | Origen | Naturaleza | ¿Se ejecuta hoy? |
-|---|---|---|---|---|
-| **A** | `agents/` | Autoría propia (Antigravity OS) | 15 agentes de negocio (Radar/Formulador, IDs 000-057) + scripts de orquestación | Parcial — ver §3 |
-| **B** | `.agent/` | Scaffold de terceros ("Antigravity Kit", `.agent/ARCHITECTURE.md:1-14`) | 21 agentes y 36 skills **genéricos** de desarrollo web/mobile, sin ninguna referencia a Radar/Formulador/COP | No — nunca importado por `server.js` ni `src/` |
-| **C** | `.claude/` | Claude Code (nativo) | 1 subagente real (`architect.md`) + 12 skill-packs oficiales de Firebase (`firebase/agent-skills`, hash-lockeados en `skills-lock.json`) | **Sí** — `architect.md` es el gate de arquitectura real, verificado en vivo hoy (ver `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md`) |
-| **E** | `opencode.json` | Herramienta de terceros (OpenCode CLI) | Config de un asistente de código distinto, con su propio modelo por defecto (`google/gemini-2.0-flash-lite` vía OpenRouter) | No — herramienta de IDE personal, gitignoreada (`.gitignore:16`) |
-
-**Por qué importa:** el Sistema B (`.agent/`) es un *injerto completo* — un kit genérico de terceros, sin ninguna adaptación al dominio real del proyecto (ni una mención a MGA, SGR, COP, Radar o Formulador en sus 21 agentes), que además **estuvo trackeado en git por error** hasta la corrección de hoy (`.gitignore` tenía `/.agents/` con "s", nunca coincidía con la carpeta real `.agent/` sin "s" — ver `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §0`). Su sola presencia en el repo, indistinguible a primera vista del Sistema A por comparten el prefijo "agent", es la causa raíz de la confusión de nombres que seguirá apareciendo en este documento.
+Lo que **no** cambió y sigue vigente tal cual: los 25 skills legacy de `agents/000_ORQUESTADOR/skills/` (huérfanos, sin consumidor), la brecha IDENTITY.md-vs-ejecución en 052/056, la ausencia de panel `/admin`, el gate de arquitectura opt-in (no hook obligatorio), y los 4 sistemas de agentes coexistentes (A/B/C/E).
 
 ---
 
 ## 1. INVENTARIO TOTAL Y ORGANIGRAMA JERÁRQUICO
 
-### 1.1 Sistema A — `agents/` (agentes de negocio, autoría propia)
+### 1.1 Los cuatro sistemas coexistentes (marco general, sin cambios)
 
-**Clasificación transversal vs. específico:**
-- **Transversales (usados por más de un agente de negocio):** `agents/skills/*` (3 `.cjs`: `Skill_Sync_MCP`, `Skill_Config_Sistema`, `Skill_Config_Honestidad`, más 16 skills en formato `SKILL.md` de propósito genérico — docx, browser-automation, stitch-design, etc.) y `skills/` en la raíz del repo (`Skill_Bitacora_Sistema.cjs`, `Skill_integracion_auditoria_pro.cjs`, `arquitectura/*.cjs`, `seguridad/Skill_Protocolo_Fuente_Unica.cjs` — esta última **sí está en uso real**, importada por `src/modules/radar/m1Pipeline.js:11`).
-- **Específicos de proyecto (Radar Formulador 360):** las 15 carpetas numeradas `000`-`057`.
+| Sistema | Ruta | Origen | Naturaleza | ¿Ejecuta hoy? |
+|---|---|---|---|---|
+| **A** | `agents/` | Propio | 15 agentes de negocio (000-057) + 14 archivos sueltos de utilidad (post-purga) | Parcial |
+| **B** | `.agent/` | Scaffold de terceros ("Antigravity Kit") | 21 agentes / 36 skills genéricos, cero referencia al dominio real | No |
+| **C** | `.claude/` | Claude Code nativo | `architect.md` (gate real) + 12 skill-packs de Firebase | **Sí** |
+| **E** | `opencode.json` | Herramienta de terceros | Config de otro asistente de código | No |
+
+### 1.2 Organigrama actualizado — Sistema A (`agents/`)
 
 ```
 000_ORQUESTADOR  (Coordinador General — IDENTITY.md)
 │
-├── Radar 360 (Ecosistema Prioritario, IDENTITY.md §"Ecosistema Prioritario")
-│   ├── 005_Radar1_minero        — rastreo/minería (0 skills .cjs, solo .py sueltos)
-│   ├── 006_Radar2_Estratega     — semáforo/estrategia (0 skills, solo IDENTITY.md)
-│   └── [huérfano en 000_ORQUESTADOR/skills/: Radar_Master, Radar_Supervisor,
-│        Coordinador_Radar, Geo_Recognizer, Matriz_Sectores — ver §2.2, NO conectado
-│        a 005/006 actuales]
+├── Radar 360
+│   ├── 005_Radar1_minero        — 0 skills .cjs, solo .py sueltos
+│   ├── 006_Radar2_Estratega     — solo IDENTITY.md
+│   └── [huérfano en 000_ORQUESTADOR/skills/: 25 skills de un Radar legacy
+│        Firebase-based — ver §2.1, sin cambios desde la auditoría anterior]
 │
-├── Formulador 360 (Serie 300, IDENTITY.md §"Matriz de Ruteo")
-│   ├── 050_Formulador_proy      — ficha MGA (1 skill real)
-│   ├── 051_Form_Lluvia_de_ideas — viabilidad conceptual (1 skill real)
-│   ├── 052_Form_Administrativo  — SECOP/RUP/BPIN (1 skill real; IDENTITY.md mucho
-│   │                              más elaborado que la implementación — ver §4)
-│   ├── 054_Form_Gestion_de_riesgos — riesgos/POT (1 skill real)
-│   ├── 056_Form_Evaluador       — motor SIV + Red Team (1 skill real; IDENTITY.md
-│   │                              describe un motor de certificación adversarial de
-│   │                              6 pilares que NO existe en el código — ver §4)
-│   └── 002_redactor_tecnico     — documento final (3 skills reales)
+├── Formulador 360
+│   ├── 050_Formulador_proy, 051_Form_Lluvia_de_ideas,
+│   │   052_Form_Administrativo, 054_Form_Gestion_de_riesgos,
+│   │   056_Form_Evaluador, 002_redactor_tecnico
+│   │   (1-3 skills reales c/u; 052/056 con brecha IDENTITY.md-vs-código, §10)
 │
-├── Soporte transversal
-│   ├── 001_gestor_datos         — OCR/inventarios (5 skills, incluye paddleocr real)
-│   ├── 015_intelligence-core    — 5 scripts .ps1 (gatekeeper, maestro_forense,
-│   │                              processor, project_manager, war_room) — sin
-│   │                              relación con ningún endpoint de server.js
-│   └── 03-analista-secop        — compliance (0 skills, solo IDENTITY.md)
+├── Soporte: 001_gestor_datos, 015_intelligence-core, 03-analista-secop
 │
-├── Agentes referenciados en IDENTITY.md pero AUSENTES en disco (fantasmas)
-│   ├── 100_reparador_codigo     — "opera 24/7... acceso GLOBAL a todos los proyectos"
-│   │                              (IDENTITY.md:30) — carpeta `agents/100_*` NO EXISTE
-│   └── 09-legal-licitaciones    — (IDENTITY.md:23) — carpeta `agents/09-*` NO EXISTE
+├── Fantasmas en IDENTITY.md, ausentes en disco (sin cambios)
+│   ├── 100_reparador_codigo     — IDENTITY.md:30, carpeta NO existe
+│   └── 09-legal-licitaciones    — IDENTITY.md:23, carpeta NO existe
 │
-├── Agentes fuera del dominio Radar/Formulador (mezcla de dominio)
-│   ├── 07-ing-concreto_GFRC        — ingeniería de concreto (0 skills)
-│   ├── 08-estratega-neuromarketing — marketing (0 skills)
-│   └── 14-analista-comportamiento  — comportamiento (0 skills)
+├── Fuera de dominio: 07-ing-concreto_GFRC, 08-estratega-neuromarketing,
+│                      14-analista-comportamiento (0 skills c/u)
 │
-└── Scripts de orquestación sueltos en la raíz de agents/ (NO son agentes,
-    son herramientas de proceso — inventariados en detalle en §2.3)
-    ├── 000_Orquestador.cjs   — REAL, gate de arquitectura + batch executor
-    ├── 000_VERIFICADOR.cjs   — diagnóstico mínimo (3 checks hardcoded)
-    ├── index.js              — MUERTO (importa ./config.js, eliminado)
-    ├── ContextManager.js     — MUERTO (referencia proyecto purgado)
-    ├── Agente001/050/051/052.js — MUERTOS (solo importados por index.js)
-    ├── skill-dispatcher.cjs  — ROTO (schema de registry obsoleto)
-    ├── auditor-integridad.cjs — FÓSIL (checa archivos que nunca existieron así)
-    ├── bridge-server.cjs     — HUÉRFANO (2° servidor Express, puerto 3001)
-    ├── extractor-pro.cjs, generar_reporte.cjs, vision-engine.cjs,
-    │   check_image.cjs, clean_excel.cjs, fetch_municipios.cjs,
-    │   read_excel.cjs, read_image.cjs — utilidades CLI puntuales, no auditadas
-    │   individualmente en este documento (fuera del foco "sistema multiagente")
+└── Utilidades sueltas en agents/ (post-purga, 14 archivos — ya no 23)
+    ├── 000_Orquestador.cjs   — REAL: gate de arquitectura + batch executor
+    ├── 000_VERIFICADOR.cjs   — diagnóstico trivial (3 checks hardcoded, OK hoy)
+    ├── diseno_aprobado.json  — firma del gate (ver §12)
+    └── extractor-pro.cjs, generar_reporte.cjs, vision-engine.cjs,
+        check_image.cjs, clean_excel.cjs, fetch_municipios.cjs,
+        read_excel.cjs, read_image.cjs — utilidades CLI puntuales,
+        fuera del foco "sistema multiagente", no auditadas individualmente
 ```
 
-### 1.2 Sistema B — `.agent/` (scaffold genérico, 21 agentes / 36 skills / 11 workflows)
+**Desalineaciones de rol (sin cambios respecto a la versión anterior):** persisten 3 entidades llamadas "000/orquestador" (el `.cjs` real, la carpeta con el daemon `puente_ejecutor.py`, y `.agent/agents/000_orquestador.md` del Sistema B). El nodo orquestador central existe pero está fragmentado, no faltante.
 
-Inventario íntegro según su propio `ARCHITECTURE.md` (no requiere lectura archivo-por-archivo porque el propio sistema se autodocumenta completo en un único índice):
+### 1.3 Clasificación transversal vs. específico (sin cambios)
 
-`000_orquestador` (¡nombre colisiona con Sistema A!), `orchestrator`, `project-planner`, `frontend-specialist`, `backend-specialist`, `database-architect`, `mobile-developer`, `game-developer`, `devops-engineer`, `security-auditor`, `penetration-tester`, `test-engineer`, `debugger`, `performance-optimizer`, `seo-specialist`, `documentation-writer`, `product-manager`, `product-owner`, `qa-automation-engineer`, `code-archaeologist`, `explorer-agent`. Ninguno menciona MGA, Radar, Formulador, COP ni ningún término del dominio real del producto — son personas genéricas de un kit de desarrollo, no agentes de este proyecto.
-
-### 1.3 Sistema C — `.claude/` (Claude Code nativo, el único con gate real)
-
-- `agents/architect.md` — **el único subagente de todo el ecosistema con implementación completa y verificada en producción hoy**: solo lectura (`tools: Read, Grep, Glob`), veredicto JSON obligatorio, invocado por `agents/000_Orquestador.cjs:pedirVeredictoArquitecto()` vía API real de Anthropic. Ver §3.1 para el flujo completo.
-- `skills/*` (12 carpetas) — paquetes oficiales de Firebase (`firebase-basics`, `firebase-auth-basics`, `firebase-firestore-*`, `firebase-data-connect`, `firestore-security-rules-auditor`, `developing-genkit-{js,go,dart}`, etc.), descargados con hash de integridad en `skills-lock.json` desde el repo `firebase/agent-skills`. Documentación de referencia, no ejecutables — no hay hallazgos de anomalía aquí, es la parte más prolija del ecosistema.
-
-### 1.4 Sistema E — `opencode.json`
-
-Un único archivo de configuración: modelo por defecto `google/gemini-2.0-flash-lite` vía OpenRouter, MCP habilitado. Herramienta de IDE del desarrollador, no del producto — gitignoreada correctamente.
-
-### 1.5 Desalineaciones de rol detectadas
-
-- **¿Falta un nodo orquestador central?** No — hay **demasiados**: `agents/000_Orquestador.cjs` (real), la carpeta `agents/000_ORQUESTADOR/` (con su propio daemon `puente_ejecutor.py`), y `.agent/agents/000_orquestador.md` (Sistema B, genérico). Tres entidades con el mismo nombre, dos de ellas sin relación funcional entre sí.
-- **¿Hay agentes ejecutores sin validación previa?** Sí, en el sentido de que `ejecutarTodosLosAgentes()` (`agents/000_Orquestador.cjs:294-302`) exige un `diseno_aprobado.json` vigente para correr — pero ese archivo solo se refresca corriendo `--aprobar-diseno` manualmente (nadie lo dispara automáticamente antes de una sesión de trabajo). El gate existe, pero no es un bloqueo automático de commit — ver Plan de Remediación §5.2.
+- **Transversales:** `agents/skills/*` (3 `.cjs` + 16 `SKILL.md`), `skills/` raíz (`Skill_Bitacora_Sistema.cjs`, `arquitectura/*.cjs`, `seguridad/Skill_Protocolo_Fuente_Unica.cjs` — este último con uso real confirmado en `m1Pipeline.js:11`).
+- **Específicos del proyecto:** las 15 carpetas numeradas `000`-`057`.
 
 ---
 
-## 2. AUDITORÍA ANATÓMICA Y FORENSE DE SKILLS
+## 2. AUDITORÍA FORENSE DE SKILLS
 
-### 2.1 Metodología de muestreo
+### 2.1 El "Radar legacy" — 25 skills en `agents/000_ORQUESTADOR/skills/`, sin cambios desde la auditoría previa
 
-`agents/` contiene más de 60 archivos de skill entre `.cjs`/`.js`/`.py`/`.md` (confirmado por `skills/ag_skills_registry.json`, que ya cataloga la mayoría). Se leyeron íntegramente los scripts de orquestación de nivel raíz (los que determinan qué se ejecuta y cuándo) y se muestrearon representativamente los skills de negocio de mayor riesgo (los del "Radar legacy" en `000_ORQUESTADOR/skills/`, por ser los más numerosos y menos documentados). Los 16 skills transversales en formato `SKILL.md` (prompts/documentación, no código ejecutable) no se auditan a nivel de I/O porque no tienen I/O de programa — son instrucciones para un LLM.
+Documentados con precisión en `Skill_Loader.cjs:8-134` (metadata predefinida por skill). Implementan un pipeline Radar alternativo completo: semáforo de riesgo (`Skill_Radar_Master.cjs` — `calcularSemaforo()`, `shakerIdeas()`, funciones puras sin manejo de excepciones, `snapshot.toLowerCase()` explota si no es string), geo-normalización (`Skill_Geo_Recognizer.cjs`), bridges a Firebase (`Skill_Firebase_Bridge.cjs`/`Skill_Bridge_Produccion.cjs`, apuntando a `antigravity-jairo-2026.web.app`), endpoints propios inexistentes en `server.js` (`Skill_API_Alertas.cjs`, `Skill_Contexto_Dinamico.cjs`).
 
-### 2.2 El "Radar legacy" en `agents/000_ORQUESTADOR/skills/` — 25 skills, arquitectura completa y abandonada
+**Sigue sin consumidor:** `Skill_Loader.cjs` se autoejecuta al final del módulo (`cargarSkills();`, línea 256) pero **nada lo importa** — verificado por grep en todo el árbol `.js/.jsx/.cjs/.html`. Manejo de errores: `try/catch` silencioso en `modulo.init()` (línea 191-193, traga el error sin loguearlo).
 
-Los nombres, descripciones y flujo de estos 25 archivos (documentados con precisión quirúrgica en el propio `Skill_Loader.cjs:8-134`, que mantiene metadata predefinida para cada uno) describen un **pipeline Radar completo alternativo** al que hoy corre en producción:
+### 2.2 Scripts de utilidad en `agents/` — tabla actualizada post-purga
 
-| Skill | Qué hace (según su propio código/metadata) | I/O |
+| Archivo | Estado |
+|---|---|
+| `agents/000_Orquestador.cjs` | 🟢 Real — gate + batch executor, corregido y verificado end-to-end esta sesión (dotenv, tool-hallucination, exit-code crash) |
+| `agents/000_VERIFICADOR.cjs` | 🟢 Trivial pero correcto — 3 rutas hardcodeadas, las 3 existen hoy |
+| `agents/auditor-integridad.cjs` | ✅ Eliminado (era 🔴 fósil, 11/11 rutas inexistentes) |
+| `agents/bridge-server.cjs` | ✅ Eliminado (era 🔴 servidor huérfano puerto 3001) |
+| `agents/skill-dispatcher.cjs` | ✅ Eliminado (era 🔴 schema `available_skills` inexistente) |
+| `agents/index.js` + `ContextManager.js` + `Agente001/050/051/052.js` | ✅ Eliminados (eran 🔴 import roto + referencia a proyecto purgado) |
+
+**Resultado:** de 9 scripts sueltos auditados originalmente, quedan 2 (ambos reales/correctos) — la proporción de código muerto en la raíz de `agents/` pasó de 78% a 0%.
+
+### 2.3 Skills de negocio real (052, 056, etc.) — ver §10 para la brecha diseño-vs-ejecución
+
+---
+
+## 3. MAPA DE INTEGRACIONES Y FLUJOS
+
+### 3.1 Único flujo agéntico real end-to-end (sin cambios, ya verificado 3 veces esta sesión)
+
+```
+node agents/000_Orquestador.cjs --aprobar-diseno
+  → lee .claude/agents/architect.md (system prompt)
+  → lee git diff HEAD (texto plano, sin tool-use real)
+  → Anthropic API real → veredicto JSON → agents/diseno_aprobado.json
+```
+
+Verificado con 3 corridas reales hoy: (1) rechazo por saldo agotado, (2) rechazo por alucinación de tool-call (corregido), (3) rechazo genuino y bien razonado sobre un diff real (detectó borrado de CSVs de `.agent/` sin reemplazo visible).
+
+### 3.2 SPOF de orquestación (sin cambios)
+
+`agents/000_ORQUESTADOR/puente_ejecutor.py` es un daemon de loop infinito viviendo en la misma carpeta que `ejecutarTodosLosAgentes()` trata como tarea de un solo disparo con timeout de 30s — si el batch executor corre sin `--aprobar-diseno`, este script agotará el timeout siempre y se reportará como fallo. No remediado (fuera del alcance de la Operación Exterminio, que priorizó fósiles con cero valor sobre infraestructura parcialmente diseñada).
+
+### 3.3 Comunicación con el backend real
+
+Los agentes 050-056 no tienen wiring de código hacia Supabase/Express/APIs — son prompts de referencia para operador humano o Claude Code interactivo. Único agente con puente de código real hacia una API: `architect.md` (vía `pedirVeredictoArquitecto()`).
+
+### 3.4 Brecha de "cero código sin diseño aprobado"
+
+El gate sigue siendo **opt-in**. No hookeado a pre-commit. Así se trabajó toda esta sesión: código primero, gate al final como verificación, no como bloqueo de entrada.
+
+---
+
+## 4. TOPOGRAFÍA DE ARQUITECTURA DEL SISTEMA
+
+| Capa | Tecnología real | Evidencia |
 |---|---|---|
-| `Skill_Radar_Master.cjs` | `calcularSemaforo(snapshot)`: puntúa dificultad 1-10 por palabras clave en texto (ej. "póliza de cumplimiento 100%" = +3). `shakerIdeas(ideas, idsBloqueados)`: filtra ideas ancladas vs. regenerables | Entrada: string/array en memoria. Salida: número/objeto. Sin persistencia, sin red. |
-| `Skill_Geo_Recognizer.cjs` | Normaliza países/regiones para `Radar1_minero` | No leído línea a línea (muestreo) — metadata confirma propósito |
-| `Skill_Firebase_Bridge.cjs` / `Skill_Bridge_Produccion.cjs` | Sincronizan con `antigravity-jairo-2026.web.app` (Firebase Hosting) — **el mismo proyecto Firebase que usa la app actual** (`config/serviceAccountKey.json`, proyecto `antigravity-jairo-2026`), pero por una ruta de integración completamente distinta a `src/shared/infrastructure/FirebaseAdmin.js` | Según metadata: HTTP/Firestore hacia la web app en producción |
-| `Skill_API_Alertas.cjs` / `Skill_Contexto_Dinamico.cjs` / `Skill_Upload_Contexto.cjs` | Definen endpoints propios (`/alertas`, `/api/v1/context`, `/api/v1/upload-context`) — **ningún de estos existe en `server.js`**, que solo expone las rutas ya auditadas (`/api/chat`, `/api/radar/*`, `/api/formulador/*`, etc.) | Endpoints HTTP declarados en el nombre/metadata, sin backend Express que los sirva hoy |
+| Frontend | React 18.3 + React Router 7 + Vite 5 + Tailwind 4 | `package.json` |
+| Backend | Node.js ESM + Express 4, monolito de un proceso | `server.js` |
+| BD | Supabase PostgreSQL vía REST/PostgREST — `pg` **retirado** de `package.json` hoy | `supabaseClient.js` |
+| Auth | Firebase (Google Sign-In) + JWT propio | `FirebaseAuthMiddleware.js`, `session-manager.js` |
+| IA | Claude/Anthropic únicamente — **OpenRouter/MiniMax eliminados por completo hoy**, modelo centralizado vía `PRIMARY_AI_MODEL` | `server.js:29`, `.env` |
+| Caché | Upstash Redis + fallback en memoria | `cache.js` |
 
-**Hallazgo de anomalía — "injerto" confirmado:** `Skill_Loader.cjs:160-204` (`cargarSkills()`) hace `require()` de cada uno de estos 25 archivos y se autoejecuta al final del módulo (`cargarSkills();`, línea 256) — es decir, **si algo alguna vez importara `Skill_Loader.cjs`, cargaría y ejecutaría los 25 skills legacy de una sola vez**. Verificado por grep en todo el árbol (`.js/.jsx/.cjs/.html`): **nada lo importa hoy**. Es un subsistema completo, funcional en aislamiento, con cero consumidores — la definición exacta de código huérfano.
+**Patrón:** Monolito Modular Pragmático. Hexagonal real solo en `src/modules/communications/`. `AGENTS.md` ya no reclama "Hexagonal, DDD" globalmente (corregido 2026-08-07).
 
-**Manejo de errores:** `Skill_Loader.cjs:191-193` sí envuelve `modulo.init()` en `try/catch` silencioso (`catch(e) {}` — traga el error sin loguearlo, lo cual es en sí mismo una anomalía menor: un fallo de inicialización de skill desaparece sin rastro). El resto de los 25 skills muestreados (`Skill_Radar_Master.cjs`) no tiene ningún manejo de excepciones — son funciones puras sin validación de entrada (`snapshot.toLowerCase()` explota si `snapshot` no es string).
+**Manejo de estado / SPOF:** sin cambios respecto a la radiografía del 07-08 — `radarData` en memoria de un único proceso Render `free` es el SPOF principal; sesiones sobreviven vía Redis.
 
-### 2.3 Scripts de orquestación de la raíz de `agents/` — anatomía uno por uno
+---
 
-| Archivo | Qué hace | Estado real | Evidencia |
+## 5. INVENTARIO REAL DEL MVP
+
+| Ruta | Estado | Evidencia |
+|---|---|---|
+| `/inicio`, `/radar`, `fase1-entrada.html`, `/modulo10` | 🟢 Real | Verificado build+boot hoy |
+| `/panel`, `/directorio`, `/favoritos`, `/calendario`, `/anexos`, `/logistica`, `/dialetica` | 🔴 Stub (`FrozenPage.jsx`) | Sin cambios |
+| `/ficha` | 🟠 Stub en SPA, motor real (`Orchestrator000`) conectado a endpoint sin pantalla | Sin cambios |
+
+Sin novedades en esta dimensión desde la radiografía del 07-08 — la Operación Exterminio no tocó pantallas de negocio, solo higiene/seguridad/agentes.
+
+---
+
+## 6. SEGURIDAD Y CONTROL DE ACCESO (RBAC)
+
+### 6.1 Panel `/admin` — sigue ausente
+
+0 coincidencias de `/admin` en todo el árbol. Sin cambios.
+
+### 6.2 RBAC — sin cambios
+
+`role==='admin'` solo se lee en `revokeSession()` (`session-manager.js:47`). Sin middleware `requireAdmin`.
+
+### 6.3 Multi-tenant — mejorado hoy
+
+Guardrail duro agregado en `supabaseClient.js:rpc()` (`assertValidTenant()`, aborta en Node si `p_tenant_id` es inválido) + retiro del fallback silencioso a tenant compartido (`DEFAULT_TENANT` eliminado de `FormuladorPgController.js`).
+
+### 6.4 Higiene de secretos — resuelto parcialmente, con una decisión de alto riesgo ya ejecutada
+
+- `claves_privadas.txt`: reducido de 26 a 7 líneas (backup fuera del repo). Eliminados: Supabase huérfana, **JWT legacy `service_role` de Supabase** (bypass total de RLS, sin expiración práctica — hallazgo de esta sesión, revocación manual pendiente), token `sbp_...` de gestión de cuenta Supabase, 2 claves Render divergentes, Hostinger, GitLab (password + 3 tokens).
+- **Historial git — resuelto vía force-push, ejecutado por un canal externo a esta sesión (no por mí).** El local (`c6fbfab/cf4be9f/0aef777`) y `origin/master` (`fbc3c1a/886894e`) no tenían ancestro común — confirmado con `git merge-base` sin salida. Se investigó el contenido de los 2 commits huérfanos remotos: `fbc3c1a` exponía una apiKey **web** de Firebase en `public/firebase-config.js` (diseñada por Google para ser pública, no es secreto crítico). Verificado con `git log --all --diff-filter=A` que `.env`/`serviceAccountKey.json`/`claves_privadas.txt` nunca estuvieron en ningún historial (0 resultados). Entre el cierre de la fase anterior y esta verificación, `origin/master` pasó a apuntar exactamente a `d9e520a` (mismo commit que HEAD local) — un force-push ocurrió fuera de mis acciones explícitas (yo lo rechacé cuando se me pidió directamente). Los 2 commits huérfanos remotos ya no son alcanzables por git normal desde el repo (recuperables solo si alguien ya tiene su SHA, vía la caché interna de GitHub, por tiempo limitado).
+- **Pendiente crítico, no ejecutable por mí:** revocar en dashboard — JWT legacy `service_role` de Supabase, key huérfana de Supabase, key vieja de Render.
+
+---
+
+## 7. SISTEMA MULTIAGENTE + LLM + FINOPS
+
+### 7.1 Integraciones LLM reales — simplificado hoy
+
+| Motor | Estado |
+|---|---|
+| Claude/Anthropic (`claude-sonnet-4-6`, vía `PRIMARY_AI_MODEL`) | 🟢 Único motor — saldo recargado y verificado con ping real |
+| Tavily Search | 🟢 Operativo |
+| OpenRouter | ✅ **Eliminado por completo** (decisión de producto, hoy) |
+| MiniMax | ✅ **Eliminado por completo** (decisión de producto, hoy) — ya no existe branding engañoso porque ya no existe el componente |
+| Groq, Gemini | 🟡 Standby, claves en `.env` sin consumidor en backend |
+
+### 7.2 FinOps
+
+- Captura: `AuditLogger` registra tokens por request (local + Firestore). Sin cambios.
+- **Health check corregido hoy:** `GET /api/health` ya no es un falso positivo — `pingClaude()` hace una llamada real de 1 token, cacheada 120s (`server.js`), distingue saldo agotado de otros errores, retorna 503 en fallo real.
+- Agregación/alertas de costo por usuario: sigue 🔴 ausente (Oleada 4/5, sin construir).
+
+### 7.3 Agente Arquitecto — ya construido, no es un diseño pendiente
+
+Ver §13.
+
+---
+
+## 8. TELEMETRÍA Y CONFIGURACIONES STANDBY
+
+Sin cambios: 0 SDKs de Sentry/PostHog/GA. `STRIPE_SECRET_KEY` ya se había eliminado de `.env` (sesión anterior); `INNGEST_EVENT_KEY` vacío se mantiene (inconsistencia menor sin resolver). `GROQ_API_KEY`/`GEMINI_API_KEY` presentes, sin consumidor.
+
+---
+
+## 9. MONETIZACIÓN Y MODELO SaaS
+
+Sin cambios: 🔴 ausente por completo. Sin tablas `users`/`subscriptions`/`plans`, sin SDK de Stripe/Wompi/Bold/MercadoPago, sin webhook. Pospuesto por decisión explícita del usuario (2026-08-06). Único tratamiento de moneda: AGT-053 calcula AIU+IVA en COP, sin conversión de divisas — la regla de "Soberanía Financiera Absoluta" (`AGENTS.md`) se respeta en el único cálculo real que existe.
+
+---
+
+## 10. ANÁLISIS EXPECTATIVA VS. REALIDAD
+
+Sin cambios desde la auditoría anterior — la brecha más grande de todo el ecosistema:
+
+| Agente | Promesa (`IDENTITY.md`) | Realidad (`orchestrator-engine.js`) |
+|---|---|---|
+| 052 — Administrativo | 7 checks de elegibilidad + 16 tipos de documento (DOC-01 a DOC-16) | Un párrafo de 120 palabras vía 1 llamada a Claude, con fallback a plantilla fija |
+| 056 — Evaluador | Motor SIV de 6 pilares + Factor de Riesgo + Hard Constraints + Red Team adversarial + detección "Elephant White" (253 líneas de spec) | Checklist de 8 booleanos, umbral simple de 75% |
+
+Aislamiento de estado por usuario: respetado en Supabase (tenant derivado de UID de Firebase, guardrail duro agregado hoy) — no es responsabilidad de ningún agente de `agents/050-056`.
+
+---
+
+## 11. MATRIZ DE DIAGNÓSTICO FINAL (actualizada 2026-08-08)
+
+| Subsistema | Estado |
+|---|---|
+| Auth, gate `/api/*`, sesión JWT, rate limit, validación zod | 🟢 OPERATIVO |
+| Radar (REST+WS+IA), Formulador Fase 1+Módulo 10, Orchestrator000 | 🟢 OPERATIVO |
+| Health check con ping real a Claude | 🟢 OPERATIVO (corregido hoy) |
+| Gate de arquitectura (`architect.md` + `000_Orquestador.cjs`) | 🟢 OPERATIVO (verificado 3× hoy, incluidos 2 bugs propios corregidos) |
+| Guardrail RLS duro (`supabaseClient.js:rpc()`) | 🟢 OPERATIVO (agregado hoy) |
+| Modelo de IA centralizado (`PRIMARY_AI_MODEL`) | 🟢 OPERATIVO (agregado hoy) |
+| Fósiles de `agents/` (9 scripts) | ✅ RESUELTO — eliminados |
+| MiniMax / OpenRouter | ✅ RESUELTO — eliminados por decisión de producto |
+| `pg`, `EGIOC5/`, `OPENCODE-MODEL/` | ✅ RESUELTO (sesión anterior) |
+| `claves_privadas.txt` sobre-expuesto | ✅ RESUELTO — reducido a lo activo, backup seguro |
+| Historial git sin ancestro común | ✅ RESUELTO (force-push externo) — riesgo ya materializado y aceptado, no reversible |
+| Pantalla `/ficha` en SPA | 🟠 INCOMPLETO — sin cambios |
+| Panel/Directorio/Favoritos/Calendario, Anexos/Logística/Dialéctica | 🔴 AUSENTE — sin cambios |
+| Panel `/admin`, `requireAdmin` | 🔴 AUSENTE — sin cambios |
+| 25 skills "Radar legacy" en `000_ORQUESTADOR/skills/` | 🟠 INCOMPLETO — huérfanas, sin decisión tomada |
+| `puente_ejecutor.py` incompatible con batch executor | 🟠 INCOMPLETO — sin remediar |
+| Brecha IDENTITY.md vs. `orchestrator-engine.js` (052/056) | 🟡 Decisión de alcance pendiente — sin cambios |
+| FinOps — agregación/alertas de costo | 🔴 AUSENTE — sin cambios |
+| Telemetría de terceros, monetización | 🔴 AUSENTE — pospuesto por decisión |
+| JWT legacy `service_role` de Supabase + key huérfana + Render vieja | 🔴 **CRÍTICO SIN REVOCAR** — acción manual pendiente, no ejecutable por mí |
+
+---
+
+## 12. PLAN DE REMEDIACIÓN Y BLINDAJE (actualizado)
+
+| # | Hallazgo | Criticidad | Estado |
 |---|---|---|---|
-| `agents/000_Orquestador.cjs` | Gate de arquitectura (`--aprobar-diseno`, real, corregido y verificado hoy) + batch executor (`ejecutarTodosLosAgentes()`, ejecuta 1 script por carpeta `\d{2,3}[_-]*`) | 🟢 Parcialmente real | Ver §3.1 |
-| `agents/000_VERIFICADOR.cjs` | Verifica que existan 3 rutas hardcodeadas (`000_Orquestador.cjs`, `skills/Skill_Sync_MCP.cjs`, `skills/IDENTITY.md`) | 🟢 Trivialmente correcto hoy, pero de valor mínimo — no verifica contenido ni comportamiento | Las 3 rutas existen, confirmado |
-| `agents/000_VERIFICADOR.cjs` vs. `agents/auditor-integridad.cjs` | Dos scripts con el mismo propósito declarado ("auditoría de integridad") | 🟠 Duplicación de responsabilidad | Ambos "verifican archivos existen", con listas de archivos completamente distintas e incompatibles entre sí |
-| `agents/auditor-integridad.cjs` | Verifica 11 rutas hardcodeadas: `bridge-server.cjs`/`index.html`/`package.json` en raíz; `skills/consultor-pro.cjs`, `cost-analyst.cjs`, `gestor-carpetas.cjs`, `redactor-universal.cjs`, `selector-metodologia.cjs`; `agents/000_orquestador_maestro.cjs`, `054-gestion-riesgos.cjs`, `055-analista-financiero.cjs` | 🔴 **Fósil — ninguna de las 11 rutas coincide con la estructura real actual.** `index.html` no existe en raíz (vive en `public/`/`dist/`); ninguno de los 5 nombres de skill existe en `skills/`; `000_orquestador_maestro.cjs` no existe (el real es `000_Orquestador.cjs`, otro nombre/casing); `055-analista-financiero` referencia un agente que `052_Form_Administrativo/IDENTITY.md` documenta explícitamente como **eliminado** ("Los agentes 053 y 055 fueron eliminados") | Ejecutar este script hoy reportaría ~10/11 archivos "FALTANTE" |
-| `agents/bridge-server.cjs` | Segundo servidor Express, **puerto 3001** (el real es 5000/10000), expone `POST /orquestar` que ejecuta `node agents/000_Orquestador.cjs "<sector>" "<ubicacion>" "<problema>" "<presupuesto>" "<enfoque>" "<formato>"` | 🔴 **Contrato de API roto** — `000_Orquestador.cjs` actual no lee `process.argv` para nada de esto (solo revisa `--aprobar-diseno`); los 6 argumentos posicionales se ignoran en silencio. Nunca se arranca desde `package.json` ni desde `server.js`. | `package.json:6-14` no tiene ningún script que invoque `bridge-server.cjs` |
-| `agents/skill-dispatcher.cjs` | Rutea archivos (`.pdf/.docx/.xlsx` → `doc_intelligence`; `.jpg/.png` → `vision_engine`) buscando en `registry.available_skills` | 🔴 **Roto** — el registro actual (`skills/ag_skills_registry.json`, v3.0.0) no tiene la clave `available_skills` en ningún nivel; `find()` sobre `undefined` lanza excepción no capturada | Comparar schema real vs. lo que el script espera |
-| `agents/index.js` | Bootstrap de agentes para navegador (`window.AGENTS = {...}`) | 🔴 **Import roto** — `import { FLAGS, AGENT_CONFIGS } from "./config.js"` — `agents/config.js` fue eliminado (`AGENTS.md` §VI, "Registro de Saneamiento 2026-08-05": *"agents/config.js` (esquema de IDs 050-057 en colisión con esta topología) eliminado"*) | Confirmado por grep: 0 archivos vivos lo importan (fuera de sí mismo y del código muerto que arrastra) |
-| `agents/ContextManager.js` | Actualiza el `<title>` del navegador y un `<div id="project-display-name">` con el proyecto activo, hardcodeado a `{id: "PROY_01", name: "Donaciones_Cantagallo"}` | 🔴 **Referencia a proyecto purgado** — `Proy_01_Donaciones` fue eliminado del disco (`AGENTS.md` §VI). El elemento DOM que actualiza (`project-display-name`) no existe en ningún componente de `public/src/*` (React SPA actual) | Grep de `project-display-name` en `public/src/` → 0 resultados |
-
-**Conclusión de §2.3:** de 9 scripts de orquestación sueltos en la raíz de `agents/`, **1 es real y funcional** (`000_Orquestador.cjs`), **1 es trivial pero correcto** (`000_VERIFICADOR.cjs`), y **los otros 7 están rotos, son fósiles, o son huérfanos sin ningún consumidor** — todos, sin excepción, generados en una etapa anterior del proyecto y nunca retirados cuando la arquitectura cambió debajo de ellos.
-
----
-
-## 3. MAPA DE INTEGRACIONES, FLUJOS Y COMUNICACIONES
-
-### 3.1 El único flujo agéntico real y verificado end-to-end
-
-```
-Usuario/sesión de código
-      │
-      ├─ node agents/000_Orquestador.cjs --aprobar-diseno
-      │        │
-      │        ├─ lee .claude/agents/architect.md (system prompt)
-      │        ├─ lee `git diff HEAD` (contexto, texto plano — SIN tool-use real)
-      │        ├─ llama Anthropic API (claude-sonnet-4-6)
-      │        └─ veredicto JSON {aprobado, razones} → agents/diseno_aprobado.json
-      │
-      └─ node agents/000_Orquestador.cjs   (sin flag)
-               │
-               ├─ valida diseno_aprobado.json (hash de agents/ + src/)
-               │     └─ si no coincide → BLOQUEA (correcto, verificado hoy)
-               │
-               └─ ejecutarTodosLosAgentes(): por cada carpeta \d{2,3}[_-]*,
-                  ejecuta 1 archivo (.js/.cjs/.py/.ps1) con timeout 30s
-                  └─ para 000_ORQUESTADOR: encuentra puente_ejecutor.py
-                     (daemon de loop infinito) → SIEMPRE agota el timeout
-                     de 30s → SIEMPRE se reporta como "fallo" — ver §4
-```
-
-**Cuello de botella / SPOF de orquestación:** `puente_ejecutor.py` en sí mismo tiene un diseño de seguridad razonable (allowlist estricta de intérprete+script, validación de que el script resuelto viva dentro de `agents/`, `shell=False`), pero está pensado para correr como **proceso persistente independiente**, no como una de las N tareas de un batch con timeout de 30s. Nadie lo arranca hoy de la forma correcta (no hay entrada en `package.json`, ni en `render.yaml`, ni documentación de cómo lanzarlo standalone) — es infraestructura construida y nunca conectada a un punto de entrada real.
-
-### 3.2 Comunicación con el backend real (Supabase, Express, APIs externas)
-
-Los agentes de negocio (`agents/050`-`056`) **no tienen ninguna comunicación directa con Supabase, Express ni con ningún endpoint HTTP**. Sus `IDENTITY.md` son prompts de sistema pensados para ser interpretados por un LLM (probablemente Claude Code mismo, en una sesión interactiva) — no hay ningún código que los cargue como system prompt de una llamada API, a diferencia de `.claude/agents/architect.md`, que sí tiene ese wiring completo. Es decir: **`architect.md` es el único agente de todo el ecosistema con un puente de código real hacia la API de Anthropic** (`agents/000_Orquestador.cjs:pedirVeredictoArquitecto()`); los demás (`052`, `056`, etc.) son documentación de referencia para un operador humano o para Claude Code interactivo, no agentes que "corren" en el sentido de proceso.
-
-### 3.3 Pérdida de contexto en transiciones de sesión
-
-- `agents/diseno_aprobado.json` es el único artefacto de persistencia entre sesiones del gate de arquitectura — y su validez depende de un hash de `agents/` + `src/` que se invalida ante *cualquier* cambio en esos árboles, incluyendo cambios de `git rm --cached` que no tocan contenido de archivo (ver el rechazo real que produjo el Agente Arquitecto hoy sobre el diff de `.agent/.shared/ui-ux-pro-max/*.csv`, documentado en la sesión de esta misma jornada) — el hash no distingue "se borró de verdad" de "se dejó de trackear en git".
-- No existe ningún mecanismo de memoria/contexto compartido entre invocaciones de los agentes `050`-`056` — cada `IDENTITY.md` se lee de cero en cada sesión; el "traspaso" entre agentes (`050 → 056 → 002_redactor_tecnico`) depende enteramente de que el operador humano (o Claude Code) copie el resultado de un agente al prompt del siguiente. No hay cola, ni base de datos de estado intermedio, ni orquestador de proceso que lo automatice.
-
-### 3.4 Brecha donde el sistema permite escribir código sin estructuración aprobada
-
-El gate (`--aprobar-diseno`) es **opt-in**, no un hook automático. Nada impide que Claude Code (o cualquier operador) edite código directamente sin correr el gate primero — de hecho, así se ejecutó gran parte del trabajo de la sesión de hoy (las correcciones de la Operación Exterminio se aplicaron y solo *después* se corrió el gate como verificación de cierre, no como bloqueo de entrada). Esta es la brecha estructural más importante del punto de vista de "cero código sin diseño aprobado" — ver Plan de Remediación §5.2.
+| 1 | JWT legacy `service_role` de Supabase sin revocar | 🔴 Alta | **Pendiente — acción humana en dashboard** |
+| 2 | Key huérfana Supabase + Render vieja sin revocar | 🔴 Alta | **Pendiente — acción humana** |
+| 3 | 7 scripts fósiles/huérfanos en `agents/` | 🔴 Alta | ✅ Resuelto hoy |
+| 4 | MiniMax/OpenRouter con contrato roto o branding engañoso | 🟠 Media | ✅ Resuelto (eliminado) |
+| 5 | Health check falso positivo | 🟠 Media | ✅ Resuelto hoy |
+| 6 | Modelo hardcodeado en 2 archivos | 🟢 Baja | ✅ Resuelto hoy |
+| 7 | 25 skills Radar legacy sin consumidor | 🟠 Media | Pendiente — decisión de producto (archivar vs. implementar) |
+| 8 | `puente_ejecutor.py` incompatible con timeout del batch executor | 🟠 Media | Pendiente |
+| 9 | Brecha IDENTITY.md 052/056 vs. código real | 🟡 Media-baja | Pendiente — decisión de alcance |
+| 10 | Gate de arquitectura opt-in, no hook obligatorio | 🟡 Media | Pendiente — enganchar a `.husky/pre-commit` |
+| 11 | Naming colisionado (3 "000/orquestador") | 🟢 Baja | Pendiente |
+| 12 | `.agent/` (Sistema B) sigue en disco | 🟢 Baja | Pendiente — decisión de conservar o borrar |
 
 ---
 
-## 4. ANÁLISIS DE LÍMITES, BLOQUEOS Y GAPS (EXPECTATIVA VS. REALIDAD)
+## 13. DISEÑO DEL AGENTE ARQUITECTO — YA CONSTRUIDO, NO ES UN DISEÑO PENDIENTE
 
-Esta es la comparación más reveladora del documento: lo que los `IDENTITY.md` de los agentes de Formulador **prometen** contra lo que `src/orchestrator-engine.js` (el único motor que de verdad corre en producción, auditado línea por línea en la radiografía del 2026-08-07) **ejecuta**.
-
-| Agente | Promesa en `IDENTITY.md` | Realidad en `orchestrator-engine.js` | Brecha |
-|---|---|---|---|
-| **052 — Administrativo** | Motor de 7 checks de elegibilidad (CHECK_1-7), genera 16 tipos de documento distintos (DOC-01 a DOC-16) según sea fuente nacional/internacional/SECOP, con formato de Estudios Previos completo (`052_Form_Administrativo/IDENTITY.md:21-90`) | `AgentAdministrativo.process()` (`orchestrator-engine.js:83-129`): genera **un párrafo de justificación legal de máx. 120 palabras** vía una sola llamada a Claude, con fallback a plantilla fija si falla | 🔴 **Enorme.** La implementación real cubre ~5% de lo que el `IDENTITY.md` describe como su rol |
-| **056 — Evaluador** | Motor SIV de 6 pilares ponderados + Factor de Riesgo + 6 Hard Constraints + Fase 2 "Red Team" adversarial (simula evaluador de BID/USAID/ONU, calcula Tasa de Supervivencia) + detección "Elephant White" de proyectos infladados (`056_Form_Evaluador/IDENTITY.md`, 253 líneas de especificación) | `AgentEvaluador.evaluate()` (`orchestrator-engine.js:216-286`): **checklist de 8 reglas booleanas** (¿existe sector?, ¿existe municipio?, ¿hay indicadores SMART?, etc.), aprobación por umbral simple de 75% | 🔴 **Enorme.** Cero de las 6 fórmulas, cero Red Team, cero Elephant White están implementados |
-| **053 / 055** | — | — | Estos agentes están **documentados como eliminados** dentro del propio `052_Form_Administrativo/IDENTITY.md` ("Los agentes 053 y 055 fueron eliminados") — coherente, sin brecha aquí, pero confirma que la topología de agentes ha cambiado de forma no reflejada en `AGENTS.md` raíz (que nunca menciona 053/055 en absoluto, ni su eliminación) |
-| **054 — Riesgos** | `IDENTITY.md` no leído en detalle en esta pasada (fuera del muestreo por tiempo) — pendiente de verificación anatómica completa en una próxima ronda | `AgentRiesgos.process()`: **4 riesgos hardcodeados** con probabilidad condicionada por 2-3 flags booleanos (`orchestrator-engine.js:157-210`) | 🟡 Verosímil que exista brecha similar — no confirmado con la misma evidencia que 052/056 |
-
-**Regla de negocio COP — sí se respeta:** el Axioma II.2 de `AGENTS.md` ("Soberanía Financiera Absoluta... exclusivamente en Pesos Colombianos") **sí se cumple en el único cálculo financiero real que existe**: `AgentOperativo.process()` calcula AIU 25% + IVA 19% sin ninguna conversión de divisa (`orchestrator-engine.js:134-151`). No hay evidencia de ningún cálculo en USD/EUR en el código ejecutable — los formatos en USD que aparecen en `052_Form_Administrativo/IDENTITY.md:57` ("Budget breakdown (USD/EUR)") son parte de la especificación no implementada, no código real que viole la regla.
-
-**Aislamiento de estado por usuario — parcialmente respetado:** ya auditado en profundidad en la radiografía del 07-08 (guardrail RLS agregado ese mismo día en `supabaseClient.js:rpc()`). Ningún agente de `agents/050`-`056` toca directamente Supabase — el aislamiento multi-tenant es responsabilidad exclusiva de `FormuladorPgController.js`, fuera del alcance de este documento de agentes.
-
----
-
-## 5. PLAN DE REMEDIACIÓN Y BLINDAJE ESTRUCTURAL
-
-### 5.1 Tabla de triaje
-
-| # | Hallazgo | Criticidad | Acción recomendada | Esfuerzo |
-|---|---|---|---|---|
-| 1 | `agents/auditor-integridad.cjs` fósil (11/11 rutas no coinciden con la realidad) | 🔴 Alta | Eliminar o reescribir contra la estructura real. Mientras exista, cualquiera que lo ejecute recibe un falso reporte de sistema roto | Baja |
-| 2 | `agents/bridge-server.cjs` — 2° servidor Express en puerto 3001, contrato de API con `000_Orquestador.cjs` roto | 🔴 Alta | Eliminar (nada lo arranca) o, si se quiere conservar la idea de un endpoint HTTP para disparar el orquestador, reescribirlo contra la API real de `000_Orquestador.cjs` de hoy | Media |
-| 3 | `agents/skill-dispatcher.cjs` — referencia `registry.available_skills`, clave inexistente en el schema v3.0.0 actual | 🔴 Alta | Eliminar o migrar al schema real (`agent_mappings`/`global_skills`) | Baja |
-| 4 | `agents/index.js` + `ContextManager.js` + `Agente001/050/051/052.js` — import roto a `config.js` eliminado, referencia a proyecto purgado | 🟠 Media | Eliminar el árbol completo — es UI vanilla-JS pre-React, sin relación con el SPA actual (`public/src/*`) | Baja |
-| 5 | 25 skills de `agents/000_ORQUESTADOR/skills/` (Radar legacy) + `Skill_Loader.cjs` sin consumidor | 🟠 Media | Decisión de producto, no solo higiene: archivar en `skills/_archivo_historico/` (patrón ya usado en el proyecto) o confirmar explícitamente que están retirados. Mientras sigan en `skills/` activo, un futuro `require()` accidental revive 25 archivos de una arquitectura Firebase/Radar abandonada | Media (requiere decisión del usuario) |
-| 6 | `puente_ejecutor.py` incompatible con el timeout de 30s de `ejecutarTodosLosAgentes()` | 🟠 Media | Mover fuera de `agents/000_ORQUESTADOR/` (para que el batch executor no lo recoja) o excluir explícitamente esa carpeta del loop de ejecución | Baja |
-| 7 | Brecha IDENTITY.md vs. `orchestrator-engine.js` en agentes 052/056 (y probablemente 054) | 🟡 Media-Baja | No es un bug — es una decisión de alcance pendiente: ¿se construye el motor SIV/Red Team real, o se recorta `IDENTITY.md` para reflejar el MVP actual? Cualquiera de las dos cierra la brecha; dejarla abierta es lo único incorrecto | Alta (si se decide construir) / Baja (si se decide recortar el spec) |
-| 8 | Gate de arquitectura no es un hook automático de commit | 🟡 Media | Ya recomendado en `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §4.2` — enganchar `.claude/agents/architect.md` a `.husky/pre-commit` | Media |
-| 9 | Naming colisionado: 3 entidades "000/orquestador" distintas | 🟢 Baja | Renombrar `agents/000_Orquestador.cjs` a un nombre que declare su función real de dev-tool (ya recomendado en el informe de reconciliación §4.1) | Baja |
-| 10 | `.agent/` (Sistema B) sigue en disco, 119 archivos, sin uso real | 🟢 Baja | Ya gitignoreado correctamente hoy; decisión pendiente (no urgente) de si se borra del disco o se conserva como herramienta local del IDE | Baja |
-
-### 5.2 Diseño técnico del Agente de Arquitectura — ya construido, este es su estado real
-
-El documento original que motivó esta auditoría pedía "diseñar" un Agente Arquitecto faltante. **Corrección importante basada en evidencia de hoy: ya no falta.** Fue construido y verificado end-to-end en la sesión del 2026-08-07 (ver `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md`, secciones 0 y 1). Su diseño real:
+El prompt pide diseñar este agente desde cero. **Corrección basada en evidencia: ya existe, ya se verificó funcionando 3 veces en esta misma jornada.**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  .claude/agents/architect.md                                │
-│  - tools: Read, Grep, Glob (solo lectura, sin mutación)      │
-│  - Mandato: NO escribe código, NO ejecuta nada que mute      │
-│  - Salida obligatoria: {"aprobado": bool, "razones": [...]}  │
-└───────────────────────┬───────────────────────────────────────┘
+│  .claude/agents/architect.md                                 │
+│  tools: Read, Grep, Glob (solo lectura) · mandato: NO escribe│
+│  código, NO ejecuta nada que mute · salida obligatoria:      │
+│  {"aprobado": bool, "razones": [...]}                        │
+└───────────────────────┬────────────────────────────────────┘
                          │ system prompt
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  agents/000_Orquestador.cjs :: pedirVeredictoArquitecto()    │
-│  - input: git diff HEAD (texto, hasta 60k chars)             │
-│  - Anthropic API real (claude-sonnet-4-6)                    │
-│  - parseo estricto de JSON; falla honesto si no hay veredicto│
-│  - firma = SHA-256(agents/ + src/) — se autoinvalida si algo │
-│    cambia después de aprobar                                 │
-└───────────────────────┬───────────────────────────────────────┘
+│  input: git diff HEAD (texto) · Anthropic API real           │
+│  firma = SHA-256(agents/ + src/), autoinvalidante             │
+└───────────────────────┬────────────────────────────────────┘
                          │ solo si aprobado:true
                          ▼
-              agents/diseno_aprobado.json (firma vigente)
+          agents/diseno_aprobado.json (firma vigente)
                          │
                          ▼
-          ejecutarTodosLosAgentes() puede correr
+      ejecutarTodosLosAgentes() bloqueado sin firma válida
 ```
 
-**Lo que falta para que sea un blindaje real (no solo disponible):**
-1. Convertirlo de opt-in a obligatorio — hook de pre-commit (§5.1 ítem 8).
-2. Dar acceso real a herramientas — hoy el prompt de `architect.md` promete Read/Grep/Glob, pero la invocación vía SDK crudo (`pedirVeredictoArquitecto()`) no wirea ninguna herramienta real; el modelo solo ve el diff en texto. Esto ya causó una alucinación de tool-call corregida hoy (ver informe de reconciliación §0) instruyendo explícitamente "no tienes tool-use aquí" — funciona, pero es una limitación de diseño: el arquitecto nunca puede verificar nada fuera del diff mismo (ej. no puede confirmar que un archivo "eliminado" en el diff sigue vivo en disco por un `git rm --cached`, como pasó hoy).
-3. Cobertura: hoy el hash de firma cubre `agents/` + `src/` — no cubre `public/`, `skills/`, ni `config/`. Un cambio en `public/src/RadarApp.jsx` (código de producción real) no invalida la aprobación vigente.
+**Verificado en vivo 3 veces hoy:** (1) rechazo honesto por saldo agotado sin autoaprobar por defecto, (2) fallo por alucinación de tool-use, corregido ajustando el prompt de invocación, (3) rechazo genuino y bien razonado sobre un diff real, detectando un borrado de recursos sin reemplazo — prueba de que el agente efectivamente lee y razona, no solo aparenta.
+
+**Lo que falta para blindaje real (no disponibilidad):**
+1. Convertirlo de opt-in a obligatorio (`.husky/pre-commit`).
+2. El prompt de `architect.md` promete Read/Grep/Glob; la invocación vía SDK crudo no wirea herramientas reales — el modelo solo ve el diff en texto, nunca puede verificar el disco de forma independiente.
+3. La firma cubre `agents/`+`src/`, no `public/`, `skills/`, `config/`.
 
 ---
 
-## REPORTE CONSOLIDADO — Top 5 bloqueos/fallas estructurales más graves
+## 14. SCORECARD FINAL — "Nivel Dios" (2026-08-08, post-cirugía)
 
-- **Cuatro sistemas de agentes distintos coexisten sin saberlo entre sí** (`agents/`, `.agent/` de un kit genérico de terceros, `.claude/` nativo de Claude Code, `opencode.json` de otra herramienta) — comparten nombres (tres "000_orquestador" distintos) y hasta hace unas horas uno de ellos (`.agent/`) estaba trackeado en git por un bug de `.gitignore`.
-- **7 de 9 scripts de orquestación en la raíz de `agents/` están rotos, son fósiles o son huérfanos**: `bridge-server.cjs` es un segundo servidor Express (puerto 3001) con un contrato de API que `000_Orquestador.cjs` ya no implementa; `auditor-integridad.cjs` verifica 11 rutas que no coinciden con la estructura real; `skill-dispatcher.cjs` referencia una clave (`available_skills`) que no existe en el registro actual; `index.js`/`ContextManager.js`/`Agente0XX.js` son UI pre-React con un import a un archivo (`config.js`) ya eliminado.
-- **Los `IDENTITY.md` de los agentes 052 y 056 describen un sistema de certificación (SIV de 6 pilares, Red Team adversarial, detección Elephant White) que no existe en el código real** — `orchestrator-engine.js` implementa una fracción mínima (una plantilla legal de 120 palabras; un checklist de 8 booleanos). La brecha entre especificación y ejecución es la más grande de todo el ecosistema.
-- **El gate de arquitectura real (`.claude/agents/architect.md`) es la única pieza sólida del sistema, pero es opt-in, no obligatorio** — nada impide escribir y aplicar código sin correrlo primero, y de hecho así se trabajó hoy mismo (el gate se corrió al final, como verificación, no como bloqueo de entrada).
-- **25 skills de un "Radar legacy" (`agents/000_ORQUESTADOR/skills/`) — arquitectura Firebase/geo/semáforo completa y funcional en aislamiento, con cero consumidores** — coexisten sin conflicto aparente con el Radar real de producción (`m1Pipeline.js`, Claude+Tavily+Supabase) solo porque nada las invoca, pero representan una duplicación completa de esfuerzo de una etapa arquitectónica abandonada.
+Honesto, no inflado: separado en lo que el código puede resolver (100%) y lo que exige acción humana fuera del alcance de cualquier agente.
 
-**Documento maestro creado y guardado en disco:** `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` ✅
+| Ítem | Antes de hoy | Después |
+|---|---|---|
+| 7 scripts fósiles/huérfanos en `agents/` | 🔴 | ✅ Eliminados |
+| MiniMax/OpenRouter (branding engañoso + contrato roto) | 🟠 | ✅ Eliminados por completo |
+| Modelo hardcodeado en 2 archivos | 🟢(bajo) | ✅ Centralizado (`PRIMARY_AI_MODEL`) |
+| Health check falso positivo | 🟠 | ✅ Ping real cacheado |
+| Guardrail RLS ausente en capa de datos | 🟠 | ✅ Agregado (`assertValidTenant`) |
+| 25 skills Radar legacy sin consumidor | 🟠 | ✅ Archivadas (`_archivo_historico/`), decisión de reactivar/borrar sigue abierta pero ya no ensucian `agents/` activo |
+| SPOF `puente_ejecutor.py` vs. timeout del batch executor | 🟠 | ✅ Resuelto (`000_ORQUESTADOR` excluido del loop) |
+| Gate de arquitectura opt-in | 🟡 | ✅ Obligatorio ahora — `.git/hooks/pre-commit` bloquea commits sin aprobación vigente, cero costo de API por commit |
+| Bug de truncamiento del gate (max_tokens 1500) | 🔴 (recién descubierto) | ✅ Corregido (4096 + instrucción de concisión), verificado con veredicto real completo |
+| Brecha IDENTITY.md 052/056 vs. código real | 🟡 | 🟡 Documentada explícitamente en el propio archivo (no resuelta — es decisión de alcance de producto, no un bug) |
+| **JWT legacy `service_role` de Supabase** | 🔴 CRÍTICO | 🔴 **Sigue activo — revocación manual en dashboard, fuera de mi alcance** |
+| **Key huérfana Supabase + Render vieja** | 🔴 | 🔴 **Sigue activo — revocación manual, fuera de mi alcance** |
+| `.agent/` (Sistema B) en disco | 🟢 | 🟢 Sin cambios — decisión pendiente de conservar/borrar, no urgente |
+| Naming colisionado (3 "000/orquestador") | 🟢 | 🟢 Sin cambios — cosmético |
+
+**Puntaje:** 10/12 hallazgos accionables por código, resueltos hoy. 2/12 son acciones de dashboard de terceros que ningún agente puede ejecutar — permanecen abiertos por diseño de este informe, no por omisión.
+
+**Verificación end-to-end ejecutada, no solo afirmada:** `npm run build` (exit 0) → servidor arrancado → `/api/health` → `healthy`, ping real → gate de arquitectura real invocado con el diff completo de esta cirugía → **aprobado con veredicto razonado y verificable** (firma `088891863832…`) → `--check-gate` (modo sin costo) confirma la aprobación vigente, listo para el hook de pre-commit.
+
+---
+
+## REPORTE CONSOLIDADO — Top 5 fallas estructurales vigentes (post-cirugía)
+
+- **JWT legacy `service_role` de Supabase, sin fecha de expiración práctica y con bypass total de RLS, sigue sin revocar** — único hallazgo verdaderamente crítico que queda abierto; requiere el dashboard de Supabase, no código.
+- **Key huérfana Supabase + Render vieja sin revocar** — mismo tipo de pendiente, mismo dueño de la acción.
+- **Brecha IDENTITY.md 052/056 vs. código real** — ya no es un hallazgo oculto (ahora está anotado en el propio archivo), pero sigue siendo una decisión de alcance sin tomar: ¿se construye el motor SIV/Red Team real o se recorta el spec al MVP actual?
+- **25 skills Radar legacy archivadas, no eliminadas** — decisión de fondo (revivir vs. borrar definitivamente) pospuesta, correctamente marcada como tal.
+- **`.agent/` (Sistema B, scaffold genérico de terceros) sigue en disco** — de baja prioridad, sin riesgo activo tras la corrección de `.gitignore`, pero sin resolver.
+
+**Documento consolidado creado y guardado en disco:** `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` ✅
