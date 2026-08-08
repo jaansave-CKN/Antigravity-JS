@@ -32,4 +32,8 @@ if [ -n "$MATCH" ]; then
   exit 1
 fi
 
-exit 0
+# Gate de arquitectura — "cero código sin diseño aprobado" (docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §5.2).
+# Degradación segura: sin ANTHROPIC_API_KEY configurada, informa y NO bloquea
+# (ver scripts/architecture-gate.cjs) — mismo patrón standby que Stripe/Wompi/Sentry.
+node scripts/architecture-gate.cjs --check-gate
+exit $?
