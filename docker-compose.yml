@@ -4,14 +4,22 @@
 #
 # Servicios:
 #   backend     Node.js monolito (server.js) — puerto 3000
-#   ai_service  Python FastAPI + LangGraph   — puerto 8100
 #   frontend    React/Vite (solo dev local)  — puerto 5173
+#
+# NOTA (Operación Blindaje Final, 2026-08-08 — hallazgo 2 de la radiografía
+# 360): el servicio `ai_service` (Python FastAPI + LangGraph) fue retirado de
+# aquí y archivado en `archive/ai_service_legacy/`. Verificado que nunca se
+# usó en producción: `AI_SERVICE_URL` no tenía ningún caller real en
+# `backend/`, el puente Node prometido (`formularProyectoInversion.js`) nunca
+# se escribió, y el único despliegue real (`render.yaml`) define un solo
+# servicio Node. Las funciones de IA en producción (árbol de objetivos,
+# viabilidad, enfoque de entidad, copiloto) usan Gemini directo desde Node,
+# no este pipeline. Si se decide revivirlo, es una decisión de infraestructura
+# aparte (segundo servicio en Render, costo adicional) — no un simple `docker
+# compose up`.
 #
 # Arranque completo:
 #   docker compose up --build
-#
-# Solo backend + IA (sin frontend Vite):
-#   docker compose up --build backend ai_service
 #
 # Variables de entorno:
 #   Copia .env.example → .env y completa los valores.
@@ -19,36 +27,6 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 services:
-
-  # ── AI Microservice (arranca primero — backend depende de su health) ─────────
-  ai_service:
-    build:
-      context: .
-      dockerfile: ai_service/Dockerfile
-    image: radarfondos-ai-service:latest
-    container_name: radarfondos_ai
-    restart: unless-stopped
-    ports:
-      - "8100:8100"
-    environment:
-      # Gemini — usar variable de entorno, nunca valor hardcoded
-      GOOGLE_API_KEY:    ${GOOGLE_API_KEY}
-      # PostgreSQL (solo lectura, para benchmark regional)
-      # Usar URL sin sslmode= — asyncpg gestiona ssl directamente
-      DATABASE_URL:      ${DATABASE_URL}
-      # CORS — en producción, reemplazar * por la URL exacta del backend
-      ALLOWED_ORIGINS:   ${AI_ALLOWED_ORIGINS:-http://localhost:3000}
-      PYTHONUNBUFFERED:  "1"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
-      interval: 15s
-      timeout:  5s
-      retries:  3
-      start_period: 20s
-    networks:
-      - radarfondos_net
-    # Sin volúmenes: el microservicio es STATELESS por diseño.
-    # No monta ni escribe nada en disco.
 
   # ── Node.js Backend ──────────────────────────────────────────────────────────
   backend:
@@ -79,11 +57,6 @@ services:
       JWT_SECRET:        ${JWT_SECRET}
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
 
-      # ── AI Microservice URL ───────────────────────────────────────────────────
-      # Backend llama a este endpoint para ejecutar el pipeline LangGraph.
-      # En Railway/Render: reemplazar por la URL pública del ai_service.
-      AI_SERVICE_URL:    ${AI_SERVICE_URL:-http://ai_service:8100}
-
       # ── Pagos ─────────────────────────────────────────────────────────────────
       STRIPE_SECRET_KEY:        ${STRIPE_SECRET_KEY}
       STRIPE_WEBHOOK_SECRET:    ${STRIPE_WEBHOOK_SECRET}
@@ -96,9 +69,6 @@ services:
       INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
 
-    depends_on:
-      ai_service:
-        condition: service_healthy   # espera que /health en 8100 responda OK
     networks:
       - radarfondos_net
     volumes:
@@ -130,7 +100,7 @@ services:
       - radarfondos_net
 
 # ── Red interna ───────────────────────────────────────────────────────────────
-# Los servicios se comunican por nombre de servicio (ai_service, backend).
+# Los servicios se comunican por nombre de servicio (backend, frontend).
 # Ningún secreto viaja fuera de esta red salvo por los puertos expuestos.
 networks:
   radarfondos_net:

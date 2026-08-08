@@ -5,6 +5,7 @@
 
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { logger } from '../utils/logger.js';
+import { PostgresRateLimitStore } from './PostgresRateLimitStore.js';
 
 // Resolución de IP segura para IPv4 e IPv6 (usa ipKeyGenerator de express-rate-limit v7+)
 const getRateLimitKey = (req) => {
@@ -25,6 +26,7 @@ const getRateLimitKey = (req) => {
 export const financialPipelineLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
+  store: new PostgresRateLimitStore('financialPipeline'),
   keyGenerator: (req) => req.userId || getRateLimitKey(req),
   standardHeaders: true,
   legacyHeaders: false,
@@ -42,6 +44,7 @@ export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
   skipSuccessfulRequests: true,
+  store: new PostgresRateLimitStore('authLimiter'),
   keyGenerator: getRateLimitKey, // <-- Corregido
   standardHeaders: true,
   legacyHeaders: false,
@@ -58,6 +61,7 @@ export const authLimiter = rateLimit({
 export const trialLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 3,
+  store: new PostgresRateLimitStore('trialLimiter'),
   keyGenerator: getRateLimitKey, // <-- Corregido
   standardHeaders: true,
   legacyHeaders: false,
@@ -74,6 +78,7 @@ export const trialLimiter = rateLimit({
 export const aiLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
+  store: new PostgresRateLimitStore('aiLimiter'),
   keyGenerator: (req) => req.userId ? ipKeyGenerator(req.userId) : getRateLimitKey(req),
   standardHeaders: true,
   legacyHeaders: false,
