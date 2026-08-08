@@ -62,6 +62,10 @@ server.out
 *.bak
 *.log
 
+# Gate de arquitectura — firma local de aprobación, atada a un diff pendiente
+# específico; no tiene sentido versionarla (ver scripts/architecture-gate.cjs)
+scripts/diseno_aprobado.json
+
 # Herramientas de desarrollo locales
 .stitch/
 /data/
