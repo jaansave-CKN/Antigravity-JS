@@ -1,6 +1,10 @@
 node_modules/
 dist/
 
+# Playwright — artefactos generados, no fuente
+playwright-report/
+test-results/
+
 # Zero-Trust: bloqueo global de cualquier archivo de entorno (V9.0)
 *.env*
 .env

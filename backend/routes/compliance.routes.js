@@ -2,8 +2,19 @@ import crypto from 'crypto';
 
 export function registerComplianceRoutes(app, { authenticateToken, runSql, getRow, tryCatch }) {
 
+  // SECURITY: valida que :proyectoId pertenezca al llamante ANTES de leer/escribir
+  // en compliance_data — sin esto, cualquier usuario autenticado que conozca el UUID
+  // de un proyecto ajeno (p. ej. vía el hash público de GET /api/m12/verificar/:hash)
+  // podía asociar filas propias a ese proyecto ajeno (proyecto_id sin dueño validado).
+  async function checkOwnership(proyectoId, userId) {
+    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+  }
+
   // GET /api/m10/compliance/:proyectoId
   app.get('/api/m10/compliance/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
     const row = await getRow(
       'SELECT * FROM compliance_data WHERE proyecto_id = ? AND user_id = ?',
       [req.params.proyectoId, req.userId]
@@ -13,6 +24,9 @@ export function registerComplianceRoutes(app, { authenticateToken, runSql, getRo
 
   // POST /api/m10/compliance/:proyectoId
   app.post('/api/m10/compliance/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
     const {
       riesgos               = [],
       sostenibilidad_ambiental = '',

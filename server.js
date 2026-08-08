@@ -11,7 +11,7 @@ import { authenticator } from 'otplib';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, slowDown, financialPipelineLimiter } from './backend/middlewares/SecurityMiddleware.js';
-import { authenticateToken } from './backend/middlewares/auth.middleware.js';
+import { authenticateToken, requireAdmin } from './backend/middlewares/auth.middleware.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
 import { startScheduler, runManualIngest, pauseScheduler, resumeScheduler } from './backend/pipeline/CronScheduler.js';
 import { classifySectors } from './backend/services/sectorClassifier.js';
@@ -2268,7 +2268,7 @@ async function start() {
   }));
 
   // POST /api/entidades — crea nueva entidad desde URL o manualmente
-  app.post('/api/entidades', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/entidades', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const { nombre, sigla, tipo, pais, sitio_web, url_convocatorias, telefono, email, alcance } = req.body || {};
     if (!nombre || !sitio_web) return res.status(400).json({ success: false, message: 'nombre y sitio_web son requeridos' });
 
@@ -3055,7 +3055,7 @@ Reglas:
   }));
 
   // DELETE /api/entidades/:id — soft-delete (preserva historial)
-  app.delete('/api/entidades/:id', authenticateToken, tryCatch(async (req, res) => {
+  app.delete('/api/entidades/:id', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const { id } = req.params;
     const bloquear = req.query.bloquear === 'true' || req.body?.bloquear === true;
 
@@ -3119,7 +3119,7 @@ Reglas:
   }));
 
   // POST /api/entidades/:id/rastrear — vincula convocatorias existentes y dispara ingesta
-  app.post('/api/entidades/:id/rastrear', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/entidades/:id/rastrear', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const { id } = req.params;
     const entidad = await getRow('SELECT * FROM directorio_entidades WHERE id = ? AND deleted_at IS NULL', [id]);
     if (!entidad) return res.status(404).json({ success: false, message: 'Entidad no encontrada' });
@@ -3183,7 +3183,7 @@ Reglas:
   }));
 
   // PATCH /api/entidades/:id — actualiza url_convocatorias y dispara re-scraping
-  app.patch('/api/entidades/:id', authenticateToken, tryCatch(async (req, res) => {
+  app.patch('/api/entidades/:id', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const { id } = req.params;
     const { url_convocatorias } = req.body;
     if (!url_convocatorias) return res.status(400).json({ success: false, message: 'url_convocatorias requerida' });
@@ -3203,7 +3203,7 @@ Reglas:
   }));
 
   // PATCH /api/entidades/:id/status — activa o deshabilita una entidad
-  app.patch('/api/entidades/:id/status', authenticateToken, tryCatch(async (req, res) => {
+  app.patch('/api/entidades/:id/status', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     if (status !== 'active' && status !== 'disabled') {
@@ -3358,7 +3358,7 @@ Reglas:
   // SCHEDULER / ADMIN STUBS (responden 200 para no crashear el frontend)
   // ════════════════════════════════════════════════════════════════════════════
 
-  app.post('/api/scheduler/now', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/scheduler/now', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     try {
       await runManualIngest();
       res.json({ success: true, message: 'Ingesta iniciada' });
@@ -3392,7 +3392,7 @@ Reglas:
   }));
   // POST /api/radar/start — reanuda las 4 tareas cron (Rastreo1/2, expiración, backup S3)
   // y persiste el flag en app_settings para que sobreviva a un reinicio del proceso.
-  app.post('/api/radar/start', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/radar/start', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const activas = resumeScheduler();
     const now = new Date().toISOString();
     const upd = await runSql(
@@ -3409,7 +3409,7 @@ Reglas:
   }));
 
   // POST /api/radar/stop — detiene las tareas cron (node-cron .stop() real) y persiste el flag.
-  app.post('/api/radar/stop', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/radar/stop', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const detenidas = pauseScheduler();
     const now = new Date().toISOString();
     const upd = await runSql(
@@ -3774,7 +3774,7 @@ Reglas:
 
   // POST /api/entidades/scrape-async — dispara scraping en background (no bloquea la respuesta).
   // Body opcional: { entidadId } → escanea solo esa entidad; sin body → Directorio completo.
-  app.post('/api/entidades/scrape-async', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/entidades/scrape-async', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const { entidadId } = req.body || {};
     if (entidadId) {
       const entidad = await getRow('SELECT id FROM directorio_entidades WHERE id = ? AND deleted_at IS NULL', [entidadId]);
@@ -3807,7 +3807,7 @@ Reglas:
   }));
 
   // GET /api/cola-validacion?estado= — entidades pendientes de validación manual
-  app.get('/api/cola-validacion', authenticateToken, tryCatch(async (req, res) => {
+  app.get('/api/cola-validacion', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const { estado } = req.query;
     const cond   = [`deleted_at IS NULL`];
     const params = [];
@@ -3823,7 +3823,7 @@ Reglas:
   }));
 
   // POST /api/cola-validacion/:id/aprobar — marca una entidad como validada
-  app.post('/api/cola-validacion/:id/aprobar', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/cola-validacion/:id/aprobar', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const entidad = await getRow('SELECT id FROM directorio_entidades WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
     if (!entidad) return res.status(404).json({ success: false, message: 'Entidad no encontrada' });
     await runSql(`UPDATE directorio_entidades SET validation_status = 'VALIDADA', updated_at = ? WHERE id = ?`, [new Date().toISOString(), req.params.id]);
@@ -3831,7 +3831,7 @@ Reglas:
   }));
 
   // POST /api/cola-validacion/:id/descartar — rechaza y soft-delete de la entidad
-  app.post('/api/cola-validacion/:id/descartar', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/cola-validacion/:id/descartar', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const entidad = await getRow('SELECT id FROM directorio_entidades WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
     if (!entidad) return res.status(404).json({ success: false, message: 'Entidad no encontrada' });
     const now = new Date().toISOString();
@@ -3866,7 +3866,6 @@ Reglas:
     await runSql(`UPDATE ${tabla} SET deleted_at = NULL WHERE id = ?`, [req.params.id]);
     res.json({ success: true, message: `${req.params.tipo} restaurado correctamente` });
   }));
-  app.post('/api/ia/chat', (req, res) => res.json({ success: true, response: 'IA no disponible en este plan.' }));
   app.post('/api/ia/busqueda-semantica', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
     const { texto, limit = 10, threshold = 0.25 } = req.body;
     if (!texto?.trim()) return res.status(400).json({ success: false, message: 'texto requerido' });
@@ -4738,7 +4737,7 @@ Reglas:
   registerFichaTecnicaRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch });
 
   // Scraping portales oficiales (Minciencias, etc.)
-  registerScraperRoutes(app, authenticateToken);
+  registerScraperRoutes(app, authenticateToken, requireAdmin);
 
   // Proyectos CRUD con RLS por org_id
   registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, getRow, getRows, verifyPassword });
