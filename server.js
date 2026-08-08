@@ -15,7 +15,7 @@ import { createCommunicationRouter } from './src/modules/communications/infrastr
 import { createGitHubRouter }        from './skills/ingenieria/GitHubRouter.js';
 import { createFormuladorRouter }    from './src/modules/formulador/FormuladorRouter.js';
 import { AuditLogger }               from './src/shared/infrastructure/AuditLogger.js';
-import { cacheInfo }                 from './src/shared/infrastructure/cache.js';
+import { cacheInfo, cacheGet, cacheSet } from './src/shared/infrastructure/cache.js';
 import { issueToken, verifyToken, revokeSession, sessionStats, checkQuota, burstLimiter } from './src/shared/infrastructure/session-manager.js';
 import './src/shared/infrastructure/FirebaseAdmin.js';
 import { verifyFirebaseAuth }        from './src/shared/infrastructure/FirebaseAuthMiddleware.js';
@@ -26,7 +26,10 @@ import './scripts/generar_reporte.cjs'; // regenera public/estado_antigravity.js
 dotenv.config();
 
 // ── Configuración central ─────────────────────────────────────────────────────
-const CLAUDE_MODEL = 'claude-sonnet-4-6';
+// Agnosticismo de modelo: un solo punto de verdad vía env var — al salir una
+// versión superior de Claude, se escala cambiando PRIMARY_AI_MODEL en .env/Render,
+// sin tocar código. Fallback = el modelo verificado en producción hoy (2026-08-07).
+const CLAUDE_MODEL = process.env.PRIMARY_AI_MODEL || 'claude-sonnet-4-6';
 const PORT         = process.env.PORT || 5000;
 
 const __filename = fileURLToPath(import.meta.url);
@@ -129,44 +132,6 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// Chat Claude (ruta mantenida por compatibilidad con MiniMaxChat.jsx)
-app.get('/api/minimax/status', (_req, res) => {
-  const claudeReady = !!process.env.ANTHROPIC_API_KEY;
-  res.json({ active: claudeReady, engine: 'Claude / Anthropic', model: CLAUDE_MODEL,
-    status: claudeReady ? 'online' : 'ANTHROPIC_API_KEY no configurada' });
-});
-
-app.post('/api/minimax/chat', async (req, res) => {
-  try {
-    const { messages, max_tokens = 4096 } = req.body;
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: 'Se requiere messages[] con al menos un elemento.' });
-    }
-    const quota = checkQuota(req.user?.uid ?? 'anonymous');
-    if (!quota.allowed) {
-      return res.status(429).json({ error: 'Cuota diaria de consultas a IA agotada.', resetAt: quota.resetAt });
-    }
-    const client       = getAnthropic();
-    const systemMsg    = messages.find(m => m.role === 'system');
-    const chatMessages = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content }));
-    const response     = await client.messages.create({
-      model: CLAUDE_MODEL, max_tokens,
-      ...(systemMsg ? { system: systemMsg.content } : {}),
-      messages: chatMessages,
-    });
-    const reply = response.content[0]?.text ?? '';
-    AuditLogger.log('CLAUDE_CHAT_SUCCESS', { model: CLAUDE_MODEL, tokens: response.usage });
-    res.json({
-      choices: [{ message: { role: 'assistant', content: reply }, finish_reason: response.stop_reason }],
-      usage:   response.usage,
-      model:   CLAUDE_MODEL,
-    });
-  } catch (err) {
-    AuditLogger.log('CLAUDE_CHAT_ERROR', { error: err.message });
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // MCP Infrastructure
 app.get('/api/mcp', async (_req, res) => {
   try {
@@ -249,12 +214,44 @@ app.delete('/api/session/:sessionId', async (req, res) => {
   res.json({ revoked: true, sessionId: req.params.sessionId });
 });
 
+// Ping real a Claude, cacheado — GET /api/health es público (sin auth, ver
+// PUBLIC_API_PREFIXES) y es el healthCheckPath de Render (render.yaml), así que
+// se sondea constantemente. Sin caché, cada sondeo gastaría saldo real de la
+// cuenta de Anthropic solo por monitoreo. Antes este check solo confirmaba que
+// ANTHROPIC_API_KEY existiera como variable, nunca que la API respondiera — así
+// fue como el saldo agotado (2026-08-07) pasó "healthy" durante horas sin que
+// nada lo detectara (ver docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §1).
+const HEALTH_PING_TTL_SEC = 120;
+const HEALTH_PING_KEY     = 'health:claude_ping';
+
+async function pingClaude() {
+  const cached = await cacheGet(HEALTH_PING_KEY);
+  if (cached) return cached;
+
+  let result;
+  if (!process.env.ANTHROPIC_API_KEY) {
+    result = { ok: false, label: '⚠️  ANTHROPIC_API_KEY ausente' };
+  } else {
+    try {
+      await getAnthropic().messages.create({
+        model: CLAUDE_MODEL, max_tokens: 1,
+        messages: [{ role: 'user', content: 'ping' }],
+      });
+      result = { ok: true, label: '✅ operativo (ping real)' };
+    } catch (err) {
+      const sinSaldo = err?.status === 400 && /credit balance/i.test(err?.message || '');
+      result = { ok: false, label: sinSaldo ? '🔴 saldo de cuenta agotado' : `🔴 fallo real: ${err.message}` };
+      console.error('[Health] Ping real a Claude falló:', err.message);
+    }
+  }
+  await cacheSet(HEALTH_PING_KEY, result, HEALTH_PING_TTL_SEC);
+  return result;
+}
+
 // GET /api/health — health check completo del sistema
 app.get('/api/health', async (_req, res) => {
-  const claudeOk  = !!process.env.ANTHROPIC_API_KEY;
   const tavilyOk  = !!process.env.TAVILY_API_KEY;
   const jwtOk     = !!process.env.JWT_SECRET;
-  const orOk      = !!process.env.OPENROUTER_API_KEY;
   const sbUrl     = process.env.SUPABASE_URL;
   const sbKey     = process.env.SUPABASE_SERVICE_KEY;
 
@@ -268,13 +265,17 @@ app.get('/api/health', async (_req, res) => {
     } catch { dbPing = false; }
   }
 
-  const status = (claudeOk || orOk) && tavilyOk && dbPing ? 'healthy' : 'degradado';
-  res.status(status === 'healthy' ? 200 : 206).json({
+  const claudePing = await pingClaude();
+  const status     = claudePing.ok && tavilyOk && dbPing ? 'healthy' : 'degradado';
+  // 503 solo cuando el ping real (no solo la config) falló — señal fuerte de que
+  // el motor pago está genuinamente roto, no solo que falte una pieza opcional.
+  const httpStatus = status === 'healthy' ? 200 : (claudePing.ok ? 206 : 503);
+
+  res.status(httpStatus).json({
     status,
     timestamp:   new Date().toISOString(),
     services: {
-      claude:      claudeOk ? '✅ configurado' : '⚠️  ANTHROPIC_API_KEY ausente',
-      openrouter:  orOk     ? '✅ configurado' : '⚠️  OPENROUTER_API_KEY ausente',
+      claude:      claudePing.label,
       tavily:      tavilyOk ? '✅ configurado' : '⚠️  TAVILY_API_KEY ausente',
       supabase:    dbPing   ? '✅ Supabase OK' : (sbUrl ? '⚠️  ping falló' : '⚠️  SUPABASE_URL ausente'),
       jwt:         jwtOk    ? '✅ configurado' : '⚠️  JWT_SECRET ausente',
@@ -282,66 +283,6 @@ app.get('/api/health', async (_req, res) => {
     cache:    cacheInfo(),
     sessions: sessionStats(),
   });
-});
-
-// ── OpenRouter Proxy — protegido por el gate universal /api/* (fallback cuando Anthropic sin créditos) ─
-app.get('/api/openrouter/models', async (_req, res) => {
-  try {
-    if (!process.env.OPENROUTER_API_KEY) return res.status(500).json({ error: 'OPENROUTER_API_KEY no configurada' });
-    const response = await fetch('https://openrouter.ai/api/v1/models', {
-      headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
-    });
-    const json   = await response.json();
-    const models = Array.isArray(json.data) ? json.data : [];
-    const claude = models
-      .filter(m => m.id?.toLowerCase().includes('claude'))
-      .map(m => ({ id: m.id, name: m.name || m.id, description: m.description || '', context_length: m.context_length }));
-    res.json({ models: claude, total: claude.length });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'OpenRouter models failed' });
-  }
-});
-
-app.post('/api/openrouter/chat', async (req, res) => {
-  try {
-    const { model, messages, max_tokens = 1024 } = req.body;
-    if (!model || !Array.isArray(messages) || messages.length === 0)
-      return res.status(400).json({ error: 'Se requiere model y messages[]' });
-    if (!process.env.OPENROUTER_API_KEY)
-      return res.status(500).json({ error: 'OPENROUTER_API_KEY no configurada en .env' });
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization:  `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer':  'http://localhost:5000',
-        'X-Title':       'Antigravity OS',
-      },
-      body: JSON.stringify({ model, messages, max_tokens }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      AuditLogger.log('OPENROUTER_ERROR', { status: response.status, error: data });
-      return res.status(response.status).json({ error: data.error?.message || 'OpenRouter API error' });
-    }
-    AuditLogger.log('OPENROUTER_CHAT', { model, tokens: data.usage });
-    res.json(data);
-  } catch (err) {
-    console.error('[OpenRouter] Chat error:', err.message);
-    res.status(500).json({ error: err.message || 'OpenRouter chat failed' });
-  }
-});
-
-app.get('/api/openrouter/status', async (_req, res) => {
-  if (!process.env.OPENROUTER_API_KEY) return res.json({ active: false, error: 'OPENROUTER_API_KEY no configurada' });
-  try {
-    const r = await fetch('https://openrouter.ai/api/v1/models', {
-      headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}` },
-    });
-    res.json({ active: r.ok, status: r.ok ? 'online' : 'error', httpStatus: r.status });
-  } catch (err) {
-    res.json({ active: false, error: err.message });
-  }
 });
 
 // ── Rutas protegidas (el gate universal de la línea ~65 ya exige Firebase token aquí) ──

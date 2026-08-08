@@ -10,7 +10,9 @@ import { cacheKey, cacheGet, cacheSet, clearMemCache, cacheInfo } from '../../sh
 import { initSSE, acquireQuery, releaseQuery, checkQuota } from '../../shared/infrastructure/session-manager.js';
 import ExtraerDatos from '../../../skills/seguridad/Skill_Protocolo_Fuente_Unica.cjs';
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6';
+// Mismo criterio que server.js: modelo inyectado por env var, no hardcodeado —
+// ver PRIMARY_AI_MODEL en .env.
+const CLAUDE_MODEL = process.env.PRIMARY_AI_MODEL || 'claude-sonnet-4-6';
 
 let _client = null;
 function getClient() {

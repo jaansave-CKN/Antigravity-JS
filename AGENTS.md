@@ -19,7 +19,7 @@
 Antigravity OS es un entorno cibernético determinista para la orquestación del Escuadrón Élite. Su objetivo es la ingeniería de software industrial mediante abstracción estricta. Todo agente opera bajo este marco inquebrantable.
 
 ## II. AXIOMAS INQUEBRANTABLES (LEYES DEL SISTEMA)
-1. **Determinismo Estructural (Gate de Arquitectura):** Cero código escrito o modificado sin un diseño validado y firmado por el `001_ARQUITECTO_CORE`.
+1. **Determinismo Estructural (Gate de Arquitectura):** Cero código escrito o modificado sin veredicto `aprobado: true` del Agente Arquitecto (`.claude/agents/architect.md`, invocado por `agents/000_Orquestador.cjs --aprobar-diseno` vía API de Anthropic).
 2. **Soberanía Financiera Absoluta:** Toda proyección, presupuesto, motor paramétrico y módulo de costos (ej. RadFor-360) operará estricta y exclusivamente en Pesos Colombianos (COP). El sistema bloqueará cualquier cálculo en divisas extranjeras.
 3. **Aislamiento Multi-Tenant Nivel 0:** Los datos de un dominio jamás contaminan a otro. El Row-Level Security (RLS) y los filtros por tenant son auditorías de paso obligatorio.
 4. **Honestidad Técnica y Verificación:** Prohibido asumir el éxito. Todo agente debe exigir la ejecución del código (Try/Catch) y validar dependencias reales. No se ocultan errores; se exponen y se aíslan.
@@ -30,7 +30,7 @@ Antigravity OS es un entorno cibernético determinista para la orquestación del
 
 ## IV. TOPOLOGÍA DEL ESCUADRÓN ÉLITE
 * `000_ORQUESTADOR_MAESTRO`: Enrutador de Gravedad. Aplica la Puerta Socrática y valida el entorno de simulación (Sandbox).
-* `001_ARQUITECTO_CORE`: Define patrones (Hexagonal, DDD) y emite firmas de validación.
+* **Agente Arquitecto** (`.claude/agents/architect.md`, único — el rol `001_ARQUITECTO_CORE` fue retirado el 2026-08-07 por no tener implementación real): fiscaliza diseño antes de escritura, solo lectura (Read/Grep/Glob), emite veredicto JSON `{"aprobado": bool, "razones": [...]}` consumido por `agents/000_Orquestador.cjs`. Topología real probada (auditoría 2026-08-07): Monolito Modular Pragmático — Express (`server.js` como composition root) + Supabase PostgreSQL vía REST/PostgREST + Firebase Auth. Hexagonal (dominio/aplicación/infraestructura) solo aplica hoy en `src/modules/communications/`; el resto del árbol no separa esas capas. No es DDD ni Hexagonal en el resto del sistema — esa afirmación previa era aspiracional, no descriptiva del código real.
 * `002_INGENIERIA_TOTAL`: Ejecutor material de código e infraestructura.
 * `003_DEVSECOPS_Y_AUDITORIA`: Fiscal forense. Audita RLS, previene inyecciones REST y audita la restricción de moneda COP.
 * `004_DOCUMENTADOR_AS_BUILD`: Genera la planimetría de software basada en la realidad empírica del código.

@@ -1,9 +1,16 @@
-const { exec } = require('child_process');
+const { exec, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
+const Anthropic = require('@anthropic-ai/sdk');
+
+// A diferencia de server.js, este script se invoca standalone (node agents/000_Orquestador.cjs)
+// — nada más en el proceso carga .env. Sin esto, pedirVeredictoArquitecto() siempre fallaba con
+// "ANTHROPIC_API_KEY no configurada" pese a existir en .env (hallazgo 2026-08-07, gate real recién
+// creado nunca se había ejecutado end-to-end).
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 console.log('\n🚀 [000] ANTIGRAVITY OS: Iniciando Orquestación Dinámica con Honestidad...');
 
@@ -16,11 +23,6 @@ const dirRoot = path.join(dirAgents, '..');
 // exclusivamente a través de este Mando Central, nunca de forma directa/aislada.
 // =============================================================================
 const ESCUADRON_ELITE = {
-    '001_ARQUITECTO_CORE': {
-        rol: 'Control de diseño y validación estructural',
-        mandato: 'NO ejecuta ni modifica código. Fiscaliza y firma la aprobación de diseño antes de cualquier escritura.',
-        subordinados: [],
-    },
     '002_INGENIERIA_TOTAL': {
         rol: 'Ejecución de backend, frontend y bases de datos',
         subordinados: [
@@ -57,14 +59,79 @@ function comandanteDe(carpetaAgente) {
 
 // =============================================================================
 // GATE DE ARQUITECTURA — Cero Código sin Diseño Aprobado
-// 001_ARQUITECTO_CORE debe firmar el estado de agents/ antes de que el Mando
-// Central autorice ejecutar a cualquier subordinado. La firma es un hash del
-// estado real en disco: si algo cambia después de firmar, la aprobación cae.
+// El Agente Arquitecto (.claude/agents/architect.md) debe emitir un veredicto
+// {"aprobado": true, ...} sobre el diff pendiente antes de que el Mando Central
+// autorice ejecutar a cualquier subordinado. La firma es un hash del estado real
+// en disco: si algo cambia después de firmar, la aprobación cae.
+// Retirado 2026-08-07: el rol "001_ARQUITECTO_CORE" (citado en versiones previas
+// de este archivo, de AGENTS.md y de .agent/agents/000_orquestador.md) nunca tuvo
+// implementación real — no existía ningún archivo de definición ni lógica de
+// revisión, y la firma se autoaprobaba sin criterio. El Agente Arquitecto real
+// (.claude/agents/architect.md) sí lee y razona (Read/Grep/Glob) antes de fallar.
 // =============================================================================
 // Vive directo en agents/ (NO dentro de ninguna carpeta \d{2,3}[_-]*) — si estuviera
 // dentro de una carpeta de agente, escribir la firma cambiaría el listado de esa
 // carpeta y la firma se autoinvalidaría en el acto.
 const APROBACION_PATH = path.join(dirAgents, 'diseno_aprobado.json');
+const ARCHITECT_PROMPT_PATH = path.join(dirRoot, '.claude', 'agents', 'architect.md');
+const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+
+// Invoca al Agente Arquitecto real: system prompt = architect.md, input = git diff
+// pendiente contra HEAD. Nunca autoaprueba por ausencia de respuesta — todo camino
+// de error devuelve aprobado:false con la razón concreta (Honestidad Técnica).
+async function pedirVeredictoArquitecto() {
+    if (!process.env.ANTHROPIC_API_KEY) {
+        return { aprobado: false, razones: ['ANTHROPIC_API_KEY no configurada — no se puede invocar al Agente Arquitecto.'] };
+    }
+    if (!fs.existsSync(ARCHITECT_PROMPT_PATH)) {
+        return { aprobado: false, razones: [`No existe ${ARCHITECT_PROMPT_PATH} — sin criterio de arquitectura que aplicar.`] };
+    }
+    const systemPrompt = fs.readFileSync(ARCHITECT_PROMPT_PATH, 'utf8');
+
+    let diff;
+    try {
+        diff = execFileSync('git', ['diff', 'HEAD'], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+    } catch (e) {
+        return { aprobado: false, razones: [`No se pudo leer 'git diff HEAD': ${e.message}`] };
+    }
+    if (!diff || !diff.trim()) {
+        return { aprobado: false, razones: ['git diff HEAD está vacío — no hay cambios pendientes que aprobar.'] };
+    }
+
+    let response;
+    try {
+        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+        response = await client.messages.create({
+            model: ANTHROPIC_MODEL,
+            max_tokens: 1500,
+            system: systemPrompt,
+            messages: [{
+                role: 'user',
+                content: `Fiscaliza el siguiente diff pendiente de aprobación (git diff HEAD, truncado a 60000 caracteres si aplica). ` +
+                    `IMPORTANTE: esta invocación es una llamada directa a la API de Anthropic, no una sesión de Claude Code — ` +
+                    `no tienes acceso real a Read/Grep/Glob aquí pese a lo que indique tu system prompt para tu uso habitual. ` +
+                    `No emitas tool_call ni nada similar: no se ejecutará. Basa tu fiscalización únicamente en el diff de texto ` +
+                    `provisto abajo (línea de contexto suficiente para evaluar consistencia, completitud y alcance). ` +
+                    `Emite tu veredicto obligatorio en JSON al final, tal como exige tu system prompt.\n\n${diff.slice(0, 60000)}`,
+            }],
+        });
+    } catch (e) {
+        return { aprobado: false, razones: [`Fallo de la API de Anthropic: ${e.message}`] };
+    }
+
+    const text = response.content?.[0]?.text ?? '';
+    const match = text.match(/\{[^{}]*"aprobado"\s*:\s*(true|false)[^{}]*\}/s);
+    if (!match) {
+        return { aprobado: false, razones: ['El Agente Arquitecto no devolvió un veredicto JSON parseable.'], respuestaCruda: text.slice(0, 800) };
+    }
+    let veredicto;
+    try {
+        veredicto = JSON.parse(match[0]);
+    } catch (e) {
+        return { aprobado: false, razones: [`Veredicto JSON corrupto: ${e.message}`], respuestaCruda: text.slice(0, 800) };
+    }
+    return { aprobado: veredicto.aprobado === true, razones: veredicto.razones || [] };
+}
 
 function listarCarpetasAgentes() {
     return fs.readdirSync(dirAgents).filter(item => {
@@ -116,7 +183,7 @@ function validarDisenoAprobado(carpetas) {
         return { aprobado: false, razon: `diseno_aprobado.json corrupto: ${e.message}` };
     }
     if (firma.aprobado !== true) {
-        return { aprobado: false, razon: '001_ARQUITECTO_CORE marcó el diseño como NO aprobado.' };
+        return { aprobado: false, razon: 'El Agente Arquitecto marcó el diseño como NO aprobado.' };
     }
     const hashActual = hashEstado(carpetas);
     if (firma.firma !== hashActual) {
@@ -126,19 +193,40 @@ function validarDisenoAprobado(carpetas) {
 }
 
 // Modo firma: `node agents/000_Orquestador.cjs --aprobar-diseno`
-// Simula la fiscalización de 001_ARQUITECTO_CORE — firma el estado actual de
-// agents/ y habilita la siguiente corrida. No ejecuta ningún subordinado.
+// Invoca al Agente Arquitecto real (.claude/agents/architect.md vía API de
+// Anthropic) sobre el git diff pendiente. Solo si su veredicto es aprobado:true
+// se calcula el hash y se escribe diseno_aprobado.json — ya no hay autofirma.
 if (process.argv.includes('--aprobar-diseno')) {
-    const carpetas = listarCarpetasAgentes();
-    const firma = hashEstado(carpetas);
-    fs.writeFileSync(APROBACION_PATH, JSON.stringify({
-        aprobado: true,
-        firma,
-        timestamp: new Date().toISOString(),
-        firmado_por: '001_ARQUITECTO_CORE',
-    }, null, 2) + '\n', 'utf8');
-    console.log(`\n✅ [001_ARQUITECTO_CORE] Diseño firmado y aprobado. Firma: ${firma}`);
-    process.exit(0);
+    (async () => {
+        console.log('\n🔎 [Agente Arquitecto] Evaluando git diff HEAD contra .claude/agents/architect.md...');
+        const veredicto = await pedirVeredictoArquitecto();
+
+        if (!veredicto.aprobado) {
+            console.error('\n🛑 [GATE_ARQUITECTURA] El Agente Arquitecto RECHAZÓ el diseño — o no pudo evaluarlo.');
+            (veredicto.razones || []).forEach(r => console.error(`   - ${r}`));
+            if (veredicto.respuestaCruda) console.error(`   Respuesta cruda: ${veredicto.respuestaCruda}`);
+            // process.exitCode (no process.exit()) — forzar la salida mientras el
+            // dispatcher de fetch/undici del SDK de Anthropic aún cierra sockets
+            // dispara un crash nativo en Node/Windows (Assertion failed ... uv_async_t,
+            // mismo caso ya documentado y evitado en scripts/db-check.js).
+            process.exitCode = 1;
+            return;
+        }
+
+        const carpetas = listarCarpetasAgentes();
+        const firma = hashEstado(carpetas);
+        fs.writeFileSync(APROBACION_PATH, JSON.stringify({
+            aprobado: true,
+            firma,
+            timestamp: new Date().toISOString(),
+            firmado_por: 'Agente Arquitecto (.claude/agents/architect.md, vía API Anthropic)',
+            razones: veredicto.razones,
+        }, null, 2) + '\n', 'utf8');
+        console.log(`\n✅ [Agente Arquitecto] Diseño aprobado. Firma: ${firma}`);
+        (veredicto.razones || []).forEach(r => console.log(`   - ${r}`));
+        process.exitCode = 0;
+    })();
+    return;
 }
 
 function validarEnlace(url) {

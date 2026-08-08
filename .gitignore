@@ -30,7 +30,7 @@ opencode.json
 /.firebase/
 
 # Skills globales de herramientas de IA (no son código del proyecto)
-/.agents/
+.agent/
 
 # Artefactos locales pesados / binarios que no son código fuente
 /lib/*.traineddata

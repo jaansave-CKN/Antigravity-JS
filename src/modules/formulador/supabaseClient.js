@@ -8,6 +8,22 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
   console.error('[Supabase] SUPABASE_URL o SUPABASE_SERVICE_KEY no configurados.');
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Guardrail RLS — el aislamiento multi-tenant no puede depender solo del WHERE
+// dentro de cada función RPC (RLS-por-rol está inactivo hoy, ver auditoría
+// 2026-08-07 §3: sbFetch degrada siempre a SERVICE_KEY). Punto único de paso de
+// todo rpc() con p_tenant_id: aborta en Node antes de tocar Postgres si el
+// tenant es nulo/inválido, en vez de confiar en que cada caller lo valide.
+function assertValidTenant(tenantId) {
+  if (!tenantId || !UUID_RE.test(tenantId)) {
+    throw Object.assign(
+      new Error('RLS_GUARD: tenant_id ausente o inválido — petición abortada antes de tocar Postgres.'),
+      { status: 400 }
+    );
+  }
+}
+
 // El header Authorization es el que determina el rol/RLS que PostgREST aplica
 // en Postgres. Con el JWT del usuario final -> rol "authenticated", RLS activo.
 // Sin JWT de usuario -> cae a SERVICE_KEY (bypassa RLS); reservado para tareas
@@ -83,6 +99,7 @@ export async function insertOne(table, body, userJwt) {
 
 // RPC — POST /rest/v1/rpc/<fn>
 export async function rpc(fn, params = {}, userJwt) {
+  if ('p_tenant_id' in params) assertValidTenant(params.p_tenant_id);
   return sbFetch(`/rpc/${fn}`, { method: 'POST', body: JSON.stringify(params) }, userJwt);
 }
 

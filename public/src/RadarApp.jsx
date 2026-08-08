@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Bot, Database, Sparkles, Loader } from 'lucide-react';
-import MiniMaxChat from './MiniMaxChat';
+import { Database, Sparkles, Loader } from 'lucide-react';
 import KPICards  from './modules/radar/KPICards';
 import FilterBar from './modules/radar/FilterBar';
 import DataTable from './modules/radar/DataTable';
@@ -16,7 +15,6 @@ const RETRY_MS = 4000;
 const FLASH_DURATION = 2100;
 
 export default function RadarApp() {
-  const [tab,        setTab]       = useState('radar');
   const [data,       setData]      = useState([]);
   const [loading,    setLoading]   = useState(true);
   const [status,     setStatus]    = useState('Conectando...');
@@ -175,86 +173,60 @@ export default function RadarApp() {
       {/* ── KPI Cards ── */}
       <KPICards data={data} status={status} loading={loading} />
 
-      {/* ── Tab Navigation ── */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #3e484f', background: '#131b2e', marginTop: 16 }}>
-        {[
-          { id: 'radar',   label: 'Radar Fondos 360',  Icon: Database, color: '#3b82f6' },
-          { id: 'minimax', label: 'MiniMax M2.5 AI',   Icon: Bot,      color: '#a855f7' },
-        ].map(({ id, label, Icon, color }) => {
-          const active = tab === id;
-          return (
-            <button key={id} onClick={() => setTab(id)} style={{
-              display: 'flex', alignItems: 'center', gap: 7,
-              padding: '11px 22px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-              background: 'transparent', border: 'none',
-              borderBottom: `2px solid ${active ? color : 'transparent'}`,
-              color: active ? color : '#6b7280',
-              transition: 'color 0.15s, border-color 0.15s',
-            }}>
-              <Icon size={16} />
-              {label}
-              {id === 'radar' && data.length > 0 && (
-                <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: active ? `${color}25` : 'rgba(100,116,139,0.2)', color: active ? color : '#6b7280', fontWeight: 700 }}>
-                  {data.length}
-                </span>
-              )}
-            </button>
-          );
-        })}
+      {/* ── Header de sección (MiniMax/OpenRouter eliminado — el backend solo
+           expone el motor principal, Claude/Anthropic) ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '11px 22px', borderBottom: '1px solid #3e484f', background: '#131b2e', marginTop: 16 }}>
+        <Database size={16} style={{ color: '#3b82f6' }} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#3b82f6' }}>Radar Fondos 360</span>
+        {data.length > 0 && (
+          <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 10, background: 'rgba(59,130,246,0.15)', color: '#3b82f6', fontWeight: 700 }}>
+            {data.length}
+          </span>
+        )}
       </div>
 
-      {/* ── Radar Tab ── */}
-      {tab === 'radar' && (
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '12px 20px', background: '#131b2e', borderBottom: '1px solid #3e484f' }}>
-            <Sparkles size={15} style={{ color: '#a855f7', flexShrink: 0 }} />
-            <input
-              value={aiQuery}
-              onChange={e => setAiQuery(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && runAiSearch()}
-              placeholder="Buscar con IA en tiempo real (Claude + Tavily) — ej. 'vivienda rural Boyacá'"
-              style={{ flex: 1, background: '#0b1326', border: '1px solid #3e484f', borderRadius: 6, padding: '7px 12px', fontSize: 12.5, color: '#dae2fd', outline: 'none' }}
-            />
-            <button
-              onClick={runAiSearch}
-              disabled={aiLoading || !aiQuery.trim()}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 6, border: 'none',
-                background: aiLoading || !aiQuery.trim() ? '#374151' : '#a855f7', color: '#fff',
-                fontSize: 12.5, fontWeight: 600, cursor: aiLoading || !aiQuery.trim() ? 'default' : 'pointer',
-              }}
-            >
-              {aiLoading ? <Loader size={13} className="animate-spin" /> : <Sparkles size={13} />}
-              {aiLoading ? 'Buscando…' : 'Buscar con IA'}
-            </button>
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '12px 20px', background: '#131b2e', borderBottom: '1px solid #3e484f' }}>
+          <Sparkles size={15} style={{ color: '#a855f7', flexShrink: 0 }} />
+          <input
+            value={aiQuery}
+            onChange={e => setAiQuery(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && runAiSearch()}
+            placeholder="Buscar con IA en tiempo real (Claude + Tavily) — ej. 'vivienda rural Boyacá'"
+            style={{ flex: 1, background: '#0b1326', border: '1px solid #3e484f', borderRadius: 6, padding: '7px 12px', fontSize: 12.5, color: '#dae2fd', outline: 'none' }}
+          />
+          <button
+            onClick={runAiSearch}
+            disabled={aiLoading || !aiQuery.trim()}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 6, border: 'none',
+              background: aiLoading || !aiQuery.trim() ? '#374151' : '#a855f7', color: '#fff',
+              fontSize: 12.5, fontWeight: 600, cursor: aiLoading || !aiQuery.trim() ? 'default' : 'pointer',
+            }}
+          >
+            {aiLoading ? <Loader size={13} className="animate-spin" /> : <Sparkles size={13} />}
+            {aiLoading ? 'Buscando…' : 'Buscar con IA'}
+          </button>
+        </div>
+        {aiError && (
+          <div style={{ padding: '8px 20px', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: 12.5, borderBottom: '1px solid #3e484f' }}>
+            {aiError}
           </div>
-          {aiError && (
-            <div style={{ padding: '8px 20px', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: 12.5, borderBottom: '1px solid #3e484f' }}>
-              {aiError}
-            </div>
-          )}
-          <FilterBar
-            query={query}
-            sector={sector}
-            onQuery={setQuery}
-            onSector={setSector}
-            onClear={() => { setQuery(''); setSector(''); }}
-          />
-          <DataTable
-            data={filtered}
-            loading={loading}
-            flashIds={flashIds}
-            newItemIds={newItemIds}
-          />
-        </div>
-      )}
-
-      {/* ── MiniMax Tab ── */}
-      {tab === 'minimax' && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <MiniMaxChat />
-        </div>
-      )}
+        )}
+        <FilterBar
+          query={query}
+          sector={sector}
+          onQuery={setQuery}
+          onSector={setSector}
+          onClear={() => { setQuery(''); setSector(''); }}
+        />
+        <DataTable
+          data={filtered}
+          loading={loading}
+          flashIds={flashIds}
+          newItemIds={newItemIds}
+        />
+      </div>
     </div>
   );
 }

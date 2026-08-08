@@ -2,7 +2,6 @@ import crypto from 'crypto';
 import sb from './supabaseClient.js';
 import { Orchestrator000, setServerAuthToken } from '../../orchestrator-engine.js';
 
-const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Deriva un UUID v4 determinista a partir de un identificador arbitrario (UID de
@@ -27,7 +26,11 @@ function getTenant(req) {
   if (req.user?.uid) return deriveUuidFromString(req.user.uid);
   const headerTenant = req.headers['x-tenant-id'];
   if (headerTenant) return UUID_RE.test(headerTenant) ? headerTenant : null;
-  return DEFAULT_TENANT;
+  // Antes: fallback silencioso a un tenant compartido (DEFAULT_TENANT) cuando no
+  // había req.user ni header — landmine de aislamiento si el gate global alguna
+  // vez deja pasar una request sin autenticar (guardrail RLS, 2026-08-07 §FASE 2).
+  // Eliminado: sin tenant identificable, la petición se rechaza (null → 400 abajo).
+  return null;
 }
 
 // JWT crudo del usuario (el mismo que verificó verifyFirebaseAuth) para que
