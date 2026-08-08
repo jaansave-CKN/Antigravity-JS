@@ -5,7 +5,12 @@
 
 STAGED=$(git diff --cached --name-only --diff-filter=ACM)
 
-BLOCKED_FILES=$(echo "$STAGED" | grep -E '(^|/)(\.env(\..*)?|claves_privadas\.txt|\.mcp\.json)$' || true)
+# .env.example es la plantilla pública (solo placeholders vacíos, sin secretos
+# reales) y SÍ debe commitearse — falso positivo detectado 2026-08-08 al
+# bloquear una edición legítima. Se excluye explícitamente antes del check.
+CANDIDATOS=$(echo "$STAGED" | grep -Ev '(^|/)\.env\.example$' || true)
+
+BLOCKED_FILES=$(echo "$CANDIDATOS" | grep -E '(^|/)(\.env(\..*)?|claves_privadas\.txt|\.mcp\.json)$' || true)
 if [ -n "$BLOCKED_FILES" ]; then
   echo "❌ COMMIT BLOQUEADO — archivo de secretos detectado en el stage:"
   echo "$BLOCKED_FILES"
