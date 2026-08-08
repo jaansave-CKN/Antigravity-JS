@@ -77,12 +77,15 @@ async function scrapeMinciencias(maxPages = 3) {
   return all;
 }
 
-export function registerScraperRoutes(app, _authenticate) {
+export function registerScraperRoutes(app, authenticateToken, requireAdmin) {
   /**
    * GET /api/scrape/minciencias
-   * Devuelve convocatorias activas desde minciencias.gov.co (datos públicos, sin auth)
+   * Devuelve convocatorias activas desde minciencias.gov.co.
+   * SECURITY (auditoría 2026-08-08): antes sin ninguna autenticación — cualquiera
+   * en internet podía disparar scraping saliente contra minciencias.gov.co hasta
+   * 10 páginas por request. Ahora requiere sesión + rol admin.
    */
-  app.get('/api/scrape/minciencias', async (req, res) => {
+  app.get('/api/scrape/minciencias', authenticateToken, requireAdmin, async (req, res) => {
     try {
       const pages = Math.min(parseInt(req.query.pages || '3', 10), 10);
       const data = await scrapeMinciencias(pages);

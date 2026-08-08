@@ -2,8 +2,19 @@ import crypto from 'crypto';
 
 export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch }) {
 
+  // SECURITY: valida propiedad de :proyectoId antes de tocar config_logistica —
+  // ver mismo fix aplicado en compliance.routes.js/marcoNormativo.routes.js/
+  // motorDialectico.routes.js (auditoría 2026-08-08, hallazgo BOLA en tablas hijas
+  // del Formulador que solo filtraban por user_id, no por dueño real del proyecto).
+  async function checkOwnership(proyectoId, userId) {
+    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+  }
+
   // GET /api/m5/logistica/:proyectoId
   app.get('/api/m5/logistica/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
     const row = await getRow(
       'SELECT * FROM config_logistica WHERE proyecto_id = ? AND user_id = ?',
       [req.params.proyectoId, req.userId]
@@ -13,6 +24,9 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, 
 
   // POST /api/m5/logistica/:proyectoId
   app.post('/api/m5/logistica/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+    const proyectoOwned = await checkOwnership(req.params.proyectoId, req.userId);
+    if (!proyectoOwned) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
     const {
       proponente_nombre = '', proponente_nit = '',
       tipo_entidad = '', departamento = '', municipio = '',
@@ -60,10 +74,6 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, 
 
   // ── Tramos de logística (Fase 1.2) — dominio distinto de config_logistica:
   // tramos de transporte origen→destino, no datos del proponente/entidad. ──
-
-  async function checkOwnership(proyectoId, userId) {
-    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
-  }
 
   // GET /api/proyectos/:id/logistica-tramos
   app.get('/api/proyectos/:id/logistica-tramos', authenticateToken, tryCatch(async (req, res) => {

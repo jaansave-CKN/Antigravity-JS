@@ -2,8 +2,17 @@ import crypto from 'crypto';
 
 export function registerMotorDialecticoRoutes(app, { authenticateToken, runSql, getRow, tryCatch }) {
 
+  // SECURITY: valida propiedad de :proyectoId antes de tocar motor_dialectico —
+  // mismo fix de BOLA aplicado en compliance/configLogistica/marcoNormativo.
+  async function checkOwnership(proyectoId, userId) {
+    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+  }
+
   // GET /api/m4/config/:proyectoId
   app.get('/api/m4/config/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
     const row = await getRow(
       'SELECT * FROM motor_dialectico WHERE proyecto_id = ? AND user_id = ?',
       [req.params.proyectoId, req.userId]
@@ -23,6 +32,9 @@ export function registerMotorDialecticoRoutes(app, { authenticateToken, runSql, 
   // Columnas nuevas (interlocutor/enfoque/humanizacion/adicionales) capturan
   // el resto de la UI real de Dialéctica, que no tenía dónde persistirse.
   app.post('/api/m4/config/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
     const {
       tono = '', lista_oro = [], lista_negra = [], enfasis = '',
       interlocutor = '', enfoque = '', humanizacion = '', adicionales = [],

@@ -69,3 +69,13 @@ export async function authenticateToken(req, res, next) {
   req.userRole = payload.role;
   next();
 }
+
+// SECURITY (auditoría 2026-08-08, docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §6.3):
+// centraliza el patrón `if (req.userRole !== 'admin') return res.status(403)...`
+// que antes se repetía inline 13+ veces en server.js y que varios endpoints de
+// Directorio/Scheduler/moderación omitían por descuido. Usar SIEMPRE después de
+// authenticateToken (depende de req.userRole ya poblado).
+export function requireAdmin(req, res, next) {
+  if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+  next();
+}
