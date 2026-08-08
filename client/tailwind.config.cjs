@@ -1,9 +1,16 @@
 /** @type {import('tailwindcss').Config} */
 // Migrado del CDN (window.__tailwindConfig en index.html) el 2026-08-03.
 // Copia EXACTA — fidelidad CSS absoluta con Stitch, cero valores alterados.
+const path = require('path');
 module.exports = {
   darkMode: 'class',
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  // FIX (2026-08-08): rutas relativas dependían del cwd del proceso que
+  // invoca a Tailwind (PM2 arranca con cwd = raíz del repo, no client/) —
+  // sin coincidencias, Tailwind generaba solo preflight, cero utilidades.
+  content: [
+    path.join(__dirname, 'index.html'),
+    path.join(__dirname, 'src/**/*.{js,ts,jsx,tsx}'),
+  ],
   theme: {
     extend: {
       fontFamily: {
