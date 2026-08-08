@@ -35,5 +35,17 @@ fi
 # Gate de arquitectura — "cero código sin diseño aprobado" (docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §5.2).
 # Degradación segura: sin ANTHROPIC_API_KEY configurada, informa y NO bloquea
 # (ver scripts/architecture-gate.cjs) — mismo patrón standby que Stripe/Wompi/Sentry.
-node scripts/architecture-gate.cjs --check-gate
+# Resolución de `node` a prueba de PATH: en algunos shells de Windows/Git Bash
+# "node" no está en PATH pese a estar instalado (hallazgo real 2026-08-08,
+# reproducido en vivo) — un "command not found" aquí NO debe bloquear el
+# commit, es un problema de entorno, no un veredicto de arquitectura real.
+NODE_BIN="$(command -v node 2>/dev/null || true)"
+if [ -z "$NODE_BIN" ] && [ -x "/c/Program Files/nodejs/node.exe" ]; then
+  NODE_BIN="/c/Program Files/nodejs/node.exe"
+fi
+if [ -z "$NODE_BIN" ]; then
+  echo "ℹ️  [GATE_ARQUITECTURA] No se encontró 'node' en este shell — se omite el gate (no bloquea)."
+  exit 0
+fi
+"$NODE_BIN" scripts/architecture-gate.cjs --check-gate
 exit $?
