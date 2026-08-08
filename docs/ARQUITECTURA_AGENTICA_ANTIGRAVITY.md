@@ -3,7 +3,7 @@
 **Auditor:** Chief AI Architect / Auditor Forense de Sistemas Multiagente / DevSecOps Lead / Chief Software Auditor / System Architect
 **Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS`. `proyectos/` queda fuera (repos git independientes, `.gitignore:19-24`).
 **Regla de evidencia:** cero suposiciones — cada hallazgo cita archivo real. Donde el volumen hizo impracticable la lectura línea-por-línea de decenas de archivos (los skills de `agents/000_ORQUESTADOR/skills/`), se declara el muestreo usado.
-**Estado del commit:** `d9e520a` (HEAD = `origin/master`, sincronizado — ver §6.4).
+**Estado del commit:** `0804e3a` local, 1 commit adelante de `origin/master` (`d9e520a`) — sin push, decisión pendiente del usuario. `agents/000_Orquestador.cjs` renombrado a `agents/architecture-gate.cjs` en este mismo ciclo (resuelve el ítem 11 del plan de remediación, §12).
 
 ---
 
@@ -67,7 +67,7 @@ Lo que **no** cambió y sigue vigente tal cual: los 25 skills legacy de `agents/
 │                      14-analista-comportamiento (0 skills c/u)
 │
 └── Utilidades sueltas en agents/ (post-purga, 14 archivos — ya no 23)
-    ├── 000_Orquestador.cjs   — REAL: gate de arquitectura + batch executor
+    ├── architecture-gate.cjs   — REAL: gate de arquitectura + batch executor
     ├── 000_VERIFICADOR.cjs   — diagnóstico trivial (3 checks hardcoded, OK hoy)
     ├── diseno_aprobado.json  — firma del gate (ver §12)
     └── extractor-pro.cjs, generar_reporte.cjs, vision-engine.cjs,
@@ -97,7 +97,7 @@ Documentados con precisión en `Skill_Loader.cjs:8-134` (metadata predefinida po
 
 | Archivo | Estado |
 |---|---|
-| `agents/000_Orquestador.cjs` | 🟢 Real — gate + batch executor, corregido y verificado end-to-end esta sesión (dotenv, tool-hallucination, exit-code crash) |
+| `agents/architecture-gate.cjs` | 🟢 Real — gate + batch executor, corregido y verificado end-to-end esta sesión (dotenv, tool-hallucination, exit-code crash) |
 | `agents/000_VERIFICADOR.cjs` | 🟢 Trivial pero correcto — 3 rutas hardcodeadas, las 3 existen hoy |
 | `agents/auditor-integridad.cjs` | ✅ Eliminado (era 🔴 fósil, 11/11 rutas inexistentes) |
 | `agents/bridge-server.cjs` | ✅ Eliminado (era 🔴 servidor huérfano puerto 3001) |
@@ -115,7 +115,7 @@ Documentados con precisión en `Skill_Loader.cjs:8-134` (metadata predefinida po
 ### 3.1 Único flujo agéntico real end-to-end (sin cambios, ya verificado 3 veces esta sesión)
 
 ```
-node agents/000_Orquestador.cjs --aprobar-diseno
+node agents/architecture-gate.cjs --aprobar-diseno
   → lee .claude/agents/architect.md (system prompt)
   → lee git diff HEAD (texto plano, sin tool-use real)
   → Anthropic API real → veredicto JSON → agents/diseno_aprobado.json
@@ -244,7 +244,7 @@ Aislamiento de estado por usuario: respetado en Supabase (tenant derivado de UID
 | Auth, gate `/api/*`, sesión JWT, rate limit, validación zod | 🟢 OPERATIVO |
 | Radar (REST+WS+IA), Formulador Fase 1+Módulo 10, Orchestrator000 | 🟢 OPERATIVO |
 | Health check con ping real a Claude | 🟢 OPERATIVO (corregido hoy) |
-| Gate de arquitectura (`architect.md` + `000_Orquestador.cjs`) | 🟢 OPERATIVO (verificado 3× hoy, incluidos 2 bugs propios corregidos) |
+| Gate de arquitectura (`architect.md` + `architecture-gate.cjs`) | 🟢 OPERATIVO (verificado 3× hoy, incluidos 2 bugs propios corregidos) |
 | Guardrail RLS duro (`supabaseClient.js:rpc()`) | 🟢 OPERATIVO (agregado hoy) |
 | Modelo de IA centralizado (`PRIMARY_AI_MODEL`) | 🟢 OPERATIVO (agregado hoy) |
 | Fósiles de `agents/` (9 scripts) | ✅ RESUELTO — eliminados |
@@ -278,7 +278,7 @@ Aislamiento de estado por usuario: respetado en Supabase (tenant derivado de UID
 | 8 | `puente_ejecutor.py` incompatible con timeout del batch executor | 🟠 Media | Pendiente |
 | 9 | Brecha IDENTITY.md 052/056 vs. código real | 🟡 Media-baja | Pendiente — decisión de alcance |
 | 10 | Gate de arquitectura opt-in, no hook obligatorio | 🟡 Media | Pendiente — enganchar a `.husky/pre-commit` |
-| 11 | Naming colisionado (3 "000/orquestador") | 🟢 Baja | Pendiente |
+| 11 | Naming colisionado (3 "000/orquestador") | 🟢 Baja | ✅ Resuelto — `agents/000_Orquestador.cjs` renombrado a `agents/architecture-gate.cjs` (`git mv`, auto-referencias y hook pre-commit actualizados, gate re-verificado) |
 | 12 | `.agent/` (Sistema B) sigue en disco | 🟢 Baja | Pendiente — decisión de conservar o borrar |
 
 ---
@@ -297,7 +297,7 @@ El prompt pide diseñar este agente desde cero. **Corrección basada en evidenci
                          │ system prompt
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  agents/000_Orquestador.cjs :: pedirVeredictoArquitecto()    │
+│  agents/architecture-gate.cjs :: pedirVeredictoArquitecto()    │
 │  input: git diff HEAD (texto) · Anthropic API real           │
 │  firma = SHA-256(agents/ + src/), autoinvalidante             │
 └───────────────────────┬────────────────────────────────────┘
@@ -337,7 +337,7 @@ Honesto, no inflado: separado en lo que el código puede resolver (100%) y lo qu
 | **JWT legacy `service_role` de Supabase** | 🔴 CRÍTICO | 🔴 **Sigue activo — revocación manual en dashboard, fuera de mi alcance** |
 | **Key huérfana Supabase + Render vieja** | 🔴 | 🔴 **Sigue activo — revocación manual, fuera de mi alcance** |
 | `.agent/` (Sistema B) en disco | 🟢 | 🟢 Sin cambios — decisión pendiente de conservar/borrar, no urgente |
-| Naming colisionado (3 "000/orquestador") | 🟢 | 🟢 Sin cambios — cosmético |
+| Naming colisionado (3 "000/orquestador") | 🟢 | ✅ Resuelto — archivo renombrado a `architecture-gate.cjs`; quedan solo 2 entidades (carpeta `000_ORQUESTADOR/` legítima, y `.agent/agents/000_orquestador.md` del Sistema B, sin relación funcional entre sí) |
 
 **Puntaje:** 10/12 hallazgos accionables por código, resueltos hoy. 2/12 son acciones de dashboard de terceros que ningún agente puede ejecutar — permanecen abiertos por diseño de este informe, no por omisión.
 

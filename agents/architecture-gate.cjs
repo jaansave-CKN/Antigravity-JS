@@ -6,7 +6,7 @@ const https = require('https');
 const http = require('http');
 const Anthropic = require('@anthropic-ai/sdk');
 
-// A diferencia de server.js, este script se invoca standalone (node agents/000_Orquestador.cjs)
+// A diferencia de server.js, este script se invoca standalone (node agents/architecture-gate.cjs)
 // — nada más en el proceso carga .env. Sin esto, pedirVeredictoArquitecto() siempre fallaba con
 // "ANTHROPIC_API_KEY no configurada" pese a existir en .env (hallazgo 2026-08-07, gate real recién
 // creado nunca se había ejecutado end-to-end).
@@ -209,7 +209,7 @@ function validarDisenoAprobado(carpetas) {
     return { aprobado: true, firma: firma.firma, timestamp: firma.timestamp };
 }
 
-// Modo check: `node agents/000_Orquestador.cjs --check-gate` — para hooks de git
+// Modo check: `node agents/architecture-gate.cjs --check-gate` — para hooks de git
 // (pre-commit). Cero llamadas a la API de Anthropic: solo valida que ya exista
 // una firma vigente de una aprobación previa (--aprobar-diseno) contra el estado
 // actual de agents/+src/. Hace obligatorio "cero código sin diseño aprobado" sin
@@ -219,7 +219,7 @@ if (process.argv.includes('--check-gate')) {
     const veredicto = validarDisenoAprobado(listarCarpetasAgentes());
     if (!veredicto.aprobado) {
         console.error('\n🛑 [GATE_ARQUITECTURA] Sin aprobación vigente: ' + veredicto.razon);
-        console.error('   Ejecuta: node agents/000_Orquestador.cjs --aprobar-diseno');
+        console.error('   Ejecuta: node agents/architecture-gate.cjs --aprobar-diseno');
         process.exitCode = 1;
     } else {
         console.log(`✅ [GATE_ARQUITECTURA] Aprobación vigente (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
@@ -228,7 +228,7 @@ if (process.argv.includes('--check-gate')) {
     return;
 }
 
-// Modo firma: `node agents/000_Orquestador.cjs --aprobar-diseno`
+// Modo firma: `node agents/architecture-gate.cjs --aprobar-diseno`
 // Invoca al Agente Arquitecto real (.claude/agents/architect.md vía API de
 // Anthropic) sobre el git diff pendiente. Solo si su veredicto es aprobado:true
 // se calcula el hash y se escribe diseno_aprobado.json — ya no hay autofirma.
@@ -347,7 +347,7 @@ async function ejecutarTodosLosAgentes() {
         if (!veredicto.aprobado) {
             console.error('\n🛑 [GATE_ARQUITECTURA] EJECUCIÓN BLOQUEADA — 001_ARQUITECTO_CORE no ha aprobado el diseño.');
             console.error(`   Motivo: ${veredicto.razon}`);
-            console.error('   Para aprobar: node agents/000_Orquestador.cjs --aprobar-diseno');
+            console.error('   Para aprobar: node agents/architecture-gate.cjs --aprobar-diseno');
             process.exit(1);
         }
         console.log(`\n✅ [GATE_ARQUITECTURA] Diseño aprobado por 001_ARQUITECTO_CORE (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);

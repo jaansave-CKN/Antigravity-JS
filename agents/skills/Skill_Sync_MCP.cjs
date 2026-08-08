@@ -9,7 +9,7 @@ const config = {
 };
 
 function checkIntegrity() {
-    const required = ['000_Orquestador.cjs'];
+    const required = ['architecture-gate.cjs'];
     required.forEach(file => {
         const p = path.join(config.root_path, 'agents', file);
         if (!fs.existsSync(p)) console.log(`⚠️ Falta: ${file}`);

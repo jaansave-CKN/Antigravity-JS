@@ -5,7 +5,7 @@ console.log('🔍 INICIANDO DIAGNÓSTICO DE ANTIGRAVITY OS...');
 console.log('Director: Jairo Antonio Salinas Velasco | Asfáltica S.A.S.\n');
 
 const archivosCriticos = [
-    '000_Orquestador.cjs',
+    'architecture-gate.cjs',
     'skills/Skill_Sync_MCP.cjs',
     'skills/IDENTITY.md'
 ];
