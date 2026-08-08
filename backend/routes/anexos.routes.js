@@ -170,12 +170,25 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
       tamanoBytes   = req.file.size;
     }
 
-    await runSql(
-      `INSERT INTO project_anexos
-       (id, project_id, tenant_id, nombre_archivo, ruta_storage, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [id, req.params.id, req.userId, nombreArchivo, rutaStorage, tipoMime, tamanoBytes, categoria, descripcion, texto, link, new Date().toISOString()]
-    );
+    // FIX (auditoría SRE 2026-08-08, Capa 5): el archivo ya se subió a Supabase
+    // Storage arriba — si este INSERT falla (ej. columna faltante en la BD real,
+    // ver auditoría Capa 2), antes quedaba huérfano en Storage, pagando hosting
+    // sin ninguna fila que lo referencie. Se revierte el upload si el INSERT falla.
+    try {
+      await runSql(
+        `INSERT INTO project_anexos
+         (id, project_id, tenant_id, nombre_archivo, ruta_storage, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [id, req.params.id, req.userId, nombreArchivo, rutaStorage, tipoMime, tamanoBytes, categoria, descripcion, texto, link, new Date().toISOString()]
+      );
+    } catch (dbError) {
+      if (rutaStorage) {
+        await supabaseAdmin.storage.from(ANEXOS_BUCKET).remove([rutaStorage])
+          .catch(cleanupErr => console.error('[anexos] Rollback de Storage también falló:', cleanupErr.message));
+      }
+      console.error('[anexos] INSERT falló tras subir a Storage — rollback aplicado:', dbError.message);
+      return res.status(500).json({ success: false, message: 'No se pudo registrar el anexo. El archivo no quedó guardado.' });
+    }
 
     // "Pieza Cero": si el anexo se marcó explícitamente como presupuesto/APU y
     // es un Excel, se extrae a project_apu_lineas. Si falla (moneda extranjera,

@@ -24,7 +24,7 @@ import {
   GEMINI_SYSTEM_INSTRUCTIONS,
 } from './backend/routes/authGoogle.controller.js';
 import { emailAdapter } from './backend/notifications/BrevoEmailAdapter.js';
-import { pool, getRow, getRows, getCount, runSql } from './backend/db.js';
+import { pool, getRow, getRows, getCount, runSql, runTransaction } from './backend/db.js';
 import { dbStatus, withTenant } from './backend/config/database.config.js';
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
@@ -1139,6 +1139,12 @@ async function start() {
 
   const app = express();
   const isProd = process.env.NODE_ENV === 'production';
+  // FIX (auditoría SRE 2026-08-08, Capa 3): sin esto, Express ignora la cadena
+  // real de proxies y getRateLimitKey() (SecurityMiddleware.js) leía el header
+  // X-Forwarded-For crudo del cliente sin validar — cualquiera podía mandar un
+  // XFF distinto en cada request y resetear authLimiter/trialLimiter a
+  // voluntad. `1` = confiar en 1 salto de proxy (el balanceador de Render).
+  app.set('trust proxy', 1);
   app.use(helmet({
     contentSecurityPolicy: isProd ? {
       directives: {
@@ -1194,11 +1200,9 @@ async function start() {
     max: 300,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => {
-      const raw = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'unknown';
-      const ip = typeof raw === 'string' ? raw.split(',')[0].trim() : String(raw);
-      return ipKeyGenerator(ip);
-    },
+    // FIX (auditoría SRE 2026-08-08): mismo bypass de XFF corregido en
+    // SecurityMiddleware.js — se delega en req.ip (requiere trust proxy, ver arriba).
+    keyGenerator: (req) => ipKeyGenerator(req.ip || 'unknown'),
     handler: (_req, res) => res.status(429).json({
       success: false,
       code: 'RATE_LIMITED',
@@ -1564,7 +1568,10 @@ async function start() {
   async function registrarAuditoriaAdmin(req, accion, objetivo) {
     try {
       const admin = await getRow('SELECT email FROM usuarios WHERE id = ?', [req.userId]);
-      const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'desconocida').toString().split(',')[0].trim();
+      // FIX (auditoría SRE 2026-08-08): req.ip ya resuelve correctamente el
+      // XFF real (trust proxy configurado) — antes un admin_audit_log podía
+      // quedar con una IP falsa si el request traía un XFF manipulado.
+      const ip = req.ip || 'desconocida';
       await runSql(
         `INSERT INTO admin_audit_log (admin_id, admin_email, accion, objetivo_id, objetivo_email, detalle, ip)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -1833,7 +1840,7 @@ async function start() {
 
   async function registrarAuditoriaAdminSinSesion(accion, objetivo, req) {
     try {
-      const ip = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'desconocida').toString().split(',')[0].trim();
+      const ip = req.ip || 'desconocida'; // FIX (auditoría SRE 2026-08-08): ver registrarAuditoriaAdmin
       await runSql(
         `INSERT INTO admin_audit_log (admin_id, admin_email, accion, objetivo_id, objetivo_email, detalle, ip)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -4743,7 +4750,7 @@ Reglas:
   registerMotorDialecticoRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
 
   // V8.0 — Formulador: M5 Configuración Logística
-  registerConfigLogisticaRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch });
+  registerConfigLogisticaRoutes(app, { authenticateToken, runSql, runTransaction, getRow, getRows, tryCatch });
 
   // V8.0 — Formulador: M8 Marco Normativo
   registerMarcoNormativoRoutes(app, { authenticateToken, runSql, getRow, tryCatch });

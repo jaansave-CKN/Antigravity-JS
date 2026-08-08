@@ -48,7 +48,11 @@ export class StripeProvider extends PaymentProvider {
     const customer = await this._stripe.customers.create({
       email, name: nombre, metadata: { tenant_id: tenantId },
     });
-    await runSql('UPDATE user_subscriptions SET stripe_customer_id = $1 WHERE tenant_id = $2', [customer.id, tenantId]);
+    // FIX (auditoría SRE 2026-08-08): user_subscriptions no tiene columna
+    // tenant_id — su policy RLS real usa user_id (ver línea 44 de este mismo
+    // archivo, consistente con subscriptionEvents.js/subscriptions.routes.js).
+    // Causaba "column tenant_id does not exist" cada vez que se ejecutaba.
+    await runSql('UPDATE user_subscriptions SET stripe_customer_id = $1 WHERE user_id = $2', [customer.id, tenantId]);
     return customer.id;
   }
 

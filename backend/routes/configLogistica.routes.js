@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 
-export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch }) {
+export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, runTransaction, getRow, getRows, tryCatch }) {
 
   // SECURITY: valida propiedad de :proyectoId antes de tocar config_logistica —
   // ver mismo fix aplicado en compliance.routes.js/marcoNormativo.routes.js/
@@ -97,21 +97,26 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, 
     const { tramos } = req.body;
     if (!Array.isArray(tramos)) return res.status(400).json({ success: false, message: 'tramos debe ser array' });
 
-    await runSql('DELETE FROM logistica_tramos WHERE proyecto_id = ?', [req.params.id]);
-    for (const t of tramos) {
-      await runSql(
-        `INSERT INTO logistica_tramos
-         (id, proyecto_id, numero, origen, destino, duracion, distancia_km, medio,
-          estado_via, calidad, tipo_transporte, orden_publico, seleccionado)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
+    // FIX (auditoría SRE 2026-08-08, Capa 5): DELETE + N INSERTs envueltos en
+    // una única transacción atómica (mismo patrón ya usado en presupuesto.routes.js)
+    // — si un INSERT falla a mitad del loop, el DELETE se revierte solo, en vez
+    // de dejar el listado de tramos truncado en la BD sin aviso al usuario.
+    const queries = [
+      { sql: 'DELETE FROM logistica_tramos WHERE proyecto_id = ?', params: [req.params.id] },
+      ...tramos.map(t => ({
+        sql: `INSERT INTO logistica_tramos
+              (id, proyecto_id, numero, origen, destino, duracion, distancia_km, medio,
+               estado_via, calidad, tipo_transporte, orden_publico, seleccionado)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        params: [
           crypto.randomUUID(), req.params.id,
           t.numero || 0, t.origen || '', t.destino || '', t.duracion || '',
           t.distancia_km || 0, t.medio || '', t.estado_via || '', t.calidad || '',
           t.tipo_transporte || '', t.orden_publico || '', t.seleccionado ? 1 : 0,
-        ]
-      );
-    }
+        ],
+      })),
+    ];
+    await runTransaction(queries);
     res.json({ success: true, message: `${tramos.length} tramo(s) guardado(s)` });
   }));
 }

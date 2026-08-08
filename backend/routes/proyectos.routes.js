@@ -291,7 +291,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       `SELECT id, tenant_id, status, payload_es, payload_en, updated_at, name
        FROM projects WHERE id = $1 AND tenant_id = $2`,
       [projectId, tenantId]
-    ).catch(() => null);
+    ).catch(e => { console.warn('[versionado] fallback a legacy', { err: e.message }); return null; });
 
     // Fallback a tabla legacy proyectos si no existe en projects
     if (!project) {
