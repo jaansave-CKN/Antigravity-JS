@@ -151,6 +151,22 @@ validateProductionEnv();
 // backend/middlewares/auth.middleware.js (Operación Bisturí, Grupo Elite,
 // 2026-08-06). Import arriba, junto al resto de middlewares.
 
+// Bug real encontrado por tests/e2e/formulador-financiero.spec.ts (2026-08-08):
+// AuthContextNew.tsx:234 desestructura `data.subscription` de la respuesta de
+// /api/auth/login para decidir a dónde redirigir tras el login
+// (LoginPage.tsx:240-252, redirigirTrasLogin) — pero ni /api/auth/login ni
+// /api/auth/mfa/challenge la enviaban nunca. Resultado: TODOS los usuarios
+// caían al último `else` (SelectionPage) sin importar su plan real, en vez de
+// ir directo a /checklist o /radar. Sin fila en user_subscriptions (usuario
+// nuevo antes de que el trigger/registro la cree), plan 'free' con ambos
+// accesos en false es el resultado correcto — igual que GET /api/subscription.
+async function getLoginSubscription(userId, getRowFn) {
+  const sub = await getRowFn('SELECT plan, access_radar, access_formulador FROM user_subscriptions WHERE user_id = ?', [userId]);
+  return sub
+    ? { plan: sub.plan, access_radar: !!sub.access_radar, access_formulador: !!sub.access_formulador }
+    : { plan: 'free', access_radar: false, access_formulador: false };
+}
+
 // ── setTenantContext ──────────────────────────────────────────────────────────
 // Defensa en profundidad para RLS. El JWT actual solo firma `sub` (userId) y
 // `role` — no lleva tenant_id/org_id como claim — así que el tenant se resuelve
@@ -1382,6 +1398,7 @@ async function start() {
       success: true,
       token,
       user: { id: user.id, email: user.email, nombre: user.nombre, role: user.tipousuario, plan: user.plan || 'free', created_at: user.createdat, is_active: !!user.is_active, email_verified: !!user.email_verified },
+      subscription: await getLoginSubscription(user.id, getRow),
     });
   }));
 
@@ -1414,6 +1431,7 @@ async function start() {
       success: true,
       token,
       user: { id: user.id, email: user.email, nombre: user.nombre, role: user.tipousuario, plan: user.plan || 'free', created_at: user.createdat, is_active: !!user.is_active, email_verified: !!user.email_verified },
+      subscription: await getLoginSubscription(user.id, getRow),
     });
   }));
 
