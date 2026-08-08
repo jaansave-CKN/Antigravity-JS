@@ -430,7 +430,14 @@ export async function runTransaction(queries) {
     try {
       await client.query('BEGIN');
       const results = [];
-      for (const q of queries) results.push(await client.query(q.sql, q.params || []));
+      // FIX (auditoría SRE 2026-08-08): client.query() de node-postgres exige
+      // placeholders $1,$2... — pasar SQL con "?" (la convención de todo el
+      // resto del código) producía "syntax error at end of input", confirmado
+      // en vivo contra la BD real. Se normaliza igual que pgOrRest() abajo.
+      for (const q of queries) {
+        const { sql, params } = normalizePlaceholders(q.sql, q.params || []);
+        results.push(await client.query(sql, params));
+      }
       await client.query('COMMIT');
       return results;
     } catch (err) {

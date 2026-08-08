@@ -8,14 +8,17 @@ import { logger } from '../utils/logger.js';
 import { PostgresRateLimitStore } from './PostgresRateLimitStore.js';
 
 // Resolución de IP segura para IPv4 e IPv6 (usa ipKeyGenerator de express-rate-limit v7+)
-const getRateLimitKey = (req) => {
-  const raw = req.headers['x-forwarded-for'] ||
-              req.socket?.remoteAddress ||
-              req.ip ||
-              'unknown';
-  const ip = typeof raw === 'string' ? raw.split(',')[0].trim() : String(raw);
-  return ipKeyGenerator(ip);
-};
+//
+// FIX (auditoría SRE 2026-08-08, Capa 3 — CRÍTICO): antes se leía
+// req.headers['x-forwarded-for'] directamente, un valor 100% controlado por
+// el cliente — sin `app.set('trust proxy', ...)` configurado (ver server.js),
+// cualquiera podía mandar un XFF distinto en cada request y resetear
+// authLimiter/trialLimiter a voluntad (bypass de fuerza bruta y de Modo
+// Trial). Ahora se delega en `req.ip` de Express, que solo confía en el XFF
+// hasta la cantidad de saltos configurada en trust proxy (1 = balanceador de
+// Render) — un XFF falso agregado por el cliente antes de esa cadena real se
+// descarta automáticamente por Express.
+const getRateLimitKey = (req) => ipKeyGenerator(req.ip || 'unknown');
 
 // ── Rate limiting por tenant para el pipeline financiero (rutas pesadas) ─────
 // Se aplica DESPUÉS de authenticateToken en la cadena de middlewares, así
@@ -172,8 +175,8 @@ const SLOW_DELAY_MS     = 500;             // ms añadidos por request extra
 const SLOW_MAX_DELAY_MS = 10_000;          // tope: 10 s
 
 export function slowDown(req, res, next) {
-  const ip  = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown')
-              .toString().split(',')[0].trim();
+  // FIX (auditoría SRE 2026-08-08): mismo bypass de XFF que getRateLimitKey — ver arriba.
+  const ip  = req.ip || 'unknown';
   const now = Date.now();
   let entry = _slowStore.get(ip);
 
