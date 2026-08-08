@@ -62,19 +62,14 @@ test.describe('Formulador — flujo financiero (COP)', () => {
     await page.getByPlaceholder('operador@institucion.gov').fill(estado.email);
     await page.getByPlaceholder('••••••••••••').fill(estado.password);
     await page.getByRole('button', { name: /ejecutar autenticación/i }).click();
-    // No se afirma la ruta EXACTA post-login: hallazgo real de esta sesión —
-    // LoginPage.tsx:245-246 navega correctamente a /checklist para un usuario
-    // access_formulador (confirmado con logging temporal: redirigirTrasLogin
-    // SÍ recibe {access_formulador:true} y SÍ navega ahí), pero algo en
-    // main.tsx (AppRoutes) revierte esa navegación a "/" un instante después
-    // — se ve en el historial de navegación del navegador (/login → /checklist
-    // → /). No se pudo aislar la causa exacta (posible carrera entre el
-    // redirect declarativo `realAuth ? toHome : <LoginPage/>` de main.tsx:304
-    // y el navigate() imperativo de LoginPage) dentro del alcance de este
-    // sprint — reportado al usuario, no adivinado ni parcheado a ciegas.
-    // Lo que SÍ se afirma con evidencia real: la sesión autenticada existe
-    // (ya no estamos en /login con el formulario visible).
-    await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
+    // Regresión real (2026-08-08): esto rebotaba a "/" un instante después de
+    // llegar a /checklist — race entre el <Navigate> declarativo que main.tsx
+    // montaba para /login y el navigate() imperativo de LoginPage (ver
+    // main.tsx y LoginPage.tsx). Corregido quitando la autoridad de redirect
+    // duplicada — LoginPage es ahora la única que decide, ver su useEffect
+    // de mount-once. Aserción estricta a propósito: si vuelve a bifurcar, que
+    // este test lo detecte.
+    await expect(page).toHaveURL(/\/checklist/, { timeout: 15_000 });
 
     // 2) Selecciona el proyecto E2E creado en global-setup (mismo mecanismo
     // que usa la app: localStorage, ver PresupuestoPage.tsx/AnexosCalcoView.tsx).

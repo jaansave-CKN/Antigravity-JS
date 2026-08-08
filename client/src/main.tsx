@@ -301,7 +301,17 @@ function AppRoutes() {
   return (
     <Routes>
       {/* ── Autenticación (públicas) ───────────────────────────────────────── */}
-      <Route path="/login"          element={realAuth ? toHome : <LoginPage />} />
+      {/* /login SIEMPRE renderiza LoginPage (bug real 2026-08-08, ver
+          tests/e2e/formulador-financiero.spec.ts): con `realAuth ? toHome :
+          <LoginPage/>`, justo tras un login exitoso hay UN render transitorio
+          donde location.pathname todavía es "/login" pero realAuth ya es
+          true — monta <Navigate to="/"> ahí, y su efecto pasivo (interno de
+          react-router-dom) se dispara DESPUÉS del navigate('/checklist')
+          explícito de LoginPage, revirtiéndolo — confirmado con stack trace
+          real parcheando history.pushState/replaceState, no adivinado.
+          LoginPage ahora es la única autoridad de redirect para esta ruta
+          (ver su useEffect de mount-once). */}
+      <Route path="/login"          element={<LoginPage />} />
       <Route path="/register"       element={realAuth ? toHome : <RegisterPage />} />
       <Route path="/reset-password" element={<PasswordResetPage />} />
       <Route path="/validar"         element={<ValidarCuentaPage />} />

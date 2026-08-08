@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
+import { useSubscription } from '../contexts/SubscriptionContext';
 
 // ── Modal recuperación de credenciales ───────────────────────────────────────
 function RecoveryModal({ onClose }: { onClose: () => void }) {
@@ -144,7 +145,8 @@ const LOGIN_CSS = `
 
 // ── Página de autenticación ───────────────────────────────────────────────────
 export default function LoginPage() {
-  const { login, completeMfaLogin, register, enterDemoMode } = useAuth();
+  const { login, completeMfaLogin, register, enterDemoMode, isAuthenticated, token } = useAuth();
+  const { subscription } = useSubscription();
   const navigate  = useNavigate();
   const location  = useLocation();
 
@@ -220,6 +222,22 @@ export default function LoginPage() {
         'Tu sesión expiró (por seguridad, se renovaron las credenciales del servidor). Inicia sesión de nuevo.'
       );
     }
+  }, []);
+
+  // Reemplaza el antiguo guard declarativo de main.tsx (`realAuth ? <Navigate
+  // to="/"/> : <LoginPage/>`) — ese patrón competía con el navigate()
+  // explícito de handleLogin/handleMfaSubmit y ganaba la carrera por diseño
+  // de React Router (su <Navigate> interno se dispara en un efecto pasivo,
+  // después del navigate síncrono de este componente). Mount-once (deps
+  // vacías a propósito): solo cubre "el usuario visita /login a mano ya
+  // logueado" — durante un login real, este efecto ya corrió una vez con
+  // isAuthenticated=false y no vuelve a dispararse, así que nunca compite
+  // con redirigirTrasLogin(result) dentro de handleLogin.
+  useEffect(() => {
+    if (isAuthenticated && token !== 'demo-mode-token') {
+      redirigirTrasLogin(subscription);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const from       = (location.state as any)?.from?.pathname || '/';
