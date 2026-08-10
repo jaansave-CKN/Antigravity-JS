@@ -254,7 +254,14 @@ export async function calcularViabilidadIA(ctx) {
     );
 
     if (!upstream.ok) {
-      if (upstream.status === 429) geminiCB.recordQuotaError();
+      if (upstream.status === 429) {
+        geminiCB.recordQuotaError();
+      } else {
+        // FIX (auditoría SRE Red Team 2026-08-10, Capa 4): mismo patrón que
+        // CopilotoService.js — un fallo no-429 quedaba invisible en logs.
+        const cuerpo = await upstream.text().catch(() => '');
+        logger.error('[ViabilidadAgent] Fallo Gemini no-cuota', { status: upstream.status, body: cuerpo.slice(0, 300) });
+      }
       return calcularViabilidadHeuristica(ctx);
     }
 
@@ -296,7 +303,11 @@ export async function calcularViabilidadIA(ctx) {
       calculadoEn: new Date().toISOString(),
     };
   } catch (err) {
-    if (isQuotaError(err)) geminiCB.recordQuotaError();
+    if (isQuotaError(err)) {
+      geminiCB.recordQuotaError();
+    } else {
+      logger.error('[ViabilidadAgent] Excepción Gemini no-cuota', { err: err.message });
+    }
     return calcularViabilidadHeuristica(ctx);
   }
 }

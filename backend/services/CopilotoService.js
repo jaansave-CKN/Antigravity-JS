@@ -15,6 +15,7 @@ import { supabaseAdmin } from '../config/supabase.config.js';
 import { geminiCB, isQuotaError } from './geminiCircuitBreaker.js';
 import { SMMLV_2026_COP } from './ValorExponencialService.js';
 import { logTokenUsage } from './aiTokenLogger.js';
+import { logger } from '../utils/logger.js';
 
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 const MAX_HISTORIAL_CONTEXTO = 12; // últimos N mensajes enviados a Gemini como contexto
@@ -109,7 +110,16 @@ async function llamarGemini(messages, userId) {
     });
 
     if (!upstream.ok) {
-      if (upstream.status === 429) geminiCB.recordQuotaError();
+      if (upstream.status === 429) {
+        geminiCB.recordQuotaError();
+      } else {
+        // FIX (auditoría SRE Red Team 2026-08-10, Capa 4): antes, cualquier
+        // fallo no-429 (401 clave inválida, 400 malformado, 500/503 caído)
+        // se tragaba en silencio — el usuario siempre veía "cuota agotada"
+        // sin importar la causa real, invisible en logs/monitoreo.
+        const cuerpo = await upstream.text().catch(() => '');
+        logger.error('[Copiloto] Fallo Gemini no-cuota', { status: upstream.status, body: cuerpo.slice(0, 300) });
+      }
       return null;
     }
 
@@ -126,7 +136,11 @@ async function llamarGemini(messages, userId) {
     }).catch(() => {});
     return texto;
   } catch (err) {
-    if (isQuotaError(err)) geminiCB.recordQuotaError();
+    if (isQuotaError(err)) {
+      geminiCB.recordQuotaError();
+    } else {
+      logger.error('[Copiloto] Excepción Gemini no-cuota', { err: err.message });
+    }
     return null;
   }
 }
