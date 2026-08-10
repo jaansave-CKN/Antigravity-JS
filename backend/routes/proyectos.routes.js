@@ -205,6 +205,19 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
 
     const { nombre, fichaTecnica, presupuesto } = req.body;
 
+    // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 4): antes se aceptaba
+    // cualquier tipo JSON-serializable (array, string, número) sin validar
+    // que fuera un objeto, y se persistía tal cual vía JSON.stringify —
+    // confirmado en vivo, corrompía silenciosamente ficha_tecnica/presupuesto
+    // (solo afecta datos propios del mismo usuario, no cross-tenant).
+    const esObjetoPlano = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+    if (fichaTecnica !== undefined && !esObjetoPlano(fichaTecnica)) {
+      return res.status(422).json({ success: false, message: 'fichaTecnica debe ser un objeto JSON.' });
+    }
+    if (presupuesto !== undefined && !esObjetoPlano(presupuesto)) {
+      return res.status(422).json({ success: false, message: 'presupuesto debe ser un objeto JSON.' });
+    }
+
     if (contieneMonedaNoCOP(fichaTecnica) || contieneMonedaNoCOP(presupuesto)) {
       return res.status(422).json({ success: false, message: 'Todos los montos deben estar en Pesos Colombianos (COP) — se detectó otra moneda en la solicitud.' });
     }
