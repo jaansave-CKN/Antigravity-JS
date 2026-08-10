@@ -7,7 +7,7 @@
 import crypto from 'crypto';
 import { runCrossCheck } from '../validators/crossCheckValidator.js';
 import { sanitizeFormuladorBody } from '../middlewares/SecurityMiddleware.js';
-import { calcularViabilidadIA, recolectarContextoViabilidad } from '../services/viabilidadAgent.js';
+import { calcularViabilidadIA, recolectarContextoViabilidad, calcularPuntoEquilibrio } from '../services/viabilidadAgent.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -503,6 +503,62 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
         verification_url: `/api/proyectos/${proyectoId}/hash/verify/${hashValue}`,
       },
     });
+  }));
+
+  /**
+   * POST /api/proyectos/:id/viabilidad-financiera
+   * Punto de Equilibrio — especificación de negocio del Director, fiscalizada
+   * por el Agente Arquitecto 2026-08-09 (ver backend/services/viabilidadAgent.js
+   * :calcularPuntoEquilibrio para el detalle de por qué `is_break_even_reached`
+   * es una comparación de punto único y no un cruce temporal real — este repo
+   * no tiene ninguna tabla de ejecución/flujo de caja por periodo).
+   *
+   * No lleva aiLimiter: es cálculo matemático puro, no invoca Gemini.
+   * Persiste en ficha_tecnica.viabilidad_financiera (JSONB ya existente) en
+   * vez de columnas nuevas — mismo precedente que POST .../viabilidad-ia.
+   *
+   * Body: { costos_fijos_proyectados, costos_variables_totales, ventas_totales_proyectadas }
+   */
+  app.post('/api/proyectos/:id/viabilidad-financiera', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
+    const proyectoId = req.params.id;
+    const { costos_fijos_proyectados, costos_variables_totales, ventas_totales_proyectadas } = req.body;
+
+    if (contieneMonedaNoCOP(req.body)) {
+      return res.status(422).json({ success: false, message: 'Los montos deben expresarse únicamente en COP — se detectó un código de moneda distinto.' });
+    }
+
+    const proyecto = await getRow(
+      'SELECT id, ficha_tecnica, estado FROM proyectos WHERE id = ? AND org_id = ?',
+      [proyectoId, req.userId]
+    );
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    if (proyecto.estado === 'Finalizado') {
+      return res.status(409).json({ success: false, message: 'Un proyecto Finalizado no puede modificarse' });
+    }
+
+    const MENSAJES_ERROR = {
+      BREAK_EVEN_COSTOS_FIJOS_INVALIDOS: 'costos_fijos_proyectados es requerido y debe ser un número ≥ 0.',
+      BREAK_EVEN_COSTOS_VARIABLES_INVALIDOS: 'costos_variables_totales es requerido y debe ser un número ≥ 0.',
+      BREAK_EVEN_VENTAS_INVALIDAS: 'ventas_totales_proyectadas es requerido y debe ser un número > 0.',
+      BREAK_EVEN_MARGEN_INVALIDO: 'costos_variables_totales debe ser menor que ventas_totales_proyectadas — el margen de contribución resultante es cero o negativo, el punto de equilibrio no es matemáticamente alcanzable con estos valores.',
+    };
+
+    let resultado;
+    try {
+      resultado = calcularPuntoEquilibrio({ costos_fijos_proyectados, costos_variables_totales, ventas_totales_proyectadas });
+    } catch (err) {
+      return res.status(422).json({ success: false, code: err.message, message: MENSAJES_ERROR[err.message] || 'Datos financieros inválidos para el cálculo de punto de equilibrio.' });
+    }
+
+    const fichaTecnica    = safeParseJson(proyecto.ficha_tecnica) || {};
+    const fichaActualizada = { ...fichaTecnica, viabilidad_financiera: resultado };
+
+    await runSql(
+      'UPDATE proyectos SET ficha_tecnica = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
+      [JSON.stringify(fichaActualizada), proyectoId, req.userId]
+    );
+
+    return res.json({ success: true, data: resultado });
   }));
 }
 

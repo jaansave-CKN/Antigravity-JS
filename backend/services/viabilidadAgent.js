@@ -28,6 +28,62 @@ import { geminiCB, isQuotaError } from './geminiCircuitBreaker.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
 
+function r2(n) { return Math.round(n * 100) / 100; }
+
+/**
+ * calcularPuntoEquilibrio — punto de equilibrio financiero (break-even) sobre
+ * inputs proyectados estáticos: `break_even_point_cop = costos_fijos /
+ * (1 - costos_variables/ventas)`. Especificación de negocio del Director,
+ * fiscalizada por el Agente Arquitecto 2026-08-09.
+ *
+ * IMPORTANTE (hallazgo del Arquitecto): este repo NO tiene ninguna tabla de
+ * ejecución/flujo de caja real por periodo (verificado: 0 resultados para
+ * flujo_caja|avance_ejecutado|desembolso en todo el schema) — por lo tanto
+ * `is_break_even_reached` NO es "el mes en que se cruza el punto de
+ * equilibrio" (eso requeriría una serie temporal que no existe), sino una
+ * comparación de punto único: ¿el total de ventas proyectadas alcanza o
+ * supera el punto de equilibrio calculado? `metodo_calculo` viaja explícito
+ * en la respuesta (no solo como comentario) para que ningún consumidor
+ * futuro (export, frontend) confunda esto con un dato de ejecución real.
+ *
+ * Lanza Error con código explícito en inputs degenerados (ventas <= 0, o
+ * margen de contribución <= 0) — el Arquitecto exigió rechazo 422, no
+ * Infinity/NaN calculado y persistido silenciosamente (esto gatea decisiones
+ * sobre dinero de inversionistas).
+ */
+export function calcularPuntoEquilibrio({ costos_fijos_proyectados, costos_variables_totales, ventas_totales_proyectadas }) {
+  const fijos     = Number(costos_fijos_proyectados);
+  const variables = Number(costos_variables_totales);
+  const ventas    = Number(ventas_totales_proyectadas);
+
+  if (!Number.isFinite(fijos) || fijos < 0) {
+    throw new Error('BREAK_EVEN_COSTOS_FIJOS_INVALIDOS');
+  }
+  if (!Number.isFinite(variables) || variables < 0) {
+    throw new Error('BREAK_EVEN_COSTOS_VARIABLES_INVALIDOS');
+  }
+  if (!Number.isFinite(ventas) || ventas <= 0) {
+    throw new Error('BREAK_EVEN_VENTAS_INVALIDAS');
+  }
+
+  const margenContribucion = 1 - (variables / ventas);
+  if (margenContribucion <= 0) {
+    throw new Error('BREAK_EVEN_MARGEN_INVALIDO');
+  }
+
+  const breakEvenPointCop = r2(fijos / margenContribucion);
+
+  return {
+    costos_fijos_proyectados: fijos,
+    costos_variables_totales: variables,
+    ventas_totales_proyectadas: ventas,
+    break_even_point_cop: breakEvenPointCop,
+    is_break_even_reached: ventas >= breakEvenPointCop,
+    metodo_calculo: 'proyectado_punto_unico',
+    calculadoEn: new Date().toISOString(),
+  };
+}
+
 function safeParseJson(val, fallback = {}) {
   if (val && typeof val === 'object') return val;
   if (typeof val !== 'string' || !val.trim()) return fallback;
