@@ -8,7 +8,7 @@ const HIDDEN_ON = new Set(['/']);
 
 // Mismo criterio que TopNavBar.tsx: dentro de PILAR A solo Favoritos/Calendario
 // requieren plan Radar (Radar/Panel/Directorio son públicos ahí y en main.tsx).
-// PILAR B completo requiere plan Formulador — las 8 rutas están detrás de
+// PILAR B completo requiere plan Formulador — las 9 rutas están detrás de
 // PlanGate require="formulador" en main.tsx.
 const PLAN_REQUERIDO_A = new Set(['/favoritos', '/calendario']);
 
@@ -27,6 +27,7 @@ const PILAR_B = [
   { to: '/anexos',     label: 'Anexos',           icon: 'attach_file'    },
   { to: '/logistica',  label: 'Logística',        icon: 'route'          },
   { to: '/presupuesto',label: 'Presupuesto',      icon: 'payments'       },
+  { to: '/viabilidad-financiera', label: 'Punto de Equilibrio', icon: 'account_balance' },
   { to: '/ficha',      label: 'Ficha Técnica',    icon: 'id_card'        },
   { to: '/viabilidad', label: 'Viabilidad',       icon: 'analytics'      },
   { to: '/checklist',  label: 'Check-List',       icon: 'checklist'      },
