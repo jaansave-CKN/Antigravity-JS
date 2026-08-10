@@ -4563,23 +4563,31 @@ Reglas:
   // ficha_tecnica (JSON), leyendo y escribiendo en el servidor en una sola
   // petición. Reemplaza el patrón cliente GET→merge→PATCH (usado antes por
   // ContextoPage) que mantenía una copia de ficha_tecnica en el navegador
-  // durante todo el tiempo de edición del usuario — aquí la lectura ocurre
-  // justo antes de escribir, acortando la ventana de carrera entre pestañas.
+  // durante todo el tiempo de edición del usuario.
+  //
+  // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 7 — hallazgo del Agente
+  // Arquitecto, no listado en la auditoría original): el comentario previo de
+  // esta ruta ya admitía que leer-justo-antes-de-escribir solo "acorta la
+  // ventana de carrera", no la elimina — mismo patrón leer-blob→merge-JS→
+  // sobrescribir que proyectos.routes.js /viabilidad-financiera. jsonb_set
+  // con path dinámico cierra la carrera del todo: el merge ocurre atómico
+  // sobre el valor vivo de la fila, sin copia JS intermedia.
   app.patch('/api/proyectos/:id/ficha-tecnica-merge', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const { key, value } = req.body;
     if (!key || typeof key !== 'string') {
       return res.status(400).json({ success: false, message: 'key (string) es requerido' });
     }
-    const proyecto = await getRow('SELECT ficha_tecnica FROM proyectos WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
+    const proyecto = await getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    let ficha = {};
-    try { ficha = JSON.parse(proyecto.ficha_tecnica || '{}'); } catch { ficha = {}; }
-    ficha[key] = value;
-
+    // NOTA: ficha_tecnica es TEXT en la BD real (no JSONB), de ahí el cast
+    // ::jsonb de entrada y ::text de salida.
     await runSql(
-      'UPDATE proyectos SET ficha_tecnica = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
-      [JSON.stringify(ficha), req.params.id, req.userId]
+      `UPDATE proyectos
+       SET ficha_tecnica = jsonb_set(ficha_tecnica::jsonb, ARRAY[?]::text[], ?::jsonb, true)::text,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND org_id = ?`,
+      [key, JSON.stringify(value), req.params.id, req.userId]
     );
     res.json({ success: true, message: 'Ficha técnica actualizada' });
   }));
