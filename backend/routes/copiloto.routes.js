@@ -20,7 +20,7 @@ function wrap(fn) {
   };
 }
 
-export async function registerCopilotoRoutes(app, { authenticateToken, getRow, financialPipelineLimiter }) {
+export async function registerCopilotoRoutes(app, { authenticateToken, getRow, aiLimiter }) {
   async function checkOwnership(proyectoId, userId) {
     return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
@@ -33,7 +33,14 @@ export async function registerCopilotoRoutes(app, { authenticateToken, getRow, f
     res.json({ success: true, data: historial });
   }));
 
-  app.post('/api/proyectos/:id/copiloto/chat', authenticateToken, financialPipelineLimiter, wrap(async (req, res) => {
+  // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 6): antes usaba
+  // financialPipelineLimiter (20/15min = 80/hora efectivo), reservado para
+  // cómputo pesado no-IA (extracción de Excel, cálculos deterministas) — el
+  // único de sus consumidores que realmente invoca Gemini es este endpoint.
+  // Confirmado en vivo: bloqueo exacto en el mensaje #21 de 25 disparados,
+  // 4x más laxo que aiLimiter (20/hora), el limiter real usado en los otros
+  // ~12 endpoints de IA del sistema.
+  app.post('/api/proyectos/:id/copiloto/chat', authenticateToken, aiLimiter, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
