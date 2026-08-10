@@ -30,6 +30,18 @@ async function limpiarHallazgosPrevios(projectId, anexoId) {
     .eq('resuelto', false);
 }
 
+// Limpieza keyed por project_id + tipo (no por anexo_id, que aquí no aplica —
+// es un hallazgo de PROYECTO, no de un anexo puntual). Sin esto, cada llamada
+// a POST /viabilidad-financiera mientras el formulador ajusta cifras
+// duplicaría filas en project_hallazgos — exigencia del Agente Arquitecto.
+async function limpiarHallazgoViabilidadPrevio(projectId) {
+  await supabaseAdmin.from('project_hallazgos')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('tipo', 'VIABILIDAD_FINANCIERA_SIN_PRESUPUESTO')
+    .eq('resuelto', false);
+}
+
 async function auditarHSEQ(projectId, anexoId, orgId, lineas) {
   const totalHSEQ = lineas
     .filter(l => CATEGORIAS_HSEQ.includes(l.categoria_hseq))
@@ -110,6 +122,40 @@ async function auditarDescuadres(projectId, anexoId, orgId, lineas) {
 
   const { error } = await supabaseAdmin.from('project_hallazgos').insert(rows);
   return error ? 0 : rows.length;
+}
+
+/**
+ * Bandera Roja: el punto de equilibrio (viabilidadAgent.calcularPuntoEquilibrio)
+ * se calculó sin que exista NINGÚN presupuesto/APU real ingerido en Anexos
+ * (project_apu_lineas vacío para este proyecto) — es decir, costos_variables_
+ * totales fue tecleado manualmente sin ningún documento real que lo respalde.
+ * Idempotente por project_id+tipo (ver limpiarHallazgoViabilidadPrevio) —
+ * seguro de llamar en cada POST /api/proyectos/:id/viabilidad-financiera.
+ */
+export async function auditarViabilidadFinancieraIncompleta(projectId, orgId) {
+  await limpiarHallazgoViabilidadPrevio(projectId);
+
+  const { count, error: countError } = await supabaseAdmin
+    .from('project_apu_lineas')
+    .select('id', { count: 'exact', head: true })
+    .eq('project_id', projectId);
+  if (countError) return false; // no bloqueante — fallo de lectura no debe tumbar el cálculo de equilibrio
+  if (count > 0) return false;  // sí hay presupuesto real ingerido — nada que reportar
+
+  const { error } = await supabaseAdmin.from('project_hallazgos').insert({
+    project_id: projectId,
+    anexo_id: null,
+    org_id: orgId,
+    fase_phva: 'ACTUAR',
+    tipo: 'VIABILIDAD_FINANCIERA_SIN_PRESUPUESTO',
+    tipo_hallazgo: 'VIABILIDAD_FINANCIERA_SIN_PRESUPUESTO',
+    severidad: 'ALTA',
+    titulo: 'Punto de equilibrio calculado sin presupuesto/APU real adjunto',
+    detalle: 'Se calculó el punto de equilibrio financiero pero el proyecto no tiene ningún presupuesto/APU ingerido en Anexos (project_apu_lineas vacío) — los costos variables totales fueron ingresados manualmente sin un documento real que los respalde.',
+    accion_recomendada: 'Adjuntar el presupuesto/APU real del proyecto en Anexos (categoría "presupuesto_apu", formato Excel) para que los costos variables se calculen automáticamente sobre datos verificables.',
+    resuelto: false,
+  });
+  return !error;
 }
 
 /**
