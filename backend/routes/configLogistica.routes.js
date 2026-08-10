@@ -96,6 +96,12 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, 
 
     const { tramos } = req.body;
     if (!Array.isArray(tramos)) return res.status(400).json({ success: false, message: 'tramos debe ser array' });
+    // FIX (auditoría SRE Red Team 2026-08-10, Capa 3): mismo motivo que
+    // presupuesto.routes.js — sin tope, miles de tramos pequeños caben bajo
+    // el límite de 1MB y saturan la transacción DELETE+INSERT y la tabla del cliente.
+    if (tramos.length > 500) {
+      return res.status(413).json({ success: false, message: 'Máximo 500 tramos por guardado.' });
+    }
 
     // FIX (auditoría SRE 2026-08-08, Capa 5): DELETE + N INSERTs envueltos en
     // una única transacción atómica (mismo patrón ya usado en presupuesto.routes.js)
