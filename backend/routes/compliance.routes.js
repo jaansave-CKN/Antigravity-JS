@@ -92,11 +92,16 @@ export function registerComplianceRoutes(app, { authenticateToken, runSql, getRo
       return res.status(403).json({ success: false, message: 'No tienes permiso sobre este proyecto' });
     }
 
+    // FIX (auditoría SRE Red Team 2026-08-10, Capa 2): el UPDATE filtraba
+    // solo por proyecto_id, apoyándose únicamente en el chequeo de arriba
+    // (proyecto.org_id !== req.userId). No explotable antes (el guard ya
+    // corta con 403), pero sin defensa en profundidad a diferencia del resto
+    // del archivo (líneas 40/59/71 sí repiten AND user_id = ?).
     const existing = await getRow('SELECT id FROM compliance_data WHERE proyecto_id = ?', [req.params.id]);
     if (existing) {
       await runSql(
-        'UPDATE compliance_data SET estado_legal = ?, updated_at = CURRENT_TIMESTAMP WHERE proyecto_id = ?',
-        [estado_legal, req.params.id]
+        'UPDATE compliance_data SET estado_legal = ?, updated_at = CURRENT_TIMESTAMP WHERE proyecto_id = ? AND user_id = ?',
+        [estado_legal, req.params.id, proyecto.org_id]
       );
     } else {
       await runSql(

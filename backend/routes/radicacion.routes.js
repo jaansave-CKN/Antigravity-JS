@@ -78,16 +78,21 @@ export function registerRadicacionRoutes(app, { authenticateToken, runSql, getRo
 
     const { valid, code, discrepancy, detail } = runCrossCheck(fichaTecnica, presupuesto, proyectoId);
 
+    // FIX (auditoría SRE Red Team 2026-08-10, Capa 2): las 2 escrituras de
+    // este endpoint filtraban solo por id, apoyándose únicamente en el guard
+    // de arriba — defensa en profundidad ausente a diferencia del resto del
+    // repo (ej. fichaTecnica.routes.js:107). No explotable antes (el guard sí
+    // corta con 404), pero ahora ambos UPDATE repiten AND user_id = ?.
     if (!valid) {
       await runSql(
         `UPDATE proyectos
            SET estado = 'BLOQUEADO',
                bloqueo_razon = ?,
                updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
+         WHERE id = ? AND user_id = ?`,
         [
           `CROSSCHECK_FAILED: discrepancia de $${Math.abs(discrepancy).toFixed(2)}`,
-          proyectoId,
+          proyectoId, req.userId,
         ]
       );
 
@@ -116,12 +121,12 @@ export function registerRadicacionRoutes(app, { authenticateToken, runSql, getRo
               ficha_tecnica = ?,
               presupuesto = ?,
               updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?`,
+        WHERE id = ? AND user_id = ?`,
       [
         JSON.stringify(sello),
         JSON.stringify(fichaTecnica),
         JSON.stringify(presupuesto),
-        proyectoId,
+        proyectoId, req.userId,
       ]
     );
 
