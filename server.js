@@ -221,7 +221,12 @@ function tryCatch(fn) {
           message: 'El módulo de inteligencia artificial no está disponible en este momento. Contacta al administrador para configurar el servicio.',
         });
       }
-      res.status(500).json({ success: false, message: err.message || 'Error interno del servidor' });
+      // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 4): antes se
+      // devolvía err.message crudo al cliente en cualquier error no
+      // controlado — confirmado en vivo que un error de tipo Postgres llega
+      // íntegro (nombres de constraint, tipos de columna). El logger.error/
+      // Sentry de arriba ya capturan el mensaje completo del lado servidor.
+      res.status(500).json({ success: false, message: 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };
 }

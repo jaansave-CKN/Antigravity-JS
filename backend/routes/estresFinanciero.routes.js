@@ -11,8 +11,12 @@ function wrap(fn) {
   return async (req, res) => {
     try { await fn(req, res); }
     catch (err) {
+      // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 4): mismo criterio
+      // que copiloto.routes.js — err.status presente = mensaje controlado y
+      // seguro (ver EstresadoFinancieroService.js, status=422); ausente = no
+      // exponer err.message crudo.
       console.error('[estresFinanciero]', err.message);
-      res.status(err.status || 500).json({ success: false, message: err.message });
+      res.status(err.status || 500).json({ success: false, message: err.status ? err.message : 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };
 }

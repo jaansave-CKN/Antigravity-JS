@@ -151,7 +151,10 @@ export function registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRo
       );
       res.json({ success: true, connected: !!row, connectedAt: row?.updated_at || null });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 4): no exponer
+      // err.message crudo al cliente.
+      console.error('[google-oauth status]', err.message);
+      res.status(500).json({ success: false, message: 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   });
 
@@ -164,7 +167,10 @@ export function registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRo
       );
       res.json({ success: true, message: 'Conexión con Google revocada.' });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 4): no exponer
+      // err.message crudo al cliente.
+      console.error('[google-oauth revoke]', err.message);
+      res.status(500).json({ success: false, message: 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   });
 }
