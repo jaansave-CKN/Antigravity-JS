@@ -3,6 +3,14 @@ import { logger } from '../utils/logger.js';
 
 const ALERTA_DESVIACION_PCT = 0.30;
 
+// Liquidación de IVA por tipo de contrato — especificación de negocio del
+// Director (Asfáltica S.A.S.), normativa DIAN citada: Decreto 1372/1992
+// (DUR 1625/2016, Art. 1.3.1.7.9) para construcción con base gravable AIU;
+// Art. 447 E.T. para consultoría/ventas sobre valor total. Fiscalizado por
+// el Agente Arquitecto 2026-08-08 antes de codificarse.
+const TARIFA_IVA_GENERAL = 0.19;
+const TIPOS_CONTRATO = Object.freeze(['construccion', 'consultoria', 'ventas']);
+
 export const RENDIMIENTOS_CATALOGO = Object.freeze({
   descapote:             { fase: 'NEGRA',  unidad: 'm2',  valor: 250.00 },
   excavacion_manual:     { fase: 'NEGRA',  unidad: 'm3',  valor:   2.00 },
@@ -57,11 +65,46 @@ export async function getRendimientoRef(clave, getRow = null) {
   return loc ? { valor: loc.valor, unidad: loc.unidad } : null;
 }
 
+// Liquida IVA según tipo_contrato — NUNCA se suma a valorTotal (que preserva
+// su semántica histórica: costo_directo + AIU, sin IVA). Cada consumidor
+// (Ficha Técnica, exportación) decide explícitamente si suma valor_iva.
+function liquidarIVA(tipoContrato, costoDirecto, aiuUtilidad, valorTotal) {
+  if (tipoContrato === 'construccion') {
+    // Base gravable especial AIU (DUR 1625/2016, Art. 1.3.1.7.9): IVA solo
+    // sobre la porción de Utilidad, nunca sobre el costo total de la obra.
+    return r2(costoDirecto * aiuUtilidad * TARIFA_IVA_GENERAL);
+  }
+  // consultoria / ventas (Art. 447 E.T.): IVA sobre el valor total.
+  return r2(valorTotal * TARIFA_IVA_GENERAL);
+}
+
 export async function calcularAPU(item, getRow = null) {
   const cantidad    = Number(item.cantidad        || 0);
   const rendReal    = Number(item.rendimiento_real || 0);
   const costoJornal = Number(item.costo_jornal_dia || 0);
-  const aiu         = Number(item.aiu ?? 0.28);
+
+  // AIU desagregado en sus 3 componentes reales (Administración/Imprevistos/
+  // Utilidad) — defaults provisorios de negocio 20%/3%/5% (suman el 0.28
+  // histórico). Compatibilidad real con PresupuestoPage.tsx:128,248, que hoy
+  // sigue enviando un único campo `aiu` combinado (input editable en la UI,
+  // sin los 3 sub-campos): si el ítem no manda los 3 componentes pero SÍ manda
+  // `aiu` explícito, se reparte proporcionalmente en la misma razón 20/3/5 en
+  // vez de descartarlo — así un AIU custom del usuario (ej. 0.35) seguía
+  // aplicando exactamente igual que antes en valor_total, sin regresión.
+  const RATIO_ADMIN = 0.20 / 0.28, RATIO_IMPREV = 0.03 / 0.28, RATIO_UTIL = 0.05 / 0.28;
+  let aiuAdministracion, aiuImprevistos, aiuUtilidad;
+  if (item.aiu_administracion != null || item.aiu_imprevistos != null || item.aiu_utilidad != null) {
+    aiuAdministracion = Number(item.aiu_administracion ?? 0.20);
+    aiuImprevistos    = Number(item.aiu_imprevistos    ?? 0.03);
+    aiuUtilidad       = Number(item.aiu_utilidad       ?? 0.05);
+  } else {
+    const aiuCombinado = Number(item.aiu ?? 0.28);
+    aiuAdministracion = r2(aiuCombinado * RATIO_ADMIN);
+    aiuImprevistos    = r2(aiuCombinado * RATIO_IMPREV);
+    aiuUtilidad       = r2(aiuCombinado * RATIO_UTIL);
+  }
+  const aiu          = r2(aiuAdministracion + aiuImprevistos + aiuUtilidad);
+  const tipoContrato = TIPOS_CONTRATO.includes(item.tipo_contrato) ? item.tipo_contrato : 'construccion';
 
   if (cantidad <= 0) throw new Error('APU_ERROR: cantidad debe ser > 0');
   if (rendReal <= 0) throw new Error('APU_ERROR: rendimiento_real debe ser > 0');
@@ -77,11 +120,14 @@ export async function calcularAPU(item, getRow = null) {
   const costoEquipos    = r2(sumEquipos(item.equipos || [], cantidad, rendReal));
   const costoDirecto    = r2(costoManoObra + costoMateriales + costoEquipos);
   const valorTotal      = r2(costoDirecto * (1 + aiu));
+  const valorIva        = liquidarIVA(tipoContrato, costoDirecto, aiuUtilidad, valorTotal);
 
   return { rendimiento_ref: rendRef, desviacion_pct: desviacionPct, alerta_rendimiento: alerta,
            jornales: jornadas, costo_mano_obra: costoManoObra, costo_materiales: costoMateriales,
            costo_equipos: costoEquipos, costo_directo: costoDirecto,
-           aiu_valor: r2(costoDirecto * aiu), valor_total: valorTotal };
+           tipo_contrato: tipoContrato,
+           aiu_administracion: aiuAdministracion, aiu_imprevistos: aiuImprevistos, aiu_utilidad: aiuUtilidad,
+           aiu_valor: r2(costoDirecto * aiu), valor_total: valorTotal, valor_iva: valorIva };
 }
 
 export async function procesarPresupuesto(items = [], getRow = null) {

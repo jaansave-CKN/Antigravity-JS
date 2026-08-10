@@ -40,7 +40,7 @@ import { validateStructuralElements } from './backend/validators/structuralValid
 import { generarArbolConIA } from './backend/agents/arbolObjetivosAgent.js';
 import { runMatchPipeline } from './backend/pipeline/matchScore.js';
 import { calcularScoringDinamico } from './backend/services/scoringDinamico.js';
-import { calcularViabilidadIA } from './backend/services/viabilidadAgent.js';
+import { calcularViabilidadIA, recolectarContextoViabilidad } from './backend/services/viabilidadAgent.js';
 import { generarEnfoqueEntidad } from './backend/services/enfoqueEntidadAgent.js';
 import { textToEmbedding, cosineSimilarity, deserializeEmbedding } from './backend/services/embeddingsService.js';
 import { registerRadicacionRoutes } from './backend/routes/radicacion.routes.js';
@@ -4670,46 +4670,13 @@ Reglas:
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
     // project_anexos / objetivos_arbol.supuestos / project_change_theory pueden
-    // no existir todavía en esta instancia (ver nota de despliegue) — cada
-    // consulta degrada con gracia a valor vacío en vez de fallar 500.
-    let anexos = [];
-    try {
-      anexos = await getRows('SELECT nombre_archivo, categoria FROM project_anexos WHERE project_id = ?', [req.params.id]);
-    } catch (e) {
-      logger.warn('[viabilidad-ia] project_anexos no disponible — continuando sin anexos', { proyectoId: req.params.id, err: e.message });
-    }
-
-    let supuestosArbol = [];
-    try {
-      const nodos = await getRows('SELECT supuestos FROM objetivos_arbol WHERE proyecto_id = ? AND supuestos IS NOT NULL', [req.params.id]);
-      supuestosArbol = nodos.map(n => n.supuestos).filter(Boolean);
-    } catch (e) {
-      logger.warn('[viabilidad-ia] objetivos_arbol.supuestos no disponible', { proyectoId: req.params.id, err: e.message });
-    }
-
-    let resultadosCambio = [];
-    try {
-      const tdc = await getRow('SELECT resultados_corto_plazo FROM project_change_theory WHERE proyecto_id = ?', [req.params.id]);
-      if (tdc?.resultados_corto_plazo) resultadosCambio = JSON.parse(tdc.resultados_corto_plazo);
-    } catch (e) {
-      logger.warn('[viabilidad-ia] project_change_theory no disponible', { proyectoId: req.params.id, err: e.message });
-    }
-
-    const fichaTecnica = (() => { try { return JSON.parse(proyecto.ficha_tecnica || '{}'); } catch { return {}; } })();
-    const presupuesto  = (() => { try { return JSON.parse(proyecto.presupuesto  || '{}'); } catch { return {}; } })();
-    const entradaCompleta   = fichaTecnica.entrada_completa   || {};
-    const contextoNarrativo = fichaTecnica.contexto_narrativo || {};
-
-    const resultado = await calcularViabilidadIA({
-      id: req.params.id,
-      userId: req.userId,
-      nombre: proyecto.nombre,
-      problema: contextoNarrativo.A_diagnostico || proyecto.problem_statement || '',
-      metaEsperada: contextoNarrativo.C_meta || '',
-      poblacionAfectada: entradaCompleta.numeroBeneficiarios || '',
-      coberturaGeografica: entradaCompleta.coberturaGeografica || '',
-      presupuesto, anexos, supuestosArbol, resultadosCambio,
-    });
+    // no existir todavía en esta instancia — recolectarContextoViabilidad()
+    // (backend/services/viabilidadAgent.js) degrada con gracia a valor vacío
+    // en cada una en vez de fallar 500. Compartida con
+    // POST /api/proyectos/:id/continuar-formulacion (proyectos.routes.js) —
+    // única fuente de verdad, ya no duplicada (auditoría 2026-08-08).
+    const { ctx, fichaTecnica } = await recolectarContextoViabilidad(proyecto, req.userId, { getRow, getRows });
+    const resultado = await calcularViabilidadIA(ctx);
 
     // Persistencia real dentro de ficha_tecnica (columna JSON ya existente) —
     // evita depender de una columna/tabla nueva que requeriría DDL.
@@ -4765,7 +4732,7 @@ Reglas:
   registerScraperRoutes(app, authenticateToken, requireAdmin);
 
   // Proyectos CRUD con RLS por org_id
-  registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, getRow, getRows, verifyPassword });
+  registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, runTransaction, getRow, getRows, verifyPassword, aiLimiter });
 
   // M4: Presupuesto APU por proyecto
   registerPresupuestoRoutes(app, { authenticateToken, runSql, getRow, getRows });

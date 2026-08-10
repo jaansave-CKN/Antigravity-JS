@@ -80,8 +80,9 @@ export function registerPresupuestoRoutes(app, { authenticateToken, runSql, getR
                 rendimiento_std, rendimiento_real, rendimiento_ref,
                 costo_jornal_dia, materiales, equipos,
                 costo_mano_obra, costo_materiales, costo_equipos,
-                costo_directo, aiu, valor_total)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                costo_directo, aiu, valor_total,
+                tipo_contrato, aiu_administracion, aiu_imprevistos, aiu_utilidad, valor_iva)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         params: [
           crypto.randomUUID(), proyectoId, req.userId,
           it.fase, it.capitulo || '', it.item || '', it.unidad || 'm2', it.cantidad,
@@ -89,6 +90,8 @@ export function registerPresupuestoRoutes(app, { authenticateToken, runSql, getR
           it.costo_jornal_dia, JSON.stringify(it.materiales || []), JSON.stringify(it.equipos || []),
           it.costo_mano_obra, it.costo_materiales, it.costo_equipos,
           it.costo_directo, it.aiu ?? 0.28, it.valor_total,
+          it.tipo_contrato ?? 'construccion', it.aiu_administracion ?? 0.20,
+          it.aiu_imprevistos ?? 0.03, it.aiu_utilidad ?? 0.05, it.valor_iva ?? 0,
         ],
       })),
       {

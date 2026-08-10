@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import { runCrossCheck } from '../validators/crossCheckValidator.js';
 import { sanitizeFormuladorBody } from '../middlewares/SecurityMiddleware.js';
+import { calcularViabilidadIA, recolectarContextoViabilidad } from '../services/viabilidadAgent.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -33,7 +34,7 @@ export function contieneMonedaNoCOP(obj) {
  * @param {import('express').Application} app
  * @param {{ authenticateToken: Function, requireAccess: Function, runSql: Function, getRow: Function, getRows: Function, verifyPassword: Function }} deps
  */
-export function registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, getRow, getRows, verifyPassword }) {
+export function registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, runTransaction, getRow, getRows, verifyPassword, aiLimiter }) {
 
   /**
    * POST /api/proyectos
@@ -401,6 +402,106 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       project_status: record.project_status,
       registered_at:  record.created_at,
       triggered_by:   record.triggered_by,
+    });
+  }));
+
+  /**
+   * POST /api/proyectos/:id/continuar-formulacion
+   * Flujo Delta → Versión N+1 (docs/DISENO_FLUJO_DELTA_VERSION_N+1.md).
+   *
+   * Recibe solo la corrección puntual que el usuario hizo tras recibir
+   * banderas rojas (un campo de ficha_tecnica) — NO reprocesa el proyecto
+   * completo desde cero. Anexos/árbol de objetivos ya están actualizados en
+   * BD por sus propios endpoints (anexos.routes.js, etc.) antes de llegar
+   * aquí, así que recolectarContextoViabilidad() ya los lee frescos.
+   *
+   * Fiscalizado por el Agente Arquitecto 2026-08-08: reutiliza
+   * recolectarContextoViabilidad()/calcularViabilidadIA() (mismo motor que
+   * POST /api/proyectos/:id/viabilidad-ia, no duplicado), envuelve la
+   * escritura del delta + el registro de versión en una sola transacción
+   * (para que un fallo parcial no deje una versión sin su delta persistido
+   * o viceversa), y aplica el mismo guard "Finalizado" + ownership org_id
+   * que el resto de este archivo. tenant_id se homologa a org_id, mismo
+   * patrón ya usado en GET /api/proyectos/:id/hash de este mismo archivo
+   * (`req.tenantId || req.userId`) — no auth.middleware.js, esa referencia
+   * en el documento de diseño estaba mal citada y fue corregida por el
+   * Arquitecto antes de este commit.
+   *
+   * Body: { delta: { ...campos de ficha_tecnica corregidos } }
+   */
+  app.post('/api/proyectos/:id/continuar-formulacion', authenticateToken, requireAccess('formulador'), aiLimiter, wrap(async (req, res) => {
+    const proyectoId = req.params.id;
+    const { delta } = req.body;
+
+    if (!delta || typeof delta !== 'object' || Array.isArray(delta)) {
+      return res.status(400).json({ success: false, message: 'delta es requerido y debe ser un objeto' });
+    }
+    if (contieneMonedaNoCOP(delta)) {
+      return res.status(422).json({ success: false, message: 'El delta debe expresarse únicamente en COP — se detectó un código de moneda distinto.' });
+    }
+
+    const proyecto = await getRow(
+      'SELECT id, nombre, ficha_tecnica, presupuesto, problem_statement, estado FROM proyectos WHERE id = ? AND org_id = ?',
+      [proyectoId, req.userId]
+    );
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    if (proyecto.estado === 'Finalizado') {
+      return res.status(409).json({ success: false, message: 'Un proyecto Finalizado no puede modificarse' });
+    }
+
+    // Reprocesa viabilidad con el delta ya fusionado — mismo motor que
+    // POST /api/proyectos/:id/viabilidad-ia, sin duplicar su lógica.
+    const { ctx, fichaTecnica } = await recolectarContextoViabilidad(proyecto, req.userId, { getRow, getRows }, delta);
+    const resultado = await calcularViabilidadIA(ctx);
+    const fichaActualizada = { ...fichaTecnica, viabilidad_ia: resultado };
+    const fichaJson = JSON.stringify(fichaActualizada);
+    const ahora = new Date().toISOString();
+
+    // Versión N+1 — mismo documento canónico y algoritmo que GET /hash, con
+    // triggered_by propio para que quede trazable cuál fila vino de este
+    // flujo. tenant_id homologado a org_id (single-tenant-per-org hoy).
+    const tenantId = req.tenantId || req.userId;
+    const canonical = JSON.stringify({
+      project_id: proyectoId, tenant_id: tenantId, status: proyecto.estado,
+      payload_es: fichaJson, payload_en: null, db_updated_at: ahora, hashed_at: ahora,
+    });
+    const hashValue = crypto.createHash('sha256').update(canonical, 'utf8').digest('hex');
+
+    // Delta + versión inmutable en una sola transacción — un fallo parcial no
+    // debe dejar el proyecto actualizado sin su versión, ni viceversa.
+    const [, hashRows] = await runTransaction([
+      {
+        sql: 'UPDATE proyectos SET ficha_tecnica = ?, updated_at = ? WHERE id = ? AND org_id = ?',
+        params: [fichaJson, ahora, proyectoId, req.userId],
+      },
+      {
+        sql: `INSERT INTO project_version_hashes
+                (project_id, tenant_id, hash_value, payload_size_bytes, project_status,
+                 triggered_by, created_by_user, metadata)
+              VALUES ($1, $2, $3, $4, $5, 'delta_reprocesado', $6, $7)
+              ON CONFLICT (project_id, hash_value) DO UPDATE
+                SET metadata = project_version_hashes.metadata
+              RETURNING id, project_id, hash_value, project_status, created_at, payload_size_bytes`,
+        params: [
+          proyectoId, tenantId, hashValue, Buffer.byteLength(canonical, 'utf8'),
+          proyecto.estado || 'unknown', req.userId,
+          JSON.stringify({ pipeline_version: '8.0', triggered_from: 'POST /api/proyectos/:id/continuar-formulacion', project_name: proyecto.nombre, delta_keys: Object.keys(delta) }),
+        ],
+      },
+    ]);
+    const hashRecord = hashRows.rows[0];
+
+    res.json({
+      success: true,
+      data: resultado,
+      version: {
+        hash_id: hashRecord.id,
+        hash_value: hashRecord.hash_value,
+        hash_algorithm: 'sha256',
+        triggered_by: 'delta_reprocesado',
+        created_at: hashRecord.created_at,
+        verification_url: `/api/proyectos/${proyectoId}/hash/verify/${hashValue}`,
+      },
     });
   }));
 }
