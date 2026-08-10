@@ -601,11 +601,24 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       modalidades_permitidas: ['total', 'parcial'],
     };
 
-    const fichaActualizada = { ...fichaTecnica, viabilidad_financiera: resultado };
-
+    // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 7): antes se leía
+    // ficha_tecnica completo en JS, se mezclaba y se sobreescribía el blob
+    // entero — confirmado en vivo 3/3 veces: 2 requests concurrentes ambos
+    // respondían 200, pero cualquier otra clave escrita por un actor paralelo
+    // (ej. anexos.routes.js invalidando este mismo campo tras ingerir un
+    // presupuesto) se perdía en silencio. jsonb_set aplica el merge
+    // atómicamente sobre el valor VIVO de la fila en Postgres, nunca sobre
+    // una copia JS obsoleta — no reabre la decisión de no usar optimistic
+    // lock global (esa sigue diferida), solo corrige la atomicidad del merge.
+    // NOTA: proyectos.ficha_tecnica es TEXT en la BD real (no JSONB pese a lo
+    // que declara 001_postgres_schema.sql — deriva de esquema verificada en
+    // vivo), de ahí el cast ::jsonb de entrada y ::text de salida.
     await runSql(
-      'UPDATE proyectos SET ficha_tecnica = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
-      [JSON.stringify(fichaActualizada), proyectoId, req.userId]
+      `UPDATE proyectos
+       SET ficha_tecnica = jsonb_set(ficha_tecnica::jsonb, '{viabilidad_financiera}', ?::jsonb, true)::text,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND org_id = ?`,
+      [JSON.stringify(resultado), proyectoId, req.userId]
     );
 
     return res.json({ success: true, data: resultado });

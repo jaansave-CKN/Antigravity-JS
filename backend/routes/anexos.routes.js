@@ -283,9 +283,19 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
             recalculo_pendiente:   true,
           };
 
+          // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 7): jsonb_set en
+          // vez de sobreescribir el blob completo — este es el otro agente
+          // (junto a proyectos.routes.js /viabilidad-financiera) que puede
+          // escribir esta misma clave en paralelo; mismo fix, mismo motivo.
+          // NOTA: ficha_tecnica es TEXT en la BD real (no JSONB), de ahí el
+          // cast ::jsonb de entrada y ::text de salida — ver mismo fix en
+          // proyectos.routes.js.
           await runSql(
-            'UPDATE proyectos SET ficha_tecnica = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
-            [JSON.stringify({ ...fichaTecnicaActual, viabilidad_financiera: viabilidadActualizada }), req.params.id, req.userId]
+            `UPDATE proyectos
+             SET ficha_tecnica = jsonb_set(ficha_tecnica::jsonb, '{viabilidad_financiera}', ?::jsonb, true)::text,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ? AND org_id = ?`,
+            [JSON.stringify(viabilidadActualizada), req.params.id, req.userId]
           );
         } catch (viabErr) {
           console.error('[anexos] Conector de viabilidad financiera falló (no bloqueante):', viabErr.message);

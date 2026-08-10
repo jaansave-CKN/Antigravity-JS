@@ -372,8 +372,19 @@ async function restUpdate(sql, params) {
     } else if (/^CURRENT_TIMESTAMP$|^NOW\(\)$/i.test(rhs)) {
       // SQL timestamp keyword → convert to ISO string for REST
       body[col] = new Date().toISOString();
+    } else if (/^jsonb_set\s*\(/i.test(rhs)) {
+      // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, hallazgo del Agente
+      // Arquitecto): el comentario de abajo ("Supabase auto-handles") era
+      // falso — PostgREST no ejecuta funciones SQL arbitrarias, la columna
+      // simplemente se omitía del body enviado, con 200 OK y sin escribir
+      // nada. Silencioso y peor que el bug que corrige (viabilidad-financiera,
+      // ficha-tecnica-merge, invalidación de anexos — todos usan jsonb_set).
+      // Falla explícito aquí, igual que ya hace esta Capa 2 ante una
+      // credencial faltante (líneas 33-35) — nunca un éxito fantasma.
+      throw new Error(`restUpdate: jsonb_set() no soportado por la Capa 2 (REST) en la columna "${col}" — requiere Capa 1 (pg directo) activa.`);
     }
-    // Other SQL expressions (functions, literals) skipped — Supabase auto-handles
+    // Other SQL expressions (bare column refs, COALESCE, casts, subqueries)
+    // siguen omitiéndose sin error — comportamiento preexistente, sin cambios.
   }
 
   const filter = whereMatch ? buildFilter(whereMatch[1], params.slice(paramIdx)) : '';
