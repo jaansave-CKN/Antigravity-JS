@@ -18,6 +18,14 @@ let _pgPool    = null;
 let _lastRetry = 0;
 const RETRY_INTERVAL_MS = 60_000; // reintentar cada 60s
 
+// Códigos que SÍ indican que la conexión/pool está realmente caída — solo
+// estos deben abrir el circuito (_pgReady=false). ECONNREFUSED/ETIMEDOUT son
+// códigos de sistema de Node; 08006/08001/08004/57P03 son SQLSTATE de
+// Postgres para fallos de conexión reales (node-postgres los expone en
+// err.code). Cualquier otro error (SQLSTATE de negocio, ej. 42701 duplicate
+// column, 23505 unique_violation) es un error de QUERY, no de conexión.
+const CODIGOS_ERROR_CONEXION = new Set(['ECONNREFUSED', 'ETIMEDOUT', '08006', '08001', '08004', '57P03']);
+
 // ── Config de Supabase REST (Capa 2) ─────────────────────────────────────────
 // SIN fallback hardcodeado para la key: una credencial real quedó commiteada
 // aquí anteriormente (service_role — bypasea RLS por completo). Fue rotada/
@@ -119,7 +127,13 @@ async function pgOrRest(sql, params = []) {
       return await _pgPool.query(q, p);
     } catch (err) {
       console.warn('[DB] pg fallo, escalando a REST:', err.message.substring(0, 80));
-      _pgReady = false;
+      // FIX (auditoría SRE Red Team 2026-08-10, Capa 1): antes, CUALQUIER
+      // error de query (incluida una violación de constraint legítima, ej.
+      // "column already exists" de una migración defensiva idempotente)
+      // tumbaba _pgReady y degradaba TODA la app a Capa 2 (REST) durante
+      // hasta 60s — sin que la conexión en sí tuviera ningún problema real.
+      // Solo errores de conexión genuinos deben abrir el circuito.
+      if (CODIGOS_ERROR_CONEXION.has(err.code)) _pgReady = false;
     }
   }
 
