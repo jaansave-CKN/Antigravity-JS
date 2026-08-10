@@ -16,8 +16,11 @@ function wrap(fn) {
   return async (req, res, next) => {
     try { await fn(req, res, next); }
     catch (err) {
+      // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 4): no exponer
+      // err.message crudo al cliente (puede venir de apuEngine.js o de un
+      // fallo real de BD). Log interno intacto.
       console.error('[presupuesto]', err.message);
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };
 }

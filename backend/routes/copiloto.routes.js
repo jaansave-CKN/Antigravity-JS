@@ -10,8 +10,12 @@ function wrap(fn) {
   return async (req, res) => {
     try { await fn(req, res); }
     catch (err) {
+      // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 4): err.status
+      // presente = error controlado (ver CopilotoService.js, clase con
+      // status=422), mensaje seguro para el cliente. Ausente = error no
+      // controlado (500) — no exponer err.message crudo (ej. detalle de BD).
       console.error('[copiloto]', err.message);
-      res.status(err.status || 500).json({ success: false, message: err.message });
+      res.status(err.status || 500).json({ success: false, message: err.status ? err.message : 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };
 }

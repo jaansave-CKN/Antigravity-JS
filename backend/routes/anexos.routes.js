@@ -71,8 +71,13 @@ function wrap(fn) {
   return async (req, res, next) => {
     try { await fn(req, res, next); }
     catch (err) {
+      // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 4): antes se
+      // devolvía err.message crudo al cliente — confirmado en vivo que un
+      // error de tipo Postgres llega íntegro (nombres de constraint, tipos
+      // de columna). El log interno sigue completo, solo cambia lo que ve
+      // el cliente.
       console.error('[anexos]', err.message);
-      res.status(500).json({ success: false, message: err.message });
+      res.status(500).json({ success: false, message: 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };
 }
