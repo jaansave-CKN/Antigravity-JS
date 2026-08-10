@@ -550,7 +550,20 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       return res.status(422).json({ success: false, code: err.message, message: MENSAJES_ERROR[err.message] || 'Datos financieros inválidos para el cálculo de punto de equilibrio.' });
     }
 
-    const fichaTecnica    = safeParseJson(proyecto.ficha_tecnica) || {};
+    const fichaTecnica = safeParseJson(proyecto.ficha_tecnica) || {};
+
+    // Regla de negocio innegociable del Director (cita literal): "Queda
+    // estrictamente prohibido que el sistema ofrezca esta opción al final de
+    // la etapa de construcción" — prohibición ABSOLUTA e incondicional una
+    // vez etapa_construccion_finalizada es true, sin importar el break-even.
+    // Fiscalizado por el Agente Arquitecto 2026-08-09 (rechazó una primera
+    // versión con polaridad invertida antes de esta).
+    const etapaFinalizada = fichaTecnica.etapa_construccion_finalizada === true;
+    resultado.reinversion = {
+      habilitada: resultado.is_break_even_reached === true && !etapaFinalizada,
+      modalidades_permitidas: ['total', 'parcial'],
+    };
+
     const fichaActualizada = { ...fichaTecnica, viabilidad_financiera: resultado };
 
     await runSql(
@@ -559,6 +572,46 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     );
 
     return res.json({ success: true, data: resultado });
+  }));
+
+  /**
+   * PUT /api/proyectos/:id/etapa-construccion
+   * Marca manual de fin de obra física — no existe en este repo ningún
+   * tracking automático de avance físico real (verificado por el Agente
+   * Arquitecto), así que el Director definió que este campo lo marca el
+   * usuario/formulador explícitamente, no se infiere de proyectos.estado
+   * (workflow de formulación) ni de project_budgets.fase (taxonomía de
+   * trabajo físico NEGRA/GRIS/BLANCA). Reversible (puede volver a false) —
+   * no hay ninguna regla de negocio que exija un candado de un solo sentido.
+   *
+   * Body: { etapa_construccion_finalizada: boolean }
+   */
+  app.put('/api/proyectos/:id/etapa-construccion', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
+    const proyectoId = req.params.id;
+    const { etapa_construccion_finalizada } = req.body;
+
+    if (typeof etapa_construccion_finalizada !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'etapa_construccion_finalizada es requerido y debe ser boolean' });
+    }
+
+    const proyecto = await getRow(
+      'SELECT id, ficha_tecnica, estado FROM proyectos WHERE id = ? AND org_id = ?',
+      [proyectoId, req.userId]
+    );
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    if (proyecto.estado === 'Finalizado') {
+      return res.status(409).json({ success: false, message: 'Un proyecto Finalizado no puede modificarse' });
+    }
+
+    const fichaTecnica = safeParseJson(proyecto.ficha_tecnica) || {};
+    const fichaActualizada = { ...fichaTecnica, etapa_construccion_finalizada };
+
+    await runSql(
+      'UPDATE proyectos SET ficha_tecnica = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
+      [JSON.stringify(fichaActualizada), proyectoId, req.userId]
+    );
+
+    return res.json({ success: true, data: { etapa_construccion_finalizada } });
   }));
 }
 
