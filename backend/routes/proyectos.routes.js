@@ -24,7 +24,7 @@ function wrap(fn) {
 // si algún día se agrega un selector de moneda sin querer, el backend rechace
 // cualquier valor que no sea COP en vez de aceptarlo silenciosamente.
 const CODIGOS_MONEDA_NO_COP = /\b(USD|EUR|GBP|CAD|MXN)\b/;
-function contieneMonedaNoCOP(obj) {
+export function contieneMonedaNoCOP(obj) {
   const texto = JSON.stringify(obj ?? {});
   return CODIGOS_MONEDA_NO_COP.test(texto);
 }
