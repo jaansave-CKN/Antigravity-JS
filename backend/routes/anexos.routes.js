@@ -17,6 +17,7 @@
 import crypto from 'crypto';
 import pLimit from 'p-limit';
 import { supabaseAdmin } from '../config/supabase.config.js';
+import { sanitizeTechnicalText, sanitizeUrl } from '../middlewares/SecurityMiddleware.js';
 import { parseAndSanitizeExcel } from '../services/ExtractorService.js';
 import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js';
 
@@ -133,9 +134,16 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const descripcion = String(req.body?.descripcion || '').slice(0, 500);
-    const texto       = String(req.body?.texto || '').slice(0, 500);
-    const link        = String(req.body?.link || '').slice(0, 500);
+    // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 2): antes solo se
+    // truncaba (.slice), sin sanitizar — un payload <script>/onerror= vivía
+    // íntegro en BD. Hoy inerte (React escapa todo, sin
+    // dangerouslySetInnerHTML en el proyecto — verificado) pero viola el
+    // estándar Zero-Trust. link usa sanitizeUrl (no sanitizeTechnicalText):
+    // su regex on\w+= no ancla a inicio de palabra y corrompería query
+    // strings legítimos como "?ocupacion_id=1".
+    const descripcion = sanitizeTechnicalText(String(req.body?.descripcion || ''), 500);
+    const texto       = sanitizeTechnicalText(String(req.body?.texto || ''), 500);
+    const link        = sanitizeUrl(String(req.body?.link || ''), 500);
 
     if (!req.file && !descripcion.trim() && !texto.trim() && !link.trim()) {
       return res.status(400).json({ success: false, message: 'Adjunta un archivo o completa descripción/texto/link' });
@@ -310,9 +318,9 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const descripcion = String(req.body?.descripcion ?? '').slice(0, 500);
-    const texto        = String(req.body?.texto ?? '').slice(0, 500);
-    const link         = String(req.body?.link ?? '').slice(0, 500);
+    const descripcion = sanitizeTechnicalText(String(req.body?.descripcion ?? ''), 500);
+    const texto        = sanitizeTechnicalText(String(req.body?.texto ?? ''), 500);
+    const link         = sanitizeUrl(String(req.body?.link ?? ''), 500);
 
     await runSql(
       'UPDATE project_anexos SET descripcion = ?, texto = ?, link = ? WHERE id = ? AND project_id = ?',
