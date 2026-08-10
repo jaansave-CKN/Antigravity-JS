@@ -20,6 +20,12 @@ import { supabaseAdmin } from '../config/supabase.config.js';
 import { parseAndSanitizeExcel } from '../services/ExtractorService.js';
 import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js';
 
+function safeParseJson(val) {
+  if (!val) return null;
+  try { return JSON.parse(val); }
+  catch { return val; }
+}
+
 // Amortigua subidas simultáneas de presupuestos pesados: máximo 3 extracciones
 // corriendo a la vez por instancia de Node — el resto se encola en memoria en
 // vez de saturar el pool de conexiones REST de Supabase (Capa 2). Sin Redis/
@@ -96,7 +102,11 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
   });
 
   async function checkOwnership(proyectoId, userId) {
-    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    // Incluye ficha_tecnica (no solo id): el conector de viabilidad financiera
+    // (más abajo, tras ingestar un presupuesto_apu) necesita fusionar sobre el
+    // estado actual sin una segunda consulta — el resto de endpoints de este
+    // archivo ignora este campo, así que ampliarlo aquí es seguro.
+    return getRow('SELECT id, ficha_tecnica FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
   /**
@@ -219,6 +229,58 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
           auditoria = await ejecutarAuditoriaCompleta(req.params.id, id, req.userId, extraccion.lineas);
         } catch (audErr) {
           console.error('[anexos] AuditorForenseService falló (no bloqueante):', audErr.message);
+        }
+
+        // Conector Anexos → Punto de Equilibrio (fiscalizado por el Agente
+        // Arquitecto 2026-08-09): costos_variables_totales se deriva SIEMPRE de
+        // SUM(project_apu_lineas.valor_total_cop) — el presupuesto real recién
+        // ingerido — nunca de un regex-scan del documento (costos_fijos y
+        // ventas_totales siguen siendo exclusivamente entrada manual del
+        // formulador, no hay fuente estructurada real de la que derivarlos).
+        //
+        // Invalidación explícita: si ya existía un punto de equilibrio calculado
+        // (break_even_point_cop, reinversion.habilitada, etc.) en ficha_tecnica,
+        // se limpia aquí — dejarlo junto a un costos_variables_totales nuevo
+        // sería un gate de reinversión de dinero de inversionistas basado en un
+        // presupuesto que ya no es el vigente. Requiere un nuevo POST explícito
+        // a /viabilidad-financiera para recalcular. No bloqueante: un fallo aquí
+        // no debe tumbar una ingesta de presupuesto ya guardada exitosamente.
+        try {
+          // project_apu_lineas tiene RLS (tenant_isolation ON project_apu_lineas
+          // USING org_id = current_setting('app.org_id')) que getRow/runSql no
+          // fija por request — un SELECT vía esa vía devuelve 0 filas siempre,
+          // silenciosamente (verificado en vivo). supabaseAdmin (service_role)
+          // bypasea RLS, mismo cliente que ya usan EstresadoFinancieroService.js
+          // y ValorExponencialService.js para leer esta misma tabla.
+          const { data: lineasApu, error: sumError } = await supabaseAdmin
+            .from('project_apu_lineas')
+            .select('valor_total_cop')
+            .eq('project_id', req.params.id);
+          if (sumError) throw new Error(sumError.message);
+          const costosVariablesTotales = (lineasApu || []).reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
+
+          const fichaTecnicaActual   = safeParseJson(proyecto.ficha_tecnica) || {};
+          const viabilidadPrevia     = fichaTecnicaActual.viabilidad_financiera || {};
+          const viabilidadActualizada = {
+            costos_fijos_proyectados:   viabilidadPrevia.costos_fijos_proyectados   ?? null,
+            ventas_totales_proyectadas: viabilidadPrevia.ventas_totales_proyectadas ?? null,
+            costos_variables_totales:   costosVariablesTotales,
+            costos_variables_totales_fuente: 'auto_extraido_project_apu_lineas',
+            // Cálculo obsoleto tras el nuevo presupuesto — se limpia hasta el
+            // próximo POST /api/proyectos/:id/viabilidad-financiera explícito.
+            break_even_point_cop:  null,
+            is_break_even_reached: null,
+            metodo_calculo:        null,
+            reinversion:           null,
+            recalculo_pendiente:   true,
+          };
+
+          await runSql(
+            'UPDATE proyectos SET ficha_tecnica = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
+            [JSON.stringify({ ...fichaTecnicaActual, viabilidad_financiera: viabilidadActualizada }), req.params.id, req.userId]
+          );
+        } catch (viabErr) {
+          console.error('[anexos] Conector de viabilidad financiera falló (no bloqueante):', viabErr.message);
         }
       } catch (extErr) {
         await runSql('DELETE FROM project_anexos WHERE id = ?', [id]);

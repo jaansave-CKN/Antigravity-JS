@@ -8,6 +8,8 @@ import crypto from 'crypto';
 import { runCrossCheck } from '../validators/crossCheckValidator.js';
 import { sanitizeFormuladorBody } from '../middlewares/SecurityMiddleware.js';
 import { calcularViabilidadIA, recolectarContextoViabilidad, calcularPuntoEquilibrio } from '../services/viabilidadAgent.js';
+import { auditarViabilidadFinancieraIncompleta } from '../services/AuditorForenseService.js';
+import { supabaseAdmin } from '../config/supabase.config.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -517,7 +519,18 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    * Persiste en ficha_tecnica.viabilidad_financiera (JSONB ya existente) en
    * vez de columnas nuevas — mismo precedente que POST .../viabilidad-ia.
    *
-   * Body: { costos_fijos_proyectados, costos_variables_totales, ventas_totales_proyectadas }
+   * costos_variables_totales se calcula EN VIVO como SUM(project_apu_lineas.
+   * valor_total_cop) del proyecto (el presupuesto/APU real que el formulador
+   * adjuntó en Anexos, elaborado en su software especializado) — nunca se
+   * inventa por IA. Si el body manda un valor explícito, se respeta como
+   * sobrescritura manual del formulador; si no, se usa el agregado real. Al
+   * recalcularse en vivo en cada llamada, nunca queda obsoleto frente a un
+   * presupuesto corregido — no depende de un snapshot cacheado en la subida.
+   * costos_fijos_proyectados y ventas_totales_proyectadas siguen siendo
+   * exclusivamente entrada manual del formulador: no existe ninguna tabla en
+   * este esquema de la que derivarlos sin inventar cifras (verificado).
+   *
+   * Body: { costos_fijos_proyectados, ventas_totales_proyectadas, costos_variables_totales? }
    */
   app.post('/api/proyectos/:id/viabilidad-financiera', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyectoId = req.params.id;
@@ -536,19 +549,43 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       return res.status(409).json({ success: false, message: 'Un proyecto Finalizado no puede modificarse' });
     }
 
+    // project_apu_lineas tiene RLS (tenant_isolation USING org_id =
+    // current_setting('app.org_id')) que getRow/runSql no fija por request —
+    // un SELECT por esa vía devuelve 0 filas siempre, silenciosamente
+    // (verificado en vivo). supabaseAdmin (service_role) bypasea RLS, mismo
+    // cliente que ya usan EstresadoFinancieroService.js/ValorExponencialService.js.
+    const { data: lineasApu, error: sumError } = await supabaseAdmin
+      .from('project_apu_lineas')
+      .select('valor_total_cop')
+      .eq('project_id', proyectoId);
+    if (sumError) return res.status(500).json({ success: false, message: `No se pudo leer el presupuesto/APU real: ${sumError.message}` });
+    const costosVariablesAuto = (lineasApu || []).reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
+    const sobrescrituraManual = costos_variables_totales !== undefined && costos_variables_totales !== null && costos_variables_totales !== '';
+    const costosVariablesEfectivos = sobrescrituraManual ? costos_variables_totales : costosVariablesAuto;
+    const costosVariablesFuente    = sobrescrituraManual ? 'manual' : 'auto_extraido_project_apu_lineas';
+
     const MENSAJES_ERROR = {
       BREAK_EVEN_COSTOS_FIJOS_INVALIDOS: 'costos_fijos_proyectados es requerido y debe ser un número ≥ 0.',
-      BREAK_EVEN_COSTOS_VARIABLES_INVALIDOS: 'costos_variables_totales es requerido y debe ser un número ≥ 0.',
+      BREAK_EVEN_COSTOS_VARIABLES_INVALIDOS: 'costos_variables_totales debe ser un número ≥ 0 (calculado automáticamente desde el presupuesto/APU adjunto en Anexos, o provisto manualmente).',
       BREAK_EVEN_VENTAS_INVALIDAS: 'ventas_totales_proyectadas es requerido y debe ser un número > 0.',
       BREAK_EVEN_MARGEN_INVALIDO: 'costos_variables_totales debe ser menor que ventas_totales_proyectadas — el margen de contribución resultante es cero o negativo, el punto de equilibrio no es matemáticamente alcanzable con estos valores.',
     };
 
     let resultado;
     try {
-      resultado = calcularPuntoEquilibrio({ costos_fijos_proyectados, costos_variables_totales, ventas_totales_proyectadas });
+      resultado = calcularPuntoEquilibrio({ costos_fijos_proyectados, costos_variables_totales: costosVariablesEfectivos, ventas_totales_proyectadas });
     } catch (err) {
       return res.status(422).json({ success: false, code: err.message, message: MENSAJES_ERROR[err.message] || 'Datos financieros inválidos para el cálculo de punto de equilibrio.' });
     }
+    resultado.costos_variables_totales_fuente = costosVariablesFuente;
+
+    // Bandera Roja (no un juicio sobre el contenido del presupuesto, solo
+    // presencia/ausencia): si no hay NINGÚN presupuesto/APU real ingerido en
+    // Anexos, se reporta como hallazgo — el formulador decide si lo adjunta,
+    // RadFor-360 no evalúa ni corrige sus documentos técnicos.
+    auditarViabilidadFinancieraIncompleta(proyectoId, req.userId).catch(err => {
+      console.error('[proyectos] auditarViabilidadFinancieraIncompleta falló (no bloqueante):', err.message);
+    });
 
     const fichaTecnica = safeParseJson(proyecto.ficha_tecnica) || {};
 
