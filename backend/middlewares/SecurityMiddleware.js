@@ -153,8 +153,14 @@ export function sanitizeFormuladorBody(req, res, next) {
     if (typeof req.body?.nombre === 'string') {
       req.body.nombre = sanitizeInput(req.body.nombre);
     }
-    if (req.body?.fichaTecnica && typeof req.body.fichaTecnica === 'object') {
-      for (const field of ['nombre', 'descripcion', 'objetivos', 'poblacion', 'municipio', 'convocatoria', 'indicadores', 'mediosVerif', 'supuestos', 'componenteMarco', 'fuenteFinanciamiento', 'contrapartida']) {
+    // FIX (auditoría SRE Red Team 2026-08-10, Capa 3): antes solo cubría 12
+    // campos fijos — cualquier campo nuevo de fichaTecnica quedaba sin
+    // sanitizar por defecto. Ahora cubre TODAS las claves string presentes,
+    // sin necesidad de mantener una lista manual. No es explotable hoy
+    // (React escapa todo, sin dangerouslySetInnerHTML en el proyecto —
+    // verificado), pero cierra el hueco de higiene de datos real.
+    if (req.body?.fichaTecnica && typeof req.body.fichaTecnica === 'object' && !Array.isArray(req.body.fichaTecnica)) {
+      for (const field of Object.keys(req.body.fichaTecnica)) {
         if (typeof req.body.fichaTecnica[field] === 'string') {
           req.body.fichaTecnica[field] = sanitizeTechnicalText(req.body.fichaTecnica[field]);
         }
