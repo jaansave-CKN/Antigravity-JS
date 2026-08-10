@@ -7,6 +7,10 @@ import crypto from 'crypto';
 import { procesarPresupuesto, getRendimientoRef, RENDIMIENTOS_CATALOGO } from '../pipeline/apuEngine.js';
 import { runTransaction } from '../db.js';
 import { logger } from '../utils/logger.js';
+// Reutiliza el guardián de moneda ya existente (backend/routes/proyectos.routes.js)
+// en vez de duplicarlo — este endpoint escribe a proyectos.presupuesto por otra
+// vía (POST /api/proyectos/:id/presupuesto) que no pasaba por ese guardián.
+import { contieneMonedaNoCOP } from './proyectos.routes.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -47,6 +51,9 @@ export function registerPresupuestoRoutes(app, { authenticateToken, runSql, getR
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: 'items[] es requerido y no puede estar vacio' });
+    }
+    if (contieneMonedaNoCOP(items)) {
+      return res.status(422).json({ success: false, message: 'El presupuesto debe expresarse únicamente en COP — se detectó un código de moneda distinto.' });
     }
 
     const proyecto = await getRow('SELECT id, estado, org_id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, req.userId]);
