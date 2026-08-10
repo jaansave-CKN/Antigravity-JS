@@ -5,7 +5,7 @@
 
 import crypto from 'crypto';
 
-export function registerFichaTecnicaRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch }) {
+export function registerFichaTecnicaRoutes(app, { authenticateToken, runSql, runTransaction, getRow, getRows, tryCatch }) {
 
   // GET /api/m12/ficha/:proyectoId — historial de versiones selladas
   app.get('/api/m12/ficha/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
@@ -92,21 +92,26 @@ export function registerFichaTecnicaRoutes(app, { authenticateToken, runSql, get
     const contenido_resumido = `V${version_num} · ${proyecto.nombre} · ${proyecto.estado} · ${firmado_en}`;
     const versionId = crypto.randomUUID();
 
-    await runSql(
-      `INSERT INTO versiones_proyecto
-       (id, proyecto_id, user_id, version_num, hash_sha256, contenido_resumido, firmado_en)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [versionId, proyectoId, req.userId, version_num, hash_sha256, contenido_resumido, firmado_en]
-    );
-
-    // Marcar proyecto como Finalizado y guardar sello
+    // FIX (auditoría SRE Red Team 2026-08-10, Capa 5): el INSERT del sello de
+    // versión y el UPDATE que marca Finalizado eran 2 runSql() secuenciales —
+    // si el proceso caía entre ambos, quedaba una versión "fantasma" sellada
+    // sin que el proyecto hubiera pasado a Finalizado. Mismo patrón de
+    // transacción atómica ya usado en presupuesto.routes.js/configLogistica.routes.js.
     const sello = { hash: hash_sha256, version: version_num, firmado_en, schema: '8.0' };
-    await runSql(
-      `UPDATE proyectos
-       SET estado = 'Finalizado', crosscheck_sello = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND user_id = ? AND estado NOT IN ('BLOQUEADO')`,
-      [JSON.stringify(sello), proyectoId, req.userId]
-    );
+    await runTransaction([
+      {
+        sql: `INSERT INTO versiones_proyecto
+              (id, proyecto_id, user_id, version_num, hash_sha256, contenido_resumido, firmado_en)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        params: [versionId, proyectoId, req.userId, version_num, hash_sha256, contenido_resumido, firmado_en],
+      },
+      {
+        sql: `UPDATE proyectos
+              SET estado = 'Finalizado', crosscheck_sello = ?, updated_at = CURRENT_TIMESTAMP
+              WHERE id = ? AND user_id = ? AND estado NOT IN ('BLOQUEADO')`,
+        params: [JSON.stringify(sello), proyectoId, req.userId],
+      },
+    ]);
 
     res.json({
       success: true,
