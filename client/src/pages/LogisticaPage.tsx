@@ -15,7 +15,6 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import './LogisticaPage.css';
 import { http, ApiError } from '../lib/apiClient';
 import ProyectoSelectorModal from '../components/ProyectoSelectorModal';
-import ConfigProponente from '../components/ConfigProponente';
 
 function mensajeSyncError(e: unknown, contexto: 'cargar' | 'sincronizar'): string {
   const base = contexto === 'cargar'
@@ -294,8 +293,6 @@ export default function LogisticaPage() {
       </header>
 
       <div className="logx__content">
-      <ConfigProponente proyectoId={proyectoId} />
-
       {/* Summary Cards (Bento) — layout horizontal compacto */}
       <section className="logx__bento">
         {/* Tramos Activos */}
