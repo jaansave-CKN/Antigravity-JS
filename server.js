@@ -4754,7 +4754,7 @@ Reglas:
   await registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows, financialPipelineLimiter });
   await registerEstresFinancieroRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
   await registerValorExponencialRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
-  await registerCopilotoRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
+  await registerCopilotoRoutes(app, { authenticateToken, getRow, aiLimiter });
 
   // F5-01: Módulo 9 — Cross-Check Pipeline & Radicación
   registerRadicacionRoutes(app, { authenticateToken, runSql, getRow });
