@@ -4726,7 +4726,7 @@ Reglas:
   registerComplianceRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
 
   // V8.0 — Formulador: M12 Ficha Técnica Maestra (Hash SHA-256)
-  registerFichaTecnicaRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch });
+  registerFichaTecnicaRoutes(app, { authenticateToken, runSql, runTransaction, getRow, getRows, tryCatch });
 
   // Scraping portales oficiales (Minciencias, etc.)
   registerScraperRoutes(app, authenticateToken, requireAdmin);
