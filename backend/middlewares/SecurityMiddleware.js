@@ -148,6 +148,19 @@ export function sanitizeTechnicalText(value, maxLength = 8000) {
     .slice(0, maxLength);
 }
 
+// Sanitización de campos de URL (ej. link de un anexo) — NO usa
+// sanitizeTechnicalText: su regex on\w+\s*= no ancla a inicio de palabra y
+// corrompería query strings/paths legítimos (ej. "?ocupacion_id=1",
+// "?reunion=abc"). Solo neutraliza esquemas peligrosos como prefijo.
+export function sanitizeUrl(value, maxLength = 500) {
+  if (typeof value !== 'string') return value;
+  return value
+    .replace(/^\s*(javascript|data|vbscript)\s*:/gi, '')
+    .replace(/\x00/g, '')
+    .trim()
+    .slice(0, maxLength);
+}
+
 export function sanitizeFormuladorBody(req, res, next) {
   try {
     if (typeof req.body?.nombre === 'string') {
