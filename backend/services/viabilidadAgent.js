@@ -26,6 +26,7 @@
  */
 import { geminiCB, isQuotaError } from './geminiCircuitBreaker.js';
 import { logTokenUsage } from './aiTokenLogger.js';
+import { logger } from '../utils/logger.js';
 
 function safeParseJson(val, fallback = {}) {
   if (val && typeof val === 'object') return val;
@@ -242,6 +243,64 @@ export async function calcularViabilidadIA(ctx) {
     if (isQuotaError(err)) geminiCB.recordQuotaError();
     return calcularViabilidadHeuristica(ctx);
   }
+}
+
+/**
+ * recolectarContextoViabilidad — reúne el contexto real de un proyecto
+ * (anexos, supuestos del árbol, teoría del cambio, ficha técnica/presupuesto)
+ * y arma el `ctx` listo para `calcularViabilidadIA(ctx)`.
+ *
+ * Extraído de POST /api/proyectos/:id/viabilidad-ia (server.js) — auditoría
+ * 2026-08-08 encontró esta misma lógica duplicada al diseñar el flujo Delta →
+ * Versión N+1 (POST /api/proyectos/:id/continuar-formulacion,
+ * proyectos.routes.js). Único punto de verdad ahora; ambos handlers lo llaman.
+ *
+ * `fichaOverride` permite fusionar correcciones del usuario (delta) sobre la
+ * ficha técnica ANTES de recalcular viabilidad, sin persistir nada aquí —
+ * la persistencia queda a cargo de cada caller.
+ */
+export async function recolectarContextoViabilidad(proyecto, userId, { getRow, getRows }, fichaOverride = null) {
+  let anexos = [];
+  try {
+    anexos = await getRows('SELECT nombre_archivo, categoria FROM project_anexos WHERE project_id = ?', [proyecto.id]);
+  } catch (e) {
+    logger.warn('[viabilidad-ia] project_anexos no disponible — continuando sin anexos', { proyectoId: proyecto.id, err: e.message });
+  }
+
+  let supuestosArbol = [];
+  try {
+    const nodos = await getRows('SELECT supuestos FROM objetivos_arbol WHERE proyecto_id = ? AND supuestos IS NOT NULL', [proyecto.id]);
+    supuestosArbol = nodos.map(n => n.supuestos).filter(Boolean);
+  } catch (e) {
+    logger.warn('[viabilidad-ia] objetivos_arbol.supuestos no disponible', { proyectoId: proyecto.id, err: e.message });
+  }
+
+  let resultadosCambio = [];
+  try {
+    const tdc = await getRow('SELECT resultados_corto_plazo FROM project_change_theory WHERE proyecto_id = ?', [proyecto.id]);
+    if (tdc?.resultados_corto_plazo) resultadosCambio = JSON.parse(tdc.resultados_corto_plazo);
+  } catch (e) {
+    logger.warn('[viabilidad-ia] project_change_theory no disponible', { proyectoId: proyecto.id, err: e.message });
+  }
+
+  const fichaTecnicaBase = safeParseJson(proyecto.ficha_tecnica, {});
+  const fichaTecnica = fichaOverride ? { ...fichaTecnicaBase, ...fichaOverride } : fichaTecnicaBase;
+  const presupuesto  = safeParseJson(proyecto.presupuesto, {});
+  const entradaCompleta   = fichaTecnica.entrada_completa   || {};
+  const contextoNarrativo = fichaTecnica.contexto_narrativo || {};
+
+  const ctx = {
+    id: proyecto.id,
+    userId,
+    nombre: proyecto.nombre,
+    problema: contextoNarrativo.A_diagnostico || proyecto.problem_statement || '',
+    metaEsperada: contextoNarrativo.C_meta || '',
+    poblacionAfectada: entradaCompleta.numeroBeneficiarios || '',
+    coberturaGeografica: entradaCompleta.coberturaGeografica || '',
+    presupuesto, anexos, supuestosArbol, resultadosCambio,
+  };
+
+  return { ctx, fichaTecnica };
 }
 
 export { safeParseJson, TAXONOMIA_ANEXO };
