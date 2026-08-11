@@ -38,6 +38,10 @@ export const schemas = {
   }),
 
   modulo10: z.object({
+    // OCC (ADR-0001, Migración A) — opcional: sin este campo no se valida
+    // concurrencia (cliente legacy o primera escritura). Si se envía, debe
+    // coincidir con el último hash registrado o la petición se rechaza (409).
+    version_hash: z.string().length(64).optional(),
     indicadores: z.array(z.object({
       indicador:           z.string().trim().min(1),
       tipo:                z.enum(['producto', 'resultado', 'impacto']).optional(),

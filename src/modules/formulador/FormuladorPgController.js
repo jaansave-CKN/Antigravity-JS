@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import sb from './supabaseClient.js';
 import { Orchestrator000, setServerAuthToken } from '../../orchestrator-engine.js';
+import occGuard from './occGuard.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -136,18 +137,47 @@ export async function listarProyectos(req, res) {
 /**
  * POST /api/formulador/:id/modulo10 — reemplaza los indicadores del proyecto.
  * GET  /api/formulador/:id/modulo10 — recupera los indicadores del proyecto.
+ *
+ * Único endpoint de este controller que reemplaza un recurso ya existente
+ * (los demás son inserción o lectura) — por eso es donde se ancla OCC
+ * (ADR-0001, Migración A): sin verbo PUT/PATCH propio en este router, este
+ * POST cumple ese rol semántico.
  */
 export async function guardarModulo10(req, res) {
   const tenant = getTenant(req);
   if (!tenant) return res.status(400).json({ error: 'Identificador de tenant inválido (se requiere UUID).' });
   if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Identificador de proyecto inválido (se requiere UUID).' });
   const userJwt = getUserJwt(req);
+  const proyectoId = req.params.id;
+  const indicadores = req.body.indicadores || [];
+  const { hash: newHash } = occGuard.computeHash(indicadores);
+
   try {
+    // OCC atómico: lock+check+escritura+hash en UNA sola transacción dentro
+    // de la RPC (008_occ_atomic_guardar_modulo10.sql) — no en 2 llamadas
+    // separadas. Corregido en auditoría 008_AUDITOR_DE_CODIGO (2026-08-11):
+    // el diseño original comparaba el hash antes de llamar a esta RPC, en
+    // otra transacción, dejando una ventana real de carrera entre 2 requests
+    // concurrentes sobre el mismo proyecto.
     const result = await sb.rpc('guardar_modulo10', {
-      p_tenant_id: tenant, p_proyecto_id: req.params.id, p_indicadores: req.body.indicadores || [],
+      p_tenant_id: tenant, p_proyecto_id: proyectoId, p_indicadores: indicadores,
+      p_expected_hash: req.body.version_hash || null, p_new_hash: newHash,
     }, userJwt);
+
     return res.status(201).json(result);
   } catch (err) {
+    if (typeof err.message === 'string' && err.message.startsWith('OCC_CONFLICT')) {
+      return res.status(409).json({ error: err.message });
+    }
+    // guardar_modulo10 (RPC) rechaza si el proyecto no pertenece al tenant —
+    // eso es un intento de escritura cruzada de tenant, no un simple 404:
+    // se registra en el Shadow Ledger (Fase 4.2) antes de responder.
+    if (typeof err.message === 'string' && err.message.includes('no pertenece al tenant')) {
+      await occGuard.registrarViolacionSeguridad({
+        tenantId: tenant, ip: req.ip, jwtSub: req.user?.uid, endpoint: req.originalUrl,
+        tipo: 'tenant_mismatch', detalle: err.message, payload: { proyecto_id: proyectoId }, userJwt,
+      });
+    }
     console.error('[FormuladorController] guardarModulo10:', err.message, err.data ?? '');
     return res.status(err.status ?? 500).json({ error: err.message, detail: err.data });
   }
