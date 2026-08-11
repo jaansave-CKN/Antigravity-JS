@@ -512,7 +512,11 @@ async function initDb() {
       CHECK(estado IN ('draft','in_review','needs_human_review','processing',
                         'formulado','Finalizado','BLOQUEADO','archived')),
     bloqueo_razon TEXT,
-    ficha_tecnica TEXT DEFAULT '{}',
+    -- ficha_tecnica es JSONB nativo desde 037_ficha_tecnica_a_jsonb.sql (antes
+    -- TEXT — este CREATE TABLE es lo que realmente enforceaba TEXT en cada
+    -- arranque, no 001_postgres_schema.sql; ver esa migración para el porqué).
+    -- presupuesto queda TEXT deliberadamente — fuera de alcance de esa migración.
+    ficha_tecnica JSONB DEFAULT '{}'::jsonb,
     presupuesto TEXT DEFAULT '{}',
     crosscheck_sello TEXT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -746,7 +750,7 @@ async function initDb() {
   try { await runSql("ALTER TABLE user_credentials ADD COLUMN label TEXT DEFAULT ''"); } catch {}
   // Migraciones proyectos: columnas que pueden faltar en radar.db de versiones anteriores
   try { await runSql("ALTER TABLE proyectos ADD COLUMN bloqueo_razon TEXT"); } catch {}
-  try { await runSql("ALTER TABLE proyectos ADD COLUMN ficha_tecnica TEXT DEFAULT '{}'"); } catch {}
+  try { await runSql("ALTER TABLE proyectos ADD COLUMN ficha_tecnica JSONB DEFAULT '{}'::jsonb"); } catch {}
   try { await runSql("ALTER TABLE proyectos ADD COLUMN presupuesto TEXT DEFAULT '{}'"); } catch {}
   try { await runSql("ALTER TABLE proyectos ADD COLUMN crosscheck_sello TEXT DEFAULT NULL"); } catch {}
   try { await runSql("ALTER TABLE proyectos ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); } catch {}
@@ -4398,7 +4402,14 @@ Reglas:
   // hija ligada al proyecto matriz (`proyectos`), con su propio enfoque
   // narrativo generado por IA y su propio estado de trámite.
   function extraerContextoMatriz(proyecto) {
-    const fichaTecnica = (() => { try { return JSON.parse(proyecto.ficha_tecnica || '{}'); } catch { return {}; } })();
+    // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10 — migración ficha_tecnica a
+    // JSONB nativo): JSON.parse(objeto) lanza (cae al catch → {}) cuando el
+    // driver pg ya entrega un objeto parseado (columna JSONB real) en vez de
+    // un string — perdía silenciosamente entrada_completa/contexto_narrativo.
+    const fichaTecnica = (() => {
+      if (proyecto.ficha_tecnica && typeof proyecto.ficha_tecnica === 'object') return proyecto.ficha_tecnica;
+      try { return JSON.parse(proyecto.ficha_tecnica || '{}'); } catch { return {}; }
+    })();
     const entradaCompleta   = fichaTecnica.entrada_completa   || {};
     const contextoNarrativo = fichaTecnica.contexto_narrativo || {};
     const poblacionPartes = [entradaCompleta.numeroBeneficiarios, entradaCompleta.coberturaGeografica].filter(Boolean);
