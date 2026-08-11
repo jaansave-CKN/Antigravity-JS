@@ -1,13 +1,15 @@
 {
   "aprobado": true,
-  "firma": "5a27cc67877b11cb0d5010e9f62ce005f604e35e3431048afac9cd5dd23e8513",
-  "timestamp": "2026-08-11T19:08:28.917Z",
-  "firmado_por": "Agente Arquitecto (.claude/agents/architect.md, vía API Anthropic)",
+  "firma": "2053d9bfe7b4751dafa1a01e4e4e2933d33f37f8c45fc5997416d48e80594f2f",
+  "timestamp": "2026-08-11T22:31:30.660Z",
+  "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Renombrado consistente en los 3 artefactos que declaran el rol (AGENTS.md, architecture-gate.cjs, ARQUITECTURA_AGENTICA_ANTIGRAVITY.md) — sin contradicción interna",
-    "Eliminación de stubs (051/054/056) documentada con justificación honesta ('sin lógica real') y referencia a commit (a349dcb)",
-    "Mandato del nuevo agente es acotado y no corrige/ejecuta — reduce riesgo de agente con scope ambiguo",
-    "Diferenciación razonable con 008_AUDITOR_DE_CODIGO (SPA-específico vs. auditoría general)",
-    "Riesgo residual aceptable: .claude/agents/004-sentinela-frontend.md no está en el diff pero se asume existente en el mismo commit o anterior; si no existe, el próximo gate lo detectará como stub huérfano — exactamente el patrón que el agente mismo detecta"
+    "Renombrado architect.md → 002-arquitecto-de-software.md propagado consistentemente en todas las referencias ejecutables de architecture-gate.cjs (5 ocurrencias), AGENTS.md Axioma 1, tabla de topología y diseno_aprobado.json — sin referencias residuales al nombre antiguo dentro del diff",
+    "Nuevos subagentes 001/003/008 son definiciones de rol sin código de aplicación; 003 y 008 declarados read-only (tools: Read/Grep/Glob); mandato de 001 es enrutador, no ejecutor — alcance consistente con jerarquía de AGENTS.md §IV",
+    "ADR-0001 cumple criterios de completitud: contexto verificado con citas reales de archivo:línea, decisión binaria clara (Migración A autorizada / Migración B bloqueada), condiciones de desbloqueo accionables por humano, veto explícito a reintroducir pg",
+    "Bloque 'Gate resuelto' insertado en 005-ingeniero-backend.md es consistente con el veredicto del ADR y no contradice el fallback a SERVICE_KEY ni assertValidTenant ya existentes",
+    "Purga de .agent/06X declarada consistentemente en 001-orquestador-maestro.md §4 y AGENTS.md §IV-B — sin referencias residuales a 06X en el diff",
+    "Diff no toca server.js, src/modules/, esquemas de DB ni código de aplicación — riesgo de regresión funcional mínimo",
+    "Punto menor no bloqueador: comentario en architecture-gate.cjs ~línea 26 dice que 003 nunca tuvo carpeta propia, pero este diff crea 003-esp-diseno-stitch.md — desactualizado, corregible en próximo commit (ya registrado en diseno_aprobado.json razón 7 del ciclo anterior)"
   ]
 }

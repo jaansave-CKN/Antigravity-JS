@@ -19,7 +19,7 @@
 Antigravity OS es un entorno cibernético determinista para la orquestación del Escuadrón Élite. Su objetivo es la ingeniería de software industrial mediante abstracción estricta. Todo agente opera bajo este marco inquebrantable.
 
 ## II. AXIOMAS INQUEBRANTABLES (LEYES DEL SISTEMA)
-1. **Determinismo Estructural (Gate de Arquitectura):** Cero código escrito o modificado sin veredicto `aprobado: true` del Agente Arquitecto (`.claude/agents/architect.md`, invocado por `agents/architecture-gate.cjs --aprobar-diseno` vía API de Anthropic; obligatorio desde 2026-08-08 vía `.git/hooks/pre-commit` + `--check-gate`).
+1. **Determinismo Estructural (Gate de Arquitectura):** Cero código escrito o modificado sin veredicto `aprobado: true` del Agente Arquitecto (`.claude/agents/002-arquitecto-de-software.md`, invocado por `agents/architecture-gate.cjs --aprobar-diseno` vía API de Anthropic; obligatorio desde 2026-08-08 vía `.git/hooks/pre-commit` + `--check-gate`).
 2. **Soberanía Financiera Absoluta:** Toda proyección, presupuesto, motor paramétrico y módulo de costos (ej. RadFor-360) operará estricta y exclusivamente en Pesos Colombianos (COP). El sistema bloqueará cualquier cálculo en divisas extranjeras.
 3. **Aislamiento Multi-Tenant Nivel 0:** Los datos de un dominio jamás contaminan a otro. El Row-Level Security (RLS) y los filtros por tenant son auditorías de paso obligatorio.
 4. **Honestidad Técnica y Verificación:** Prohibido asumir el éxito. Todo agente debe exigir la ejecución del código (Try/Catch) y validar dependencias reales. No se ocultan errores; se exponen y se aíslan.
@@ -28,19 +28,18 @@ Antigravity OS es un entorno cibernético determinista para la orquestación del
 1. **Puerta Socrática (Socratic Gate):** Ante solicitudes de alta complejidad arquitectónica, el orquestador debe frenar la ejecución, evaluar impactos cruzados (Estratégico, Táctico, Crítico) y exponer riesgos antes de delegar tareas operativas.
 2. **Termodinámica de Tokens (Protocolo Caveman):** Las comunicaciones internas entre agentes para extracción de datos (ej. procesamiento de matrices, SIV, evaluaciones) omiten el lenguaje natural. Emiten exclusivamente datos crudos, JSON o matrices.
 
-## IV. TOPOLOGÍA DEL ESCUADRÓN ÉLITE (Actualizada)
-* **`001_ORQUESTADOR_MAESTRO`**: Enrutador Central y Cadena de Mando.
-* **`002_ARQUITECTO_DE_SOFTWARE`**: Planeación, requerimientos y diseño técnico.
-* **`003_ESP_DISENO_STITCH`**: Creador de maquetas visuales e integración UI.
+## IV. TOPOLOGÍA DEL ESCUADRÓN ÉLITE (Actualizada 2026-08-11 — fuente única `.claude/agents/`)
+* **`001_ORQUESTADOR_MAESTRO`**: Enrutador Central y Cadena de Mando — `.claude/agents/001-orquestador-maestro.md`.
+* **`002_ARQUITECTO_DE_SOFTWARE`**: Planeación, requerimientos y diseño técnico — subagente real de solo lectura, `.claude/agents/002-arquitecto-de-software.md`. Gate obligatorio vía `.git/hooks/pre-commit`.
+* **`003_ESP_DISENO_STITCH`**: Gobernanza de tokens de diseño e integridad visual — subagente real de solo lectura, `.claude/agents/003-esp-diseno-stitch.md`. Audita, no maqueta.
 * **`004_SENTINELA_FRONTEND`**: Auditoría de stubs huérfanos y contratos de build en la SPA — subagente real de solo lectura, `.claude/agents/004-sentinela-frontend.md`. Detecta, no corrige.
-* **`005_INGENIERO_BACKEND`**: Bases de datos, APIs y lógica de servidor.
-* **`006_DEVSECOPS_INFRAESTRUCTURA`**: Despliegues a producción y servidores.
-* **`007_DOCUMENTADOR_AS_BUILD`**: Planimetría y documentación final.
-* **`008_AUDITOR_DE_CODIGO`**: QA Red Team, ejecuta el Protocolo Titán.
+* **`005_INGENIERO_BACKEND`**: Bases de datos, APIs, RLS, WORM/OCC — único subagente con permiso de escritura, `.claude/agents/005-ingeniero-backend.md`. Gobernado por `docs/ADR/ADR-0001-auth-rls-worm-occ.md`.
+* **`006_DEVSECOPS_INFRAESTRUCTURA`**: Despliegues a producción y servidores. Sin subagente propio todavía — etiqueta agrupadora, ver `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §1.4`.
+* **`007_DOCUMENTADOR_AS_BUILD`**: Planimetría y documentación final. Sin subagente propio en `.claude/agents/` — artefacto tangible vía `carpetaSalida` en `agents/architecture-gate.cjs`.
+* **`008_AUDITOR_DE_CODIGO`**: QA Red Team, ejecuta el Protocolo Titán — `.claude/agents/008-auditor-de-codigo.md`.
 
-## IV-B. AGENTES DE APOYO (Subsistema)
-* Todos los agentes bajo la nomenclatura `06X` (ej. 06A1, 06B1) son clasificados estrictamente como **Agentes de Apoyo**. Operan fuera del Escuadrón Élite y solo se activan para tareas de soporte secundario.
-* **Corrección de ubicación (2026-08-08):** los archivos `06X` (`06A1_exp_interface.md`, `06A2_explorador_datos.md`, `06B1_logica_sistema.md`, `06B2_arquitecto_datos.md`, `06B3_analista_codigo.md`, `06C1_generador_docs.md`, `06C2_corrector_base.md`, `06C3_gestor_kit.md`) viven en `.agent/agents/` — Sistema B, el scaffold genérico de terceros ("Antigravity Kit"), no en `agents/` (Sistema A, esta jerarquía). Ver `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §0` para el detalle de los 4 sistemas de agentes coexistentes.
+## IV-B. FUENTE ÚNICA DE VERDAD (actualizado 2026-08-11 — purga de `.agent/`)
+La carpeta genérica `.agent/` (scaffold de terceros, "Antigravity Kit" — Sistema B de `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §0`) fue **eliminada del disco**. Los "Agentes de Apoyo" `06X` (`06A1_exp_interface.md`, `06A2_explorador_datos.md`, `06B1_logica_sistema.md`, `06B2_arquitecto_datos.md`, `06B3_analista_codigo.md`, `06C1_generador_docs.md`, `06C2_corrector_base.md`, `06C3_gestor_kit.md`) que vivían ahí ya no existen en ningún punto de este proyecto — no delegar a ellos, no citarlos como disponibles. La única fuente de verdad del Escuadrón Élite (001-008) es `.claude/agents/*.md`, nomenclatura kebab-case (`00X-nombre-del-rol.md`). Toda referencia a `.agent/agents/06X` en documentación fechada antes de 2026-08-11 describe un sistema que ya no existe en disco.
 
 ## V. MARCO LEGAL Y ESTÁNDARES HEREDADOS (vigente, no derogado por el Kernel)
 - **Jurisdicción:** Alineación con la ley colombiana (Normas NSR-10, Código de Comercio y Civil).

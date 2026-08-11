@@ -34,6 +34,15 @@ No repitas trabajo ya hecho ni inventes sobre una base que no existe. Esto es lo
 
 **Conclusión operativa:** Fase 2.2 y parte de Fase 3 tienen base real sobre la que construir. Fases 1 y 4 son trabajo estructural nuevo — pasan por `002` antes de escribir una tabla. Fase 2.1 tal como está escrita ("cero bypass") **contradice el comportamiento actual y necesario del sistema** (el fallback a `SERVICE_KEY` es la única razón por la que el módulo Formulador funciona hoy sin Third-Party Auth configurado) — no la implementes literalmente sin señalar esta contradicción al usuario primero; la solución de fondo es configurar Third-Party Auth en el dashboard de Supabase (acción humana, no de código), no bloquear el fallback y romper el módulo en producción.
 
+## Gate resuelto — `docs/ADR/ADR-0001-auth-rls-worm-occ.md` (2026-08-11)
+
+`002` ya emitió veredicto sobre Fase 1/4. Lee ese ADR completo antes de tocar la base de datos — resume así:
+
+- **Autorizado sin nuevo veredicto:** Migración A (triggers WORM append-only + tabla `project_version_hashes` **sin RLS real**, o con `policy USING(true)` marcada explícitamente como temporal) y el mecanismo OCC de aplicación (`version_hash` en PUT/PATCH, lógica Node, HTTP 409 si difiere).
+- **Sigue bloqueado:** Migración B (políticas RLS reales sobre esas tablas) — condicionada a que el usuario confirme Third-Party Auth activo en el dashboard de Supabase. No lo implementes ni lo simules.
+- **Prohibido explícitamente por el ADR:** reintroducir el paquete `pg` o `SET LOCAL app.tenant_id` — la rama de RLS por GUC de sesión de los proyectos hermanos no es portable a este proyecto (REST-only) y no debe reaparecer aquí.
+- **No toques el fallback a `SERVICE_KEY`** en `supabaseClient.js` — sigue siendo el control primario funcional hasta que Migración B esté activa.
+
 ## Salida obligatoria
 
 ```json

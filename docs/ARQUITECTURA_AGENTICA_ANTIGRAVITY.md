@@ -1,5 +1,5 @@
 # ARQUITECTURA AGÉNTICA ANTIGRAVITY — Auditoría Forense 360° Multiagente + Sistema Completo
-**Fecha:** 2026-08-08, re-verificado y ampliado 2026-08-10 (ver §0-D — hallazgo crítico de divergencia de ramas)
+**Fecha:** 2026-08-08, re-verificado y ampliado 2026-08-10 (§0-D) y 2026-08-11 (§0-E, §0-F ADR-0001, §0-G Migración A, §0-H purga `.agent/`, §0-I auditoría 008 + fix de OCC atómico)
 **Auditor:** Chief AI Architect / Auditor Forense de Sistemas Multiagente / DevSecOps Lead / Chief Software Auditor / System Architect
 **Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS`, **ambas ramas remotas** (`origin/master` y `origin/main`, ver §0-D). `proyectos/` queda fuera del árbol de trabajo local (repos git independientes, `.gitignore:19-24`) — pero ver §0-D sobre su relación real con `origin/main`.
 **Regla de evidencia:** cero suposiciones — cada hallazgo cita archivo real. Donde el volumen hizo impracticable la lectura línea-por-línea de decenas de archivos (los skills de `agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/`, o los 171 commits de `origin/main`), se declara el muestreo usado.
@@ -103,7 +103,107 @@ Auditando `agents/`, `.claude/`, `.agents/`, `backend/agents/` y `backend/servic
 
 ### 0-D.3 Qué significa esto para el resto de este documento
 
+## 0-F. SEXTA RONDA (2026-08-11, misma jornada) — `002` resuelve el bloqueo escalado por `005`, ADR-0001
+
+El usuario escaló formalmente el bloqueo que `005_INGENIERO_BACKEND` reportó al ser creado (§0-E) al rol `002_ARQUITECTO_DE_SOFTWARE`, pidiendo veredicto sobre (1) vía de autenticación definitiva y (2) plano de portabilidad de WORM/OCC desde `Proy_05_SIG` y `Proy_03_RadarFondos`.
+
+Se leyeron íntegros los 2 archivos de migración candidatos a portar más `database.config.js` y `010_rls_complete_audit.sql`/`005_rls_saas_hardening.sql` de `Proy_03_RadarFondos` (definición real de las funciones RLS que usan). **Hallazgo que cambió el veredicto:** la política RLS del proyecto hermano no es una alternativa gratuita a configurar Third-Party Auth — su rama `current_tenant_uuid()` exige un GUC de sesión (`app.tenant_id`) que solo funciona con conexión `pg.Pool` persistente (este proyecto retiró `pg` deliberadamente), y su rama `current_auth_uid()`/`auth.uid()` tiene la *misma* dependencia de Third-Party Auth que bloquea al proyecto raíz. Además, `Proy_03_RadarFondos/backend/config/database.config.js` confirma que su propia Capa 1 (RLS real vía `pg.Pool`) depende de que el usuario "habilite el pooler en Supabase dashboard" — no garantizado —, y degrada a la misma Capa 2 (REST + `SERVICE_KEY`, bypass total) que el hallazgo original de `005`. Es decir: el proyecto que se iba a copiar como "más seguro" tiene el mismo problema sin resolver, solo que fraseado distinto.
+
+**Veredicto emitido, documentado en `docs/ADR/ADR-0001-auth-rls-worm-occ.md`:** Third-Party Auth como vía definitiva (no reintroducir `pg`), con el guardrail Node actual (`assertValidTenant` + `WHERE tenant_id` explícito) como control primario mientras tanto — no removerlo. Portabilidad de WORM/OCC partida en 2 migraciones: **Migración A** (triggers append-only + OCC de aplicación) autorizada ya, sin nuevo veredicto; **Migración B** (RLS real sobre esas tablas) bloqueada hasta que el usuario confirme Third-Party Auth activo en el dashboard. `.claude/agents/005-ingeniero-backend.md` actualizado con un bloque "Gate resuelto" que resume estas condiciones.
+
+**Hallazgo cruzado no pedido, relevante para §6.4:** `database.config.js` de `Proy_03_RadarFondos` documenta en su propio comentario que una credencial `service_role` real quedó commiteada ahí antes y fue/debe ser rotada — dado que ambos proyectos comparten instancia Supabase (memoria ya registrada del usuario), **pendiente que el humano confirme si es la misma credencial ya marcada crítica en §6.4** antes de dar esa revocación por completamente cerrada.
+
+---
+
+## 0-G. SÉPTIMA RONDA (2026-08-11, misma jornada) — `005` ejecuta Migración A de ADR-0001
+
+El usuario autorizó explícitamente a `005_INGENIERO_BACKEND` a ejecutar Migración A (WORM + OCC), con Migración B (RLS real) explícitamente fuera de alcance. Entregables reales, no solo documentados:
+
+- `src/modules/formulador/migrations/007_worm_occ_shadow_ledger.sql` — tablas `project_version_hashes` (Fase 4.1) y `security_violations_ledger` (Fase 4.2, Shadow Ledger), ambas append-only vía trigger (`RAISE EXCEPTION` en `UPDATE`/`DELETE`), con RLS habilitado + política `USING(true)` marcada explícitamente como provisional (no confundir con protección real — Migración B la reemplaza). RPCs: `registrar_version_hash`, `obtener_ultimo_hash`, `registrar_violacion_seguridad`.
+- `src/modules/formulador/occGuard.js` — módulo Node nuevo: hash SHA-256 estable (orden de claves normalizado), `assertVersionOrConflict()` (aborta 409 si el hash del cliente no coincide con el último registrado), `registrarViolacionSeguridad()` (best-effort, fire-and-forget, mismo patrón que `aiTokenLogger.js` de `Proy_03_RadarFondos`).
+- `src/modules/formulador/FormuladorPgController.js` (`guardarModulo10`) — único endpoint de este controller que reemplaza un recurso existente, por eso es donde se ancla OCC: valida versión antes de escribir, registra el nuevo hash tras escribir (best-effort), y alimenta el Shadow Ledger cuando la RPC rechaza la escritura por no pertenecer al tenant (`tenant_mismatch`) — consumidor real del Shadow Ledger desde el día uno, no una tabla huérfana.
+- `src/shared/infrastructure/validation.js` — `schemas.modulo10` acepta `version_hash` opcional (64 chars, sha256 hex).
+- **Preservado sin alterar, por instrucción explícita:** `assertValidTenant()` y el filtro `WHERE tenant_id` de las RPC existentes — siguen siendo el control primario hasta que Migración B esté activa.
+- **Respetado el veto duro del ADR:** ningún archivo nuevo reintroduce `pg` ni `SET LOCAL app.tenant_id` — las 2 tablas nuevas se escriben solo vía RPC `SECURITY INVOKER` autocontenida, mismo patrón que el resto del esquema.
+
+**Validación de gate ejecutada, resultado real (no maquillado):** `node agents/architecture-gate.cjs --check-gate` (modo gratuito, sin costo de API) → `🛑 Sin aprobación vigente: el estado de agents/+src/ cambió después de la firma`. Esto es el comportamiento **correcto y esperado** del gate — cualquier cambio de código invalida la firma anterior por diseño (`hashEstado()`, autoinvalidante). Aprobar una firma nueva requiere `--aprobar-diseno`, que sí gasta la API de Anthropic — no se ejecutó unilateralmente; queda como acción pendiente a decisión del usuario, no como un fallo de esta ronda. Los 3 archivos JS nuevos/modificados pasaron `node --check` (sintaxis válida) antes de este intento de gate.
+
+---
+
+## 0-H. OCTAVA RONDA (2026-08-11, misma jornada) — purga física de `.agent/`, reparación de enlaces rotos
+
+Verificado en disco antes de actuar (no se aceptó la directiva como hecho sin comprobarlo, per protocolo de este proyecto): `.agent/` **efectivamente fue eliminada** (`ls .agent` → "No such file or directory"), y `.claude/agents/architect.md` fue renombrado a `.claude/agents/002-arquitecto-de-software.md` (`git status` mostró el rename `R`). `git status` también reveló que un actor externo a esta sesión ya había agregado `001-orquestador-maestro.md` y `008-auditor-de-codigo.md` a `.claude/agents/` — no creados por esta sesión, releídos íntegros antes de tocarlos (mismo criterio de "no confiar en cambios ajenos sin re-verificar" documentado en `proyectos/Proy_03_RadarFondos/CLAUDE.md`).
+
+**Hallazgo no pedido, pero real: esos 2 archivos nuevos traían sus propios defectos, no solo los enlaces rotos por la purga:**
+- `001-orquestador-maestro.md` §2 seguía ruteando a `004_INGENIERO_FRONTEND` (nombre retirado 2026-08-11, reemplazado por `004_SENTINELA_FRONTEND` en rondas anteriores de esta misma jornada) — corregido.
+- `001-orquestador-maestro.md` §4 reintroducía la clasificación "06X = Agentes de Apoyo" que la ronda §0-B ya había corregido una vez (esos archivos vivían en `.agent/agents/`, recién destruida) — ahora era una referencia a una carpeta que ya no existe en absoluto. Reescrito como nota de fuente única de verdad.
+- `008-auditor-de-codigo.md` tenía `name: 006_auditor_de_codigo` en el frontmatter pese a llamarse `008-auditor-de-codigo.md` — el mismo tipo exacto de contradicción 006-vs-008 que §0-C ya había resuelto una vez y bautizado "Protocolo Titán huérfano". Corregido a `008-auditor-de-codigo` (y las 2 menciones del cuerpo del archivo).
+
+**Enlaces reparados (la orden original):**
+- `agents/architecture-gate.cjs` — 11 referencias a `.claude/agents/architect.md` (incluida `ARCHITECT_PROMPT_PATH`, la ruta que de verdad carga el prompt del gate) actualizadas a `002-arquitecto-de-software.md`. Verificado que el archivo resuelto existe en disco (`ls` confirmó) y que `architect.md` ya no existe bajo ningún path.
+- `AGENTS.md` §III y §IV — referencia del Axioma 1 actualizada; tabla de topología reescrita con la ruta real de cada subagente en `.claude/agents/` (6 de 8 roles ya tienen archivo real: `001`, `002`, `003`, `004`, `005`, `008`; `006`/`007` siguen sin subagente propio, marcado explícitamente); §IV-B reescrita para declarar `.agent/` eliminada en vez de seguir apuntando ahí.
+- `.claude/agents/002-arquitecto-de-software.md` — `name: architect` (frontmatter) no se había actualizado al renombrar el archivo; corregido a `002-arquitecto-de-software` — sin esto, el identificador interno seguía siendo el viejo pese al `git mv`.
+- `.claude/agents/003-esp-diseno-stitch.md` — 1 referencia a `architect.md` corregida.
+
+**Validación de gate:** `agents/architecture-gate.cjs` pasa `node --check` (sintaxis válida). `--check-gate` corre de punta a punta sin crashear y reporta correctamente `Sin aprobación vigente` — esperado, cualquier cambio de archivo invalida la firma anterior por diseño. No se ejecutó `--aprobar-diseno` (gasta API) sin autorización explícita.
+
+---
+
+## 0-I. NOVENA RONDA (2026-08-11, misma jornada) — auditoría forense de `008_AUDITOR_DE_CODIGO` sobre Migración A, hallazgo crítico corregido antes de tocar Supabase
+
+El usuario, correctamente, no aceptó la aprobación del gate de la ronda §0-H como escrutinio real del código de Migración A — esa firma cubrió el trabajo de gobernanza de agentes, sus propias razones dicen explícitamente "no toca... src/modules/... en este diff" pese a que los 3 archivos de Migración A estaban en el mismo diff. Se transfirió el mando a `008_AUDITOR_DE_CODIGO` para una revisión línea por línea, adversarial, de los 3 archivos, antes de autorizar nada contra Supabase.
+
+**Hallazgo CRÍTICO — el OCC tal como se construyó no bloquea la colisión que dice prevenir:** `occGuard.assertVersionOrConflict()` (lee el último hash vía RPC `obtener_ultimo_hash`) y la escritura (RPC `guardar_modulo10`) eran **2 llamadas PostgREST separadas — 2 transacciones Postgres independientes, sin lock entre ellas**. Bajo concurrencia real (el único caso que le importa a OCC — "modificación concurrente en obra", Fase 4.1 del mandato original), 2 requests simultáneos sobre el mismo proyecto pueden ambos leer el mismo "último hash", ambos pasar el check, y ambos escribir — TOCTOU (time-of-check-to-time-of-use) clásico. El mecanismo "funcionaba" solo en el caso trivial sin concurrencia real, que es precisamente el caso que no necesita protección.
+
+**Hallazgo MEDIO — `registrar_version_hash` rompía en guardados sin cambios:** un guardado idéntico al anterior produce el mismo hash, chocando con el índice único `idx_pvh_unique_hash` (`duplicate key`, error 500) para un caso que no es un error.
+
+**Hallazgo MEDIO, documentado, no "corregible" en esta capa — TRUNCATE bypassa los triggers WORM:** `BEFORE DELETE`/`BEFORE UPDATE` no interceptan `TRUNCATE` en Postgres. Solo explotable con acceso SQL directo (dashboard/administrador), que ya está fuera del perímetro de la aplicación — documentado en el propio archivo de migración para que "WORM" no se lea como garantía absoluta sin matiz.
+
+**Verificado y descartado como hallazgo (sin fabricar uno donde no lo hay):** los 3 archivos no contienen ninguna operación financiera ni de costos — el requisito de aritmética entera en COP del mandato original no aplica a este diff, se declara explícitamente en vez de forzar un hallazgo falso. Sin riesgo de inyección SQL (parámetros vía RPC/PostgREST, sin concatenación de strings). Aislamiento de tenant correcto en ambas RPCs nuevas.
+
+**Corrección aplicada antes de sellar (008 no tiene `Write`/`Edit` en su propio mandato — la reparación la ejecutó la misma sesión, actuando como el rol con permiso de escritura, `005`, no el auditor):**
+- `007_worm_occ_shadow_ledger.sql` — `registrar_version_hash` ahora usa `ON CONFLICT (proyecto_id, hash_value) DO NOTHING` + lectura del registro existente — guardado sin cambios deja de ser un error 500.
+- `008_occ_atomic_guardar_modulo10.sql` (nueva) — reemplaza `guardar_modulo10`: `SELECT ... FOR UPDATE` sobre la fila del proyecto (serializa escritores concurrentes del mismo proyecto) + comparación de `p_expected_hash` + DELETE/INSERT de indicadores + registro del nuevo hash, **todo en una sola transacción**. Sigue sin `pg`, sin `SET LOCAL app.tenant_id` — restricción dura del ADR-0001 respetada.
+- `occGuard.js` y `FormuladorPgController.js` — `guardarModulo10` ya no hace un pre-check en llamada separada; calcula el hash en Node y lo pasa como `p_expected_hash`/`p_new_hash` a la RPC atómica. `assertVersionOrConflict`/el pre-check separado quedaron retirados del camino de escritura; `obtenerUltimoHash`/`registrarVersionHash` se conservan como utilidades advisory documentadas (ej. UI que avisa "esto cambió" antes de editar), nunca como gate de escritura.
+
+**Validación:** los 3 archivos JS pasan `node --check`. `--check-gate` vuelve a reportar (correctamente) que la firma anterior ya no es válida — el nuevo archivo `008_occ_atomic_guardar_modulo10.sql` cambia el listado de `src/`, autoinvalidando la aprobación previa por diseño. No se ejecutó `--aprobar-diseno` (gasta API) sin autorización explícita.
+
+**Commit sellado, alcance exclusivamente de este hallazgo (`feat(db):`):** `src/modules/formulador/migrations/007_worm_occ_shadow_ledger.sql`, `008_occ_atomic_guardar_modulo10.sql`, `occGuard.js`, `FormuladorPgController.js`, `src/shared/infrastructure/validation.js` — el resto de cambios pendientes (gobernanza de agentes, ADR, esta auditoría) queda fuera de este commit a propósito, no se mezclan alcances distintos en un mismo commit.
+
+**Sobre "autorización final para ejecutar el SQL en Supabase":** el código queda blindado por esta ronda, pero aplicar DDL/triggers nuevos contra la instancia de producción de Supabase es una acción real, de alto impacto y sin deshacer trivial — no se ejecutó de forma autónoma. Los archivos `007` y `008` de `src/modules/formulador/migrations/` están listos para aplicarse (`psql $DATABASE_URL -f ...` o el editor SQL de Supabase, en ese orden), a la espera de confirmación humana explícita para el paso de producción en sí, no solo para el código que lo implementa.
+
+---
+
 Todo lo demás (§1-§14) describe con precisión la rama `master` — verificado de nuevo hoy (agents/, `.claude/agents/architect.md`, pre-commit hook, listado de carpetas: sin drift detectado más allá del trabajo propio de esta sesión). **Pero "master" puede no ser la rama que Render despliega realmente** — `remotes/origin/HEAD` apunta a `main`, que es la convención estándar de GitHub para señalar la rama por defecto. Esto no se puede resolver desde disco; requiere que el usuario confirme en el dashboard de Render cuál rama está configurada para el servicio `radar-formulador-360`.
+
+---
+
+## 0-E. QUINTA RONDA (2026-08-11) — re-verificación forense completa + 2 hallazgos nuevos, sin drift estructural
+
+Pedido explícito del usuario: repetir la auditoría de los 5 bloques del protocolo original (topografía, MVP real vs. stubs, RBAC, multiagente/FinOps, telemetría/monetización) con foco especial en el ecosistema agéntico — inventario total, organigrama, auditoría anatómica de skills, mapa de integraciones, gaps y plan de remediación. Metodología: verificación directa en disco (no se confió en el hallazgo de un subagente de investigación sin comprobarlo por lectura propia de cada archivo citado), más un agente de investigación en paralelo (`general-purpose`, id `ae5a10eaa007aa11c`) que re-descubrió de forma independiente el mismo inventario de §1-§13 — usado como segunda fuente para contraste, no como fuente primaria.
+
+**Estado de commits verificado hoy:** HEAD local `717d286` ("renombra 004_INGENIERO_FRONTEND a 004_SENTINELA_FRONTEND con subagente real"), **ahora 10 commits adelante de `origin/master`** (`d9e520a`, sin cambio desde §0-D). `origin/main` sigue en `9dfb577` (sin cambios desde el 2026-08-10). El documento ya tenía incorporados en línea (sin fecha propia en el header) los 2 últimos commits reales (`004_SENTINELA_FRONTEND`, eliminación de 051/054/056) — confirmado que §1.2/§1.4/§2.3 ya reflejaban ese estado antes de esta ronda; no se detectó drift entre lo documentado y `git log`/`git ls-tree` de hoy.
+
+**Hallazgo nuevo 1 — `opencode.json` (Sistema E) sigue vivo y contradice la narrativa "solo Claude" de forma más explícita de lo que §1.1 registraba.** Leído completo hoy:
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": { "openrouter": { "api_key": "{env:OPENROUTER_API_KEY}", "api_base": "https://openrouter.ai/api/v1" } },
+  "agent": { "default": { "model": "google/gemini-2.0-flash-lite" } },
+  "mcp": { "enabled": true }
+}
+```
+§1.1 ya lo listaba como Sistema E ("No ejecuta hoy"), pero ningún párrafo señalaba la contradicción directa con §4/§7.1 ("OpenRouter eliminado por completo — decisión de producto"). La purga de MiniMax/OpenRouter (§0, ítem 7) tocó `MiniMaxChat.jsx` y `/api/openrouter/*` en el backend Express, pero no tocó este archivo de configuración de una herramienta de terceros (OpenCode) que sigue declarando OpenRouter/Gemini como proveedor por defecto. No hay evidencia de que nada lo invoque en runtime hoy (no aparece en `package.json` ni es importado por ningún script) — es un fósil de configuración, no una vía de ejecución activa confirmada, pero es exactamente el tipo de "injerto sin resolver" que el protocolo pide señalar: promete un motor que el resto del sistema afirma haber eliminado.
+
+**Hallazgo nuevo 2 — evidencia en vivo, hoy, de que `Skill_Soporte_Automatico.cjs` (ya diagnosticado como roto en §2.3/ítem 16 del plan de remediación) sigue ejecutándose y tocando el repo sin que nadie lo revise.** `git status` de esta ronda muestra `public/estado_antigravity.json` modificado sin commitear — es exactamente el archivo que ese skill reescribe cada 5 minutos leyendo una ruta inexistente (`./.agents`, con "s") y fallando en bucle con un mensaje engañoso ("Reintentando conexión con la base de datos"). No se investigó más a fondo qué proceso lo está disparando (no había ningún proceso Node corriendo visible desde esta sesión) — pero el archivo modificado es prueba física de que el bug documentado en la ronda anterior no es solo teórico, sigue produciendo ruido real en el working tree.
+
+**Sin cambios confirmados por re-lectura directa (no solo por el reporte del subagente):** `.claude/agents/architect.md` y `.claude/agents/004-sentinela-frontend.md` (Sistema C, 2 subagentes reales), `.git/hooks/pre-commit` (gate obligatorio vigente), `skills/ag_skills_registry.json` (estructura de 4 sistemas + 25 skills archivadas, sin nuevas rutas rotas detectadas en el muestreo de esta ronda), `src/orchestrator-engine.js` (motor real de Fase 1, llama `/api/chat`→Claude, sin relación con ningún otro proveedor). `proyectos/api-usuarios/.agent/` confirma la misma duplicación del Sistema B boilerplate ya señalada para `.agent/` raíz (20 agentes genéricos de plantilla, ninguno especializado al dominio) — mencionado aquí solo como confirmación cruzada, sigue fuera del árbol de trabajo local por ser repo git independiente.
+
+**Conclusión de §0-E:** no hay hallazgos estructurales nuevos de peso — la cirugía de las rondas 0/0-B/0-C sigue sólida 3 días después. Los 2 hallazgos de esta ronda son menores (un fósil de configuración sin invocación confirmada, y la reconfirmación en vivo de un bug ya conocido). El punteo de §14 y la matriz de §11 no cambian de estado; se agregan 2 filas nuevas en §12 (ver abajo).
+
+**Remediación ejecutada en esta misma ronda:** el usuario aportó el contenido para `003_ESP_DISENO_STITCH`, el único de los 3 roles restantes sin sustancia (`003`/`005`/`006`, ver §1.4) que tenía una propuesta concreta lista para implementar. Se creó `.claude/agents/003-esp-diseno-stitch.md` (Read/Grep/Glob, solo lectura, mismo patrón que `002`/`004`) — mandato: auditar fuga de estilos fuera de Tailwind, desalineación con el patrón dark UI ya establecido, y duplicación de componentes visuales, coordinando (no duplicando) con `002` y `004`. Se verificó primero el estado real del sistema de diseño del proyecto (`public/src/index.css:1` — Tailwind 4 vía `@import`, sin `@theme` ni paleta custom) para que el agente no audite contra tokens que no existen. §1.2 y §1.4 actualizados: de 8 roles, ahora **3** tienen subagente real (`002`, `003`, `004`).
+
+**Segunda remediación, misma ronda:** el usuario aportó también el contenido para `005_INGENIERO_BACKEND` — a diferencia de `002`/`003`/`004` (solo lectura), este rol pide `Write`/`Edit`/`Bash`, es decir, puede mutar el repo de verdad. Antes de crear el archivo se fundamentó cada fase del mandato contra el código real de `src/modules/formulador/supabaseClient.js`, y apareció una **contradicción activa, no un gap silencioso**: la Fase 2.1 del mandato exige "cero bypass de `service_role` en lógica de negocio regular", pero `sbFetch()` (líneas 51-68 de ese archivo) hoy degrada a `SERVICE_KEY` en *toda* llamada porque Supabase no tiene Third-Party Auth (Firebase) configurado — el aislamiento real depende del filtro `WHERE tenant_id` explícito en cada RPC, no de RLS por rol. Implementar la Fase 2.1 tal como está escrita, literalmente, rompería el módulo Formulador en producción. `.claude/agents/005-ingeniero-backend.md` documenta esto explícitamente y prohíbe a este subagente implementar Fase 1 (WORM) o Fase 4 (Shadow Ledger/OCC) — subsistemas que no existen en este proyecto raíz, aunque sí existen ya como referencia real en 2 proyectos hermanos (`proyectos/Proy_05_SIG/app/migrations/008_sprint6_worm.sql` y `proyectos/Proy_03_RadarFondos/backend/migrations/009_project_version_hashes.sql`) — sin veredicto previo de `002_ARQUITECTO_DE_SOFTWARE`. §1.2 y §1.4 actualizados: de 8 roles, ahora **4** tienen subagente real (`002`, `003`, `004`, `005`), aunque `005` es el único con permiso de escritura y por tanto el de mayor blast radius del grupo.
 
 ---
 
@@ -127,13 +227,17 @@ Todo lo demás (§1-§14) describe con precisión la rama `master` — verificad
 │
 ├── Escuadrón Élite (8 roles, ESCUADRON_ELITE en architecture-gate.cjs)
 │   ├── 002_ARQUITECTO_DE_SOFTWARE — sin carpeta propia: .claude/agents/architect.md
-│   ├── 003_ESP_DISENO_STITCH      — sin carpeta propia, subordinados: []
+│   ├── 003_ESP_DISENO_STITCH      — subordinados: [] (con subagente real desde 2026-08-11:
+│   │                                .claude/agents/003-esp-diseno-stitch.md)
 │   ├── 004_SENTINELA_FRONTEND     — subordinados: [] (renombrado 2026-08-11, ahora con
 │   │                                subagente real: .claude/agents/004-sentinela-frontend.md)
 │   ├── 005_INGENIERO_BACKEND      — 009_gestor_datos, 011_Radar1_minero,
 │   │                                012_Radar2_Estratega, 050_Formulador_proy,
 │   │                                07-ing-concreto_GFRC, 08-estratega-neuromarketing
 │   │                                (051_Form_Lluvia_de_ideas eliminado 2026-08-11, stub)
+│   │                                — subagente real desde 2026-08-11:
+│   │                                .claude/agents/005-ingeniero-backend.md (único con
+│   │                                permiso de escritura: Read/Write/Edit/Grep/Glob/Bash)
 │   ├── 006_DEVSECOPS_INFRAESTRUCTURA — 03-analista-secop, 052_Form_Administrativo,
 │   │                                14-analista-comportamiento, 015_intelligence-core
 │   │                                (054/056 eliminados 2026-08-11, stubs — commit a349dcb)
@@ -187,14 +291,14 @@ El usuario pidió explícitamente separar el juicio: ¿los 8 roles (`001`-`008`)
 |---|---|---|
 | `001_ORQUESTADOR_MAESTRO` | Sí — `IDENTITY.md` (tabla de ruteo) + `ejecutarTodosLosAgentes()` en código | 🟠 El código real es un batch runner crudo (sin ruteo condicional, sin reintentos); y el propio `IDENTITY.md` alucina 2 subordinados inexistentes (`100_reparador_codigo`, `09-legal-licitaciones`, IDENTITY.md:30,23) |
 | `002_ARQUITECTO_DE_SOFTWARE` | Sí — `.claude/agents/architect.md`, gate real | 🟢 Único genuinamente de alto nivel — verificado 3 veces con razonamiento real distinto según el diff |
-| `003_ESP_DISENO_STITCH` | No | 🔴 Solo una línea `rol`+`mandato` en el objeto. Cero conexión con las herramientas MCP de Stitch que sí existen en el proyecto |
+| `003_ESP_DISENO_STITCH` | Sí — `.claude/agents/003-esp-diseno-stitch.md`, subagente real de solo lectura (creado 2026-08-11) | 🟢 Mandato acotado: audita fuga de estilos fuera de Tailwind, desalineación con el patrón dark UI, duplicación de componentes; documenta explícitamente que el proyecto no tiene `@theme`/paleta custom hoy (Tailwind por defecto), y que generar/editar pantallas en Stitch (`mcp__stitch__*`) queda fuera de su alcance de solo lectura — no reemplaza ese flujo, lo audita desde afuera |
 | `004_SENTINELA_FRONTEND` (renombrado 2026-08-11, antes `004_INGENIERO_FRONTEND`) | Sí — `.claude/agents/004-sentinela-frontend.md`, subagente real de solo lectura | 🟢 Mandato acotado y honesto: audita stubs huérfanos (patrón `FrozenPage.jsx`) y contratos de build — no corrige, no ejecuta el build él mismo |
-| `005_INGENIERO_BACKEND` | No — etiqueta agrupadora sobre 7 carpetas preexistentes | 🟠 Sin `IDENTITY.md`, sin código propio, sin criterio de ingeniería definido en ningún lado |
+| `005_INGENIERO_BACKEND` | Sí — `.claude/agents/005-ingeniero-backend.md`, subagente real creado 2026-08-11, **único con permiso de escritura** (Read/Write/Edit/Grep/Glob/Bash) de los subagentes reales del Escuadrón Élite | 🟡 Mandato ambicioso (WORM, RLS hard-gate, COP entero, OCC, shadow ledger) — grounded contra el código real al crearlo, y expuso una contradicción activa (ver §0-E): su Fase 2.1 ("cero bypass de `service_role`") choca de frente con `supabaseClient.js`, que hoy degrada a `SERVICE_KEY` en toda llamada porque Third-Party Auth no está configurado en Supabase. El archivo documenta la contradicción explícitamente y prohíbe implementar Fase 1/4 (WORM, shadow ledger — no existen en este proyecto) sin veredicto previo de `002` |
 | `006_DEVSECOPS_INFRAESTRUCTURA` | No — mismo patrón | 🔴 Su propio `rol` dice "Despliegues a producción, servidores" — ninguno de sus 6 subordinados hace eso (son agentes de Formulador y compliance) |
 | `007_DOCUMENTADOR_AS_BUILD` | Parcial — `carpetaSalida` real, genera acta en `docs/as-build/` | 🟡 Segundo más real de los 8 — único con un artefacto de código tangible propio, no prestado de un subordinado |
 | `008_AUDITOR_DE_CODIGO` | No — cero subordinados, cero código | 🔴 Cita "Protocolo Titán" (ver §0-C, término sin definición en ningún lado). `architect.md` lo cita como destino de las auditorías post-hoc que él mismo rechaza — pero no hay nada del otro lado para recibirlas |
 
-**Conclusión de §1.4 (actualizada 2026-08-11):** de 8 roles, ahora 2 tienen subagente real (`002`, `004`) y 1 más tiene un artefacto propio tangible (`007`). Los otros 5 no son agentes en ningún sentido operativo — o son una frase suelta dentro de un objeto JavaScript, o una etiqueta nueva sobre agentes preexistentes sin lógica ni identidad propia. Dos de ellos (`001`, `006`) tienen algo peor que estar vacíos: su propia descripción es falsa.
+**Conclusión de §1.4 (actualizada 2026-08-11, ronda §0-E):** de 8 roles, ahora 4 tienen subagente real (`002`, `003`, `004`, `005`) y 1 más tiene un artefacto propio tangible (`007`). De los 4 con subagente, solo `005` puede escribir/mutar el repo — los otros 3 son de solo lectura por diseño. Quedan 3 roles sin sustancia (`001` como batch runner crudo con IDENTITY.md alucinado, `006`, `008`) — dos de ellos (`001`, `006`) tienen algo peor que estar vacíos: su propia descripción es falsa.
 
 ---
 
@@ -424,6 +528,8 @@ Aislamiento de estado por usuario: respetado en Supabase (tenant derivado de UID
 | 19 | `008_AUDITOR_DE_CODIGO` citado activamente por `architect.md` como destino de auditorías post-hoc, pero sin ninguna implementación del otro lado | 🔴 Alta | Pendiente — ver §13-B, diseño propuesto |
 | 20 | `IDENTITY.md` de `001_ORQUESTADOR_MAESTRO` alucina 2 subordinados inexistentes (`100_reparador_codigo`, `09-legal-licitaciones`) | 🟠 Media | Pendiente — purgar esas 2 líneas del documento |
 | 21 | `006_DEVSECOPS_INFRAESTRUCTURA` — su `rol` declarado no coincide con lo que agrupa (dice "despliegues a producción", ninguno de sus 6 subordinados hace eso) | 🟡 Media-baja | Pendiente — reescribir el `rol` para reflejar la realidad, o darle trabajo real de DevSecOps (dueño natural del propio hook de pre-commit, de `npm audit`) |
+| 22 | `opencode.json` (Sistema E) sigue declarando OpenRouter/Gemini como proveedor por defecto, contradiciendo la purga documentada en §0/§7.1 | 🟢 Baja (sin invocación runtime confirmada) | Pendiente — decisión de producto: borrar el archivo o documentar explícitamente por qué se conserva |
+| 23 | `Skill_Soporte_Automatico.cjs` sigue tocando `public/estado_antigravity.json` en el working tree (confirmado 2026-08-11 vía `git status`), reconfirma en vivo el bug ya descrito en el ítem 16 | 🟠 Media | Pendiente — mismo fix que el ítem 16, ahora con evidencia de que sigue corriendo sin supervisión |
 
 ---
 
@@ -513,12 +619,13 @@ Honesto, no inflado: separado en lo que el código puede resolver (100%) y lo qu
 
 ---
 
-## REPORTE CONSOLIDADO — Top 5 fallas estructurales vigentes (actualizado 2026-08-10, ronda §0-D)
+## REPORTE CONSOLIDADO — Top 5 fallas estructurales vigentes (actualizado 2026-08-11, ronda §0-E)
 
-- **`origin/master` y `origin/main` son dos historiales de git sin ancestro común, y `main` (171 commits, actividad de hoy) es la rama default real del repo — no `master`, la rama que este documento y toda la sesión trataron como "el proyecto" hasta hoy.** Ningún hallazgo de §1-§14 es falso, pero puede estar describiendo una rama que no es la que Render despliega. Ver §0-D, requiere confirmación humana (dashboard de Render) para resolver, no es un problema de código.
+- **`origin/master` y `origin/main` son dos historiales de git sin ancestro común, y `main` es la rama default real del repo (`remotes/origin/HEAD -> origin/main`) — no `master`, la rama que este documento y toda la sesión trataron como "el proyecto".** Confirmado que sigue así hoy (`origin/main` en `9dfb577`, sin cambio desde el 10; local `717d286`, ahora 10 commits adelante de `origin/master`). Ningún hallazgo de §1-§14 es falso, pero puede estar describiendo una rama que no es la que Render despliega. Ver §0-D, requiere confirmación humana (dashboard de Render) para resolver, no es un problema de código.
 - **`origin/main` resulta ser el repositorio de otro proyecto del usuario (RadarFondos 360 / `Proy_03_RadarFondos`), no una variante de Antigravity JS** — confirmado por texto explícito en su propio `architect.md`. Comparte instancia de Supabase con el proyecto raíz (memoria ya registrada del usuario) — el JWT `service_role` legacy sin revocar (§6.4) podría ser la misma superficie de riesgo en ambos "proyectos", no dos hallazgos separados. Ver §0-D.1.
-- **De los 8 roles del Escuadrón Élite (rama `master`), solo 2 tienen sustancia real** (`002_ARQUITECTO_DE_SOFTWARE` y `007_DOCUMENTADOR_AS_BUILD`) — los otros 6 son una frase suelta en un objeto JavaScript o una etiqueta nueva sobre agentes preexistentes, y 2 de ellos (`001`, `006`) tienen su propia descripción **falsa**. Ver §1.4.
-- **`Skill_001_Gestor_Encoding.cjs` dispara `firebase deploy --only hosting` sin ningún gate de confirmación** — un skill etiquetado como arreglador de encoding con capacidad oculta de desplegar a producción. Ver §2.3.
-- **JWT legacy `service_role` de Supabase, sin fecha de expiración práctica y con bypass total de RLS, sigue sin revocar** — único hallazgo puramente humano que queda abierto en `master`; ahora con relevancia potencialmente cruzada a `main` (ver arriba).
+- **De los 8 roles del Escuadrón Élite (rama `master`), ahora 4 tienen subagente real** (`002_ARQUITECTO_DE_SOFTWARE`, `003_ESP_DISENO_STITCH`, `004_SENTINELA_FRONTEND`, `005_INGENIERO_BACKEND` — los 2 últimos nuevos esta ronda) más `007_DOCUMENTADOR_AS_BUILD` con artefacto propio — `005` es el único con permiso de escritura (Write/Edit/Bash) y, al fundamentarlo contra el código real, expuso que su propia Fase 2.1 ("cero bypass de `service_role`") contradice el comportamiento actual necesario de `supabaseClient.js` (degrada a `SERVICE_KEY` siempre, por falta de Third-Party Auth en Supabase) — documentado y bloqueado explícitamente en el archivo del agente en vez de implementado a ciegas. Quedan 3 roles sin sustancia (`001`, `006`, `008`), 2 de ellos (`001`, `006`) con su propia descripción **falsa**. Ver §1.4.
+- **`Skill_001_Gestor_Encoding.cjs` dispara `firebase deploy --only hosting` sin ningún gate de confirmación**, y `Skill_Soporte_Automatico.cjs` sigue reescribiendo `public/estado_antigravity.json` cada 5 minutos en un bucle de fallo con mensaje engañoso — confirmado en vivo hoy vía `git status` (ítem 23, §0-E). Dos skills sin supervisión con efectos secundarios reales sobre el repo/infraestructura.
+- **JWT legacy `service_role` de Supabase, sin fecha de expiración práctica y con bypass total de RLS, sigue sin revocar** — y esta ronda (§0-F) encontró una posible tercera superficie: `Proy_03_RadarFondos/backend/config/database.config.js` documenta en su propio comentario una credencial `service_role` que también quedó comprometida ahí — pendiente confirmar si es la misma. Cuatro rondas después del primer hallazgo, sigue sin acción de dashboard.
+- **Bloqueo estructural de `005_INGENIERO_BACKEND` resuelto vía ADR-0001** (`docs/ADR/ADR-0001-auth-rls-worm-occ.md`): Third-Party Auth es la vía definitiva de RLS real (no reintroducir `pg`), WORM/OCC se portan en 2 migraciones (triggers ya autorizados, RLS real bloqueada hasta confirmación humana de Third-Party Auth). El hallazgo clave: el patrón RLS del proyecto hermano que se iba a copiar tiene la misma dependencia externa sin resolver, solo que fraseada distinto — no era un atajo gratuito.
 
-**Documento consolidado, actualizado 4 veces (§0/§0-B/§0-C/§0-D — la última no reescribe, extiende y re-verifica lo anterior), guardado en disco:** `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` ✅
+**Documento consolidado, actualizado 6 veces (§0/§0-B/§0-C/§0-D/§0-E/§0-F — cada ronda no reescribe, extiende y re-verifica lo anterior), guardado en disco:** `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` ✅ — más `docs/ADR/ADR-0001-auth-rls-worm-occ.md` (nuevo)

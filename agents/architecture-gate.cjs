@@ -22,14 +22,14 @@ const dirRoot = path.join(dirAgents, '..');
 // 8 roles (001-008). 001 es este mismo orquestador (no es una clave del objeto,
 // es quien lo ejecuta — mismo patrón que el 000_ORQUESTADOR_MAESTRO anterior).
 // 002 (Arquitecto) y 003 (Esp. Diseño Stitch) no tienen carpeta en agents/ —
-// 002 vive en .claude/agents/architect.md (gate real); 003 nunca tuvo carpeta
+// 002 vive en .claude/agents/002-arquitecto-de-software.md (gate real); 003 nunca tuvo carpeta
 // propia (heredado sin cambios del esquema anterior). 004 y 008 son roles
 // declarados sin ningún subordinado implementado todavía — honesto, no relleno.
 // =============================================================================
 const ESCUADRON_ELITE = {
     '003_ESP_DISENO_STITCH': {
         rol: 'Arquitecto Visual y Maquetador de Interfaces (promovido desde agents/11-esp-diseno-grafico-y-stitch/, folder eliminado 2026-08-05)',
-        mandato: 'Prohibido maquetar con datos falsos. Toda UI consume estrictamente los contratos JSON de RPC/REST aprobados por el Agente Arquitecto (002, .claude/agents/architect.md) y construidos por 005_INGENIERO_BACKEND.',
+        mandato: 'Prohibido maquetar con datos falsos. Toda UI consume estrictamente los contratos JSON de RPC/REST aprobados por el Agente Arquitecto (002, .claude/agents/002-arquitecto-de-software.md) y construidos por 005_INGENIERO_BACKEND.',
         subordinados: [],
     },
     '004_SENTINELA_FRONTEND': {
@@ -57,7 +57,7 @@ const ESCUADRON_ELITE = {
         carpetaSalida: path.join(dirRoot, 'docs', 'as-build'),
     },
     '008_AUDITOR_DE_CODIGO': {
-        rol: 'QA Red Team, ejecuta el Protocolo Titán — audita código ya escrito o traído de otras redes (mandato explícito en .claude/agents/architect.md, que se niega a hacer esta tarea y redirige aquí)',
+        rol: 'QA Red Team, ejecuta el Protocolo Titán — audita código ya escrito o traído de otras redes (mandato explícito en .claude/agents/002-arquitecto-de-software.md, que se niega a hacer esta tarea y redirige aquí)',
         subordinados: [],
     },
 };
@@ -91,7 +91,7 @@ function rutear(clave) {
 
 // =============================================================================
 // GATE DE ARQUITECTURA — Cero Código sin Diseño Aprobado
-// El Agente Arquitecto (.claude/agents/architect.md) debe emitir un veredicto
+// El Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md) debe emitir un veredicto
 // {"aprobado": true, ...} sobre el diff pendiente antes de que el Mando Central
 // autorice ejecutar a cualquier subordinado. La firma es un hash del estado real
 // en disco: si algo cambia después de firmar, la aprobación cae.
@@ -99,19 +99,19 @@ function rutear(clave) {
 // de este archivo, de AGENTS.md y de .agent/agents/000_orquestador.md) nunca tuvo
 // implementación real — no existía ningún archivo de definición ni lógica de
 // revisión, y la firma se autoaprobaba sin criterio. El Agente Arquitecto real
-// (.claude/agents/architect.md) sí lee y razona (Read/Grep/Glob) antes de fallar.
+// (.claude/agents/002-arquitecto-de-software.md) sí lee y razona (Read/Grep/Glob) antes de fallar.
 // =============================================================================
 // Vive directo en agents/ (NO dentro de ninguna carpeta \d{2,3}[_-]*) — si estuviera
 // dentro de una carpeta de agente, escribir la firma cambiaría el listado de esa
 // carpeta y la firma se autoinvalidaría en el acto.
 const APROBACION_PATH = path.join(dirAgents, 'diseno_aprobado.json');
-const ARCHITECT_PROMPT_PATH = path.join(dirRoot, '.claude', 'agents', 'architect.md');
+const ARCHITECT_PROMPT_PATH = path.join(dirRoot, '.claude', 'agents', '002-arquitecto-de-software.md');
 // Mismo criterio que server.js/m1Pipeline.js: modelo vía env var, no hardcodeado
 // por tercera vez (hallazgo 2026-08-08, se había centralizado en los otros 2
 // archivos pero se pasó por alto este).
 const ANTHROPIC_MODEL = process.env.PRIMARY_AI_MODEL || 'claude-sonnet-4-6';
 
-// Invoca al Agente Arquitecto real: system prompt = architect.md, input = git diff
+// Invoca al Agente Arquitecto real: system prompt = 002-arquitecto-de-software.md, input = git diff
 // pendiente contra HEAD. Nunca autoaprueba por ausencia de respuesta — todo camino
 // de error devuelve aprobado:false con la razón concreta (Honestidad Técnica).
 async function pedirVeredictoArquitecto() {
@@ -279,12 +279,12 @@ if (process.argv.includes('--check-gate')) {
 }
 
 // Modo firma: `node agents/architecture-gate.cjs --aprobar-diseno`
-// Invoca al Agente Arquitecto real (.claude/agents/architect.md vía API de
+// Invoca al Agente Arquitecto real (.claude/agents/002-arquitecto-de-software.md vía API de
 // Anthropic) sobre el git diff pendiente. Solo si su veredicto es aprobado:true
 // se calcula el hash y se escribe diseno_aprobado.json — ya no hay autofirma.
 if (process.argv.includes('--aprobar-diseno')) {
     (async () => {
-        console.log('\n🔎 [Agente Arquitecto] Evaluando git diff HEAD contra .claude/agents/architect.md...');
+        console.log('\n🔎 [Agente Arquitecto] Evaluando git diff HEAD contra .claude/agents/002-arquitecto-de-software.md...');
         const veredicto = await pedirVeredictoArquitecto();
 
         if (!veredicto.aprobado) {
@@ -305,7 +305,7 @@ if (process.argv.includes('--aprobar-diseno')) {
             aprobado: true,
             firma,
             timestamp: new Date().toISOString(),
-            firmado_por: 'Agente Arquitecto (.claude/agents/architect.md, vía API Anthropic)',
+            firmado_por: 'Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)',
             razones: veredicto.razones,
         }, null, 2) + '\n', 'utf8');
         console.log(`\n✅ [Agente Arquitecto] Diseño aprobado. Firma: ${firma}`);
