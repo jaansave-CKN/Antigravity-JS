@@ -7,7 +7,7 @@ description: |
   DIFERENCIA CRÍTICA con humanizer base: ese skill está optimizado para eliminar
   patrones de IA en inglés. Este skill adapta la salida al registro institucional
   correcto en español (embajadas, alcaldías, ONGs, multilaterales, curadurías).
-  Asignado a 056_Form_Evaluador para procesamiento de entregables externos.
+  Sin agente asignado (056_Form_Evaluador, su único consumidor, fue eliminado 2026-08-11).
 allowed-tools:
   - Read
   - Write
@@ -160,4 +160,4 @@ OUTPUT: documento_final listo para firma/radicación
 
 ## ⚠️ Nota de armonización (2026-08-04)
 
-Existe otro skill con el mismo nombre de carpeta en `.agent/skills/humanizer-es/` (usado por otra herramienta de IA vía `.agent/workflows/`, ver `.agent/rules/GEMINI.md`). **No son la misma skill ni intercambiables**: esa versión está asignada a `306_FORM_DIALECTICO` (agente que no existe en el árbol `agents/` actual — posible referencia obsoleta) y advierte contra confundirse con `humanizer-zh`; esta versión está asignada a `056_Form_Evaluador` y advierte contra confundirse con un `humanizer` genérico en inglés. Coinciden en nombre de carpeta por compartir origen de plantilla, pero el contenido diverge de forma real — no fusionar ni borrar ninguna de las dos sin revisión de negocio explícita.
+Existe otro skill con el mismo nombre de carpeta en `.agent/skills/humanizer-es/` (usado por otra herramienta de IA vía `.agent/workflows/`, ver `.agent/rules/GEMINI.md`). **No son la misma skill ni intercambiables**: esa versión está asignada a `306_FORM_DIALECTICO` (agente que no existe en el árbol `agents/` actual — posible referencia obsoleta) y advierte contra confundirse con `humanizer-zh`; esta versión advertía contra confundirse con un `humanizer` genérico en inglés y estaba asignada a `056_Form_Evaluador` (eliminado 2026-08-11 — este skill queda sin consumidor). Coinciden en nombre de carpeta por compartir origen de plantilla, pero el contenido diverge de forma real — no fusionar ni borrar ninguna de las dos sin revisión de negocio explícita.

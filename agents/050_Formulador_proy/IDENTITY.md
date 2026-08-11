@@ -87,32 +87,25 @@ SOLICITUD_USUARIO
     ↓
 INSTANCIAR_ALIAS (este agente)
     ↓
-TRANSFERIR a 051 (lluvia de ideas — con alias colapsados)
-    ↓
 TRANSFERIR a 052 (administrativo — SECOP/pliegos si aplica)
-    ↓
-TRANSFERIR a 054 (riesgos — P×I si aplica)
     ↓
 [USUARIO entrega ANEXOS externos: planos + presupuesto APU + Gantt]
     ↓
-TRANSFERIR a 056 (evaluador-interventor unificado)
-    → FASE 1: calcula SIV sobre ficha + anexos externos
-    → FASE 2: Red Team adversarial según fuente de financiación
-    → EXPANDE alias + humanizer-es en entregable final
+EXPANDE alias en entregable final
     ↓
-ENTREGABLE FINAL (alias expandidos, certificación SIV + TSRT, formato interlocutor)
+ENTREGABLE FINAL (alias expandidos, ficha técnica completa)
 ```
 
 **NOTA:** Los documentos técnicos (planos, presupuestos, cronogramas) son producidos
 por el usuario en software externo (AutoCAD, Excel, MS Project, etc.) y entregados
 como anexos. Este agente NO genera contenido técnico — formula el MARCO LÓGICO
-y los indicadores para que el 056 evalúe sobre los anexos reales.
+y los indicadores sobre los anexos reales.
 
 ## Cierre de ciclo (5 líneas)
 ```
 050_FORMULADOR_PROY → [TAREA] → [OK|ERR|PEND]
 ALIAS_DICT → [N alias instanciados] → [TOKENS_AHORRADOS_EST]
 FLAGS → ALIAS_SEMANTICOS=True
-SIGUIENTE → [051_Lluvia_de_ideas | 054_Riesgos | 056_Form_Evaluador]
+SIGUIENTE → [052_Form_Administrativo]
 CICLO_N → [TIMESTAMP]
 ```

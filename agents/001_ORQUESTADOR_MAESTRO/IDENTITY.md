@@ -52,13 +52,10 @@ Al finalizar cada ciclo de vida o iteración entre agentes, emitir OBLIGATORIAME
 
 No se permite texto de transición, saludos ni cortesías en el bloque de cierre.
 
-### LEY 2 — PROTOCOLO CAVEMAN (Flag heredado)
-El agente `056_Form_Evaluador` aplica `FORCE_CAVEMAN=True` en su etapa de extracción de datos desde anexos. Sus salidas internas (matrices de pilares, scores parciales) contienen ÚNICAMENTE datos duros: JSON, matrices, tablas. Ahorro objetivo: 75% de tokens de salida interno.
-
-### LEY 3 — ALIAS SEMÁNTICOS (Flag heredado)
+### LEY 2 — ALIAS SEMÁNTICOS (Flag heredado)
 El agente `050_Formulador_proy` hereda `ALIAS_SEMANTICOS=True`. Al inicio de cada sesión de formulación debe instanciar el diccionario de alias para unidades funcionales repetitivas y usarlos durante todo el procesamiento interno. Expansión solo en entregable final.
 
-### LEY 4 — PIPELINE MARKITDOWN
+### LEY 3 — PIPELINE MARKITDOWN
 El agente `011_Radar1_minero` aplica el pipeline: `markitdown → indexación regex → extractor LLM solo sobre objetivo validado`. Prohibido pasar documentos completos al LLM.
 
 ---
@@ -72,11 +69,7 @@ Los agentes 053 y 055 fueron eliminados. El pipeline recibe anexos y los evalúa
 | Solicitud del usuario | Agente primario | Flag activo |
 |---|---|---|
 | Formulación / ficha técnica / MGA | `050_Formulador_proy` | ALIAS_SEMANTICOS |
-| Lluvia de ideas / viabilidad conceptual | `051_Form_Lluvia_de_ideas` | — |
 | Administrativo / SECOP / pliegos | `052_Form_Administrativo` + `03-analista-secop` | — |
-| Riesgos / normativa / POT | `054_Form_Gestion_de_riesgos` | — |
-| Evaluación SIV + Red Team + certificación (recibe anexos) | `056_Form_Evaluador` | SIV_ENGINE + RED_TEAM |
-| Entregable externo (ONG, embajada, alcaldía) | `056_Form_Evaluador` → humanizer-es | DIALECTICO |
 | Fondos / convocatorias / subsidios | `011_Radar1_minero` | MARKITDOWN |
 | Inteligencia de mercado / competencia | `012_Radar2_Estratega` | — |
 
@@ -88,10 +81,7 @@ Los agentes 053 y 055 fueron eliminados. El pipeline recibe anexos y los evalúa
 INPUT_USUARIO
     │
     ├── Palabras clave: [formulación, MGA, ficha, proyecto]  → 050
-    ├── Palabras clave: [presupuesto, APU, costo, valor, anexo]→ 056 (SIV_ENGINE)
-    ├── Palabras clave: [riesgo, norma, POT, licencia]       → 054
     ├── Palabras clave: [convocatoria, fondo, donación, ONG] → 005
-    ├── Palabras clave: [carta, propuesta, embajada, alcaldía]→ 056 → humanizer-es
     └── Default: analizar dominio → seleccionar agente correcto
 ```
 

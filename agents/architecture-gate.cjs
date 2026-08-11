@@ -40,15 +40,15 @@ const ESCUADRON_ELITE = {
         rol: 'Bases de datos, APIs y lógica de servidor (fusiona el antiguo 002_INGENIERIA_TOTAL)',
         subordinados: [
             '009_gestor_datos', '011_Radar1_minero', '012_Radar2_Estratega',
-            '050_Formulador_proy', '051_Form_Lluvia_de_ideas',
+            '050_Formulador_proy',
             '07-ing-concreto_GFRC', '08-estratega-neuromarketing',
         ],
     },
     '006_DEVSECOPS_INFRAESTRUCTURA': {
         rol: 'Despliegues a producción, servidores, fiscalización de seguridad y cumplimiento estricto en Pesos Colombianos (COP) (fusiona el antiguo 003_DEVSECOPS_Y_AUDITORIA)',
         subordinados: [
-            '03-analista-secop', '052_Form_Administrativo', '054_Form_Gestion_de_riesgos',
-            '056_Form_Evaluador', '14-analista-comportamiento', '015_intelligence-core',
+            '03-analista-secop', '052_Form_Administrativo',
+            '14-analista-comportamiento', '015_intelligence-core',
         ],
     },
     '007_DOCUMENTADOR_AS_BUILD': {
@@ -77,10 +77,7 @@ function comandanteDe(carpetaAgente) {
 // =============================================================================
 const ENRUTADOR_ESTATICO = {
     formulacion: '050_Formulador_proy',
-    lluvia_ideas: '051_Form_Lluvia_de_ideas',
     administrativo: '052_Form_Administrativo',
-    riesgos: '054_Form_Gestion_de_riesgos',
-    evaluacion: '056_Form_Evaluador',
     convocatorias: '011_Radar1_minero',
     inteligencia_mercado: '012_Radar2_Estratega',
 };

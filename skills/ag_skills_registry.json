@@ -175,15 +175,6 @@
       ],
       "location": "./agents/050_Formulador_proy/skills/"
     },
-    "051_Form_Lluvia_de_ideas": {
-      "skills": [
-        {
-          "id": "Skill_051_Lluvia_Ideas",
-          "file": "agents/051_Form_Lluvia_de_ideas/skills/Skill_051_Lluvia_Ideas.cjs"
-        }
-      ],
-      "location": "./agents/051_Form_Lluvia_de_ideas/skills/"
-    },
     "052_Form_Administrativo": {
       "skills": [
         {
@@ -192,24 +183,6 @@
         }
       ],
       "location": "./agents/052_Form_Administrativo/skills/"
-    },
-    "054_Form_Gestion_de_riesgos": {
-      "skills": [
-        {
-          "id": "Skill_054_Gestion_Riesgos",
-          "file": "agents/054_Form_Gestion_de_riesgos/skills/Skill_054_Gestion_Riesgos.cjs"
-        }
-      ],
-      "location": "./agents/054_Form_Gestion_de_riesgos/skills/"
-    },
-    "056_Form_Evaluador": {
-      "skills": [
-        {
-          "id": "Skill_056_Evaluador",
-          "file": "agents/056_Form_Evaluador/skills/Skill_056_Evaluador.cjs"
-        }
-      ],
-      "location": "./agents/056_Form_Evaluador/skills/"
     },
     "011_Radar1_minero": {
       "skills": [],

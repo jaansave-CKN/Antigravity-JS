@@ -1,9 +1,10 @@
 # ARQUITECTURA AGÉNTICA ANTIGRAVITY — Auditoría Forense 360° Multiagente + Sistema Completo
-**Fecha:** 2026-08-08 (documento consolidado — fusiona la auditoría agéntica del 2026-08-08 con la radiografía de sistema del 2026-08-07, actualizado tras la Operación Exterminio Final del mismo día)
+**Fecha:** 2026-08-08, re-verificado y ampliado 2026-08-10 (ver §0-D — hallazgo crítico de divergencia de ramas)
 **Auditor:** Chief AI Architect / Auditor Forense de Sistemas Multiagente / DevSecOps Lead / Chief Software Auditor / System Architect
-**Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS`. `proyectos/` queda fuera (repos git independientes, `.gitignore:19-24`).
-**Regla de evidencia:** cero suposiciones — cada hallazgo cita archivo real. Donde el volumen hizo impracticable la lectura línea-por-línea de decenas de archivos (los skills de `agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/`), se declara el muestreo usado.
-**Estado del commit:** `0804e3a` local, 1 commit adelante de `origin/master` (`d9e520a`) — sin push, decisión pendiente del usuario. `agents/000_Orquestador.cjs` renombrado a `agents/architecture-gate.cjs` en este mismo ciclo (resuelve el ítem 11 del plan de remediación, §12).
+**Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS`, **ambas ramas remotas** (`origin/master` y `origin/main`, ver §0-D). `proyectos/` queda fuera del árbol de trabajo local (repos git independientes, `.gitignore:19-24`) — pero ver §0-D sobre su relación real con `origin/main`.
+**Regla de evidencia:** cero suposiciones — cada hallazgo cita archivo real. Donde el volumen hizo impracticable la lectura línea-por-línea de decenas de archivos (los skills de `agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/`, o los 171 commits de `origin/main`), se declara el muestreo usado.
+**Estado del commit (rama `master`):** local `12886c9`, **8 commits adelante de `origin/master`** (`d9e520a`) — sin push, decisión pendiente del usuario. Incluye el trabajo de refactor de `001_ORQUESTADOR_MAESTRO`/`architecture-gate.cjs` de esta sesión (ruteo estático, motor de resiliencia, audit trail JSONL).
+**Estado de la rama `main`:** `origin/main` (rama default real del repo en GitHub — `remotes/origin/HEAD -> origin/main`), HEAD en `9dfb577`, último commit **2026-08-10** (hoy). Nunca tocada por esta sesión ni por ninguna versión anterior de este documento.
 
 ---
 
@@ -57,6 +58,52 @@ Pedido explícito del usuario: no solo confirmar que los skills existen (§0/§0
 - `agents/001_ORQUESTADOR_MAESTRO/puente_ejecutor.py:17` — `ALLOWED_SCRIPTS` (allowlist de seguridad del daemon) seguía aceptando `000_Orquestador.cjs`, el nombre retirado en §0-B — corregido a `architecture-gate.cjs`. Sin este fix, el daemon habría rechazado el script legítimo mientras técnicamente seguía "permitiendo" uno que ya no existe.
 
 **Hallazgo nuevo — "Protocolo Titán" (rol `008_AUDITOR_DE_CODIGO`) es un término huérfano:** buscado en todo el proyecto (`*.md`, `*.cjs`, `*.js`) — aparece exactamente 2 veces, ambas la misma frase de una línea (`AGENTS.md` y su espejo en `architecture-gate.cjs`). No hay ningún documento, skill o lógica que lo defina. Es un nombre sin contenido detrás, acuñado por Gemini.
+
+---
+
+## 0-D. CUARTA RONDA (2026-08-10) — hallazgo crítico: `origin/master` y `origin/main` son dos historiales sin ancestro común
+
+Pedido explícito del usuario: re-verificar este documento contra el estado real de disco antes de darlo por vigente, no reescribirlo desde cero. Verificación de rutina (`git fetch` + `git branch -a`) reveló algo que ninguna versión anterior de este documento sabía.
+
+**El hallazgo, verificado con comandos de solo lectura, sin tocar ningún archivo:**
+
+```
+git merge-base origin/master origin/main   → sin salida, exit 1 (sin ancestro común)
+remotes/origin/HEAD -> origin/main         → main es la rama default real en GitHub
+origin/main: 171 commits, último 2026-08-10 17:48 (HOY)
+origin/master: HEAD local 8 commits adelante, último commit propio ajeno a main
+```
+
+Es la misma clase de hallazgo que §6.4 ya documentó una vez (historial local/remoto sin ancestro común, resuelto por un force-push externo) — pero esta vez entre **dos ramas remotas del mismo repo**, nunca detectado hasta ahora porque ninguna auditoría anterior corrió `git fetch` con visibilidad de todas las ramas antes de concluir.
+
+### 0-D.1 `origin/main` no es una variante de Antigravity JS — es otro proyecto
+
+Leyendo `origin/main:AGENTS.md` y `origin/main:.claude/agents/architect.md` (vía `git show`, sin checkout) queda explícito: el proyecto se autodenomina **"RadarFondos 360"**, no Antigravity JS. Cita textual de su propio `architect.md`:
+
+> "Eres el Agente Arquitecto de RadarFondos 360 [...] Adaptado del patrón ya construido y verificado en `Antigravity JS/.claude/agents/architect.md` (proyecto raíz) — mismo mandato, criterios ajustados a la arquitectura real de este repo."
+
+Es decir: quien construyó esto **ya sabía y documentó explícitamente** que Antigravity JS y RadarFondos 360 son proyectos distintos — y aun así ambos terminaron pusheados al mismo repositorio de GitHub (`jaansave-CKN/Antigravity-JS`), en ramas distintas. Esto coincide con memoria ya registrada del usuario: RadarFondos 360 (`proyectos/Proy_03_RadarFondos/` en disco local) comparte la misma base Supabase que el proyecto raíz — no son independientes a nivel de datos, y ahora tampoco lo son a nivel de repositorio git.
+
+**Riesgo real, no solo de organización:** `origin/main:AGENTS.md` documenta una Capa 2 de fallback a Supabase REST con `service_role` (**bypasea RLS**) para RadarFondos 360. El proyecto raíz (rama `master`) tiene su propio hallazgo crítico sin resolver de un JWT `service_role` legacy de Supabase (§6.4, §11). Si ambos proyectos comparten instancia de Supabase (memoria del usuario lo confirma), **ambos riesgos podrían ser la misma superficie de ataque**, no dos hallazgos independientes — pendiente de que el usuario confirme si es la misma instancia/proyecto Supabase antes de revocar credenciales de un lado sin considerar el otro.
+
+### 0-D.2 Huella agéntica real de `origin/main` — mucho más chica que la de `master`, y con su propia deuda de documentación
+
+Auditando `agents/`, `.claude/`, `.agents/`, `backend/agents/` y `backend/services/` de `origin/main` (vía `git ls-tree`/`git show`, sin checkout — mismo rigor de evidencia que el resto del documento):
+
+| Ruta en `origin/main` | Contenido real | Veredicto |
+|---|---|---|
+| `agents/` | 2 archivos: `scraper_core.py` + su `.pyc` cacheado | 🟡 Un scraper suelto, no una jerarquía de agentes — nada que ver con el Escuadrón Élite de `master` |
+| `.claude/agents/architect.md` | Gate real, adaptado del patrón de `master` (mismo mandato: solo lectura, bloquea antes de escribir código) | 🟢 Genuino — describe con precisión verificable el backend real (`server.js` ~4800 líneas, `backend/routes/`, `backend/config/database.config.js` de 2 capas) |
+| `.claude/settings.json` | Config de Claude Code del repo | Sin auditar en profundidad — fuera del foco multiagente |
+| `.agents/skills/obsidian-context.md` | 1 skill de contexto Obsidian | 🟡 Menor, sin relación con orquestación |
+| `backend/agents/` | `arbolObjetivosAgent.js`, `normativoAgent.js` — 2 agentes de dominio reales | 🟢 Pequeño pero con nombres de dominio específicos (no genéricos como los stubs de `050`-`056` en `master`) |
+| `backend/services/geminiCircuitBreaker.js`, `aiTokenLogger.js` | Circuit breaker de cuota + logger de tokens para FinOps — **ambos existen de verdad**, confirmado por contenido | 🟢 Esto es exactamente lo que la auditoría de `master` marcó como 🔴 AUSENTE (§7.2) — `main` sí lo construyó |
+
+**Hallazgo de higiene documental, mismo patrón que "Protocolo Titán" (§0-C) pero en la otra rama:** `origin/main:.claude/agents/architect.md` cita `docs/AUDITORIA_MULTIAGENTE_2026-08-04.md` como la auditoría que originó la regla "cero código sin diseño aprobado" — **ese archivo no existe en `origin/main`** (verificado, `git cat-file -t` falla, y no aparece bajo ningún nombre similar en `docs/`). Es una referencia rota a un documento que o se perdió, o nunca se commiteó, o vivía en otra rama/repo — el mismo tipo de "injerto mal ejecutado" que pidió detectar el prompt original, encontrado ahora en la rama que no se había auditado nunca.
+
+### 0-D.3 Qué significa esto para el resto de este documento
+
+Todo lo demás (§1-§14) describe con precisión la rama `master` — verificado de nuevo hoy (agents/, `.claude/agents/architect.md`, pre-commit hook, listado de carpetas: sin drift detectado más allá del trabajo propio de esta sesión). **Pero "master" puede no ser la rama que Render despliega realmente** — `remotes/origin/HEAD` apunta a `main`, que es la convención estándar de GitHub para señalar la rama por defecto. Esto no se puede resolver desde disco; requiere que el usuario confirme en el dashboard de Render cuál rama está configurada para el servicio `radar-formulador-360`.
 
 ---
 
@@ -466,12 +513,12 @@ Honesto, no inflado: separado en lo que el código puede resolver (100%) y lo qu
 
 ---
 
-## REPORTE CONSOLIDADO — Top 5 fallas estructurales vigentes (actualizado tras auditoría de calidad §0-C)
+## REPORTE CONSOLIDADO — Top 5 fallas estructurales vigentes (actualizado 2026-08-10, ronda §0-D)
 
-- **De los 8 roles del Escuadrón Élite, solo 2 tienen sustancia real** (`002_ARQUITECTO_DE_SOFTWARE` y `007_DOCUMENTADOR_AS_BUILD`) — los otros 6 son una frase suelta en un objeto JavaScript o una etiqueta nueva sobre agentes preexistentes, y 2 de ellos (`001`, `006`) tienen su propia descripción **falsa** (subordinados que no existen, funciones que ningún subordinado real cumple). Ver §1.4.
+- **`origin/master` y `origin/main` son dos historiales de git sin ancestro común, y `main` (171 commits, actividad de hoy) es la rama default real del repo — no `master`, la rama que este documento y toda la sesión trataron como "el proyecto" hasta hoy.** Ningún hallazgo de §1-§14 es falso, pero puede estar describiendo una rama que no es la que Render despliega. Ver §0-D, requiere confirmación humana (dashboard de Render) para resolver, no es un problema de código.
+- **`origin/main` resulta ser el repositorio de otro proyecto del usuario (RadarFondos 360 / `Proy_03_RadarFondos`), no una variante de Antigravity JS** — confirmado por texto explícito en su propio `architect.md`. Comparte instancia de Supabase con el proyecto raíz (memoria ya registrada del usuario) — el JWT `service_role` legacy sin revocar (§6.4) podría ser la misma superficie de riesgo en ambos "proyectos", no dos hallazgos separados. Ver §0-D.1.
+- **De los 8 roles del Escuadrón Élite (rama `master`), solo 2 tienen sustancia real** (`002_ARQUITECTO_DE_SOFTWARE` y `007_DOCUMENTADOR_AS_BUILD`) — los otros 6 son una frase suelta en un objeto JavaScript o una etiqueta nueva sobre agentes preexistentes, y 2 de ellos (`001`, `006`) tienen su propia descripción **falsa**. Ver §1.4.
 - **`Skill_001_Gestor_Encoding.cjs` dispara `firebase deploy --only hosting` sin ningún gate de confirmación** — un skill etiquetado como arreglador de encoding con capacidad oculta de desplegar a producción. Ver §2.3.
-- **`008_AUDITOR_DE_CODIGO` es una brecha con demanda activa, no una etiqueta vacía más** — `.claude/agents/architect.md` ya lo cita como destino obligatorio de las auditorías de código que él mismo rechaza hacer, y no hay absolutamente nada del otro lado para recibirlas. Diseño propuesto en §13-B.
-- **JWT legacy `service_role` de Supabase, sin fecha de expiración práctica y con bypass total de RLS, sigue sin revocar** — único hallazgo puramente humano que queda abierto; requiere el dashboard de Supabase, no código.
-- **4 de 12 skills de negocio activos (`051`, `054`, `056`, y el generador `050`) son stubs idénticos producidos por una plantilla, sin ninguna lógica real** — cuentan como "agentes definidos" en el inventario automático, pero no ejecutan nada más allá de `{status:'ok', resultado:{}}`.
+- **JWT legacy `service_role` de Supabase, sin fecha de expiración práctica y con bypass total de RLS, sigue sin revocar** — único hallazgo puramente humano que queda abierto en `master`; ahora con relevancia potencialmente cruzada a `main` (ver arriba).
 
-**Documento consolidado, actualizado 3 veces en la misma jornada (§0/§0-B/§0-C), guardado en disco:** `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` ✅
+**Documento consolidado, actualizado 4 veces (§0/§0-B/§0-C/§0-D — la última no reescribe, extiende y re-verifica lo anterior), guardado en disco:** `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` ✅

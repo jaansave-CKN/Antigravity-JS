@@ -117,6 +117,6 @@ GARANTIAS:
 052_FORM_ADMINISTRATIVO → [TAREA] → [OK|ERR|PEND]
 CHECKS → [N/7 OK] | DOCS → [lista generada]
 FLAGS → —
-SIGUIENTE → [050_Formulador_proy | 056_Form_Evaluador]
+SIGUIENTE → [050_Formulador_proy]
 CICLO_N → [TIMESTAMP]
 ```
