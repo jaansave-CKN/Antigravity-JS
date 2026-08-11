@@ -75,7 +75,7 @@ function comandanteDe(carpetaAgente) {
 // agents/001_ORQUESTADOR_MAESTRO/IDENTITY.md, con los nombres de carpeta
 // vigentes hoy en disco (post-renumeración 2026-08-08).
 // =============================================================================
-const MAPA_RUTEO = {
+const ENRUTADOR_ESTATICO = {
     formulacion: '050_Formulador_proy',
     lluvia_ideas: '051_Form_Lluvia_de_ideas',
     administrativo: '052_Form_Administrativo',
@@ -86,10 +86,10 @@ const MAPA_RUTEO = {
 };
 
 function rutear(clave) {
-    if (!Object.prototype.hasOwnProperty.call(MAPA_RUTEO, clave)) {
-        throw new Error(`RUTEO_FALLIDO: '${clave}' no coincide con ninguna clave del mapa. Claves válidas: ${Object.keys(MAPA_RUTEO).join(', ')}`);
+    if (!Object.prototype.hasOwnProperty.call(ENRUTADOR_ESTATICO, clave)) {
+        throw new Error(`RUTEO_FALLIDO: '${clave}' no coincide con ninguna clave del mapa. Claves válidas: ${Object.keys(ENRUTADOR_ESTATICO).join(', ')}`);
     }
-    return MAPA_RUTEO[clave];
+    return ENRUTADOR_ESTATICO[clave];
 }
 
 // =============================================================================
@@ -356,16 +356,16 @@ function validarEnlace(url) {
 // Claves = nombres reales de carpeta en agents/ (no roles del Escuadrón Élite,
 // que no todos tienen carpeta propia). Sin entrada explícita, aplica DEFAULT.
 // =============================================================================
-const CONFIG_AGENTES_DEFAULT = { timeout: 30000, retries: 1, backoff: 3000 };
-const CONFIG_AGENTES = {
+const EXEC_CONFIG_DEFAULT = { timeoutMs: 30000, maxRetries: 1, backoffMs: 3000 };
+const EXEC_CONFIG = {
     // 010_redactor_tecnico es el subordinado real de 007_DOCUMENTADOR_AS_BUILD —
     // genera .docx (Skill_002_Redactor_Propuestas.cjs), tarea más lenta que el
     // resto; más margen y un reintento extra.
-    '010_redactor_tecnico': { timeout: 60000, retries: 2, backoff: 5000 },
+    '010_redactor_tecnico': { timeoutMs: 60000, maxRetries: 2, backoffMs: 5000 },
 };
 
 function configDe(carpeta) {
-    return CONFIG_AGENTES[carpeta] || CONFIG_AGENTES_DEFAULT;
+    return EXEC_CONFIG[carpeta] || EXEC_CONFIG_DEFAULT;
 }
 
 function esperar(ms) {
@@ -400,13 +400,13 @@ function ejecutarProcesoUnico(comando, timeoutMs) {
 // el chequeo de URLs alucinadas ya existente (Honestidad Técnica), ahora
 // aplicado en cada intento, no solo el primero.
 async function ejecutarConResiliencia(carpeta, comando) {
-    const { timeout, retries, backoff } = configDe(carpeta);
+    const { timeoutMs, maxRetries, backoffMs } = configDe(carpeta);
     let intento = 0;
     let resultado;
 
-    while (intento <= retries) {
-        console.log(`\n🔍 [001] Ejecutando: ${carpeta} (intento ${intento + 1}/${retries + 1}, timeout ${timeout}ms)`);
-        resultado = await ejecutarProcesoUnico(comando, timeout);
+    while (intento <= maxRetries) {
+        console.log(`\n🔍 [001] Ejecutando: ${carpeta} (intento ${intento + 1}/${maxRetries + 1}, timeout ${timeoutMs}ms)`);
+        resultado = await ejecutarProcesoUnico(comando, timeoutMs);
 
         if (resultado.exito) {
             const urls = (resultado.stdout || '').match(/https?:\/\/[^\s<>"']+/g) || [];
@@ -432,13 +432,13 @@ async function ejecutarConResiliencia(carpeta, comando) {
 
         console.error(`   ❌ ${resultado.timeout ? 'TIMEOUT' : 'ERROR'} en ${carpeta} (intento ${intento + 1}): ${resultado.error}`);
         intento++;
-        if (intento <= retries) {
-            console.log(`   ⏳ Reintentando en ${backoff}ms...`);
-            await esperar(backoff);
+        if (intento <= maxRetries) {
+            console.log(`   ⏳ Reintentando en ${backoffMs}ms...`);
+            await esperar(backoffMs);
         }
     }
 
-    console.error(`   🛑 DERROTA DEFINITIVA: ${carpeta} agotó ${retries + 1} intento(s).`);
+    console.error(`   🛑 DERROTA DEFINITIVA: ${carpeta} agotó ${maxRetries + 1} intento(s).`);
     return { ...resultado, intentos: intento };
 }
 
