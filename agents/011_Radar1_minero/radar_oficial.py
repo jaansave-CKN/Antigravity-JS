@@ -5,8 +5,8 @@ import json
 import os
 from datetime import datetime
 
-REPO_PATH = "agents/005_Radar1_minero/repositorio_convocatorias.json"
-LOG_PATH = "agents/005_Radar1_minero/radar_log.txt"
+REPO_PATH = "agents/011_Radar1_minero/repositorio_convocatorias.json"
+LOG_PATH = "agents/011_Radar1_minero/radar_log.txt"
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

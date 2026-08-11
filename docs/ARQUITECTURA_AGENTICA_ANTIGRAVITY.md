@@ -47,6 +47,19 @@ El usuario eligió completar el esquema de Gemini tal cual (001-008), asumiendo 
 
 ---
 
+## 0-C. TERCERA RONDA (2026-08-08, misma jornada) — auditoría de calidad real de los 12 skills activos + de los 8 roles del Escuadrón Élite en sí mismos
+
+Pedido explícito del usuario: no solo confirmar que los skills existen (§0/§0-B ya lo hizo), sino leer su contenido y juzgar si están a la altura de un "Escuadrón Élite". Se leyeron íntegros los 12 archivos de skill activos (no archivados) más los 3 scripts Python de `011_Radar1_minero`. Resultado en detalle en §2.3 (skills) y §1.4 (los 8 roles como entidades, sin sus subordinados).
+
+**Bugs propios encontrados y corregidos durante esta lectura (no relacionados con Gemini, míos de la ronda anterior):**
+- `agents/011_Radar1_minero/radar_oficial.py:8-9` seguía escribiendo a `agents/005_Radar1_minero/...` (nombre viejo) — el barrido de referencias de §0-B solo cubrió `.js/.cjs/.json/.md`, nunca `.py`.
+- `agents/001_ORQUESTADOR_MAESTRO/puente_ejecutor.py:10-11` — mismo patrón, seguía apuntando a `agents/000_ORQUESTADOR/...`.
+- `agents/001_ORQUESTADOR_MAESTRO/puente_ejecutor.py:17` — `ALLOWED_SCRIPTS` (allowlist de seguridad del daemon) seguía aceptando `000_Orquestador.cjs`, el nombre retirado en §0-B — corregido a `architecture-gate.cjs`. Sin este fix, el daemon habría rechazado el script legítimo mientras técnicamente seguía "permitiendo" uno que ya no existe.
+
+**Hallazgo nuevo — "Protocolo Titán" (rol `008_AUDITOR_DE_CODIGO`) es un término huérfano:** buscado en todo el proyecto (`*.md`, `*.cjs`, `*.js`) — aparece exactamente 2 veces, ambas la misma frase de una línea (`AGENTS.md` y su espejo en `architecture-gate.cjs`). No hay ningún documento, skill o lógica que lo defina. Es un nombre sin contenido detrás, acuñado por Gemini.
+
+---
+
 ## 1. INVENTARIO TOTAL Y ORGANIGRAMA JERÁRQUICO
 
 ### 1.1 Los cuatro sistemas coexistentes (marco general, sin cambios)
@@ -119,6 +132,23 @@ El usuario eligió completar el esquema de Gemini tal cual (001-008), asumiendo 
 - **Transversales:** `agents/skills/*` (3 `.cjs` + 16 `SKILL.md`), `skills/` raíz (`Skill_Bitacora_Sistema.cjs`, `arquitectura/*.cjs`, `seguridad/Skill_Protocolo_Fuente_Unica.cjs` — este último con uso real confirmado en `m1Pipeline.js:11`).
 - **Específicos del proyecto:** las 15 carpetas numeradas `000`-`057`.
 
+### 1.4 Los 8 roles del Escuadrón Élite, como entidades en sí mismas (no sus subordinados)
+
+El usuario pidió explícitamente separar el juicio: ¿los 8 roles (`001`-`008`) tienen identidad/código propio, o son solo un nombre agrupador sobre agentes que ya existían? Confirmado a partir de `agents/architecture-gate.cjs` (objeto `ESCUADRON_ELITE`) y de si cada uno tiene carpeta/`IDENTITY.md` propios en `agents/`.
+
+| Rol | ¿Carpeta/IDENTITY.md/código propio? | Veredicto |
+|---|---|---|
+| `001_ORQUESTADOR_MAESTRO` | Sí — `IDENTITY.md` (tabla de ruteo) + `ejecutarTodosLosAgentes()` en código | 🟠 El código real es un batch runner crudo (sin ruteo condicional, sin reintentos); y el propio `IDENTITY.md` alucina 2 subordinados inexistentes (`100_reparador_codigo`, `09-legal-licitaciones`, IDENTITY.md:30,23) |
+| `002_ARQUITECTO_DE_SOFTWARE` | Sí — `.claude/agents/architect.md`, gate real | 🟢 Único genuinamente de alto nivel — verificado 3 veces con razonamiento real distinto según el diff |
+| `003_ESP_DISENO_STITCH` | No | 🔴 Solo una línea `rol`+`mandato` en el objeto. Cero conexión con las herramientas MCP de Stitch que sí existen en el proyecto |
+| `004_INGENIERO_FRONTEND` | No — ni siquiera `mandato` con contenido | 🔴 No existe como agente. El SPA React real no tiene ningún agente detrás |
+| `005_INGENIERO_BACKEND` | No — etiqueta agrupadora sobre 7 carpetas preexistentes | 🟠 Sin `IDENTITY.md`, sin código propio, sin criterio de ingeniería definido en ningún lado |
+| `006_DEVSECOPS_INFRAESTRUCTURA` | No — mismo patrón | 🔴 Su propio `rol` dice "Despliegues a producción, servidores" — ninguno de sus 6 subordinados hace eso (son agentes de Formulador y compliance) |
+| `007_DOCUMENTADOR_AS_BUILD` | Parcial — `carpetaSalida` real, genera acta en `docs/as-build/` | 🟡 Segundo más real de los 8 — único con un artefacto de código tangible propio, no prestado de un subordinado |
+| `008_AUDITOR_DE_CODIGO` | No — cero subordinados, cero código | 🔴 Cita "Protocolo Titán" (ver §0-C, término sin definición en ningún lado). `architect.md` lo cita como destino de las auditorías post-hoc que él mismo rechaza — pero no hay nada del otro lado para recibirlas |
+
+**Conclusión de §1.4:** de 8 roles, solo 1 es de nivel élite real (`002`) y 1 más tiene un artefacto propio tangible (`007`). Los otros 6 no son agentes en ningún sentido operativo — o son una frase suelta dentro de un objeto JavaScript, o una etiqueta nueva sobre agentes preexistentes sin lógica ni identidad propia. Dos de ellos (`001`, `006`) tienen algo peor que estar vacíos: su propia descripción es falsa.
+
 ---
 
 ## 2. AUDITORÍA FORENSE DE SKILLS
@@ -142,7 +172,29 @@ Documentados con precisión en `Skill_Loader.cjs:8-134` (metadata predefinida po
 
 **Resultado:** de 9 scripts sueltos auditados originalmente, quedan 2 (ambos reales/correctos) — la proporción de código muerto en la raíz de `agents/` pasó de 78% a 0%.
 
-### 2.3 Skills de negocio real (052, 056, etc.) — ver §10 para la brecha diseño-vs-ejecución
+### 2.3 Auditoría anatómica de los 12 skills activos de negocio — leídos íntegros, no solo inventariados
+
+Metodología: lectura completa (no muestreo) de los 12 archivos `.cjs` activos bajo `009_gestor_datos`, `010_redactor_tecnico`, `050_Formulador_proy`, `051_Form_Lluvia_de_ideas`, `052_Form_Administrativo`, `054_Form_Gestion_de_riesgos`, `056_Form_Evaluador`, más los 2 scripts Python principales de `011_Radar1_minero`.
+
+| Skill | Función real (I/O) | Manejo de errores | Veredicto |
+|---|---|---|---|
+| `009_gestor_datos/Skill_001_Gestor_Directorios.cjs` | Crea estructura de carpetas (`process.argv` → `fs.mkdirSync` en cascada) | Ninguno — sin try/catch | 🟢 Real, funcional, sin blindaje |
+| `009_gestor_datos/Skill_001_Fix_Encoding.cjs` | Corrige acentos rotos a entidades HTML en archivo/directorio | `try/catch` presente, retorna `false` en error | 🟢 Real, funcional |
+| `009_gestor_datos/Skill_001_Gestor_Encoding.cjs` | Igual que el anterior, + modo `check` | Parcial | 🟠 **Riesgo real:** incluye `execSync('firebase deploy --only hosting')` activable con flag `--deploy` — un "arreglador de encoding" con capacidad de desplegar a producción, sin ningún gate de confirmación |
+| `009_gestor_datos/Skill_001_OCR_Soporte.cjs` | Lee **solo la extensión** del archivo y arma metadata (`.pdf`→"Documento PDF") | N/A | 🔴 **Nombre engañoso** — cero OCR real, no extrae texto de nada pese al nombre |
+| `010_redactor_tecnico/Skill_002_Redactor_Propuestas.cjs` | Genera un `.docx` real vía librería `docx` (Document/Paragraph/TextRun) | Ninguno | 🟢 El más sofisticado del lote — pero contenido de plantilla fija, 5 campos interpolados, no redacción adaptativa |
+| `010_redactor_tecnico/Skill_002_Generador_Anexos.cjs` | Escribe `.txt` con texto fijo, un parámetro interpolado | Ninguno | 🟠 Mínimo — casi no varía por proyecto |
+| `010_redactor_tecnico/Skill_Soporte_Automatico.cjs` | Lee `./.agents` (con "s") cada 5 min, cuenta carpetas, escribe `estado_antigravity.json` | `try/catch` que **oculta el error real** | 🔴 **Roto y engañoso** — esa ruta nunca ha existido en este proyecto (confirmado en auditorías previas); falla en bucle infinito imprimiendo "Reintentando conexión con la base de datos", un mensaje que no tiene relación con el bug real (es un path equivocado, no una DB) |
+| `050_Formulador_proy/Skill_050_Formulador_Proyecto.cjs` | **No formula nada** — es un generador de plantillas boilerplate para *otros* skills | N/A | 🔴 Lista interna cita `Skill_057_Interventor`, un rol que no existe en la numeración actual — desactualizado incluso consigo mismo |
+| `051_Form_Lluvia_de_ideas/Skill_051_Lluvia_Ideas.cjs` | `{status:'ok', resultado:{}}` | N/A | 🔴 Stub puro, generado por la plantilla de 050 |
+| `052_Form_Administrativo/Skill_052_Metodologia_Maestra.cjs` | Constante con 4 frases sobre metodología MGA | N/A | 🟠 No es un skill ejecutable — es una tabla de referencia (`module.exports` de un objeto estático) |
+| `054_Form_Gestion_de_riesgos/Skill_054_Gestion_Riesgos.cjs` | `{status:'ok', resultado:{}}` | N/A | 🔴 Stub puro — su propio campo `notas` admite *"Solo registra, no analiza"* |
+| `056_Form_Evaluador/Skill_056_Evaluador.cjs` | `{status:'ok', resultado:{}}` | N/A | 🔴 Stub puro — sin ningún criterio real de evaluación pese al nombre |
+| `011_Radar1_minero/radar_oficial.py` + `test_fuentes.py` | Scraping real (`requests`+`BeautifulSoup`), regex para extraer presupuesto/fecha de HTML | `try/except` presente en puntos clave | 🟡 El más sofisticado técnicamente de los 12 — pero rastrea **Costa Rica, Chile, Argentina, Uruguay, Paraguay, Panamá**, no Colombia. Choca con el Axioma II.2 de `AGENTS.md` (todo en COP, foco nacional). Tenía además 2 rutas rotas por el rename de §0-B, corregidas en §0-C |
+
+**Duplicación confirmada:** `051`, `054` y `056` son estructuralmente idénticos byte a byte salvo el nombre — los tres provienen de la misma plantilla en `Skill_050_Formulador_Proyecto.cjs`, no de una implementación pensada para cada dominio.
+
+**Conclusión de §2.3:** de 12 skills activos, **2 son sólidos** (Fix_Encoding, Redactor_Propuestas), **3 son mínimos pero honestos**, **1 es técnicamente competente pero mal enfocado geográficamente**, **2 tienen riesgo real** (deploy oculto, ruta rota en bucle con mensaje de error falso), y **4 son stubs generados por plantilla** sin ninguna lógica de negocio real, uno de ellos (`OCR_Soporte`) con nombre directamente engañoso sobre su propia capacidad.
 
 ---
 
@@ -310,12 +362,21 @@ Aislamiento de estado por usuario: respetado en Supabase (tenant derivado de UID
 | 4 | MiniMax/OpenRouter con contrato roto o branding engañoso | 🟠 Media | ✅ Resuelto (eliminado) |
 | 5 | Health check falso positivo | 🟠 Media | ✅ Resuelto hoy |
 | 6 | Modelo hardcodeado en 2 archivos | 🟢 Baja | ✅ Resuelto hoy |
-| 7 | 25 skills Radar legacy sin consumidor | 🟠 Media | Pendiente — decisión de producto (archivar vs. implementar) |
-| 8 | `puente_ejecutor.py` incompatible con timeout del batch executor | 🟠 Media | Pendiente |
-| 9 | Brecha IDENTITY.md 052/056 vs. código real | 🟡 Media-baja | Pendiente — decisión de alcance |
-| 10 | Gate de arquitectura opt-in, no hook obligatorio | 🟡 Media | Pendiente — enganchar a `.husky/pre-commit` |
+| 7 | 25 skills Radar legacy sin consumidor | 🟠 Media | ✅ Archivadas (`_archivo_historico/skills_radar_legacy/`) — decisión de implementar vs. borrar definitivamente sigue abierta |
+| 8 | `puente_ejecutor.py` incompatible con timeout del batch executor | 🟠 Media | ✅ Resuelto — `001_ORQUESTADOR_MAESTRO` excluido de `listarCarpetasAgentes()` vía `CARPETAS_EXCLUIDAS_DEL_BATCH` |
+| 9 | Brecha IDENTITY.md 052/056 vs. código real | 🟡 Media-baja | ✅ Documentada explícitamente en el propio archivo (nota de estado real) — la decisión de construir el motor completo o recortar el spec sigue abierta, correctamente, como decisión de producto |
+| 10 | Gate de arquitectura opt-in, no hook obligatorio | 🟡 Media | ✅ Resuelto — `.git/hooks/pre-commit` + modo `--check-gate` (sin costo de API por commit), verificado en 3 commits reales |
 | 11 | Naming colisionado (3 "000/orquestador") | 🟢 Baja | ✅ Resuelto — `agents/000_Orquestador.cjs` renombrado a `agents/architecture-gate.cjs` (`git mv`, auto-referencias y hook pre-commit actualizados, gate re-verificado) |
 | 12 | `.agent/` (Sistema B) sigue en disco | 🟢 Baja | Pendiente — decisión de conservar o borrar |
+| 13 | 4 referencias a rutas viejas en `.py` sin cubrir por el barrido de §0-B | 🟠 Media | ✅ Resuelto (§0-C) — `radar_oficial.py`, `puente_ejecutor.py` (×2, incluida la allowlist de seguridad) |
+| 14 | `Skill_001_Gestor_Encoding.cjs` dispara `firebase deploy` sin gate de confirmación | 🔴 Alta | Pendiente — retirar el disparador de despliegue de un skill de encoding, o exigir aprobación explícita antes de ejecutarlo |
+| 15 | `Skill_001_OCR_Soporte.cjs` no hace OCR pese al nombre | 🟠 Media | Pendiente — renombrar o implementar OCR real (el proyecto ya tiene `paddleocr-text-recognition` como skill hermano en la misma carpeta) |
+| 16 | `Skill_Soporte_Automatico.cjs` falla en bucle cada 5 min leyendo una ruta (`./.agents`) que nunca ha existido, con mensaje de error engañoso | 🟠 Media | Pendiente — corregir la ruta o retirar el script |
+| 17 | `051`/`054`/`056` son stubs idénticos generados por plantilla, sin lógica de negocio | 🟠 Media | Pendiente — decisión de producto: implementar de verdad o archivar como se hizo con el Radar legacy |
+| 18 | `011_Radar1_minero` técnicamente competente pero rastrea 6 países no-Colombia, contradice Axioma II.2 de `AGENTS.md` | 🟡 Media-baja | Pendiente — decisión de alcance: ¿expandir el mandato del Radar a LATAM, o recortar el script a fuentes colombianas? |
+| 19 | `008_AUDITOR_DE_CODIGO` citado activamente por `architect.md` como destino de auditorías post-hoc, pero sin ninguna implementación del otro lado | 🔴 Alta | Pendiente — ver §13-B, diseño propuesto |
+| 20 | `IDENTITY.md` de `001_ORQUESTADOR_MAESTRO` alucina 2 subordinados inexistentes (`100_reparador_codigo`, `09-legal-licitaciones`) | 🟠 Media | Pendiente — purgar esas 2 líneas del documento |
+| 21 | `006_DEVSECOPS_INFRAESTRUCTURA` — su `rol` declarado no coincide con lo que agrupa (dice "despliegues a producción", ninguno de sus 6 subordinados hace eso) | 🟡 Media-baja | Pendiente — reescribir el `rol` para reflejar la realidad, o darle trabajo real de DevSecOps (dueño natural del propio hook de pre-commit, de `npm audit`) |
 
 ---
 
@@ -347,10 +408,34 @@ El prompt pide diseñar este agente desde cero. **Corrección basada en evidenci
 
 **Verificado en vivo 3 veces hoy:** (1) rechazo honesto por saldo agotado sin autoaprobar por defecto, (2) fallo por alucinación de tool-use, corregido ajustando el prompt de invocación, (3) rechazo genuino y bien razonado sobre un diff real, detectando un borrado de recursos sin reemplazo — prueba de que el agente efectivamente lee y razona, no solo aparenta.
 
-**Lo que falta para blindaje real (no disponibilidad):**
-1. Convertirlo de opt-in a obligatorio (`.husky/pre-commit`).
+**Lo que falta para blindaje real:**
+1. ✅ Resuelto — `.git/hooks/pre-commit` + `--check-gate` lo vuelve obligatorio, no `.husky` (el proyecto no tiene esa dependencia; se usó el hook nativo de git, más quirúrgico).
 2. El prompt de `architect.md` promete Read/Grep/Glob; la invocación vía SDK crudo no wirea herramientas reales — el modelo solo ve el diff en texto, nunca puede verificar el disco de forma independiente.
 3. La firma cubre `agents/`+`src/`, no `public/`, `skills/`, `config/`.
+
+---
+
+## 13-B. DISEÑO DE `008_AUDITOR_DE_CODIGO` — esta sí es la pieza que falta de verdad
+
+A diferencia del Arquitecto (§13, ya construido), `008_AUDITOR_DE_CODIGO` es 100% aspiracional hoy: cero carpeta, cero subordinados, cero código (§1.4). Y no es un hueco pasivo — `architect.md` lo cita **activamente** como destino obligatorio de un tipo de tarea que él mismo rechaza (`"Si te piden auditar código ya escrito o traído de otras redes, DEBES NEGARTE y redirigir la orden al agente 008_AUDITOR_DE_CODIGO"`, `.claude/agents/architect.md:8`). Hoy esa redirección cae al vacío.
+
+**Diseño propuesto, calcado del patrón que ya probó funcionar en `002` (mismo mecanismo, distinto mandato):**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  .claude/agents/auditor.md  (NUEVO — segundo subagente)      │
+│  tools: Read, Grep, Glob, Edit  (a diferencia del Arquitecto,│
+│  SÍ puede escribir — su trabajo es corregir código ya        │
+│  existente, no bloquear código por escribir)                 │
+│  mandato: audita código ya escrito o traído de otro origen — │
+│  exactamente lo que el Arquitecto rechaza hacer               │
+│  salida obligatoria: {"hallazgos":[...], "corregido": bool}  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Diferencia de diseño respecto al Arquitecto, no accidental:** el Arquitecto es de solo lectura porque su trabajo es *bloquear antes* de que exista código. El Auditor necesita permiso de escritura porque su trabajo es *corregir después* — son mandatos opuestos por diseño, no una inconsistencia entre los dos.
+
+Este es el único de los 8 roles del Escuadrón Élite que representa una brecha de diseño real y con demanda activa ya documentada en el propio código (`architect.md`) — no una etiqueta vacía sin consumidor, como `003`/`004`.
 
 ---
 
@@ -381,12 +466,12 @@ Honesto, no inflado: separado en lo que el código puede resolver (100%) y lo qu
 
 ---
 
-## REPORTE CONSOLIDADO — Top 5 fallas estructurales vigentes (post-cirugía)
+## REPORTE CONSOLIDADO — Top 5 fallas estructurales vigentes (actualizado tras auditoría de calidad §0-C)
 
-- **JWT legacy `service_role` de Supabase, sin fecha de expiración práctica y con bypass total de RLS, sigue sin revocar** — único hallazgo verdaderamente crítico que queda abierto; requiere el dashboard de Supabase, no código.
-- **Key huérfana Supabase + Render vieja sin revocar** — mismo tipo de pendiente, mismo dueño de la acción.
-- **Brecha IDENTITY.md 052/056 vs. código real** — ya no es un hallazgo oculto (ahora está anotado en el propio archivo), pero sigue siendo una decisión de alcance sin tomar: ¿se construye el motor SIV/Red Team real o se recorta el spec al MVP actual?
-- **25 skills Radar legacy archivadas, no eliminadas** — decisión de fondo (revivir vs. borrar definitivamente) pospuesta, correctamente marcada como tal.
-- **`.agent/` (Sistema B, scaffold genérico de terceros) sigue en disco** — de baja prioridad, sin riesgo activo tras la corrección de `.gitignore`, pero sin resolver.
+- **De los 8 roles del Escuadrón Élite, solo 2 tienen sustancia real** (`002_ARQUITECTO_DE_SOFTWARE` y `007_DOCUMENTADOR_AS_BUILD`) — los otros 6 son una frase suelta en un objeto JavaScript o una etiqueta nueva sobre agentes preexistentes, y 2 de ellos (`001`, `006`) tienen su propia descripción **falsa** (subordinados que no existen, funciones que ningún subordinado real cumple). Ver §1.4.
+- **`Skill_001_Gestor_Encoding.cjs` dispara `firebase deploy --only hosting` sin ningún gate de confirmación** — un skill etiquetado como arreglador de encoding con capacidad oculta de desplegar a producción. Ver §2.3.
+- **`008_AUDITOR_DE_CODIGO` es una brecha con demanda activa, no una etiqueta vacía más** — `.claude/agents/architect.md` ya lo cita como destino obligatorio de las auditorías de código que él mismo rechaza hacer, y no hay absolutamente nada del otro lado para recibirlas. Diseño propuesto en §13-B.
+- **JWT legacy `service_role` de Supabase, sin fecha de expiración práctica y con bypass total de RLS, sigue sin revocar** — único hallazgo puramente humano que queda abierto; requiere el dashboard de Supabase, no código.
+- **4 de 12 skills de negocio activos (`051`, `054`, `056`, y el generador `050`) son stubs idénticos producidos por una plantilla, sin ninguna lógica real** — cuentan como "agentes definidos" en el inventario automático, pero no ejecutan nada más allá de `{status:'ok', resultado:{}}`.
 
-**Documento consolidado creado y guardado en disco:** `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` ✅
+**Documento consolidado, actualizado 3 veces en la misma jornada (§0/§0-B/§0-C), guardado en disco:** `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` ✅

@@ -4,17 +4,17 @@ import subprocess
 import shlex
 from datetime import datetime
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))        # agents/000_ORQUESTADOR
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))        # agents/001_ORQUESTADOR_MAESTRO
 AGENTS_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))    # agents/
 
-INSTRUCTION_FILE = "agents/000_ORQUESTADOR/latest_instruction.txt"
-LOG_FILE = "agents/000_ORQUESTADOR/puente_log.txt"
+INSTRUCTION_FILE = "agents/001_ORQUESTADOR_MAESTRO/latest_instruction.txt"
+LOG_FILE = "agents/001_ORQUESTADOR_MAESTRO/puente_log.txt"
 
 # Lista blanca estricta: solo estos intérpretes y solo estos scripts pueden
 # ejecutarse, y el script resuelto debe vivir físicamente dentro de agents/.
 # Cualquier otra cosa se rechaza sin tocar subprocess.
 ALLOWED_INTERPRETERS = {"node", "node.exe"}
-ALLOWED_SCRIPTS = {"000_Orquestador.cjs", "000_VERIFICADOR.cjs"}
+ALLOWED_SCRIPTS = {"architecture-gate.cjs", "000_VERIFICADOR.cjs"}
 
 
 def log(mensaje):
