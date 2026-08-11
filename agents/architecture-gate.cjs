@@ -32,8 +32,8 @@ const ESCUADRON_ELITE = {
         mandato: 'Prohibido maquetar con datos falsos. Toda UI consume estrictamente los contratos JSON de RPC/REST aprobados por el Agente Arquitecto (002, .claude/agents/architect.md) y construidos por 005_INGENIERO_BACKEND.',
         subordinados: [],
     },
-    '004_INGENIERO_FRONTEND': {
-        rol: 'Lógica de cliente, React/Hooks, estado UI',
+    '004_SENTINELA_FRONTEND': {
+        rol: 'Auditoría de stubs huérfanos y contratos de build en la SPA (subagente real: .claude/agents/004-sentinela-frontend.md, solo lectura — detecta, no corrige)',
         subordinados: [],
     },
     '005_INGENIERO_BACKEND': {

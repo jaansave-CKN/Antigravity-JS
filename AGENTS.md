@@ -32,7 +32,7 @@ Antigravity OS es un entorno cibernético determinista para la orquestación del
 * **`001_ORQUESTADOR_MAESTRO`**: Enrutador Central y Cadena de Mando.
 * **`002_ARQUITECTO_DE_SOFTWARE`**: Planeación, requerimientos y diseño técnico.
 * **`003_ESP_DISENO_STITCH`**: Creador de maquetas visuales e integración UI.
-* **`004_INGENIERO_FRONTEND`**: Lógica de cliente, React/Hooks, estado UI.
+* **`004_SENTINELA_FRONTEND`**: Auditoría de stubs huérfanos y contratos de build en la SPA — subagente real de solo lectura, `.claude/agents/004-sentinela-frontend.md`. Detecta, no corrige.
 * **`005_INGENIERO_BACKEND`**: Bases de datos, APIs y lógica de servidor.
 * **`006_DEVSECOPS_INFRAESTRUCTURA`**: Despliegues a producción y servidores.
 * **`007_DOCUMENTADOR_AS_BUILD`**: Planimetría y documentación final.

@@ -128,14 +128,15 @@ Todo lo demás (§1-§14) describe con precisión la rama `master` — verificad
 ├── Escuadrón Élite (8 roles, ESCUADRON_ELITE en architecture-gate.cjs)
 │   ├── 002_ARQUITECTO_DE_SOFTWARE — sin carpeta propia: .claude/agents/architect.md
 │   ├── 003_ESP_DISENO_STITCH      — sin carpeta propia, subordinados: []
-│   ├── 004_INGENIERO_FRONTEND     — subordinados: [] (rol declarado, sin implementación)
+│   ├── 004_SENTINELA_FRONTEND     — subordinados: [] (renombrado 2026-08-11, ahora con
+│   │                                subagente real: .claude/agents/004-sentinela-frontend.md)
 │   ├── 005_INGENIERO_BACKEND      — 009_gestor_datos, 011_Radar1_minero,
 │   │                                012_Radar2_Estratega, 050_Formulador_proy,
-│   │                                051_Form_Lluvia_de_ideas, 07-ing-concreto_GFRC,
-│   │                                08-estratega-neuromarketing
+│   │                                07-ing-concreto_GFRC, 08-estratega-neuromarketing
+│   │                                (051_Form_Lluvia_de_ideas eliminado 2026-08-11, stub)
 │   ├── 006_DEVSECOPS_INFRAESTRUCTURA — 03-analista-secop, 052_Form_Administrativo,
-│   │                                054_Form_Gestion_de_riesgos, 056_Form_Evaluador,
 │   │                                14-analista-comportamiento, 015_intelligence-core
+│   │                                (054/056 eliminados 2026-08-11, stubs — commit a349dcb)
 │   ├── 007_DOCUMENTADOR_AS_BUILD  — 010_redactor_tecnico
 │   └── 008_AUDITOR_DE_CODIGO      — subordinados: [] (rol nuevo, sin implementación;
 │                                     architect.md redirige aquí las auditorías de
@@ -148,10 +149,9 @@ Todo lo demás (§1-§14) describe con precisión la rama `master` — verificad
 │        25 skills de un Radar legacy Firebase-based, archivadas — ver §2.1]
 │
 ├── Formulador 360 (bajo 005_INGENIERO_BACKEND / 006_DEVSECOPS_INFRAESTRUCTURA / 007_DOCUMENTADOR_AS_BUILD)
-│   ├── 050_Formulador_proy, 051_Form_Lluvia_de_ideas,
-│   │   052_Form_Administrativo, 054_Form_Gestion_de_riesgos,
-│   │   056_Form_Evaluador, 010_redactor_tecnico
-│   │   (1-3 skills reales c/u; 052/056 con brecha IDENTITY.md-vs-código, §10)
+│   ├── 050_Formulador_proy, 052_Form_Administrativo, 010_redactor_tecnico
+│   │   (1-3 skills reales c/u; 051/054/056 eliminados 2026-08-11 por ser stubs sin
+│   │    lógica real — la brecha IDENTITY.md-vs-código que tenía 056, §10, ya no aplica)
 │
 ├── Soporte: 009_gestor_datos, 015_intelligence-core, 03-analista-secop
 │
@@ -188,13 +188,13 @@ El usuario pidió explícitamente separar el juicio: ¿los 8 roles (`001`-`008`)
 | `001_ORQUESTADOR_MAESTRO` | Sí — `IDENTITY.md` (tabla de ruteo) + `ejecutarTodosLosAgentes()` en código | 🟠 El código real es un batch runner crudo (sin ruteo condicional, sin reintentos); y el propio `IDENTITY.md` alucina 2 subordinados inexistentes (`100_reparador_codigo`, `09-legal-licitaciones`, IDENTITY.md:30,23) |
 | `002_ARQUITECTO_DE_SOFTWARE` | Sí — `.claude/agents/architect.md`, gate real | 🟢 Único genuinamente de alto nivel — verificado 3 veces con razonamiento real distinto según el diff |
 | `003_ESP_DISENO_STITCH` | No | 🔴 Solo una línea `rol`+`mandato` en el objeto. Cero conexión con las herramientas MCP de Stitch que sí existen en el proyecto |
-| `004_INGENIERO_FRONTEND` | No — ni siquiera `mandato` con contenido | 🔴 No existe como agente. El SPA React real no tiene ningún agente detrás |
+| `004_SENTINELA_FRONTEND` (renombrado 2026-08-11, antes `004_INGENIERO_FRONTEND`) | Sí — `.claude/agents/004-sentinela-frontend.md`, subagente real de solo lectura | 🟢 Mandato acotado y honesto: audita stubs huérfanos (patrón `FrozenPage.jsx`) y contratos de build — no corrige, no ejecuta el build él mismo |
 | `005_INGENIERO_BACKEND` | No — etiqueta agrupadora sobre 7 carpetas preexistentes | 🟠 Sin `IDENTITY.md`, sin código propio, sin criterio de ingeniería definido en ningún lado |
 | `006_DEVSECOPS_INFRAESTRUCTURA` | No — mismo patrón | 🔴 Su propio `rol` dice "Despliegues a producción, servidores" — ninguno de sus 6 subordinados hace eso (son agentes de Formulador y compliance) |
 | `007_DOCUMENTADOR_AS_BUILD` | Parcial — `carpetaSalida` real, genera acta en `docs/as-build/` | 🟡 Segundo más real de los 8 — único con un artefacto de código tangible propio, no prestado de un subordinado |
 | `008_AUDITOR_DE_CODIGO` | No — cero subordinados, cero código | 🔴 Cita "Protocolo Titán" (ver §0-C, término sin definición en ningún lado). `architect.md` lo cita como destino de las auditorías post-hoc que él mismo rechaza — pero no hay nada del otro lado para recibirlas |
 
-**Conclusión de §1.4:** de 8 roles, solo 1 es de nivel élite real (`002`) y 1 más tiene un artefacto propio tangible (`007`). Los otros 6 no son agentes en ningún sentido operativo — o son una frase suelta dentro de un objeto JavaScript, o una etiqueta nueva sobre agentes preexistentes sin lógica ni identidad propia. Dos de ellos (`001`, `006`) tienen algo peor que estar vacíos: su propia descripción es falsa.
+**Conclusión de §1.4 (actualizada 2026-08-11):** de 8 roles, ahora 2 tienen subagente real (`002`, `004`) y 1 más tiene un artefacto propio tangible (`007`). Los otros 5 no son agentes en ningún sentido operativo — o son una frase suelta dentro de un objeto JavaScript, o una etiqueta nueva sobre agentes preexistentes sin lógica ni identidad propia. Dos de ellos (`001`, `006`) tienen algo peor que estar vacíos: su propia descripción es falsa.
 
 ---
 
