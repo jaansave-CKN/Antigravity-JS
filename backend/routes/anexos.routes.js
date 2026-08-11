@@ -23,6 +23,11 @@ import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js'
 
 function safeParseJson(val) {
   if (!val) return null;
+  // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10 — migración ficha_tecnica a
+  // JSONB nativo): antes funcionaba "por accidente" — JSON.parse(objeto)
+  // lanzaba y el catch devolvía val (el objeto original) sin querer. Guard
+  // explícito, mismo resultado pero sin depender de ese efecto colateral.
+  if (typeof val === 'object') return val;
   try { return JSON.parse(val); }
   catch { return val; }
 }

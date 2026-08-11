@@ -29,7 +29,13 @@ const BORDER_WIDTH = 1;   // Protocol Precision: 1px borders
 // ── Utils ─────────────────────────────────────────────────────────────────────
 
 function safeJson(v, fallback = {}) {
-  if (!v || typeof v !== 'string') return fallback;
+  // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10 — migración ficha_tecnica a
+  // JSONB nativo): antes descartaba en silencio cualquier valor que no fuera
+  // string — un objeto ya parseado (lo que devuelve el driver pg para una
+  // columna JSONB real) caía directo al fallback {}, vaciando la ficha
+  // técnica en los PDFs exportados (MGA/BID/OXI) sin ningún error visible.
+  if (v == null) return fallback;
+  if (typeof v === 'object') return v;
   try { return JSON.parse(v); } catch { return fallback; }
 }
 
