@@ -1,5 +1,5 @@
 # ARQUITECTURA AGÉNTICA ANTIGRAVITY — Auditoría Forense 360° Multiagente + Sistema Completo
-**Fecha:** 2026-08-08, re-verificado y ampliado 2026-08-10 (§0-D) y 2026-08-11 (§0-E, §0-F ADR-0001, §0-G Migración A, §0-H purga `.agent/`, §0-I auditoría 008 + fix de OCC atómico)
+**Fecha:** 2026-08-08, re-verificado y ampliado 2026-08-10 (§0-D) y 2026-08-11 (§0-E…§0-I, §0-J herramienta de verificación quirúrgica en Supabase — despliegue aún sin confirmar)
 **Auditor:** Chief AI Architect / Auditor Forense de Sistemas Multiagente / DevSecOps Lead / Chief Software Auditor / System Architect
 **Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS`, **ambas ramas remotas** (`origin/master` y `origin/main`, ver §0-D). `proyectos/` queda fuera del árbol de trabajo local (repos git independientes, `.gitignore:19-24`) — pero ver §0-D sobre su relación real con `origin/main`.
 **Regla de evidencia:** cero suposiciones — cada hallazgo cita archivo real. Donde el volumen hizo impracticable la lectura línea-por-línea de decenas de archivos (los skills de `agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/`, o los 171 commits de `origin/main`), se declara el muestreo usado.
@@ -171,6 +171,24 @@ El usuario, correctamente, no aceptó la aprobación del gate de la ronda §0-H 
 **Commit sellado, alcance exclusivamente de este hallazgo (`feat(db):`):** `src/modules/formulador/migrations/007_worm_occ_shadow_ledger.sql`, `008_occ_atomic_guardar_modulo10.sql`, `occGuard.js`, `FormuladorPgController.js`, `src/shared/infrastructure/validation.js` — el resto de cambios pendientes (gobernanza de agentes, ADR, esta auditoría) queda fuera de este commit a propósito, no se mezclan alcances distintos en un mismo commit.
 
 **Sobre "autorización final para ejecutar el SQL en Supabase":** el código queda blindado por esta ronda, pero aplicar DDL/triggers nuevos contra la instancia de producción de Supabase es una acción real, de alto impacto y sin deshacer trivial — no se ejecutó de forma autónoma. Los archivos `007` y `008` de `src/modules/formulador/migrations/` están listos para aplicarse (`psql $DATABASE_URL -f ...` o el editor SQL de Supabase, en ese orden), a la espera de confirmación humana explícita para el paso de producción en sí, no solo para el código que lo implementa.
+
+---
+
+## 0-J. DÉCIMA RONDA (2026-08-11, misma jornada) — despliegue a Supabase reportado 2 veces, verificado 2 veces, ninguna confirmada; herramienta quirúrgica entregada
+
+Tras el "GO-CODE" de producción (§0-I), la unidad humana reportó éxito 2 veces al aplicar `007_worm_occ_shadow_ledger.sql` + `008_occ_atomic_guardar_modulo10.sql` vía el editor SQL de Supabase. Ambas veces se verificó por PostgREST (`SUPABASE_URL`/`SUPABASE_SERVICE_KEY` de `.env`, proyecto `ozivmsvxbdtjkzleqbcy`) con las mismas 5 sondas de solo lectura (tabla `project_version_hashes`, tabla `security_violations_ledger`, RPC `obtener_ultimo_hash`, RPC `registrar_version_hash`, RPC `guardar_modulo10` con firma de 5 parámetros) — **resultado idéntico, byte por byte, en ambas corridas**: solo `project_version_hashes` existe; el resto sigue devolviendo `404` (`PGRST205`/`PGRST202`).
+
+Que el segundo barrido diera exactamente igual al primero es la pista, no solo un "sigue fallando" — descarta que haya sido simplemente "faltó ejecutar de nuevo" y apunta a una de 2 causas no distinguibles desde PostgREST hacia afuera: (a) el DDL se está aplicando a una instancia Supabase distinta de la que apunta `.env`, o (b) el caché de esquema de PostgREST no se refrescó tras el DDL.
+
+**Entregable quirúrgico:** `src/modules/formulador/migrations/_verificar_migracion_a.sql` — script de un solo disparo, para correr DENTRO del propio editor SQL de Supabase (elimina la ambigüedad de "¿es mi vista desde afuera la que está mal, o el DDL nunca llegó?"): consulta `information_schema`/`pg_proc`/`pg_trigger` directamente para dar un veredicto OK/FALTA por cada uno de los 5 objetos + los 4 triggers WORM, y termina con `NOTIFY pgrst, 'reload schema';` para forzar el refresco de caché sin costo de volver a aplicar DDL.
+
+**Hallazgo técnico adicional, documentado dentro del propio script:** `CREATE OR REPLACE FUNCTION` con distinto número de parámetros no reemplaza la función existente en Postgres — la identidad de una función es (nombre + tipos de parámetros), así que la versión nueva de `guardar_modulo10` (5 parámetros) y la vieja (3 parámetros) coexisten como sobrecarga si la migración corre bien, no se sustituyen solas. El script deja una consulta de confirmación y un `DROP FUNCTION` opcional (a ejecutar manualmente, solo después de confirmar que la versión nueva funciona) para no dejar código muerto respondiendo al mismo nombre.
+
+**Sin declarar Misión Cumplida todavía** — pendiente de que el próximo intento se verifique con esta herramienta dentro del propio Supabase antes de que se reporte como éxito.
+
+**Entregable adicional — bloque atómico de despliegue:** el patrón "2 pegados separados, 2 estados a medias, cero error visible" se repitió lo suficiente como para dejar de tratarlo como incidente aislado. Se creó `src/modules/formulador/migrations/_deploy_atomico_migracion_a.sql` — combina 007+008 en un único `BEGIN`/`COMMIT` explícito con 9 puntos de control (`RAISE NOTICE`), incluye el `DROP FUNCTION` de la firma vieja de `guardar_modulo10` (3 parámetros) que `CREATE OR REPLACE` con distinto número de argumentos no elimina por sí solo (identidad de función en Postgres = nombre+tipos de parámetros, no un simple reemplazo), y termina con la verificación de los 8 objetos + `NOTIFY pgrst, 'reload schema'` en la misma pantalla.
+
+**Institucionalizado, no solo parcheado esta vez** (a pedido explícito del usuario — "esto debe estar entre las habilidades del orquestador o arquitecto"): `.claude/agents/005-ingeniero-backend.md` ahora tiene una regla permanente — todo DDL que entregue de aquí en adelante debe venir en bloque atómico con esas mismas 5 propiedades (transacción explícita, checkpoints, idempotencia, `DROP` de overloads viejos, verificación inline). `.claude/agents/002-arquitecto-de-software.md` suma un 6º criterio de evaluación: no aprobar una propuesta de DDL que no cumpla ese formato — la responsabilidad de blindar el próximo despliegue no depende de que se repita el mismo incidente para que alguien se acuerde de exigirlo.
 
 ---
 

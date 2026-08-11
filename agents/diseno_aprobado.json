@@ -1,15 +1,16 @@
 {
   "aprobado": true,
-  "firma": "2053d9bfe7b4751dafa1a01e4e4e2933d33f37f8c45fc5997416d48e80594f2f",
-  "timestamp": "2026-08-11T22:31:30.660Z",
+  "firma": "be372dab5a3cb7fce1bdb90290b2441955c89786a31bd8995d756ffe849ec88f",
+  "timestamp": "2026-08-11T23:02:15.924Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Renombrado architect.md → 002-arquitecto-de-software.md propagado consistentemente en todas las referencias ejecutables de architecture-gate.cjs (5 ocurrencias), AGENTS.md Axioma 1, tabla de topología y diseno_aprobado.json — sin referencias residuales al nombre antiguo dentro del diff",
-    "Nuevos subagentes 001/003/008 son definiciones de rol sin código de aplicación; 003 y 008 declarados read-only (tools: Read/Grep/Glob); mandato de 001 es enrutador, no ejecutor — alcance consistente con jerarquía de AGENTS.md §IV",
-    "ADR-0001 cumple criterios de completitud: contexto verificado con citas reales de archivo:línea, decisión binaria clara (Migración A autorizada / Migración B bloqueada), condiciones de desbloqueo accionables por humano, veto explícito a reintroducir pg",
-    "Bloque 'Gate resuelto' insertado en 005-ingeniero-backend.md es consistente con el veredicto del ADR y no contradice el fallback a SERVICE_KEY ni assertValidTenant ya existentes",
-    "Purga de .agent/06X declarada consistentemente en 001-orquestador-maestro.md §4 y AGENTS.md §IV-B — sin referencias residuales a 06X en el diff",
-    "Diff no toca server.js, src/modules/, esquemas de DB ni código de aplicación — riesgo de regresión funcional mínimo",
-    "Punto menor no bloqueador: comentario en architecture-gate.cjs ~línea 26 dice que 003 nunca tuvo carpeta propia, pero este diff crea 003-esp-diseno-stitch.md — desactualizado, corregible en próximo commit (ya registrado en diseno_aprobado.json razón 7 del ciclo anterior)"
+    "Diff puramente documental — ningún archivo de código, esquema SQL ni configuración de runtime modificado",
+    "Criterio 6 añadido a 002 es accionable, completo y no colisiona con ningún mandato previo",
+    "Regla permanente de DDL en 005 cubre los 5 requisitos mínimos (transacción, checkpoints, idempotencia, DROP de overloads, verificación inline) con nivel de detalle suficiente para fiscalización",
+    "Cierra el hueco identificado en la auditoría: la regla existía como convención implícita post-incidente; ahora es criterio de gate exigible por 002 antes de aprobar cualquier DDL futuro",
+    "diseno_aprobado.json actualizado consistentemente: firma, timestamp y razones reflejan el contenido real del diff",
+    "Alcance exacto al pedido del usuario — sin abstracciones ni agentes nuevos no solicitados",
+    "No se borra ninguna interfaz sin reemplazo declarado",
+    "PDF sincronizado con el .md; reformateo de tablas es artefacto de conversión sin cambio semántico"
   ]
 }

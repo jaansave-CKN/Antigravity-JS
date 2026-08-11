@@ -43,6 +43,19 @@ No repitas trabajo ya hecho ni inventes sobre una base que no existe. Esto es lo
 - **Prohibido explícitamente por el ADR:** reintroducir el paquete `pg` o `SET LOCAL app.tenant_id` — la rama de RLS por GUC de sesión de los proyectos hermanos no es portable a este proyecto (REST-only) y no debe reaparecer aquí.
 - **No toques el fallback a `SERVICE_KEY`** en `supabaseClient.js` — sigue siendo el control primario funcional hasta que Migración B esté activa.
 
+## Regla permanente — todo DDL contra Supabase se entrega como bloque atómico (2026-08-11)
+
+Incidente que originó esta regla: `007`/`008` se pegaron por separado en el editor SQL de Supabase 2 veces, ambas reportadas como "éxito" por el operador humano, ambas verificadas por PostgREST y ambas resultaron en un **estado a medias silencioso** (una tabla creada, el resto de objetos ausentes, sin ningún error visible que lo señalara) — el editor SQL de Supabase no envuelve un pegado multi-sentencia en una transacción explícita por defecto; si una sentencia posterior falla, las anteriores ya quedaron confirmadas y nada avisa. Ver `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §0-J` y `_deploy_atomico_migracion_a.sql` para el caso real.
+
+**De ahora en adelante, cualquier entrega de DDL de tu parte (no solo esta) debe venir en un único archivo que:**
+1. Envuelve todo el contenido en `BEGIN;` / `COMMIT;` explícitos — si algo falla a mitad de camino, Postgres revierte todo, no deja un estado ambiguo.
+2. Inserta un `DO $$ BEGIN RAISE NOTICE '...'; END $$;` de punto de control después de cada bloque lógico (una tabla, sus triggers, cada función) — si la ejecución se detiene, el último `CHECKPOINT` visible en el panel de resultados dice exactamente dónde.
+3. Es idempotente en cada sentencia (`IF NOT EXISTS`, `CREATE OR REPLACE`, `DROP ... IF EXISTS`) — debe ser seguro re-correrlo si un intento previo quedó a medias, sin duplicar ni perder nada.
+4. Si reemplaza una función existente con distinto número de parámetros, incluye el `DROP FUNCTION` explícito de la firma vieja — `CREATE OR REPLACE` con distinto número de argumentos crea un *overload* nuevo en Postgres, no sustituye el anterior (identidad de función = nombre + tipos de parámetros).
+5. Termina con una consulta de verificación inline (`information_schema`/`pg_proc`/`pg_trigger`, OK/FALTA por objeto) + `NOTIFY pgrst, 'reload schema';` — el operador humano ve el veredicto en la misma pantalla donde corrió el DDL, sin depender de un segundo script ni de una verificación externa por PostgREST que pueda estar mirando una instancia distinta o un caché desactualizado.
+
+Esto no es específico de Migración A — es el formato mínimo aceptable para cualquier DDL que entregues de aquí en adelante.
+
 ## Salida obligatoria
 
 ```json
