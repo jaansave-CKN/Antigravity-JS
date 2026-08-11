@@ -4596,11 +4596,11 @@ Reglas:
     const proyecto = await getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    // NOTA: ficha_tecnica es TEXT en la BD real (no JSONB), de ahí el cast
-    // ::jsonb de entrada y ::text de salida.
+    // ficha_tecnica es JSONB nativo desde 037_ficha_tecnica_a_jsonb.sql
+    // (2026-08-10) — sin casts tácticos ::jsonb/::text, ya innecesarios.
     await runSql(
       `UPDATE proyectos
-       SET ficha_tecnica = jsonb_set(ficha_tecnica::jsonb, ARRAY[?]::text[], ?::jsonb, true)::text,
+       SET ficha_tecnica = jsonb_set(ficha_tecnica, ARRAY[?]::text[], ?::jsonb, true),
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND org_id = ?`,
       [key, JSON.stringify(value), req.params.id, req.userId]

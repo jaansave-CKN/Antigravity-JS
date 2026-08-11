@@ -25,11 +25,19 @@
 -- columna (TEXT real pese a JSONB en 001_postgres_schema.sql:55), pero no se
 -- toca en esta migración — requiere su propio inventario de call sites.
 
+-- El DEFAULT actual ('{}'::text) no se puede castear automáticamente a jsonb
+-- en el mismo ALTER que cambia el tipo (error real 42804, visto en vivo al
+-- aplicar esta migración) — se quita primero, se cambia el tipo, se repone.
+ALTER TABLE proyectos
+  ALTER COLUMN ficha_tecnica DROP DEFAULT;
+
 ALTER TABLE proyectos
   ALTER COLUMN ficha_tecnica TYPE JSONB USING (
     CASE WHEN ficha_tecnica IS NULL OR btrim(ficha_tecnica) = ''
          THEN '{}'::jsonb
          ELSE ficha_tecnica::jsonb
     END
-  ),
+  );
+
+ALTER TABLE proyectos
   ALTER COLUMN ficha_tecnica SET DEFAULT '{}'::jsonb;
