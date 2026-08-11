@@ -297,12 +297,11 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
           // vez de sobreescribir el blob completo — este es el otro agente
           // (junto a proyectos.routes.js /viabilidad-financiera) que puede
           // escribir esta misma clave en paralelo; mismo fix, mismo motivo.
-          // NOTA: ficha_tecnica es TEXT en la BD real (no JSONB), de ahí el
-          // cast ::jsonb de entrada y ::text de salida — ver mismo fix en
-          // proyectos.routes.js.
+          // ficha_tecnica es JSONB nativo desde 037_ficha_tecnica_a_jsonb.sql
+          // (2026-08-10) — sin casts tácticos ::jsonb/::text, ya innecesarios.
           await runSql(
             `UPDATE proyectos
-             SET ficha_tecnica = jsonb_set(ficha_tecnica::jsonb, '{viabilidad_financiera}', ?::jsonb, true)::text,
+             SET ficha_tecnica = jsonb_set(ficha_tecnica, '{viabilidad_financiera}', ?::jsonb, true),
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ? AND org_id = ?`,
             [JSON.stringify(viabilidadActualizada), req.params.id, req.userId]

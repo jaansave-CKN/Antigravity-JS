@@ -623,12 +623,11 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     // atómicamente sobre el valor VIVO de la fila en Postgres, nunca sobre
     // una copia JS obsoleta — no reabre la decisión de no usar optimistic
     // lock global (esa sigue diferida), solo corrige la atomicidad del merge.
-    // NOTA: proyectos.ficha_tecnica es TEXT en la BD real (no JSONB pese a lo
-    // que declara 001_postgres_schema.sql — deriva de esquema verificada en
-    // vivo), de ahí el cast ::jsonb de entrada y ::text de salida.
+    // ficha_tecnica es JSONB nativo desde 037_ficha_tecnica_a_jsonb.sql
+    // (2026-08-10) — sin casts tácticos ::jsonb/::text, ya innecesarios.
     await runSql(
       `UPDATE proyectos
-       SET ficha_tecnica = jsonb_set(ficha_tecnica::jsonb, '{viabilidad_financiera}', ?::jsonb, true)::text,
+       SET ficha_tecnica = jsonb_set(ficha_tecnica, '{viabilidad_financiera}', ?::jsonb, true),
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND org_id = ?`,
       [JSON.stringify(resultado), proyectoId, req.userId]
