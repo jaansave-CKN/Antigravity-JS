@@ -443,19 +443,11 @@ async function ejecutarConResiliencia(carpeta, comando) {
 }
 
 // OPERACIÓN 4 — Contrato de Salida (Audit Trail): artefacto obligatorio en disco al finalizar.
-const AUDIT_TRAIL_PATH = path.join(dirAgents, '001_ORQUESTADOR_MAESTRO', 'orquestacion_log.json');
+const AUDIT_TRAIL_PATH = path.join(dirAgents, '001_ORQUESTADOR_MAESTRO', 'orquestacion_log.jsonl');
 
 function escribirAuditTrail(registro) {
     fs.mkdirSync(path.dirname(AUDIT_TRAIL_PATH), { recursive: true });
-    let historico = [];
-    if (fs.existsSync(AUDIT_TRAIL_PATH)) {
-        try {
-            const parsed = JSON.parse(fs.readFileSync(AUDIT_TRAIL_PATH, 'utf8'));
-            if (Array.isArray(parsed)) historico = parsed;
-        } catch { /* archivo corrupto o ausente: arranca historial nuevo, no rompe la corrida */ }
-    }
-    historico.push(registro);
-    fs.writeFileSync(AUDIT_TRAIL_PATH, JSON.stringify(historico, null, 2) + '\n', 'utf8');
+    fs.appendFileSync(AUDIT_TRAIL_PATH, JSON.stringify(registro) + '\n', 'utf8');
 }
 
 let agentesEjecutados = 0;
@@ -590,7 +582,7 @@ async function ejecutarTodosLosAgentes() {
         duracion_total_ms: finBatchMs - inicioBatchMs,
         resultados: resultadosAuditTrail,
     });
-    console.log(`📊 [AUDIT_TRAIL] agents/001_ORQUESTADOR_MAESTRO/orquestacion_log.json escrito (${resultadosAuditTrail.length} resultado(s))`);
+    console.log(`📊 [AUDIT_TRAIL] agents/001_ORQUESTADOR_MAESTRO/orquestacion_log.jsonl (append, +1 linea, ${resultadosAuditTrail.length} resultado(s))`);
 
     console.log('\n✅ OBRA FINALIZADA: Director Jairo Antonio Salinas Velasco | Asfáltica S.A.S.');
     console.log('------------------------------------------------------------');
