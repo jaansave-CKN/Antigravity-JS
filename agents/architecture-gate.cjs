@@ -442,27 +442,30 @@ async function ejecutarConResiliencia(carpeta, comando) {
     return { ...resultado, intentos: intento };
 }
 
-// FASE 4 — telemetría estructurada, paralela al acta en markdown.
-const LOG_JSON_PATH = path.join(dirRoot, 'logs', 'orquestacion_log.json');
+// OPERACIÓN 4 — Contrato de Salida (Audit Trail): artefacto obligatorio en disco al finalizar.
+const AUDIT_TRAIL_PATH = path.join(dirAgents, '001_ORQUESTADOR_MAESTRO', 'orquestacion_log.json');
 
-function escribirTelemetriaJSON(entradas) {
-    fs.mkdirSync(path.dirname(LOG_JSON_PATH), { recursive: true });
+function escribirAuditTrail(registro) {
+    fs.mkdirSync(path.dirname(AUDIT_TRAIL_PATH), { recursive: true });
     let historico = [];
-    if (fs.existsSync(LOG_JSON_PATH)) {
+    if (fs.existsSync(AUDIT_TRAIL_PATH)) {
         try {
-            const parsed = JSON.parse(fs.readFileSync(LOG_JSON_PATH, 'utf8'));
+            const parsed = JSON.parse(fs.readFileSync(AUDIT_TRAIL_PATH, 'utf8'));
             if (Array.isArray(parsed)) historico = parsed;
         } catch { /* archivo corrupto o ausente: arranca historial nuevo, no rompe la corrida */ }
     }
-    historico.push(...entradas);
-    fs.writeFileSync(LOG_JSON_PATH, JSON.stringify(historico, null, 2) + '\n', 'utf8');
+    historico.push(registro);
+    fs.writeFileSync(AUDIT_TRAIL_PATH, JSON.stringify(historico, null, 2) + '\n', 'utf8');
 }
 
 let agentesEjecutados = 0;
 let agentesExitosos = 0;
 let agentesFallidos = 0;
 const bitacoraEjecucion = [];
-const telemetria = [];
+const resultadosAuditTrail = [];
+const orquestacionId = crypto.randomUUID();
+const inicioBatchMs = Date.now();
+const timestampInicio = new Date(inicioBatchMs).toISOString();
 
 async function ejecutarTodosLosAgentes() {
     try {
@@ -505,12 +508,13 @@ async function ejecutarTodosLosAgentes() {
 
                     const resultado = await ejecutarConResiliencia(carpeta, comando);
 
-                    telemetria.push({
+                    resultadosAuditTrail.push({
                         agente: carpeta,
-                        status: resultado.exito ? 'success' : 'failed',
-                        exitCode: resultado.exitCode,
-                        executionTimeMs: resultado.executionTimeMs,
-                        timestamp: new Date().toISOString(),
+                        estado: resultado.exito ? 'SUCCESS' : 'FAILED',
+                        exit_code: resultado.exitCode,
+                        intentos_consumidos: resultado.intentos,
+                        duracion_ms: resultado.executionTimeMs,
+                        error_log: resultado.exito ? null : resultado.error,
                     });
 
                     if (resultado.exito) {
@@ -524,12 +528,13 @@ async function ejecutarTodosLosAgentes() {
             } catch (e) {
                 agentesFallidos++;
                 bitacoraEjecucion.push({ carpeta, comandante, resultado: 'fallo', error: e.message });
-                telemetria.push({
+                resultadosAuditTrail.push({
                     agente: carpeta,
-                    status: 'failed',
-                    exitCode: -1,
-                    executionTimeMs: 0,
-                    timestamp: new Date().toISOString(),
+                    estado: 'FAILED',
+                    exit_code: -1,
+                    intentos_consumidos: 0,
+                    duracion_ms: 0,
+                    error_log: e.message,
                 });
                 console.error(`\n❌ Error interno en ${carpeta}: ${e.message}`);
             }
@@ -574,10 +579,18 @@ async function ejecutarTodosLosAgentes() {
         ].join('\n');
         fs.writeFileSync(actaPath, acta, 'utf8');
         console.log(`\n📄 [007_DOCUMENTADOR_AS_BUILD] Acta de entrega generada: docs/as-build/${path.basename(actaPath)}`);
-
-        escribirTelemetriaJSON(telemetria);
-        console.log(`📊 [TELEMETRIA] logs/orquestacion_log.json actualizado (+${telemetria.length} entradas)`);
     }
+
+    // OPERACIÓN 4 — artefacto obligatorio, independiente de si hubo o no agentes ejecutados.
+    const finBatchMs = Date.now();
+    escribirAuditTrail({
+        orquestacion_id: orquestacionId,
+        timestamp_inicio: timestampInicio,
+        timestamp_fin: new Date(finBatchMs).toISOString(),
+        duracion_total_ms: finBatchMs - inicioBatchMs,
+        resultados: resultadosAuditTrail,
+    });
+    console.log(`📊 [AUDIT_TRAIL] agents/001_ORQUESTADOR_MAESTRO/orquestacion_log.json escrito (${resultadosAuditTrail.length} resultado(s))`);
 
     console.log('\n✅ OBRA FINALIZADA: Director Jairo Antonio Salinas Velasco | Asfáltica S.A.S.');
     console.log('------------------------------------------------------------');
