@@ -70,6 +70,29 @@ function comandanteDe(carpetaAgente) {
 }
 
 // =============================================================================
+// RUTEO ALGORÍTMICO — match exacto contra clave, sin heurística ni LLM decidiendo
+// a discreción. Basado en la Matriz de Ruteo real de
+// agents/001_ORQUESTADOR_MAESTRO/IDENTITY.md, con los nombres de carpeta
+// vigentes hoy en disco (post-renumeración 2026-08-08).
+// =============================================================================
+const MAPA_RUTEO = {
+    formulacion: '050_Formulador_proy',
+    lluvia_ideas: '051_Form_Lluvia_de_ideas',
+    administrativo: '052_Form_Administrativo',
+    riesgos: '054_Form_Gestion_de_riesgos',
+    evaluacion: '056_Form_Evaluador',
+    convocatorias: '011_Radar1_minero',
+    inteligencia_mercado: '012_Radar2_Estratega',
+};
+
+function rutear(clave) {
+    if (!Object.prototype.hasOwnProperty.call(MAPA_RUTEO, clave)) {
+        throw new Error(`RUTEO_FALLIDO: '${clave}' no coincide con ninguna clave del mapa. Claves válidas: ${Object.keys(MAPA_RUTEO).join(', ')}`);
+    }
+    return MAPA_RUTEO[clave];
+}
+
+// =============================================================================
 // GATE DE ARQUITECTURA — Cero Código sin Diseño Aprobado
 // El Agente Arquitecto (.claude/agents/architect.md) debe emitir un veredicto
 // {"aprobado": true, ...} sobre el diff pendiente antes de que el Mando Central
@@ -225,6 +248,20 @@ function validarDisenoAprobado(carpetas) {
     return { aprobado: true, firma: firma.firma, timestamp: firma.timestamp };
 }
 
+// Modo ruteo: `node agents/architecture-gate.cjs --rutear <clave>`
+if (process.argv.includes('--rutear')) {
+    const clave = process.argv[process.argv.indexOf('--rutear') + 1];
+    try {
+        const destino = rutear(clave);
+        console.log(`✅ [RUTEO] '${clave}' → ${destino}`);
+        process.exitCode = 0;
+    } catch (e) {
+        console.error(`🛑 [RUTEO] ${e.message}`);
+        process.exitCode = 1;
+    }
+    return;
+}
+
 // Modo check: `node agents/architecture-gate.cjs --check-gate` — para hooks de git
 // (pre-commit). Cero llamadas a la API de Anthropic: solo valida que ya exista
 // una firma vigente de una aprobación previa (--aprobar-diseno) contra el estado
@@ -314,41 +351,118 @@ function validarEnlace(url) {
     });
 }
 
-async function ejecutarConVerdad(nombreAgente, funcionEjecutar) {
-    console.log(`\n🔍 [001] Verificando: ${nombreAgente}`);
+// =============================================================================
+// CONFIGURACIÓN POR AGENTE — reemplaza el timeout global estático de 30s.
+// Claves = nombres reales de carpeta en agents/ (no roles del Escuadrón Élite,
+// que no todos tienen carpeta propia). Sin entrada explícita, aplica DEFAULT.
+// =============================================================================
+const CONFIG_AGENTES_DEFAULT = { timeout: 30000, retries: 1, backoff: 3000 };
+const CONFIG_AGENTES = {
+    // 010_redactor_tecnico es el subordinado real de 007_DOCUMENTADOR_AS_BUILD —
+    // genera .docx (Skill_002_Redactor_Propuestas.cjs), tarea más lenta que el
+    // resto; más margen y un reintento extra.
+    '010_redactor_tecnico': { timeout: 60000, retries: 2, backoff: 5000 },
+};
 
-    try {
-        const resultado = await funcionEjecutar();
+function configDe(carpeta) {
+    return CONFIG_AGENTES[carpeta] || CONFIG_AGENTES_DEFAULT;
+}
 
-        if (resultado && typeof resultado === 'string') {
-            const urls = resultado.match(/https?:\/\/[^\s<>"']+/g) || [];
+function esperar(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
+// Un solo intento de ejecución. No decide éxito/fracaso más allá del propio
+// proceso — eso lo hace ejecutarConResiliencia() (URL-hallucination check
+// incluido).
+function ejecutarProcesoUnico(comando, timeoutMs) {
+    return new Promise((resolve) => {
+        const inicio = Date.now();
+        exec(comando, { cwd: dirRoot, timeout: timeoutMs }, (error, stdout, stderr) => {
+            const executionTimeMs = Date.now() - inicio;
+            if (!error) {
+                resolve({ exito: true, exitCode: 0, executionTimeMs, stdout, timeout: false });
+                return;
+            }
+            const fueTimeout = error.killed === true && executionTimeMs >= timeoutMs;
+            resolve({
+                exito: false,
+                exitCode: typeof error.code === 'number' ? error.code : -1,
+                executionTimeMs,
+                error: (stderr && stderr.trim()) || error.message,
+                timeout: fueTimeout,
+            });
+        });
+    });
+}
+
+// Motor de resiliencia: timeout + retries + backoff por agente (FASE 3), más
+// el chequeo de URLs alucinadas ya existente (Honestidad Técnica), ahora
+// aplicado en cada intento, no solo el primero.
+async function ejecutarConResiliencia(carpeta, comando) {
+    const { timeout, retries, backoff } = configDe(carpeta);
+    let intento = 0;
+    let resultado;
+
+    while (intento <= retries) {
+        console.log(`\n🔍 [001] Ejecutando: ${carpeta} (intento ${intento + 1}/${retries + 1}, timeout ${timeout}ms)`);
+        resultado = await ejecutarProcesoUnico(comando, timeout);
+
+        if (resultado.exito) {
+            const urls = (resultado.stdout || '').match(/https?:\/\/[^\s<>"']+/g) || [];
             if (urls.length > 0) {
                 console.log(`   🔗 Detectadas ${urls.length} URLs - verificando...`);
-
+                let urlRota = null;
                 for (const url of urls) {
                     const chequeo = await validarEnlace(url);
-                    if (!chequeo.valido) {
-                        throw new Error(`Link Alucinado Detectado: ${url} - ${chequeo.error}`);
-                    }
+                    if (!chequeo.valido) { urlRota = `${url} - ${chequeo.error}`; break; }
                 }
-                console.log(`   ✅ ${urls.length} URLs verificadas correctamente`);
+                if (urlRota) {
+                    resultado = { exito: false, exitCode: resultado.exitCode, executionTimeMs: resultado.executionTimeMs, error: `Link Alucinado Detectado: ${urlRota}`, timeout: false };
+                } else {
+                    console.log(`   ✅ ${urls.length} URLs verificadas correctamente`);
+                }
             }
         }
 
-        console.log(`   ✅ CONFIRMADO: ${nombreAgente} completado con éxito real`);
-        return { exito: true, resultado };
+        if (resultado.exito) {
+            console.log(`   ✅ CONFIRMADO: ${carpeta} completado con éxito real (exitCode 0, ${resultado.executionTimeMs}ms)`);
+            return { ...resultado, intentos: intento + 1 };
+        }
 
-    } catch (error) {
-        console.error(`   ❌ ERROR REAL en ${nombreAgente}: ${error.message}`);
-        return { exito: false, error: error.message };
+        console.error(`   ❌ ${resultado.timeout ? 'TIMEOUT' : 'ERROR'} en ${carpeta} (intento ${intento + 1}): ${resultado.error}`);
+        intento++;
+        if (intento <= retries) {
+            console.log(`   ⏳ Reintentando en ${backoff}ms...`);
+            await esperar(backoff);
+        }
     }
+
+    console.error(`   🛑 DERROTA DEFINITIVA: ${carpeta} agotó ${retries + 1} intento(s).`);
+    return { ...resultado, intentos: intento };
+}
+
+// FASE 4 — telemetría estructurada, paralela al acta en markdown.
+const LOG_JSON_PATH = path.join(dirRoot, 'logs', 'orquestacion_log.json');
+
+function escribirTelemetriaJSON(entradas) {
+    fs.mkdirSync(path.dirname(LOG_JSON_PATH), { recursive: true });
+    let historico = [];
+    if (fs.existsSync(LOG_JSON_PATH)) {
+        try {
+            const parsed = JSON.parse(fs.readFileSync(LOG_JSON_PATH, 'utf8'));
+            if (Array.isArray(parsed)) historico = parsed;
+        } catch { /* archivo corrupto o ausente: arranca historial nuevo, no rompe la corrida */ }
+    }
+    historico.push(...entradas);
+    fs.writeFileSync(LOG_JSON_PATH, JSON.stringify(historico, null, 2) + '\n', 'utf8');
 }
 
 let agentesEjecutados = 0;
 let agentesExitosos = 0;
 let agentesFallidos = 0;
 const bitacoraEjecucion = [];
+const telemetria = [];
 
 async function ejecutarTodosLosAgentes() {
     try {
@@ -389,22 +503,15 @@ async function ejecutarTodosLosAgentes() {
 
                     console.log(`\n[001] -> FASE ${agentesEjecutados}: ${carpeta}  (reporta a ${comandante})`);
 
-                    async function ejecutarAgente() {
-                        return new Promise((resolve, reject) => {
-                            exec(comando, { cwd: dirRoot, timeout: 30000 }, (error, stdout, stderr) => {
-                                if (error) {
-                                    reject(new Error(stderr || error.message));
-                                } else {
-                                    resolve(stdout);
-                                }
-                            });
-                        });
-                    }
+                    const resultado = await ejecutarConResiliencia(carpeta, comando);
 
-                    // Blindaje de Honestidad Técnica: ya no se asume éxito por ausencia de excepción —
-                    // ejecutarConVerdad() corre el comando con timeout real y escanea el resultado en
-                    // busca de URLs alucinadas antes de marcarlo como éxito.
-                    const resultado = await ejecutarConVerdad(carpeta, ejecutarAgente);
+                    telemetria.push({
+                        agente: carpeta,
+                        status: resultado.exito ? 'success' : 'failed',
+                        exitCode: resultado.exitCode,
+                        executionTimeMs: resultado.executionTimeMs,
+                        timestamp: new Date().toISOString(),
+                    });
 
                     if (resultado.exito) {
                         agentesExitosos++;
@@ -417,6 +524,13 @@ async function ejecutarTodosLosAgentes() {
             } catch (e) {
                 agentesFallidos++;
                 bitacoraEjecucion.push({ carpeta, comandante, resultado: 'fallo', error: e.message });
+                telemetria.push({
+                    agente: carpeta,
+                    status: 'failed',
+                    exitCode: -1,
+                    executionTimeMs: 0,
+                    timestamp: new Date().toISOString(),
+                });
                 console.error(`\n❌ Error interno en ${carpeta}: ${e.message}`);
             }
         }
@@ -436,9 +550,9 @@ async function ejecutarTodosLosAgentes() {
         console.log('El Orquestador reporta FRACASO PARCIAL, no ocultará fallos.');
     }
 
-    // 004_DOCUMENTADOR_AS_BUILD — acta de entrega
+    // 007_DOCUMENTADOR_AS_BUILD — acta de entrega (markdown) + telemetría (JSON)
     if (bitacoraEjecucion.length > 0) {
-        const carpetaAsBuild = ESCUADRON_ELITE['004_DOCUMENTADOR_AS_BUILD'].carpetaSalida;
+        const carpetaAsBuild = ESCUADRON_ELITE['007_DOCUMENTADOR_AS_BUILD'].carpetaSalida;
         fs.mkdirSync(carpetaAsBuild, { recursive: true });
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const actaPath = path.join(carpetaAsBuild, `ACTA_${timestamp}.md`);
@@ -449,7 +563,7 @@ async function ejecutarTodosLosAgentes() {
             `# Acta de Entrega — Orquestación Antigravity OS`,
             ``,
             `**Fecha:** ${new Date().toISOString()}`,
-            `**Generado por:** 004_DOCUMENTADOR_AS_BUILD`,
+            `**Generado por:** 007_DOCUMENTADOR_AS_BUILD`,
             ``,
             `| Agente | Reporta a | Resultado |`,
             `|---|---|---|`,
@@ -459,7 +573,10 @@ async function ejecutarTodosLosAgentes() {
             ``,
         ].join('\n');
         fs.writeFileSync(actaPath, acta, 'utf8');
-        console.log(`\n📄 [004_DOCUMENTADOR_AS_BUILD] Acta de entrega generada: docs/as-build/${path.basename(actaPath)}`);
+        console.log(`\n📄 [007_DOCUMENTADOR_AS_BUILD] Acta de entrega generada: docs/as-build/${path.basename(actaPath)}`);
+
+        escribirTelemetriaJSON(telemetria);
+        console.log(`📊 [TELEMETRIA] logs/orquestacion_log.json actualizado (+${telemetria.length} entradas)`);
     }
 
     console.log('\n✅ OBRA FINALIZADA: Director Jairo Antonio Salinas Velasco | Asfáltica S.A.S.');
