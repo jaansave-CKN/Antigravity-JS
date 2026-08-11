@@ -65,7 +65,7 @@ El agente `056_Form_Evaluador` aplica `FORCE_CAVEMAN=True` en su etapa de extrac
 El agente `050_Formulador_proy` hereda `ALIAS_SEMANTICOS=True`. Al inicio de cada sesión de formulación debe instanciar el diccionario de alias para unidades funcionales repetitivas y usarlos durante todo el procesamiento interno. Expansión solo en entregable final.
 
 ### LEY 4 — PIPELINE MARKITDOWN
-El agente `005_Radar1_minero` aplica el pipeline: `markitdown → indexación regex → extractor LLM solo sobre objetivo validado`. Prohibido pasar documentos completos al LLM.
+El agente `011_Radar1_minero` aplica el pipeline: `markitdown → indexación regex → extractor LLM solo sobre objetivo validado`. Prohibido pasar documentos completos al LLM.
 
 ---
 
@@ -83,8 +83,8 @@ Los agentes 053 y 055 fueron eliminados. El pipeline recibe anexos y los evalúa
 | Riesgos / normativa / POT | `054_Form_Gestion_de_riesgos` | — |
 | Evaluación SIV + Red Team + certificación (recibe anexos) | `056_Form_Evaluador` | SIV_ENGINE + RED_TEAM |
 | Entregable externo (ONG, embajada, alcaldía) | `056_Form_Evaluador` → humanizer-es | DIALECTICO |
-| Fondos / convocatorias / subsidios | `005_Radar1_minero` | MARKITDOWN |
-| Inteligencia de mercado / competencia | `006_Radar2_Estratega` | — |
+| Fondos / convocatorias / subsidios | `011_Radar1_minero` | MARKITDOWN |
+| Inteligencia de mercado / competencia | `012_Radar2_Estratega` | — |
 
 ---
 

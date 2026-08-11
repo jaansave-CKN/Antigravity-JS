@@ -8,7 +8,11 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const REGISTRY_PATH = path.join(ROOT, 'skills', 'ag_skills_registry.json');
 const SKILL_EXT = new Set(['.cjs', '.js', '.py']);
-const SKIP_DIRS = new Set(['node_modules', '_quarantine']);
+// _archivo_historico agregado 2026-08-08: sin esto, el glob redescubre las 25
+// skills de agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/
+// como si fueran skills nuevas cada vez que corre, contradiciendo su propio
+// estado archivado en ag_skills_registry.json.
+const SKIP_DIRS = new Set(['node_modules', '_quarantine', '_archivo_historico']);
 
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;

@@ -40,7 +40,7 @@ CHECK_6: ¿BPIN activo requerido? [SI→verificar|NO]
 CHECK_7: ¿Contrapartida local disponible? [SI: $X COP|NO]
 ```
 
-Si CHECK_1, CHECK_4 o CHECK_7 = NO → notificar a `000_ORQUESTADOR` antes de continuar.
+Si CHECK_1, CHECK_4 o CHECK_7 = NO → notificar a `001_ORQUESTADOR_MAESTRO` antes de continuar.
 
 ---
 

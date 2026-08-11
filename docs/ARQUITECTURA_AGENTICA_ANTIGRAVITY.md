@@ -2,7 +2,7 @@
 **Fecha:** 2026-08-08 (documento consolidado — fusiona la auditoría agéntica del 2026-08-08 con la radiografía de sistema del 2026-08-07, actualizado tras la Operación Exterminio Final del mismo día)
 **Auditor:** Chief AI Architect / Auditor Forense de Sistemas Multiagente / DevSecOps Lead / Chief Software Auditor / System Architect
 **Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS`. `proyectos/` queda fuera (repos git independientes, `.gitignore:19-24`).
-**Regla de evidencia:** cero suposiciones — cada hallazgo cita archivo real. Donde el volumen hizo impracticable la lectura línea-por-línea de decenas de archivos (los skills de `agents/000_ORQUESTADOR/skills/`), se declara el muestreo usado.
+**Regla de evidencia:** cero suposiciones — cada hallazgo cita archivo real. Donde el volumen hizo impracticable la lectura línea-por-línea de decenas de archivos (los skills de `agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/`), se declara el muestreo usado.
 **Estado del commit:** `0804e3a` local, 1 commit adelante de `origin/master` (`d9e520a`) — sin push, decisión pendiente del usuario. `agents/000_Orquestador.cjs` renombrado a `agents/architecture-gate.cjs` en este mismo ciclo (resuelve el ítem 11 del plan de remediación, §12).
 
 ---
@@ -25,7 +25,25 @@ La versión anterior de `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` (2026-08-08,
 | Historial git local/remoto sin ancestro común | **Resuelto** — `origin/master` ahora = `d9e520a` (ver §6.4 para el detalle de riesgo que esto implicó) |
 | `GET /api/health` — falso positivo (solo verificaba env var) | **Corregido** — ping real cacheado 120s |
 
-Lo que **no** cambió y sigue vigente tal cual: los 25 skills legacy de `agents/000_ORQUESTADOR/skills/` (huérfanos, sin consumidor), la brecha IDENTITY.md-vs-ejecución en 052/056, la ausencia de panel `/admin`, el gate de arquitectura opt-in (no hook obligatorio), y los 4 sistemas de agentes coexistentes (A/B/C/E).
+Lo que **no** cambió y sigue vigente tal cual: los 25 skills legacy (ahora en `agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/`, huérfanos, sin consumidor), la brecha IDENTITY.md-vs-ejecución en 052/056, la ausencia de panel `/admin`, y los 4 sistemas de agentes coexistentes (A/B/C/E).
+
+---
+
+## 0-B. SEGUNDA RONDA (2026-08-08, misma jornada) — reparación de un renombramiento a medias iniciado por Gemini
+
+Otra sesión (Gemini, según reportó el usuario) comenzó a renumerar el Escuadrón Élite de 5 a 8 roles y se cortó a mitad de camino por límite de tokens, dejando 2 archivos modificados sin commitear y en contradicción directa entre sí: `AGENTS.md` (nueva topología, 8 roles, refería al rol nuevo como `008_AUDITOR_DE_CODIGO`) y `.claude/agents/architect.md` (mismo rol, pero como `006_AUDITOR_DE_CODIGO`, dos veces). Detectado con `git status`/`git diff` en frío antes de tocar nada — ninguna carpeta física de `agents/` había sido tocada todavía.
+
+El usuario eligió completar el esquema de Gemini tal cual (001-008), asumiendo `008` como el número correcto. Esto exigía renumerar carpetas reales que colisionaban con los nuevos IDs de rol — un paso que Gemini nunca llegó a proponer ni ejecutar.
+
+**Trabajo completado esta ronda:**
+- 5 carpetas renombradas (`git mv`, historial preservado): `000_ORQUESTADOR`→`001_ORQUESTADOR_MAESTRO`, `001_gestor_datos`→`009_gestor_datos`, `002_redactor_tecnico`→`010_redactor_tecnico`, `005_Radar1_minero`→`011_Radar1_minero`, `006_Radar2_Estratega`→`012_Radar2_Estratega`.
+- `ESCUADRON_ELITE` en `architecture-gate.cjs` reescrito completo: 8 roles, subordinados reales reasignados por función (ej. los 7 subordinados del antiguo `002_INGENIERIA_TOTAL` pasan a `005_INGENIERO_BACKEND`, ninguno calificaba como frontend).
+- Contradicción 006/008 resuelta en `architect.md` (ganó 008, coincide con `AGENTS.md`).
+- **Hallazgo adicional durante la reparación, no relacionado con Gemini:** `skills/ag_skills_registry.json` ya tenía 25 rutas rotas desde el archivado de la ronda anterior de hoy (nunca se actualizó ese registro al mover los skills a `_archivo_historico/`) — reparado en la misma pasada, con las skills archivadas ahora marcadas explícitamente como tales (`skills_archivadas_2026-08-08`, separadas del único skill real que vivía en la misma lista, `Skill_Protocolo_Fuente_Unica`).
+- `sync_registry.cjs` ahora excluye `_archivo_historico/` de su escaneo — sin esto, redescubriría las 25 skills archivadas como "nuevas" en cada corrida.
+- `ANTHROPIC_MODEL` hardcodeado por tercera vez en `architecture-gate.cjs` (se había centralizado en `server.js` y `m1Pipeline.js`, se pasó por alto este) — corregido a `process.env.PRIMARY_AI_MODEL`.
+- `IDENTITY.md` de 050/052/056 y del propio `001_ORQUESTADOR_MAESTRO` actualizados (referencias cruzadas a las carpetas renombradas).
+- `AGENTS.md` §IV-B corregida: los agentes `06X` que Gemini clasificó como "Agentes de Apoyo" del Escuadrón Élite en realidad viven en `.agent/agents/` (Sistema B, scaffold genérico de terceros) — no son parte de este sistema en absoluto.
 
 ---
 
@@ -42,22 +60,40 @@ Lo que **no** cambió y sigue vigente tal cual: los 25 skills legacy de `agents/
 
 ### 1.2 Organigrama actualizado — Sistema A (`agents/`)
 
+**Renumerado 2026-08-08 (segunda ronda, ver §0-B):** el Escuadrón Élite pasó de 5 a 8 roles (001-008). Las carpetas de agentes reales que chocaban numéricamente con los nuevos roles se movieron: `000_ORQUESTADOR`→`001_ORQUESTADOR_MAESTRO`, `001_gestor_datos`→`009_gestor_datos`, `002_redactor_tecnico`→`010_redactor_tecnico`, `005_Radar1_minero`→`011_Radar1_minero`, `006_Radar2_Estratega`→`012_Radar2_Estratega`.
+
 ```
-000_ORQUESTADOR  (Coordinador General — IDENTITY.md)
+001_ORQUESTADOR_MAESTRO  (Enrutador Central — IDENTITY.md, antes 000_ORQUESTADOR)
 │
-├── Radar 360
-│   ├── 005_Radar1_minero        — 0 skills .cjs, solo .py sueltos
-│   ├── 006_Radar2_Estratega     — solo IDENTITY.md
-│   └── [huérfano en 000_ORQUESTADOR/skills/: 25 skills de un Radar legacy
-│        Firebase-based — ver §2.1, sin cambios desde la auditoría anterior]
+├── Escuadrón Élite (8 roles, ESCUADRON_ELITE en architecture-gate.cjs)
+│   ├── 002_ARQUITECTO_DE_SOFTWARE — sin carpeta propia: .claude/agents/architect.md
+│   ├── 003_ESP_DISENO_STITCH      — sin carpeta propia, subordinados: []
+│   ├── 004_INGENIERO_FRONTEND     — subordinados: [] (rol declarado, sin implementación)
+│   ├── 005_INGENIERO_BACKEND      — 009_gestor_datos, 011_Radar1_minero,
+│   │                                012_Radar2_Estratega, 050_Formulador_proy,
+│   │                                051_Form_Lluvia_de_ideas, 07-ing-concreto_GFRC,
+│   │                                08-estratega-neuromarketing
+│   ├── 006_DEVSECOPS_INFRAESTRUCTURA — 03-analista-secop, 052_Form_Administrativo,
+│   │                                054_Form_Gestion_de_riesgos, 056_Form_Evaluador,
+│   │                                14-analista-comportamiento, 015_intelligence-core
+│   ├── 007_DOCUMENTADOR_AS_BUILD  — 010_redactor_tecnico
+│   └── 008_AUDITOR_DE_CODIGO      — subordinados: [] (rol nuevo, sin implementación;
+│                                     architect.md redirige aquí las auditorías de
+│                                     código ya escrito, que él mismo se niega a hacer)
 │
-├── Formulador 360
+├── Radar 360 (ahora bajo 005_INGENIERO_BACKEND)
+│   ├── 011_Radar1_minero        — 0 skills .cjs, solo .py sueltos
+│   ├── 012_Radar2_Estratega     — solo IDENTITY.md
+│   └── [huérfano en 001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/:
+│        25 skills de un Radar legacy Firebase-based, archivadas — ver §2.1]
+│
+├── Formulador 360 (bajo 005_INGENIERO_BACKEND / 006_DEVSECOPS_INFRAESTRUCTURA / 007_DOCUMENTADOR_AS_BUILD)
 │   ├── 050_Formulador_proy, 051_Form_Lluvia_de_ideas,
 │   │   052_Form_Administrativo, 054_Form_Gestion_de_riesgos,
-│   │   056_Form_Evaluador, 002_redactor_tecnico
+│   │   056_Form_Evaluador, 010_redactor_tecnico
 │   │   (1-3 skills reales c/u; 052/056 con brecha IDENTITY.md-vs-código, §10)
 │
-├── Soporte: 001_gestor_datos, 015_intelligence-core, 03-analista-secop
+├── Soporte: 009_gestor_datos, 015_intelligence-core, 03-analista-secop
 │
 ├── Fantasmas en IDENTITY.md, ausentes en disco (sin cambios)
 │   ├── 100_reparador_codigo     — IDENTITY.md:30, carpeta NO existe
@@ -66,7 +102,7 @@ Lo que **no** cambió y sigue vigente tal cual: los 25 skills legacy de `agents/
 ├── Fuera de dominio: 07-ing-concreto_GFRC, 08-estratega-neuromarketing,
 │                      14-analista-comportamiento (0 skills c/u)
 │
-└── Utilidades sueltas en agents/ (post-purga, 14 archivos — ya no 23)
+└── Utilidades sueltas en agents/ (14 archivos)
     ├── architecture-gate.cjs   — REAL: gate de arquitectura + batch executor
     ├── 000_VERIFICADOR.cjs   — diagnóstico trivial (3 checks hardcoded, OK hoy)
     ├── diseno_aprobado.json  — firma del gate (ver §12)
@@ -87,7 +123,7 @@ Lo que **no** cambió y sigue vigente tal cual: los 25 skills legacy de `agents/
 
 ## 2. AUDITORÍA FORENSE DE SKILLS
 
-### 2.1 El "Radar legacy" — 25 skills en `agents/000_ORQUESTADOR/skills/`, sin cambios desde la auditoría previa
+### 2.1 El "Radar legacy" — 25 skills en `agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/`, sin cambios desde la auditoría previa
 
 Documentados con precisión en `Skill_Loader.cjs:8-134` (metadata predefinida por skill). Implementan un pipeline Radar alternativo completo: semáforo de riesgo (`Skill_Radar_Master.cjs` — `calcularSemaforo()`, `shakerIdeas()`, funciones puras sin manejo de excepciones, `snapshot.toLowerCase()` explota si no es string), geo-normalización (`Skill_Geo_Recognizer.cjs`), bridges a Firebase (`Skill_Firebase_Bridge.cjs`/`Skill_Bridge_Produccion.cjs`, apuntando a `antigravity-jairo-2026.web.app`), endpoints propios inexistentes en `server.js` (`Skill_API_Alertas.cjs`, `Skill_Contexto_Dinamico.cjs`).
 
@@ -125,7 +161,7 @@ Verificado con 3 corridas reales hoy: (1) rechazo por saldo agotado, (2) rechazo
 
 ### 3.2 SPOF de orquestación (sin cambios)
 
-`agents/000_ORQUESTADOR/puente_ejecutor.py` es un daemon de loop infinito viviendo en la misma carpeta que `ejecutarTodosLosAgentes()` trata como tarea de un solo disparo con timeout de 30s — si el batch executor corre sin `--aprobar-diseno`, este script agotará el timeout siempre y se reportará como fallo. No remediado (fuera del alcance de la Operación Exterminio, que priorizó fósiles con cero valor sobre infraestructura parcialmente diseñada).
+`agents/001_ORQUESTADOR_MAESTRO/puente_ejecutor.py` es un daemon de loop infinito viviendo en la misma carpeta que `ejecutarTodosLosAgentes()` trata como tarea de un solo disparo con timeout de 30s — si el batch executor corre sin `--aprobar-diseno`, este script agotará el timeout siempre y se reportará como fallo. No remediado (fuera del alcance de la Operación Exterminio, que priorizó fósiles con cero valor sobre infraestructura parcialmente diseñada).
 
 ### 3.3 Comunicación con el backend real
 
@@ -255,7 +291,7 @@ Aislamiento de estado por usuario: respetado en Supabase (tenant derivado de UID
 | Pantalla `/ficha` en SPA | 🟠 INCOMPLETO — sin cambios |
 | Panel/Directorio/Favoritos/Calendario, Anexos/Logística/Dialéctica | 🔴 AUSENTE — sin cambios |
 | Panel `/admin`, `requireAdmin` | 🔴 AUSENTE — sin cambios |
-| 25 skills "Radar legacy" en `000_ORQUESTADOR/skills/` | 🟠 INCOMPLETO — huérfanas, sin decisión tomada |
+| 25 skills "Radar legacy" en `001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/` | 🟠 INCOMPLETO — huérfanas, sin decisión tomada |
 | `puente_ejecutor.py` incompatible con batch executor | 🟠 INCOMPLETO — sin remediar |
 | Brecha IDENTITY.md vs. `orchestrator-engine.js` (052/056) | 🟡 Decisión de alcance pendiente — sin cambios |
 | FinOps — agregación/alertas de costo | 🔴 AUSENTE — sin cambios |
@@ -330,14 +366,14 @@ Honesto, no inflado: separado en lo que el código puede resolver (100%) y lo qu
 | Health check falso positivo | 🟠 | ✅ Ping real cacheado |
 | Guardrail RLS ausente en capa de datos | 🟠 | ✅ Agregado (`assertValidTenant`) |
 | 25 skills Radar legacy sin consumidor | 🟠 | ✅ Archivadas (`_archivo_historico/`), decisión de reactivar/borrar sigue abierta pero ya no ensucian `agents/` activo |
-| SPOF `puente_ejecutor.py` vs. timeout del batch executor | 🟠 | ✅ Resuelto (`000_ORQUESTADOR` excluido del loop) |
+| SPOF `puente_ejecutor.py` vs. timeout del batch executor | 🟠 | ✅ Resuelto (`001_ORQUESTADOR_MAESTRO` excluido del loop) |
 | Gate de arquitectura opt-in | 🟡 | ✅ Obligatorio ahora — `.git/hooks/pre-commit` bloquea commits sin aprobación vigente, cero costo de API por commit |
 | Bug de truncamiento del gate (max_tokens 1500) | 🔴 (recién descubierto) | ✅ Corregido (4096 + instrucción de concisión), verificado con veredicto real completo |
 | Brecha IDENTITY.md 052/056 vs. código real | 🟡 | 🟡 Documentada explícitamente en el propio archivo (no resuelta — es decisión de alcance de producto, no un bug) |
 | **JWT legacy `service_role` de Supabase** | 🔴 CRÍTICO | 🔴 **Sigue activo — revocación manual en dashboard, fuera de mi alcance** |
 | **Key huérfana Supabase + Render vieja** | 🔴 | 🔴 **Sigue activo — revocación manual, fuera de mi alcance** |
 | `.agent/` (Sistema B) en disco | 🟢 | 🟢 Sin cambios — decisión pendiente de conservar/borrar, no urgente |
-| Naming colisionado (3 "000/orquestador") | 🟢 | ✅ Resuelto — archivo renombrado a `architecture-gate.cjs`; quedan solo 2 entidades (carpeta `000_ORQUESTADOR/` legítima, y `.agent/agents/000_orquestador.md` del Sistema B, sin relación funcional entre sí) |
+| Naming colisionado (3 "000/orquestador") | 🟢 | ✅ Resuelto — archivo renombrado a `architecture-gate.cjs`, carpeta renombrada a `001_ORQUESTADOR_MAESTRO/` (renumeración completa §0-B); queda solo `.agent/agents/000_orquestador.md` del Sistema B, sin relación funcional con este sistema |
 
 **Puntaje:** 10/12 hallazgos accionables por código, resueltos hoy. 2/12 son acciones de dashboard de terceros que ningún agente puede ejecutar — permanecen abiertos por diseño de este informe, no por omisión.
 

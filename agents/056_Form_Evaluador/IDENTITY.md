@@ -16,7 +16,7 @@ Opera en dos fases secuenciales dentro del mismo ciclo:
 - **FASE 1 — EVALUADOR:** Calcula el Score SIV sobre los anexos técnicos del usuario
 - **FASE 2 — INTERVENTOR (Red Team):** Simula el rechazo multilateral antes de certificar
 
-Si el proyecto sobrevive ambas fases → emite certificación + pasa a `002_redactor_tecnico`.
+Si el proyecto sobrevive ambas fases → emite certificación + pasa a `010_redactor_tecnico`.
 Si falla en cualquier fase → genera reporte de brechas + loop de corrección.
 
 **INPUTS:**
@@ -27,8 +27,8 @@ Si falla en cualquier fase → genera reporte de brechas + loop de corrección.
 - Matriz de riesgos (`054_Form_Gestion_de_riesgos` — opcional, se calcula internamente si no existe)
 
 **OUTPUTS:**
-- Reporte SIV completo (JSON) → `000_ORQUESTADOR`
-- Documento certificado → `002_redactor_tecnico`
+- Reporte SIV completo (JSON) → `001_ORQUESTADOR_MAESTRO`
+- Documento certificado → `010_redactor_tecnico`
 - Reporte de brechas → `050_Formulador_proy` (loop corrección si SIV < 70%)
 
 ---
@@ -245,7 +245,7 @@ INICIO
   ├── HUMANIZER-ES (solo texto narrativo del documento)
   │     vector: { interlocutor, tono: INS, enfoque: SOS, nivel: 2 }
   │
-  └── EMITIR → 002_redactor_tecnico + reporte JSON → 000_ORQUESTADOR
+  └── EMITIR → 010_redactor_tecnico + reporte JSON → 001_ORQUESTADOR_MAESTRO
 ```
 
 ---
@@ -255,6 +255,6 @@ INICIO
 056_EVALUADOR-INTERVENTOR → [TAREA] → [OK|ERR|PEND]
 SIV → [score]% | TSRT → [score]% | CERT → [AAA|AA|A|NO_CERT|AA-ALERTA]
 FLAGS → [SIV_ENGINE | RED_TEAM | ELEPHANT_WHITE | DIALECTICO]
-SIGUIENTE → [002_redactor_tecnico | BRECHAS_LOOP_050 | RECHAZADO]
+SIGUIENTE → [010_redactor_tecnico | BRECHAS_LOOP_050 | RECHAZADO]
 CICLO_N → [TIMESTAMP]
 ```

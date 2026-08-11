@@ -1,15 +1,14 @@
 {
   "aprobado": true,
-  "firma": "088891863832ae0897b39fa3bb253f955e6276f4c481aa9f71e75d5a07c9020e",
-  "timestamp": "2026-08-08T07:55:37.224Z",
+  "firma": "8158e5a3feeaf3c2383fc059d92b2500e0c59c4bb24f7a6bd5e205f98f2eb4ea",
+  "timestamp": "2026-08-11T03:32:44.071Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/architect.md, vía API Anthropic)",
   "razones": [
-    "25 renombres son git mv puros a _archivo_historico/, patrón ya establecido; ningún consumidor roto (Skill_Loader.cjs no tenía importadores, confirmado por el propio documento de auditoría)",
-    "max_tokens 1500→4096 corrige el bug de truncamiento documentado con evidencia concreta (hallazgo 2026-08-08 en sesión real)",
-    "Exclusión de 000_ORQUESTADOR del batch executor resuelve el hallazgo §5 ítem 6 (daemon puente_ejecutor.py incompatible con timeout 30s) con implementación mínima y correcta",
-    "Nuevo modo --check-gate es solo-lectura, no llama a la API, adecuado para hooks de pre-commit; implementación con process.exitCode + return top-level es válida en CJS de Node.js",
-    "Instrucción de concisión al prompt del arquitecto es coherente con el objetivo de garantizar que el JSON llegue antes del límite de tokens",
-    "Notas de brecha en IDENTITY.md de 052/056 son declarativas y reducen la deuda de documentación sin tocar código de negocio",
-    "Alcance ajustado: el diff no introduce abstracciones nuevas ni toca módulos no relacionados con los hallazgos que cierra"
+    "Renombramiento de carpetas verificado como consistente en todos los puntos de referencia cruzada: IDENTITY.md de 050/052/056, ESCUADRON_ELITE en architecture-gate.cjs, ag_skills_registry.json, estado_antigravity.json, AGENTS.md §IV, docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md",
+    "Contradicción 006/008 en architect.md resuelta a favor de 008 — coincide con AGENTS.md §IV como fuente de verdad",
+    "ANTHROPIC_MODEL corregido a process.env.PRIMARY_AI_MODEL — consistente con patrón de server.js/m1Pipeline.js documentado en el diff",
+    "CARPETAS_EXCLUIDAS_DEL_BATCH actualizado de 000_ORQUESTADOR a 001_ORQUESTADOR_MAESTRO — preserva la exclusión del daemon puente_ejecutor.py del batch executor",
+    "No se introduce lógica nueva, no se tocan endpoints, esquemas de datos ni autenticación — alcance estrictamente limitado a nomenclatura y documentación",
+    "Roles sin implementación (004_INGENIERO_FRONTEND, 008_AUDITOR_DE_CODIGO) declarados explícitamente con subordinados vacíos y anotación de honestidad — no es deuda oculta"
   ]
 }

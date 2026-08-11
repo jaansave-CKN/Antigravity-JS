@@ -12,40 +12,52 @@ const Anthropic = require('@anthropic-ai/sdk');
 // creado nunca se había ejecutado end-to-end).
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-console.log('\n🚀 [000] ANTIGRAVITY OS: Iniciando Orquestación Dinámica con Honestidad...');
+console.log('\n🚀 [001] ANTIGRAVITY OS: Iniciando Orquestación Dinámica con Honestidad...');
 
 const dirAgents = __dirname;
 const dirRoot = path.join(dirAgents, '..');
 
 // =============================================================================
-// ESCUADRÓN ÉLITE — Mando Central (Fase 4: Instalación del Mando Central)
-// Los 18 agentes de agents/ pasan a ser subordinados operativos: se invocan
-// exclusivamente a través de este Mando Central, nunca de forma directa/aislada.
+// ESCUADRÓN ÉLITE — Mando Central (Renumerado 2026-08-08, ver AGENTS.md §IV)
+// 8 roles (001-008). 001 es este mismo orquestador (no es una clave del objeto,
+// es quien lo ejecuta — mismo patrón que el 000_ORQUESTADOR_MAESTRO anterior).
+// 002 (Arquitecto) y 003 (Esp. Diseño Stitch) no tienen carpeta en agents/ —
+// 002 vive en .claude/agents/architect.md (gate real); 003 nunca tuvo carpeta
+// propia (heredado sin cambios del esquema anterior). 004 y 008 son roles
+// declarados sin ningún subordinado implementado todavía — honesto, no relleno.
 // =============================================================================
 const ESCUADRON_ELITE = {
-    '002_INGENIERIA_TOTAL': {
-        rol: 'Ejecución de backend, frontend y bases de datos',
+    '003_ESP_DISENO_STITCH': {
+        rol: 'Arquitecto Visual y Maquetador de Interfaces (promovido desde agents/11-esp-diseno-grafico-y-stitch/, folder eliminado 2026-08-05)',
+        mandato: 'Prohibido maquetar con datos falsos. Toda UI consume estrictamente los contratos JSON de RPC/REST aprobados por el Agente Arquitecto (002, .claude/agents/architect.md) y construidos por 005_INGENIERO_BACKEND.',
+        subordinados: [],
+    },
+    '004_INGENIERO_FRONTEND': {
+        rol: 'Lógica de cliente, React/Hooks, estado UI',
+        subordinados: [],
+    },
+    '005_INGENIERO_BACKEND': {
+        rol: 'Bases de datos, APIs y lógica de servidor (fusiona el antiguo 002_INGENIERIA_TOTAL)',
         subordinados: [
-            '001_gestor_datos', '005_Radar1_minero', '006_Radar2_Estratega',
+            '009_gestor_datos', '011_Radar1_minero', '012_Radar2_Estratega',
             '050_Formulador_proy', '051_Form_Lluvia_de_ideas',
             '07-ing-concreto_GFRC', '08-estratega-neuromarketing',
         ],
     },
-    '003_DEVSECOPS_Y_AUDITORIA': {
-        rol: 'Fiscalización de seguridad, validación de tipos y cumplimiento estricto en Pesos Colombianos (COP)',
+    '006_DEVSECOPS_INFRAESTRUCTURA': {
+        rol: 'Despliegues a producción, servidores, fiscalización de seguridad y cumplimiento estricto en Pesos Colombianos (COP) (fusiona el antiguo 003_DEVSECOPS_Y_AUDITORIA)',
         subordinados: [
             '03-analista-secop', '052_Form_Administrativo', '054_Form_Gestion_de_riesgos',
             '056_Form_Evaluador', '14-analista-comportamiento', '015_intelligence-core',
         ],
     },
-    '004_DOCUMENTADOR_AS_BUILD': {
-        rol: 'Generación de /docs/as-build/ y actas de entrega',
-        subordinados: ['002_redactor_tecnico'],
+    '007_DOCUMENTADOR_AS_BUILD': {
+        rol: 'Planimetría y documentación final (antiguo 004_DOCUMENTADOR_AS_BUILD)',
+        subordinados: ['010_redactor_tecnico'],
         carpetaSalida: path.join(dirRoot, 'docs', 'as-build'),
     },
-    '005_ESP_DISENO_STITCH': {
-        rol: 'Arquitecto Visual y Maquetador de Interfaces (promovido desde agents/11-esp-diseno-grafico-y-stitch/, folder eliminado 2026-08-05)',
-        mandato: 'Prohibido maquetar con datos falsos. Toda UI consume estrictamente los contratos JSON de RPC/REST aprobados por 001_ARQUITECTO_CORE y construidos por 002_INGENIERIA_TOTAL.',
+    '008_AUDITOR_DE_CODIGO': {
+        rol: 'QA Red Team, ejecuta el Protocolo Titán — audita código ya escrito o traído de otras redes (mandato explícito en .claude/agents/architect.md, que se niega a hacer esta tarea y redirige aquí)',
         subordinados: [],
     },
 };
@@ -74,7 +86,10 @@ function comandanteDe(carpetaAgente) {
 // carpeta y la firma se autoinvalidaría en el acto.
 const APROBACION_PATH = path.join(dirAgents, 'diseno_aprobado.json');
 const ARCHITECT_PROMPT_PATH = path.join(dirRoot, '.claude', 'agents', 'architect.md');
-const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+// Mismo criterio que server.js/m1Pipeline.js: modelo vía env var, no hardcodeado
+// por tercera vez (hallazgo 2026-08-08, se había centralizado en los otros 2
+// archivos pero se pasó por alto este).
+const ANTHROPIC_MODEL = process.env.PRIMARY_AI_MODEL || 'claude-sonnet-4-6';
 
 // Invoca al Agente Arquitecto real: system prompt = architect.md, input = git diff
 // pendiente contra HEAD. Nunca autoaprueba por ausencia de respuesta — todo camino
@@ -139,14 +154,15 @@ async function pedirVeredictoArquitecto() {
     return { aprobado: veredicto.aprobado === true, razones: veredicto.razones || [] };
 }
 
-// 000_ORQUESTADOR excluido a propósito: no es un agente subordinado con una
-// tarea de un solo disparo (como 050-056) — es la carpeta hogar del propio
-// orquestador, y contiene agents/000_ORQUESTADOR/puente_ejecutor.py, un daemon
-// de loop infinito. Antes de esta exclusión, ejecutarTodosLosAgentes() lo
-// recogía como "ejecutable" de esa carpeta y siempre agotaba el timeout de
-// 30s reportándolo como fallo — arquitectura incompatible, no un bug del
-// daemon (hallazgo 2026-08-08, docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §3.2).
-const CARPETAS_EXCLUIDAS_DEL_BATCH = new Set(['000_ORQUESTADOR']);
+// 001_ORQUESTADOR_MAESTRO (antes 000_ORQUESTADOR) excluido a propósito: no es
+// un agente subordinado con una tarea de un solo disparo (como 050-056) — es
+// la carpeta hogar del propio orquestador, y contiene
+// agents/001_ORQUESTADOR_MAESTRO/puente_ejecutor.py, un daemon de loop
+// infinito. Antes de esta exclusión, ejecutarTodosLosAgentes() lo recogía como
+// "ejecutable" de esa carpeta y siempre agotaba el timeout de 30s reportándolo
+// como fallo — arquitectura incompatible, no un bug del daemon (hallazgo
+// 2026-08-08, docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §3.2).
+const CARPETAS_EXCLUIDAS_DEL_BATCH = new Set(['001_ORQUESTADOR_MAESTRO']);
 
 function listarCarpetasAgentes() {
     return fs.readdirSync(dirAgents).filter(item => {
@@ -191,7 +207,7 @@ function hashEstado(carpetas) {
 
 function validarDisenoAprobado(carpetas) {
     if (!fs.existsSync(APROBACION_PATH)) {
-        return { aprobado: false, razon: 'No existe firma de 001_ARQUITECTO_CORE (diseno_aprobado.json ausente).' };
+        return { aprobado: false, razon: 'No existe firma del Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE — diseno_aprobado.json ausente).' };
     }
     let firma;
     try {
@@ -204,7 +220,7 @@ function validarDisenoAprobado(carpetas) {
     }
     const hashActual = hashEstado(carpetas);
     if (firma.firma !== hashActual) {
-        return { aprobado: false, razon: 'El estado de agents/ cambió después de la firma — se requiere re-aprobación de 001_ARQUITECTO_CORE.' };
+        return { aprobado: false, razon: 'El estado de agents/ cambió después de la firma — se requiere re-aprobación del Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE).' };
     }
     return { aprobado: true, firma: firma.firma, timestamp: firma.timestamp };
 }
@@ -299,7 +315,7 @@ function validarEnlace(url) {
 }
 
 async function ejecutarConVerdad(nombreAgente, funcionEjecutar) {
-    console.log(`\n🔍 [000] Verificando: ${nombreAgente}`);
+    console.log(`\n🔍 [001] Verificando: ${nombreAgente}`);
 
     try {
         const resultado = await funcionEjecutar();
@@ -342,15 +358,15 @@ async function ejecutarTodosLosAgentes() {
             console.log('⚠️ No se encontraron carpetas de agentes.');
         }
 
-        // GATE — cero código sin diseño aprobado por 001_ARQUITECTO_CORE
+        // GATE — cero código sin diseño aprobado por el Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE)
         const veredicto = validarDisenoAprobado(carpetasAgentes);
         if (!veredicto.aprobado) {
-            console.error('\n🛑 [GATE_ARQUITECTURA] EJECUCIÓN BLOQUEADA — 001_ARQUITECTO_CORE no ha aprobado el diseño.');
+            console.error('\n🛑 [GATE_ARQUITECTURA] EJECUCIÓN BLOQUEADA — el Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE) no ha aprobado el diseño.');
             console.error(`   Motivo: ${veredicto.razon}`);
             console.error('   Para aprobar: node agents/architecture-gate.cjs --aprobar-diseno');
             process.exit(1);
         }
-        console.log(`\n✅ [GATE_ARQUITECTURA] Diseño aprobado por 001_ARQUITECTO_CORE (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
+        console.log(`\n✅ [GATE_ARQUITECTURA] Diseño aprobado por el Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE) (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
 
         for (const carpeta of carpetasAgentes) {
             const rutaCarpeta = path.join(dirAgents, carpeta);
@@ -371,7 +387,7 @@ async function ejecutarTodosLosAgentes() {
                             : `node "${rutaFinal}"`;
                     agentesEjecutados++;
 
-                    console.log(`\n[000] -> FASE ${agentesEjecutados}: ${carpeta}  (reporta a ${comandante})`);
+                    console.log(`\n[001] -> FASE ${agentesEjecutados}: ${carpeta}  (reporta a ${comandante})`);
 
                     async function ejecutarAgente() {
                         return new Promise((resolve, reject) => {
@@ -448,8 +464,8 @@ async function ejecutarTodosLosAgentes() {
 
     console.log('\n✅ OBRA FINALIZADA: Director Jairo Antonio Salinas Velasco | Asfáltica S.A.S.');
     console.log('------------------------------------------------------------');
-    console.log('\n[000] Protocolo de Honestidad Técnica: ACTIVO');
-    console.log('[000] Cada resultado fue verificado. Sin alucinaciones.');
+    console.log('\n[001] Protocolo de Honestidad Técnica: ACTIVO');
+    console.log('[001] Cada resultado fue verificado. Sin alucinaciones.');
 }
 
 ejecutarTodosLosAgentes();

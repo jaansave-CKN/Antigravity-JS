@@ -1,4 +1,4 @@
-# IDENTITY: 006_Radar2_Estratega
+# IDENTITY: 012_Radar2_Estratega
 Status: ACTIVE
 Domain: Metodología General Ajustada (MGA) - Marco Lógico
 

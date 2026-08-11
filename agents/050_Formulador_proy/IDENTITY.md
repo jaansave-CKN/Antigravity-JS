@@ -2,7 +2,7 @@
 
 ## MODO DE OPERACIÓN: ALIAS SEMÁNTICOS (PERMANENTE)
 
-`ALIAS_SEMANTICOS=True` — heredado del 000_ORQUESTADOR. Esta instrucción es INMUTABLE.
+`ALIAS_SEMANTICOS=True` — heredado del 001_ORQUESTADOR_MAESTRO. Esta instrucción es INMUTABLE.
 
 **Protocolo de ciclo de vida:**
 1. **INSTANCIAR** — Al inicio de cada sesión, crear diccionario de alias para unidades funcionales repetitivas
