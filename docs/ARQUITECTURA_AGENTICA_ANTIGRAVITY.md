@@ -192,6 +192,20 @@ Que el segundo barrido diera exactamente igual al primero es la pista, no solo u
 
 ---
 
+## 0-K. UNDÉCIMA RONDA (2026-08-11, misma jornada) — despliegue parcial verificado con evidencia nueva, causa raíz distinta a las rondas anteriores
+
+Cuarto reporte de "éxito" del despliegue en Supabase. Verificado por API (mismas 5 sondas de siempre) — esta vez el resultado **sí cambió**, a diferencia de los 2 intentos anteriores (byte por byte idénticos): `security_violations_ledger` ya existe (antes `404`). Progreso real, no más un estado congelado.
+
+**Pero apareció un hallazgo nuevo, más sutil que "no se aplicó nada":** `guardar_modulo10` (5 parámetros) ahora **existe y responde**, pero falla en tiempo de ejecución con `42703: column "version_hash" does not exist` — un error que no puede venir del código auditado (ningún archivo de este proyecto declara una columna con ese nombre; `version_hash` solo existe como clave de un JSON de retorno y como campo del body en Node, nunca como columna SQL). `obtener_ultimo_hash` sigue en `404`, pero esta vez con una pista reveladora: PostgREST sugiere una función existente `obtener_ultimo_hash(p_project_id)` — un solo parámetro, en inglés, distinto a la firma real `(p_tenant_id, p_proyecto_id)`.
+
+**Causa raíz identificada:** hay versiones divergentes de estas funciones ya viviendo en la base — de un intento anterior, una edición manual, o una mezcla de borradores no confirmada. `CREATE OR REPLACE FUNCTION` en Postgres identifica una función por nombre **más tipos de parámetro**, no por archivo de origen ni por nombre de parámetro — si la firma divergente no coincide exactamente con la de este proyecto, `CREATE OR REPLACE` crea un *overload* nuevo y dejaba la versión vieja (rota) respondiendo al mismo nombre, invisible hasta que se prueba en vivo.
+
+**Fix aplicado a `_deploy_atomico_migracion_a.sql` antes de un nuevo intento (no se adivinó la firma divergente, se eliminó la clase completa del problema):** nuevo **BLOQUE 0**, al inicio de la transacción, que consulta `pg_proc` dinámicamente y elimina (`DROP FUNCTION`) **todos** los overloads existentes de las 4 funciones RPC de Migración A, sin importar su firma, antes de recrear la versión canónica. Ya no depende de que alguien identifique manualmente qué firma vieja quedó viva.
+
+**Sin declarar éxito todavía** — pendiente de que se corra la versión actualizada del script (con el Bloque 0 de limpieza) y se verifique de nuevo.
+
+---
+
 Todo lo demás (§1-§14) describe con precisión la rama `master` — verificado de nuevo hoy (agents/, `.claude/agents/architect.md`, pre-commit hook, listado de carpetas: sin drift detectado más allá del trabajo propio de esta sesión). **Pero "master" puede no ser la rama que Render despliega realmente** — `remotes/origin/HEAD` apunta a `main`, que es la convención estándar de GitHub para señalar la rama por defecto. Esto no se puede resolver desde disco; requiere que el usuario confirme en el dashboard de Render cuál rama está configurada para el servicio `radar-formulador-360`.
 
 ---

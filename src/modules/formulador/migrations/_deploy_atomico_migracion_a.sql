@@ -27,11 +27,51 @@
 -- USO: pegar este archivo COMPLETO (Ctrl+A en el editor de texto antes de
 -- copiar, no seleccion manual) en el SQL Editor de Supabase, proyecto
 -- ozivmsvxbdtjkzleqbcy, y correrlo una sola vez.
+--
+-- ACTUALIZADO tras verificacion post-despliegue (2026-08-11): un intento
+-- anterior dejo versiones divergentes de las funciones RPC ya viviendo en
+-- la base (firmas de parametros distintas a las de este archivo -- por
+-- ejemplo obtener_ultimo_hash con un solo parametro p_project_id en vez de
+-- (p_tenant_id, p_proyecto_id), y guardar_modulo10 fallando en tiempo de
+-- ejecucion con "column version_hash does not exist", columna que este
+-- archivo nunca declara). CREATE OR REPLACE en Postgres identifica una
+-- funcion por nombre + TIPOS de parametro, no por nombre de parametro ni
+-- por el archivo que la origino -- si la firma no coincide exactamente,
+-- crea un overload nuevo y deja la version divergente (posiblemente rota)
+-- respondiendo igual. BLOQUE 0 (nuevo, abajo) elimina dinamicamente TODOS
+-- los overloads existentes de estos 4 nombres de funcion, sin importar su
+-- firma, antes de recrear la version canonica -- asi no hace falta
+-- adivinar que firma quedo mal desplegada.
 -- ============================================================
 
 BEGIN;
 
 DO $$ BEGIN RAISE NOTICE 'CHECKPOINT 0: inicio de transaccion atomica Migracion A'; END $$;
+
+-- =============================================================
+-- BLOQUE 0 (nuevo): limpieza dinamica de cualquier overload previo de las
+-- 4 funciones RPC de Migracion A, sin importar su firma exacta. Elimina la
+-- clase completa de "quedo una version vieja/divergente respondiendo" en
+-- vez de perseguir una firma especifica.
+-- =============================================================
+DO $$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN
+    SELECT p.oid::regprocedure AS firma
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname IN ('obtener_ultimo_hash', 'registrar_version_hash',
+                         'registrar_violacion_seguridad', 'guardar_modulo10')
+  LOOP
+    EXECUTE format('DROP FUNCTION IF EXISTS %s', r.firma);
+    RAISE NOTICE '  limpiado overload previo: %', r.firma;
+  END LOOP;
+END $$;
+
+DO $$ BEGIN RAISE NOTICE 'CHECKPOINT 0b: overloads previos de las 4 RPCs eliminados (si existian)'; END $$;
 
 -- =============================================================
 -- BLOQUE 1 (de 007): tabla project_version_hashes + indices
@@ -308,15 +348,13 @@ $BODY$;
 
 DO $$ BEGIN RAISE NOTICE 'CHECKPOINT 6: guardar_modulo10 reemplazada con firma atomica de 5 parametros'; END $$;
 
--- =============================================================
--- Limpieza del overload viejo: CREATE OR REPLACE con distinto numero de
--- parametros NO reemplaza la funcion anterior en Postgres (identidad =
--- nombre + tipos de argumentos). Sin este DROP quedarian 2 versiones de
--- guardar_modulo10 coexistiendo (la de 3 parametros y la de 5).
--- =============================================================
+-- Red de seguridad adicional (ya cubierto por BLOQUE 0 arriba, que corre
+-- antes de crear nada): si por algun motivo un overload de 3 parametros
+-- se coló despues de BLOQUE 0, esto lo elimina igual. No deberia hacer
+-- nada en una corrida normal.
 DROP FUNCTION IF EXISTS guardar_modulo10(UUID, UUID, JSONB);
 
-DO $$ BEGIN RAISE NOTICE 'CHECKPOINT 7: overload viejo de guardar_modulo10 (3 parametros) eliminado si existia'; END $$;
+DO $$ BEGIN RAISE NOTICE 'CHECKPOINT 7: verificacion final de overloads de guardar_modulo10 completada'; END $$;
 
 COMMIT;
 
