@@ -1,5 +1,5 @@
 # ARQUITECTURA AGÉNTICA ANTIGRAVITY — Auditoría Forense 360° Multiagente + Sistema Completo
-**Fecha:** 2026-08-08, re-verificado y ampliado 2026-08-10 (§0-D) y 2026-08-11 (§0-E…§0-I, §0-J herramienta de verificación quirúrgica en Supabase — despliegue aún sin confirmar)
+**Fecha:** 2026-08-08, re-verificado y ampliado 2026-08-10 (§0-D) y 2026-08-11/12 (§0-E…§0-K en el camino, §0-L Migración A confirmada en Supabase con evidencia)
 **Auditor:** Chief AI Architect / Auditor Forense de Sistemas Multiagente / DevSecOps Lead / Chief Software Auditor / System Architect
 **Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS`, **ambas ramas remotas** (`origin/master` y `origin/main`, ver §0-D). `proyectos/` queda fuera del árbol de trabajo local (repos git independientes, `.gitignore:19-24`) — pero ver §0-D sobre su relación real con `origin/main`.
 **Regla de evidencia:** cero suposiciones — cada hallazgo cita archivo real. Donde el volumen hizo impracticable la lectura línea-por-línea de decenas de archivos (los skills de `agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/`, o los 171 commits de `origin/main`), se declara el muestreo usado.
@@ -203,6 +203,26 @@ Cuarto reporte de "éxito" del despliegue en Supabase. Verificado por API (misma
 **Fix aplicado a `_deploy_atomico_migracion_a.sql` antes de un nuevo intento (no se adivinó la firma divergente, se eliminó la clase completa del problema):** nuevo **BLOQUE 0**, al inicio de la transacción, que consulta `pg_proc` dinámicamente y elimina (`DROP FUNCTION`) **todos** los overloads existentes de las 4 funciones RPC de Migración A, sin importar su firma, antes de recrear la versión canónica. Ya no depende de que alguien identifique manualmente qué firma vieja quedó viva.
 
 **Sin declarar éxito todavía** — pendiente de que se corra la versión actualizada del script (con el Bloque 0 de limpieza) y se verifique de nuevo.
+
+---
+
+## 0-L. DUODÉCIMA RONDA (2026-08-12) — Migración A confirmada en Supabase, causa raíz cerrada con evidencia
+
+Tras 7 rondas de "éxito reportado, verificación en rojo", la causa se identificó y se cerró: quedaba una tabla `project_version_hashes` con un esquema divergente (mucho más simple que las 11 columnas de este diseño — confirmado por un error real de Postgres: `null value in column "hash_value"`, fila fallida con solo 3 valores) de algún intento previo. `CREATE TABLE IF NOT EXISTS` nunca la tocaba porque, técnicamente, ya existía — solo con la forma equivocada. Se agregó `DROP TABLE IF EXISTS project_version_hashes, security_violations_ledger CASCADE` (confirmadas vacías por API antes de borrar, cero riesgo de datos) al inicio de `_deploy_atomico_migracion_a.sql`, además del `BLOQUE 0` de la ronda anterior (limpieza dinámica de overloads de función). Commit `f63cfdc`.
+
+**Barrido final, verificado por API, no solo reportado:**
+
+| Objeto | Resultado |
+|---|---|
+| `project_version_hashes` | ✅ `200` |
+| `security_violations_ledger` | ✅ `200` |
+| `obtener_ultimo_hash` | ✅ `200`, retorna `{"hash_value": null, "created_at": null}` — comportamiento exacto de la función para un proyecto sin hash previo |
+| `registrar_version_hash` | ✅ Rechaza correctamente un proyecto inexistente (`P0001`, mismo mensaje del `RAISE EXCEPTION` del código fuente) |
+| `guardar_modulo10` (5 parámetros) | ✅ Misma validación correcta, mismo mensaje |
+
+**Sin probar todavía (no forzado a propósito, para no ensuciar producción):** que el trigger WORM bloquee un `UPDATE`/`DELETE` real, y el comportamiento de OCC bajo una colisión real con datos existentes — ambos se validan naturalmente en el primer uso real del módulo Formulador, no requieren una prueba sintética contra producción.
+
+**Migración A: cerrada.** Fases 2.2 y parte de 3 (guardrail de tenant, base de cálculo COP) ya estaban. Fase 1 (WORM) y Fase 4.1/4.2 (OCC atómico, Shadow Ledger) ahora tienen estructura real en la base de datos viva, no solo en el código. Migración B (RLS real) sigue bloqueada por ADR-0001, pendiente de que el usuario confirme Third-Party Auth en Supabase.
 
 ---
 
