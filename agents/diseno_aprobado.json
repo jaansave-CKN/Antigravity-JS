@@ -1,16 +1,19 @@
 {
   "aprobado": true,
-  "firma": "be372dab5a3cb7fce1bdb90290b2441955c89786a31bd8995d756ffe849ec88f",
-  "timestamp": "2026-08-11T23:02:15.924Z",
+  "firma": "9f9a78602520ad9eeb4193c76c96f8c9e86363d822f92ce68a34e64864e3a626",
+  "timestamp": "2026-08-12T04:21:58.027Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Diff puramente documental — ningún archivo de código, esquema SQL ni configuración de runtime modificado",
-    "Criterio 6 añadido a 002 es accionable, completo y no colisiona con ningún mandato previo",
-    "Regla permanente de DDL en 005 cubre los 5 requisitos mínimos (transacción, checkpoints, idempotencia, DROP de overloads, verificación inline) con nivel de detalle suficiente para fiscalización",
-    "Cierra el hueco identificado en la auditoría: la regla existía como convención implícita post-incidente; ahora es criterio de gate exigible por 002 antes de aprobar cualquier DDL futuro",
-    "diseno_aprobado.json actualizado consistentemente: firma, timestamp y razones reflejan el contenido real del diff",
-    "Alcance exacto al pedido del usuario — sin abstracciones ni agentes nuevos no solicitados",
-    "No se borra ninguna interfaz sin reemplazo declarado",
-    "PDF sincronizado con el .md; reformateo de tablas es artefacto de conversión sin cambio semántico"
+    "hashEstado() reescrita para hashear contenido real de archivos existentes — cierra el punto ciego crítico confirmado",
+    "Alcance de firma ampliado a .claude/agents/*.md — los prompts de agentes ahora invalidan el gate si se reescriben",
+    "SUBGATES 003/004 correctamente enganchados al enforcement técnico con firma sobre contenido staged",
+    "PMU generado por código con auto-descubrimiento — escalable sin mantenimiento manual",
+    "Chequeos estáticos de 006 son deterministas, sin costo de API, con fallbacks documentados",
+    "001 despojado de Write/Edit/Bash — consistente con su mandato y cierra el único bypass de gate por jerarquía",
+    "Eliminaciones sin contrato de interfaz que preservar — limpiezas correctas",
+    ".env.example creado correctamente sin valores reales",
+    "Riesgo de 006 con Bash sin gate propio explícitamente documentado y aceptado en esta ronda",
+    "require.main === module + module.exports habilita tests unitarios sin efectos secundarios",
+    "Punto menor no bloqueante: verificar que el archivo en disco sea telemetria.jsonl (no .json) — si el diff está truncado y el nombre real es .jsonl, no hay bug"
   ]
 }

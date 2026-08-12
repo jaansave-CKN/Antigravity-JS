@@ -158,10 +158,6 @@
         {
           "id": "Skill_002_Generador_Anexos",
           "file": "agents/010_redactor_tecnico/skills/Skill_002_Generador_Anexos.cjs"
-        },
-        {
-          "id": "Skill_Soporte_Automatico",
-          "file": "agents/010_redactor_tecnico/skills/Skill_Soporte_Automatico.cjs"
         }
       ],
       "location": "./agents/010_redactor_tecnico/skills/"

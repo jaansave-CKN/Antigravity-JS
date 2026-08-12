@@ -14,13 +14,13 @@ HEADERS = {
     'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
 }
 
+# Purgado 2026-08-12 (auditoria 001-006, Axioma II.2 de AGENTS.md: foco
+# nacional estricto) -- las 6 fuentes extranjeras (Costa Rica, Chile,
+# Argentina, Uruguay, Paraguay, Panama) fueron eliminadas. Unica fuente
+# vigente: SECOP II, ya validada como URL real en test_fuentes.py de este
+# mismo directorio (no se inventa una URL nueva sin verificar).
 FUENTES_ABIERTAS = [
-    {"nombre": "BCR Costa Rica", "url": "https://www.bcr.fi.cr/", "buscar": ["licitacion", "convocatoria", "contratacion"]},
-    {"nombre": "MOP Chile", "url": "https://www.mop.cl/", "buscar": ["licitacion", "convocatoria"]},
-    {"nombre": "ARGENTAR", "url": "https://www.argentina.gob.ar/obras-publicas", "buscar": ["licitacion", "convocatoria"]},
-    {"nombre": "PGE Uruguay", "url": "https://www.pge.gub.uy/", "buscar": ["licitacion", "convocatoria"]},
-    {"nombre": "Portal Compras Paraguay", "url": "https://www.contrataciones.gov.py/", "buscar": ["licitacion", "convocatoria"]},
-    {"nombre": "Panama Compra", "url": "https://www.panamacompra.gob.pa/", "buscar": ["licitacion", "convocatoria"]},
+    {"nombre": "Colombia SECOP", "url": "https://www.contratos.gov.co/ache/publico/buscarProceso.shtml", "buscar": ["licitacion", "convocatoria", "contratacion"]},
 ]
 
 def log(mensaje):
@@ -36,17 +36,19 @@ def leer_repositorio():
             return json.load(f)
     return {"metadatos": {"total_indexado": 0, "ultima_actualizacion": ""}, "convocatorias_activas": []}
 
-def extraer_presupuesto(texto):
+def extraer_presupuesto_cop(texto):
+    # Purgado 2026-08-12: sin patrones USD/EUR -- toda metrica financiera de
+    # este proyecto se calcula y almacena estrictamente en Pesos Colombianos
+    # (Axioma II.2 de AGENTS.md). Formato COP tipico: "$ 1.234.567" (punto
+    # como separador de miles, sin decimales) o "COP 1.234.567".
     patrones = [
-        r"\$\s*([\d,]+(?:\.\d{3})*(?:\.\d{2})?)",
-        r"USD\s*([\d,]+)",
-        r"([\d,]+)\s*(?:USD|EUR)",
+        r"(?:COP\s*\$?|\$)\s*([\d\.]+)",
     ]
     for patron in patrones:
         match = re.search(patron, texto, re.IGNORECASE)
         if match:
             try:
-                return float(match.group(1).replace(",", ""))
+                return float(match.group(1).replace(".", ""))
             except:
                 pass
     return None
@@ -75,14 +77,14 @@ def extraer_convocatorias(texto_html, fuente):
                 contenido = elem.get_text(strip=True)
                 if len(contenido) > 80 and len(contenido) < 1000:
                     if any(t in contenido.lower() for t in fuente["buscar"]):
-                        presupuesto = extraer_presupuesto(contenido)
+                        presupuesto = extraer_presupuesto_cop(contenido)
                         fecha = buscar_fecha(contenido)
 
                         if presupuesto or fecha:
                             resultados.append({
                                 "entidad": fuente["nombre"],
                                 "objeto": contenido[:250],
-                                "presupuesto_usd": presupuesto,
+                                "presupuesto_cop": presupuesto,
                                 "fecha_cierre": fecha,
                                 "fuente": fuente["nombre"],
                                 "url": fuente["url"],

@@ -4,6 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "prepare": "node scripts/install-git-hooks.cjs",
+    "test:gate": "node --test scripts/architecture-gate.test.cjs",
     "kill-port": "powershell -Command \"@(5000,5173) | ForEach-Object { $port=$_; Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue; Write-Host 'Puerto' $port 'liberado' } }\"",
     "fresh": "npm run kill-port && npm start",
     "dev": "vite",

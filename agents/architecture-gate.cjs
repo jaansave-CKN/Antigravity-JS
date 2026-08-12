@@ -208,21 +208,39 @@ function listarArchivosRecursivo(dir, base) {
     return out;
 }
 
-// Firma cubre agents/ (listado por carpeta) Y src/ (árbol completo de archivos) —
-// expansión de visibilidad: cero código escrito o modificado sin re-firma, ya
-// no solo dentro de agents/.
+// Firma cubre CONTENIDO (no solo listado de nombres) de agents/, src/ y
+// .claude/agents/ — corregido 2026-08-12 tras auditoría 001-006: la versión
+// anterior solo hasheaba nombres de archivo (fs.readdirSync().sort()), así
+// que mutar 1 byte de un archivo YA EXISTENTE nunca invalidaba la firma —
+// solo lo hacían altas/bajas. Además .claude/agents/*.md (los prompts reales
+// de 001-008) no estaba en el alcance de la firma en absoluto: se podía
+// reescribir el mandato completo de cualquier agente sin invalidar nunca el
+// gate. Ambos puntos ciegos cerrados aquí.
+function hashArchivo(rutaAbsoluta) {
+    return crypto.createHash('sha256').update(fs.readFileSync(rutaAbsoluta)).digest('hex');
+}
+
 function hashEstado(carpetas) {
     const payloadAgents = carpetas.map(c => {
         const rutaCarpeta = path.join(dirAgents, c);
         const archivos = fs.readdirSync(rutaCarpeta).sort();
-        return `${c}:${archivos.join(',')}`;
+        const hashes = archivos.map(a => {
+            const rutaArchivo = path.join(rutaCarpeta, a);
+            if (!fs.statSync(rutaArchivo).isFile()) return `${a}:DIR`;
+            return `${a}:${hashArchivo(rutaArchivo)}`;
+        });
+        return `${c}:${hashes.join(',')}`;
     }).join('|');
 
     const dirSrc = path.join(dirRoot, 'src');
     const archivosSrc = listarArchivosRecursivo(dirSrc, dirSrc).sort();
-    const payloadSrc = `src:${archivosSrc.join(',')}`;
+    const payloadSrc = `src:${archivosSrc.map(f => `${f}:${hashArchivo(path.join(dirSrc, f))}`).join(',')}`;
 
-    return crypto.createHash('sha256').update(payloadAgents + '||' + payloadSrc).digest('hex');
+    const dirClaudeAgents = path.join(dirRoot, '.claude', 'agents');
+    const archivosClaudeAgents = listarArchivosRecursivo(dirClaudeAgents, dirClaudeAgents).sort();
+    const payloadClaudeAgents = `claude-agents:${archivosClaudeAgents.map(f => `${f}:${hashArchivo(path.join(dirClaudeAgents, f))}`).join(',')}`;
+
+    return crypto.createHash('sha256').update(payloadAgents + '||' + payloadSrc + '||' + payloadClaudeAgents).digest('hex');
 }
 
 function validarDisenoAprobado(carpetas) {
@@ -243,6 +261,427 @@ function validarDisenoAprobado(carpetas) {
         return { aprobado: false, razon: 'El estado de agents/ cambió después de la firma — se requiere re-aprobación del Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE).' };
     }
     return { aprobado: true, firma: firma.firma, timestamp: firma.timestamp };
+}
+
+// =============================================================================
+// SUBGATES ELITE (2026-08-12, auditoría 001-006) — engancha agentes de solo
+// lectura (003, 004, y cualquiera que se agregue después) al mismo gate
+// obligatorio que ya protege a 002. Brecha real que cierra: 003/004 nunca
+// eran obligatorios antes de un commit — un stub huérfano o una fuga de
+// estilo podía llegar a commit sin que ninguno de los dos lo hubiera visto.
+//
+// Para agregar un futuro agente "elite" a este mecanismo: una entrada nueva
+// aquí. No hace falta tocar el resto del gate.
+// =============================================================================
+const SUBGATES = {
+    '004_SENTINELA_FRONTEND': {
+        promptPath: path.join(dirRoot, '.claude', 'agents', '004-sentinela-frontend.md'),
+        patrones: [/^src\/.*\.(jsx|tsx)$/],
+        campoAprobado: 'limpio',
+        veredictoPath: path.join(dirAgents, 'veredicto_004.json'),
+    },
+    '003_ESP_DISENO_STITCH': {
+        promptPath: path.join(dirRoot, '.claude', 'agents', '003-esp-diseno-stitch.md'),
+        patrones: [/^src\/.*\.(jsx|tsx)$/],
+        campoAprobado: 'diseno_valido',
+        veredictoPath: path.join(dirAgents, 'veredicto_003.json'),
+    },
+};
+
+function obtenerArchivosStaged() {
+    try {
+        const out = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: dirRoot, encoding: 'utf8' });
+        return out.split('\n').map(l => l.trim()).filter(Boolean);
+    } catch (e) {
+        return [];
+    }
+}
+
+function archivosRelevantesPara(agentId, archivosStaged) {
+    const cfg = SUBGATES[agentId];
+    return archivosStaged.filter(f => cfg.patrones.some(p => p.test(f)));
+}
+
+// Hashea el CONTENIDO STAGED (git show :archivo), no el de disco — lo que se
+// va a commitear puede diferir de lo que hay en disco si algo quedó a medio
+// stagear. Mismo criterio de "cero suposiciones" que hashEstado().
+function hashArchivosStaged(archivos) {
+    const partes = archivos.slice().sort().map(f => {
+        let contenido;
+        try {
+            contenido = execFileSync('git', ['show', `:${f}`], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+        } catch (e) {
+            contenido = '';
+        }
+        return `${f}:${crypto.createHash('sha256').update(contenido).digest('hex')}`;
+    });
+    return crypto.createHash('sha256').update(partes.join('|')).digest('hex');
+}
+
+function validarSubgate(agentId, archivosStaged) {
+    const cfg = SUBGATES[agentId];
+    const relevantes = archivosRelevantesPara(agentId, archivosStaged);
+    if (relevantes.length === 0) {
+        return { aplica: false, aprobado: true };
+    }
+    if (!fs.existsSync(cfg.veredictoPath)) {
+        return { aplica: true, aprobado: false, razon: `${agentId} no tiene veredicto (${path.basename(cfg.veredictoPath)} ausente) sobre archivos que sí le competen: ${relevantes.join(', ')}` };
+    }
+    let veredicto;
+    try {
+        veredicto = JSON.parse(fs.readFileSync(cfg.veredictoPath, 'utf8'));
+    } catch (e) {
+        return { aplica: true, aprobado: false, razon: `${path.basename(cfg.veredictoPath)} corrupto: ${e.message}` };
+    }
+    if (veredicto.aprobado !== true) {
+        return { aplica: true, aprobado: false, razon: `${agentId} marcó el último veredicto como NO aprobado.` };
+    }
+    const hashActual = hashArchivosStaged(relevantes);
+    if (veredicto.firma !== hashActual) {
+        return { aplica: true, aprobado: false, razon: `Los archivos relevantes para ${agentId} cambiaron desde el último veredicto — se requiere re-aprobación (node agents/architecture-gate.cjs --aprobar-subgate ${agentId}).` };
+    }
+    return { aplica: true, aprobado: true };
+}
+
+async function pedirVeredictoSubagente(agentId, relevantes) {
+    const cfg = SUBGATES[agentId];
+    if (!process.env.ANTHROPIC_API_KEY) {
+        return { aprobado: false, razon: 'ANTHROPIC_API_KEY no configurada.' };
+    }
+    if (!fs.existsSync(cfg.promptPath)) {
+        return { aprobado: false, razon: `No existe ${cfg.promptPath}.` };
+    }
+    const systemPrompt = fs.readFileSync(cfg.promptPath, 'utf8');
+    let diff;
+    try {
+        diff = execFileSync('git', ['diff', '--cached', '--', ...relevantes], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+    } catch (e) {
+        return { aprobado: false, razon: `No se pudo leer 'git diff --cached': ${e.message}` };
+    }
+    let response;
+    try {
+        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+        response = await client.messages.create({
+            model: ANTHROPIC_MODEL,
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: [{
+                role: 'user',
+                content: `Audita el siguiente diff staged (git diff --cached), limitado a los archivos que te competen según tu mandato. ` +
+                    `Esta es una llamada directa a la API de Anthropic, sin Read/Grep/Glob reales — basa tu veredicto solo en este ` +
+                    `texto. Termina siempre con tu JSON de salida obligatorio, tal como especifica tu propio system prompt.\n\n${diff.slice(0, 60000)}`,
+            }],
+        });
+    } catch (e) {
+        return { aprobado: false, razon: `Fallo de la API de Anthropic: ${e.message}` };
+    }
+    const text = response.content?.[0]?.text ?? '';
+    const match = text.match(new RegExp(`\\{[^{}]*"${cfg.campoAprobado}"\\s*:\\s*(true|false)[^{}]*\\}`, 's'));
+    if (!match) {
+        return { aprobado: false, razon: `${agentId} no devolvió un veredicto JSON parseable.`, respuestaCruda: text.slice(0, 800) };
+    }
+    let veredicto;
+    try {
+        veredicto = JSON.parse(match[0]);
+    } catch (e) {
+        return { aprobado: false, razon: `Veredicto JSON corrupto: ${e.message}` };
+    }
+    return { aprobado: veredicto[cfg.campoAprobado] === true, veredictoCompleto: veredicto };
+}
+
+// =============================================================================
+// PMU — PUESTO DE MANDO UNIFICADO (2026-08-12)
+//
+// Hasta esta ronda, el estado del Escuadrón Élite vivía repartido en 3
+// archivos de veredicto sin relación entre sí (diseno_aprobado.json,
+// veredicto_003.json, veredicto_004.json) y una narrativa de 16 rondas en
+// docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md que había que leer cronológicamente
+// para reconstruir "qué es cierto ahora". Eso es una federación de checkpoints,
+// no un mando unificado. El PMU resuelve 2 cosas concretas:
+//
+//   1. estado_operativo.json — UNA sola foto del escuadrón completo, generada
+//      por código (nunca escrita a mano), con auto-descubrimiento de agentes
+//      desde .claude/agents/*.md. Agregar un agente nuevo (con o sin gate
+//      propio) lo hace aparecer solo, sin tocar este archivo.
+//   2. telemetria.jsonl — registro append-only de CADA decisión de gate
+//      (check/aprobar, aprobado/rechazado, cuándo, por qué). Sin esto no
+//      había manera de responder "¿cuántas veces bloqueó el gate?" salvo
+//      leyendo la narrativa de la auditoría a mano.
+//
+// Lo que el PMU NO incluye todavía, a propósito (fuera de alcance de esta
+// ronda, señalado como "siguiente fase" en la auditoría): un agente que
+// vigile la telemetría y proponga fixes solo, y un protocolo estructurado
+// de mensajería entre agentes (hoy siguen coordinando por prosa en su
+// propio system prompt). Ambos son decisiones de diseño mayores, no un
+// ítem de "una entrada de config más".
+// =============================================================================
+const PMU_DIR = path.join(dirAgents, 'pmu');
+const ESTADO_OPERATIVO_PATH = path.join(PMU_DIR, 'estado_operativo.json');
+const TELEMETRIA_PATH = path.join(PMU_DIR, 'telemetria.jsonl');
+
+function registrarTelemetria(evento) {
+    fs.mkdirSync(PMU_DIR, { recursive: true });
+    const linea = JSON.stringify({ timestamp: new Date().toISOString(), ...evento });
+    fs.appendFileSync(TELEMETRIA_PATH, linea + '\n', 'utf8');
+}
+
+// Parseo de frontmatter minimalista (sin dependencia de una librería YAML) —
+// solo lee `name:` y `tools:`, que es todo lo que el PMU necesita mostrar.
+function leerFrontmatterAgente(rutaMd) {
+    const contenido = fs.readFileSync(rutaMd, 'utf8');
+    const match = contenido.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!match) return { nombre: null, tools: [] };
+    const bloque = match[1];
+    const nombre = (bloque.match(/^name:\s*(.+)$/m) || [])[1]?.trim() || null;
+    const toolsLine = (bloque.match(/^tools:\s*(.+)$/m) || [])[1]?.trim();
+    const tools = toolsLine ? toolsLine.split(',').map(t => t.trim()) : [];
+    return { nombre, tools };
+}
+
+// Auto-descubrimiento: cualquier .md nuevo en .claude/agents/ aparece en el
+// PMU sin tocar código — esto es lo que hace el tablero escalable para
+// agentes futuros, no una lista mantenida a mano.
+function descubrirAgentes() {
+    const dirClaudeAgents = path.join(dirRoot, '.claude', 'agents');
+    if (!fs.existsSync(dirClaudeAgents)) return [];
+    return fs.readdirSync(dirClaudeAgents)
+        .filter(f => f.endsWith('.md'))
+        .sort()
+        .map(f => {
+            const ruta = path.join(dirClaudeAgents, f);
+            const meta = leerFrontmatterAgente(ruta);
+            const prefijo = (f.match(/^(\d{3})/) || [])[1] || null;
+            return { archivo: `.claude/agents/${f}`, prefijo, ...meta };
+        });
+}
+
+function mapaGatesPorPrefijo() {
+    const mapa = { '002': { veredictoPath: APROBACION_PATH, tipo: 'gate_principal' } };
+    for (const [agentId, cfg] of Object.entries(SUBGATES)) {
+        mapa[agentId.slice(0, 3)] = { veredictoPath: cfg.veredictoPath, tipo: 'subgate' };
+    }
+    return mapa;
+}
+
+function generarEstadoOperativo() {
+    const agentes = descubrirAgentes();
+    const gatesPorPrefijo = mapaGatesPorPrefijo();
+
+    const tablero = agentes.map(a => {
+        const gate = a.prefijo ? gatesPorPrefijo[a.prefijo] : null;
+        let ultimoVeredicto = null;
+        if (gate && fs.existsSync(gate.veredictoPath)) {
+            try { ultimoVeredicto = JSON.parse(fs.readFileSync(gate.veredictoPath, 'utf8')); } catch { /* corrupto: queda null, no se oculta el resto del tablero por 1 archivo malo */ }
+        }
+        return {
+            archivo: a.archivo,
+            nombre: a.nombre,
+            tools: a.tools,
+            permiso_escritura: a.tools.some(t => ['Write', 'Edit', 'Bash'].includes(t)),
+            gate: gate ? gate.tipo : 'sin_gate_propio',
+            ultimo_veredicto: ultimoVeredicto,
+        };
+    });
+
+    return {
+        generado: new Date().toISOString(),
+        total_agentes: tablero.length,
+        agentes_con_gate: tablero.filter(a => a.gate !== 'sin_gate_propio').length,
+        agentes_con_permiso_escritura: tablero.filter(a => a.permiso_escritura).map(a => a.nombre || a.archivo),
+        agentes: tablero,
+    };
+}
+
+function escribirEstadoOperativo() {
+    const estado = generarEstadoOperativo();
+    fs.mkdirSync(PMU_DIR, { recursive: true });
+    fs.writeFileSync(ESTADO_OPERATIVO_PATH, JSON.stringify(estado, null, 2) + '\n', 'utf8');
+    return estado;
+}
+
+// =============================================================================
+// CHEQUEOS ESTÁTICOS DE 006_DEVSECOPS_INFRAESTRUCTURA (2026-08-12)
+//
+// Deterministas, SIN costo de API, corren en TODO --check-gate automáticamente
+// — a diferencia de SUBGATES (003/004), estos no necesitan juicio de LLM, son
+// reglas verificables por código. No requieren archivo de veredicto ni
+// --aprobar-*: o pasan o no pasan, en el momento.
+// =============================================================================
+
+// Patrones específicos y de bajo falso-positivo (mismo criterio que gitleaks/
+// truffleHog) — nunca un match genérico como la palabra "service_role" sola,
+// eso dispararía en cualquier comentario o doc que discuta el tema (este mismo
+// proyecto lo hace constantemente).
+const PATRONES_SECRETOS = [
+    { nombre: 'JWT (3 segmentos base64 separados por punto)', patron: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/ },
+    { nombre: 'AWS Access Key ID', patron: /AKIA[0-9A-Z]{16}/ },
+    { nombre: 'Bloque de llave privada PEM', patron: /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
+    { nombre: 'Asignación de key/secret/token con valor largo', patron: /\b(api[_-]?key|secret|token|password)\b\s*[:=]\s*['"][A-Za-z0-9_\-/+=]{20,}['"]/i },
+];
+
+function contenidoStagedDe(archivo) {
+    try {
+        return execFileSync('git', ['show', `:${archivo}`], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 5 * 1024 * 1024 });
+    } catch (e) {
+        return null; // archivo eliminado en este commit, o binario — nada que escanear como texto
+    }
+}
+
+function escanearSecretos(archivosStaged) {
+    const hallazgos = [];
+    for (const archivo of archivosStaged) {
+        if (archivo === '.env' || /(^|\/)\.env$/.test(archivo)) {
+            hallazgos.push({ archivo, razon: 'archivo .env real no debe commitearse jamás (usa .env.example para plantillas)' });
+            continue;
+        }
+        if (archivo === '.env.example') continue; // plantilla sin valores, por definición segura
+        const contenido = contenidoStagedDe(archivo);
+        if (!contenido) continue;
+        for (const { nombre, patron } of PATRONES_SECRETOS) {
+            if (patron.test(contenido)) {
+                hallazgos.push({ archivo, razon: `posible secreto detectado (${nombre})` });
+                break; // 1 hallazgo por archivo alcanza para bloquear; no hace falta enumerar cada patrón que matchea
+            }
+        }
+    }
+    return hallazgos;
+}
+
+// .env.example debe existir y cubrir, como mínimo, los mismos nombres de
+// variable que .env real — sin esto, .env.example se desincroniza en
+// silencio (alguien agrega una var nueva a .env y nunca actualiza la
+// plantilla) y el siguiente desarrollador no sabe qué configurar.
+function verificarEnvExample() {
+    const envPath = path.join(dirRoot, '.env');
+    const ejemploPath = path.join(dirRoot, '.env.example');
+    if (!fs.existsSync(envPath)) return { ok: true }; // sin .env real, nada que comparar (ej. CI)
+    if (!fs.existsSync(ejemploPath)) {
+        return { ok: false, razon: '.env.example no existe — crear una plantilla con los mismos nombres de variable que .env, sin valores.' };
+    }
+    const extraerNombres = (contenido) => new Set(
+        contenido.split('\n')
+            .map(l => l.match(/^([A-Z_][A-Z0-9_]*)\s*=/))
+            .filter(Boolean)
+            .map(m => m[1])
+    );
+    const nombresEnv = extraerNombres(fs.readFileSync(envPath, 'utf8'));
+    const nombresEjemplo = extraerNombres(fs.readFileSync(ejemploPath, 'utf8'));
+    const faltantes = [...nombresEnv].filter(n => !nombresEjemplo.has(n));
+    if (faltantes.length > 0) {
+        return { ok: false, razon: `.env.example desincronizado — faltan estas variables: ${faltantes.join(', ')}` };
+    }
+    return { ok: true };
+}
+
+// npm audit solo cuando package.json/package-lock.json está en el diff — no
+// en cada commit (sería lento y depende de red/registry, mala práctica para
+// un hook local que corre en cada commit sin importar qué se tocó).
+// Mismo fallback que NODE_BIN en scripts/pre-commit.sh — el shell que corre
+// esto no siempre tiene 'npm' en PATH pese a estar instalado (hallazgo real
+// 2026-08-12, misma clase de problema que 'node' ya documentado).
+function resolverNpmBin() {
+    try {
+        execFileSync('npm', ['--version'], { encoding: 'utf8' });
+        return 'npm';
+    } catch {
+        const fallback = 'C:\\Program Files\\nodejs\\npm.cmd';
+        return fs.existsSync(fallback) ? fallback : null;
+    }
+}
+
+// Corregido 2026-08-12 (hallazgo real al sellar esta misma ronda): disparar
+// solo porque package.json está en el diff es impreciso — un commit que solo
+// agrega un script npm (sin tocar "dependencies"/"devDependencies") no
+// introduce ni cambia ninguna dependencia, pero bloqueaba igual por la
+// deuda de vulnerabilidades YA EXISTENTE, sin relación con ese diff. Ahora
+// se inspecciona el diff staged real de package.json y solo aplica si algún
+// renglón cambiado cae dentro de un bloque de dependencias.
+function diffTocaDependencias(archivosStaged) {
+    if (!archivosStaged.includes('package.json')) return false;
+    let diff;
+    try {
+        diff = execFileSync('git', ['diff', '--cached', '--', 'package.json'], { cwd: dirRoot, encoding: 'utf8' });
+    } catch (e) {
+        return true; // no se pudo leer el diff -- fail-safe hacia "sí aplica", no hacia ignorar
+    }
+    let dentroDeDependencias = false;
+    let profundidadEntrada = 0;
+    for (const linea of diff.split('\n')) {
+        const contenido = linea.replace(/^[+\- ]/, '');
+        if (/^\s*"(dependencies|devDependencies|optionalDependencies|peerDependencies)"\s*:\s*\{/.test(contenido)) {
+            dentroDeDependencias = true;
+            profundidadEntrada = 0;
+            continue;
+        }
+        if (dentroDeDependencias) {
+            if (/\{/.test(contenido)) profundidadEntrada++;
+            if (/\}/.test(contenido)) {
+                if (profundidadEntrada === 0) { dentroDeDependencias = false; continue; }
+                profundidadEntrada--;
+            }
+            if ((linea.startsWith('+') || linea.startsWith('-')) && !linea.startsWith('+++') && !linea.startsWith('---')) {
+                return true; // hay un renglón realmente modificado dentro de un bloque de dependencias
+            }
+        }
+    }
+    return false;
+}
+
+function verificarDependencias(archivosStaged) {
+    const tocaLock = archivosStaged.includes('package-lock.json'); // no versionado hoy, pero si algún día lo está, cualquier cambio ahí sí es relevante por definición
+    const tocaDependencias = tocaLock || diffTocaDependencias(archivosStaged);
+    if (!tocaDependencias) return { ok: true, aplica: false };
+    const npmBin = resolverNpmBin();
+    if (!npmBin) {
+        return { ok: true, aplica: true, razon: "No se encontró 'npm' en PATH ni en la ruta de fallback conocida — no se pudo verificar, no se bloquea por un fallo de la herramienta en sí." };
+    }
+    let salida;
+    try {
+        // shell:true es necesario en Windows porque npm.cmd es un batch script,
+        // no un ejecutable nativo — execFileSync sin shell no puede correrlo. Node
+        // advierte (DEP0190) sobre esto en general porque args sin escapar +
+        // shell es peligroso con INPUT DE USUARIO — aquí los args son literales
+        // fijos ('audit', '--json'), nunca datos externos, así que no aplica el
+        // riesgo que la advertencia señala.
+        salida = execFileSync(`"${npmBin}"`, ['audit', '--json'], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, shell: true });
+    } catch (e) {
+        // npm audit sale con exit code != 0 cuando SÍ encuentra vulnerabilidades
+        // (no es un error de ejecución) — su stdout sigue siendo el JSON útil.
+        salida = e.stdout || '';
+    }
+    let reporte;
+    try {
+        reporte = JSON.parse(salida);
+    } catch (e) {
+        return { ok: true, aplica: true, razon: 'npm audit no devolvió JSON parseable — no se pudo verificar, no se bloquea por un fallo de la herramienta en sí.' };
+    }
+    const criticas = reporte?.metadata?.vulnerabilities?.critical || 0;
+    const altas = reporte?.metadata?.vulnerabilities?.high || 0;
+    if (criticas > 0 || altas > 0) {
+        return { ok: false, aplica: true, razon: `npm audit encontró ${criticas} vulnerabilidad(es) crítica(s) y ${altas} alta(s) — correr 'npm audit' para el detalle.` };
+    }
+    return { ok: true, aplica: true };
+}
+
+function ejecutarChequeosEstaticos(archivosStaged) {
+    const resultados = [];
+
+    const secretos = escanearSecretos(archivosStaged);
+    if (secretos.length > 0) {
+        secretos.forEach(h => resultados.push({ categoria: 'secretos', ok: false, razon: `${h.archivo}: ${h.razon}` }));
+    } else {
+        resultados.push({ categoria: 'secretos', ok: true });
+    }
+
+    const envExample = verificarEnvExample();
+    resultados.push({ categoria: 'env_example', ok: envExample.ok, razon: envExample.razon });
+
+    const dependencias = verificarDependencias(archivosStaged);
+    if (dependencias.aplica) {
+        resultados.push({ categoria: 'dependencias', ok: dependencias.ok, razon: dependencias.razon });
+    }
+
+    return resultados;
 }
 
 // Modo ruteo: `node agents/architecture-gate.cjs --rutear <clave>`
@@ -270,11 +709,111 @@ if (process.argv.includes('--check-gate')) {
     if (!veredicto.aprobado) {
         console.error('\n🛑 [GATE_ARQUITECTURA] Sin aprobación vigente: ' + veredicto.razon);
         console.error('   Ejecuta: node agents/architecture-gate.cjs --aprobar-diseno');
+        registrarTelemetria({ tipo: 'check-gate', subsistema: '002_principal', resultado: 'rechazado', razon: veredicto.razon });
+        escribirEstadoOperativo();
         process.exitCode = 1;
-    } else {
-        console.log(`✅ [GATE_ARQUITECTURA] Aprobación vigente (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
-        process.exitCode = 0;
+        return;
     }
+    console.log(`✅ [GATE_ARQUITECTURA] Aprobación vigente (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
+    registrarTelemetria({ tipo: 'check-gate', subsistema: '002_principal', resultado: 'aprobado', firma: veredicto.firma });
+
+    // Subgates elite (003/004) — solo bloquean si el commit toca algo que
+    // les compete (src/**/*.jsx|tsx); si no, no agregan fricción a commits
+    // que no tocan frontend.
+    const archivosStaged = obtenerArchivosStaged();
+    let subgatesOk = true;
+    for (const agentId of Object.keys(SUBGATES)) {
+        const resultado = validarSubgate(agentId, archivosStaged);
+        if (!resultado.aplica) continue;
+        if (!resultado.aprobado) {
+            console.error(`\n🛑 [SUBGATE_${agentId}] ${resultado.razon}`);
+            registrarTelemetria({ tipo: 'check-gate', subsistema: agentId, resultado: 'rechazado', razon: resultado.razon });
+            subgatesOk = false;
+        } else {
+            console.log(`✅ [SUBGATE_${agentId}] Aprobación vigente sobre los archivos relevantes de este commit.`);
+            registrarTelemetria({ tipo: 'check-gate', subsistema: agentId, resultado: 'aprobado' });
+        }
+    }
+    // Chequeos estáticos de 006_DEVSECOPS_INFRAESTRUCTURA — secretos, .env,
+    // dependencias. Sin costo de API, corren siempre, aquí mismo.
+    let chequeosOk = true;
+    for (const r of ejecutarChequeosEstaticos(archivosStaged)) {
+        if (!r.ok) {
+            console.error(`\n🛑 [006_DEVSECOPS · ${r.categoria}] ${r.razon}`);
+            registrarTelemetria({ tipo: 'check-gate', subsistema: `006_${r.categoria}`, resultado: 'rechazado', razon: r.razon });
+            chequeosOk = false;
+        } else {
+            console.log(`✅ [006_DEVSECOPS · ${r.categoria}] OK`);
+            registrarTelemetria({ tipo: 'check-gate', subsistema: `006_${r.categoria}`, resultado: 'aprobado' });
+        }
+    }
+
+    escribirEstadoOperativo();
+    process.exitCode = (subgatesOk && chequeosOk) ? 0 : 1;
+    return;
+}
+
+// Modo tablero: `node agents/architecture-gate.cjs --pmu-status` — imprime el
+// estado operativo actual del Escuadrón Élite completo, regenerado en el
+// momento (nunca sirve una copia vieja). No consume API.
+if (process.argv.includes('--pmu-status')) {
+    const estado = escribirEstadoOperativo();
+    console.log(`\n🎖️  PUESTO DE MANDO UNIFICADO — Escuadrón Élite (${estado.generado})`);
+    console.log(`   ${estado.total_agentes} agentes registrados · ${estado.agentes_con_gate} con gate técnico propio\n`);
+    for (const a of estado.agentes) {
+        const escritura = a.permiso_escritura ? '✍️  ESCRITURA' : '👁️  solo lectura';
+        const gate = a.gate === 'sin_gate_propio' ? '⚪ sin gate propio' : `🔒 ${a.gate}`;
+        const veredicto = a.ultimo_veredicto
+            ? (a.ultimo_veredicto.aprobado ? `✅ aprobado (${(a.ultimo_veredicto.timestamp || '').slice(0, 10)})` : '🛑 rechazado')
+            : '— sin veredicto registrado';
+        console.log(`   ${a.nombre || a.archivo}`);
+        console.log(`      ${escritura} · ${gate} · ${veredicto}`);
+    }
+    process.exitCode = 0;
+    return;
+}
+
+// Modo firma de subgate: `node agents/architecture-gate.cjs --aprobar-subgate <agentId>`
+if (process.argv.includes('--aprobar-subgate')) {
+    const agentId = process.argv[process.argv.indexOf('--aprobar-subgate') + 1];
+    if (!SUBGATES[agentId]) {
+        console.error(`🛑 [SUBGATE] '${agentId}' no es un subgate configurado. Válidos: ${Object.keys(SUBGATES).join(', ')}`);
+        process.exitCode = 1;
+        return;
+    }
+    (async () => {
+        const cfg = SUBGATES[agentId];
+        const archivosStaged = obtenerArchivosStaged();
+        const relevantes = archivosRelevantesPara(agentId, archivosStaged);
+        if (relevantes.length === 0) {
+            console.log(`ℹ️  [SUBGATE_${agentId}] Ningún archivo staged le compete a este agente — nada que aprobar.`);
+            process.exitCode = 0;
+            return;
+        }
+        console.log(`\n🔎 [${agentId}] Evaluando ${relevantes.length} archivo(s) staged contra ${path.basename(cfg.promptPath)}...`);
+        const veredicto = await pedirVeredictoSubagente(agentId, relevantes);
+        if (!veredicto.aprobado) {
+            console.error(`\n🛑 [SUBGATE_${agentId}] Rechazado — o no se pudo evaluar.`);
+            if (veredicto.razon) console.error(`   - ${veredicto.razon}`);
+            if (veredicto.respuestaCruda) console.error(`   Respuesta cruda: ${veredicto.respuestaCruda}`);
+            registrarTelemetria({ tipo: 'aprobar-subgate', subsistema: agentId, resultado: 'rechazado', razon: veredicto.razon || null });
+            escribirEstadoOperativo();
+            process.exitCode = 1;
+            return;
+        }
+        const firma = hashArchivosStaged(relevantes);
+        fs.writeFileSync(cfg.veredictoPath, JSON.stringify({
+            aprobado: true,
+            firma,
+            timestamp: new Date().toISOString(),
+            firmado_por: `${agentId} (${path.relative(dirRoot, cfg.promptPath)}, vía API Anthropic)`,
+            veredictoCompleto: veredicto.veredictoCompleto,
+        }, null, 2) + '\n', 'utf8');
+        console.log(`\n✅ [SUBGATE_${agentId}] Aprobado. Firma: ${firma}`);
+        registrarTelemetria({ tipo: 'aprobar-subgate', subsistema: agentId, resultado: 'aprobado', firma });
+        escribirEstadoOperativo();
+        process.exitCode = 0;
+    })();
     return;
 }
 
@@ -291,6 +830,8 @@ if (process.argv.includes('--aprobar-diseno')) {
             console.error('\n🛑 [GATE_ARQUITECTURA] El Agente Arquitecto RECHAZÓ el diseño — o no pudo evaluarlo.');
             (veredicto.razones || []).forEach(r => console.error(`   - ${r}`));
             if (veredicto.respuestaCruda) console.error(`   Respuesta cruda: ${veredicto.respuestaCruda}`);
+            registrarTelemetria({ tipo: 'aprobar-diseno', subsistema: '002_principal', resultado: 'rechazado', razones: veredicto.razones || [] });
+            escribirEstadoOperativo();
             // process.exitCode (no process.exit()) — forzar la salida mientras el
             // dispatcher de fetch/undici del SDK de Anthropic aún cierra sockets
             // dispara un crash nativo en Node/Windows (Assertion failed ... uv_async_t,
@@ -310,6 +851,8 @@ if (process.argv.includes('--aprobar-diseno')) {
         }, null, 2) + '\n', 'utf8');
         console.log(`\n✅ [Agente Arquitecto] Diseño aprobado. Firma: ${firma}`);
         (veredicto.razones || []).forEach(r => console.log(`   - ${r}`));
+        registrarTelemetria({ tipo: 'aprobar-diseno', subsistema: '002_principal', resultado: 'aprobado', firma });
+        escribirEstadoOperativo();
         process.exitCode = 0;
     })();
     return;
@@ -587,4 +1130,22 @@ async function ejecutarTodosLosAgentes() {
     console.log('[001] Cada resultado fue verificado. Sin alucinaciones.');
 }
 
-ejecutarTodosLosAgentes();
+// Guard de entry-point (2026-08-12, auditoría "reloj suizo"): sin esto,
+// `require('./architecture-gate.cjs')` desde un test dispararía el batch
+// executor completo de verdad (ningún modo --rutear/--check-gate/
+// --aprobar-diseno estaba presente en process.argv durante un test, así que
+// la ejecución caía aquí sin ningún guardia). module.exports expone las
+// funciones puras (hashArchivo, hashEstado, validarDisenoAprobado,
+// listarCarpetasAgentes) para scripts/architecture-gate.test.cjs sin correr
+// nada con efectos secundarios.
+if (require.main === module) {
+    ejecutarTodosLosAgentes();
+}
+
+module.exports = {
+    hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear,
+    SUBGATES, archivosRelevantesPara, validarSubgate,
+    descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
+    escanearSecretos, verificarEnvExample, verificarDependencias, ejecutarChequeosEstaticos,
+    diffTocaDependencias,
+};

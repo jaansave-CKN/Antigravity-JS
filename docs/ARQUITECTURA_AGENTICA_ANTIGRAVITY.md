@@ -345,6 +345,75 @@ Este es el único punto donde "agente → backend/API externa" es código real, 
 
 ---
 
+## 0-N. CIRUGÍA ESTRUCTURAL 001-005 (2026-08-12) — 5 objetivos de remediación
+
+Ejecución directa de los 5 hallazgos del plan de remediación de §0-M.5, sin volver a auditar (ya estaba hecho):
+
+1. **`hashEstado()` reescrita** (`agents/architecture-gate.cjs`) — ahora hashea CONTENIDO de archivo (`crypto.createHash('sha256').update(fs.readFileSync(...))`), no solo nombres. Ampliado además a `.claude/agents/*.md`, que antes no estaba en el alcance de la firma en absoluto — se podía reescribir el prompt completo de cualquier agente sin invalidar nunca el gate.
+2. **Trigger de despliegue eliminado** — `agents/009_gestor_datos/skills/Skill_001_Gestor_Encoding.cjs` ya no tiene `deploy()`, `execSync`, ni el flag `--deploy`. Verificado con grep: cero coincidencias.
+3. **`Skill_Soporte_Automatico.cjs` purgado** (`git rm agents/010_redactor_tecnico/skills/Skill_Soporte_Automatico.cjs`), y su entrada huérfana eliminada de `skills/ag_skills_registry.json` (JSON re-validado tras el cambio).
+4. **`radar_oficial.py` restringido a Colombia** — `FUENTES_ABIERTAS` pasó de 6 fuentes extranjeras (Costa Rica, Chile, Argentina, Uruguay, Paraguay, Panamá) a 1 sola: SECOP II, reutilizando la URL ya validada en `test_fuentes.py` del mismo directorio (no se inventó una URL nueva). Extracción de presupuesto reescrita de `presupuesto_usd` (patrones USD/EUR) a `presupuesto_cop` (formato COP, punto como separador de miles). `test_fuentes.py` no requería cambio — ya solo tenía SECOP Colombia + 2 organismos multilaterales (BID, UNDP), ninguno de los 6 países señalados.
+5. **No aplicaba** — verificado con grep que `100_reparador_codigo`/`09-legal-licitaciones` ya no existían en `IDENTITY.md`, resuelto en una ronda anterior.
+
+**Validación:** sintaxis verificada en los 4 archivos tocados (`node --check` ×3, `py_compile` ×1, JSON re-parseado). `--check-gate` reporta correctamente que la firma anterior ya no es válida — la reescritura de `hashEstado()` invalida cualquier firma previa por diseño, además de los cambios reales de contenido. No se ejecutó `--aprobar-diseno` (gasta API) sin autorización explícita.
+
+---
+
+## 0-O. HALLAZGO Y FIX — `001` con permiso de escritura pese a mandato de solo-enrutamiento (2026-08-12)
+
+Pregunta exploratoria del usuario ("cómo subir la eficacia del Escuadrón 001-005") reveló la inconsistencia de mayor impacto detectada hasta ahora: `001_ORQUESTADOR_MAESTRO` tenía `Write`, `Edit` y `Bash` directos en su frontmatter (`.claude/agents/001-orquestador-maestro.md`) pese a que su propio §1 dice "tu función NO es escribir código operativo". Era el único agente del Escuadrón capaz de mutar el repositorio sin pasar por el único punto de enforcement técnico real del sistema (`.git/hooks/pre-commit` + `agents/architecture-gate.cjs`) — `002`/`003`/`004` no tienen permiso de escritura en absoluto, y `005` (el único que sí lo tiene) está explícitamente instruido a invocar a `002` antes de tocar subsistemas nuevos.
+
+**Fix:** `tools` de `001` reducido a `Read, Grep, Glob, Agent, WebSearch, WebFetch` — sin `Write`/`Edit`/`Bash`. Documentado en el propio archivo (§4 nueva) el porqué, para que no se reintroduzca por error en una futura edición. `001` queda forzado a delegar vía `Agent` a `002`-`005` para cualquier tarea que mute el repo, en vez de poder ejecutar por fuera del gate.
+
+---
+
+## 0-P. BLINDAJE "RELOJ SUIZO" 001-005 (2026-08-12) — 3 fixes estructurales
+
+Ejecución de los 3 hallazgos de mayor severidad del reporte élite de esta misma fecha (hook no versionado, cero tests del gate, 003/004 sin enforcement técnico). El 4º (auto-aprobación sin separación de funciones) queda documentado como riesgo aceptado, no implementado — es una decisión de proceso, no de código.
+
+**1. Hook versionado.** `scripts/pre-commit.sh` (lógica real, trackeada por git) + `scripts/install-git-hooks.cjs` (instalador cross-platform) + `"prepare": "node scripts/install-git-hooks.cjs"` en `package.json` (corre automático en `npm install`). `.git/hooks/pre-commit` es ahora un wrapper de 2 líneas que invoca al script versionado — verificado funcionando end-to-end (`--check-gate` sigue bloqueando correctamente vía el wrapper nuevo).
+
+**2. Tests del gate.** `scripts/architecture-gate.test.cjs` (Node nativo, `node:test`, cero dependencias nuevas) — 10 casos, cubren exactamente la clase de bug que ya se coló una vez sin detectarse (contenido vs. nombre de archivo), más el mecanismo de subgates nuevo. Requirió un cambio estructural en `agents/architecture-gate.cjs`: se agregó guardia `if (require.main === module)` alrededor de `ejecutarTodosLosAgentes()` y `module.exports` — antes, un simple `require()` del archivo (como hace un test) disparaba el batch executor completo de verdad, sin ningún guardia. `npm run test:gate` para correrlos.
+
+**3. Subgates elite para 003/004.** Mecanismo genérico en `architecture-gate.cjs` (objeto `SUBGATES`) que engancha cualquier agente de solo lectura al mismo `--check-gate` obligatorio que ya protegía solo a `002`. Si un commit toca `src/**/*.jsx|tsx`, `--check-gate` ahora exige un veredicto vigente de `004_SENTINELA_FRONTEND` (`agents/veredicto_004.json`) y `003_ESP_DISENO_STITCH` (`agents/veredicto_003.json`), cada uno con su propio campo de aprobación (`limpio`/`diseno_valido`) y firma de hash sobre el contenido staged relevante — mismo patrón que `002`, pero paramétrico. Nuevo modo `--aprobar-subgate <agentId>` invoca la API real de Anthropic con el prompt de ese agente. **Diseñado para que agregar un futuro agente "elite" sea una entrada nueva en `SUBGATES`, no una reescritura** — respuesta directa al pedido del usuario de que "los demás agentes que se agreguen estén al nivel Elite".
+
+**Validación:** `node --check` limpio, `npm run test:gate` → 10/10, `--check-gate` real verificado (bloquea correctamente en el gate de `002`, que corre primero por diseño). No se ejecutó `--aprobar-diseno` ni `--aprobar-subgate` (gastan API) sin autorización.
+
+---
+
+## 0-Q. PUESTO DE MANDO UNIFICADO (PMU) — 2026-08-12
+
+A pedido explícito del usuario ("control absoluto... que sea escalable para futuros agentes"), se construyó el PMU real sobre el gate ya probado, no un sistema paralelo:
+
+- **`agents/pmu/estado_operativo.json`** — foto única del escuadrón completo, generada por código. Auto-descubre agentes vía `descubrirAgentes()` leyendo `.claude/agents/*.md` (parseo minimalista de frontmatter `name`/`tools`, sin dependencia YAML) — un agente nuevo aparece en el tablero sin tocar código, que es la respuesta directa a "escalable para futuros agentes".
+- **`agents/pmu/telemetria.jsonl`** — append-only, una línea por cada decisión real de gate (`--check-gate`, `--aprobar-diseno`, `--aprobar-subgate`), con tipo/subsistema/resultado/razón/timestamp. Antes no había manera de responder "¿cuántas veces bloqueó el gate?" sin leer la narrativa a mano.
+- **`--pmu-status`** — comando nuevo, sin costo de API, imprime el tablero legible por humano en el momento.
+
+**Verificado funcionando de verdad, no solo compilando:** corrí `--pmu-status` contra el estado real del repo — detectó los 6 agentes existentes (001-005, 008), marcó correctamente que `001` ya no tiene permiso de escritura (fix de la ronda anterior) y que `005`/`008` sí lo tienen. **Hallazgo que el propio tablero sacó a la luz, no buscado a propósito:** `008_AUDITOR_DE_CODIGO` tiene `Bash` en su frontmatter pese a que su mandato dice "NO ESCRIBE CÓDIGO NUEVO" — a diferencia del caso de `001` (que no tenía ningún uso legítimo para esas herramientas), `008` sí podría necesitar `Bash` para su rol de QA/Red Team (correr pruebas, intentar exploits) — no se tocó sin confirmar la intención real, queda señalado, no corregido unilateralmente.
+
+**Fuera de alcance de esta ronda, a propósito (no es "una entrada de config más"):** un agente que vigile `telemetria.jsonl` y proponga fixes sin intervención humana, y un protocolo estructurado de mensajería entre agentes (hoy siguen coordinando por prosa en su system prompt, no por mensajes con confirmación de recibido). Señalados como siguiente fase si se quiere llevar el PMU más allá de estado+telemetría.
+
+**Validación:** `node --check` limpio, `npm run test:gate` → **14/14**, `--pmu-status` corrido en vivo contra el repo real (no un mock), `estado_operativo.json` real generado y commiteado como evidencia del primer corte.
+
+---
+
+## 0-R. `006_DEVSECOPS_INFRAESTRUCTURA` CONSTRUIDO — perfil élite completo (2026-08-12)
+
+A pedido del usuario ("no te parece que le falta mucho" tras una primera propuesta demasiado tímida), se amplió el mandato antes de construir: no solo auditar `render.yaml`/`npm audit` bajo demanda, sino cerrar 3 brechas de seguridad reales que esta misma sesión ya había descubierto y dejado sin dueño (secretos filtrados, `.env.example` inexistente, dependencias nunca auditadas).
+
+**Subagente real:** `.claude/agents/006-devsecops-infraestructura.md` — `tools: Read, Grep, Glob, Bash`, sin `Write`/`Edit` (auditor, no ejecutor). Documenta explícitamente que NO debe tocar los 4 subordinados huérfanos sin que se le pida (orden del usuario: esa limpieza espera a que el Escuadrón esté completo, ver memoria persistente).
+
+**Chequeos deterministas nuevos en `agents/architecture-gate.cjs`, sin costo de API, corren en TODO `--check-gate`:**
+1. **Escaneo de secretos** (`escanearSecretos`) — patrones específicos de bajo falso-positivo (JWT de 3 segmentos, AWS Access Key, bloque PEM de llave privada, asignación `key=valor` larga) sobre el contenido staged real (`git show :archivo`), no el de disco. Bloquea `.env` real por nombre de archivo, sin falta leer contenido.
+2. **`.env.example`** (`verificarEnvExample`) — **no existía en la raíz del proyecto**, confirmado y corregido en esta misma ronda: se generó con las 28 variables reales de `.env`, solo nombres. El chequeo ahora compara nombres y bloquea si se desincroniza en el futuro.
+3. **`npm audit`** (`verificarDependencias`) — solo corre cuando `package.json`/`package-lock.json` está en el diff (no en cada commit, evita depender de red en cada commit sin relación). **Hallazgo real, no hipotético:** al probarlo contra las dependencias reales de este proyecto, encontró **4 vulnerabilidades críticas, 20 altas, 21 moderadas, 2 bajas** — nadie había corrido `npm audit` en ningún punto de esta sesión hasta ahora. No se aplicó ningún fix automático (`npm audit fix` puede romper builds, requiere autorización explícita del usuario, mismo criterio que toda acción de alto impacto de esta sesión).
+
+**PMU:** `006-devsecops-infraestructura` aparece solo en `--pmu-status` (auto-discovery, cero código nuevo necesario) — confirmado en vivo, 7 de 8 agentes ahora tienen subagente real (falta solo `007`).
+
+**Validación:** `node --check` limpio, `npm run test:gate` → **18/18**, `--pmu-status` y `--check-gate` corridos en vivo contra el repo real. Corrección de un bug real encontrado en el camino: `npm.cmd` en Windows requiere `shell:true` para ejecutarse (es un batch script, no un binario nativo) — args siempre literales fijos, nunca input externo, así que la advertencia `DEP0190` de Node no aplica al riesgo que señala.
+
+---
+
 Todo lo demás (§1-§14) describe con precisión la rama `master` — verificado de nuevo hoy (agents/, `.claude/agents/architect.md`, pre-commit hook, listado de carpetas: sin drift detectado más allá del trabajo propio de esta sesión). **Pero "master" puede no ser la rama que Render despliega realmente** — `remotes/origin/HEAD` apunta a `main`, que es la convención estándar de GitHub para señalar la rama por defecto. Esto no se puede resolver desde disco; requiere que el usuario confirme en el dashboard de Render cuál rama está configurada para el servicio `radar-formulador-360`.
 
 ---

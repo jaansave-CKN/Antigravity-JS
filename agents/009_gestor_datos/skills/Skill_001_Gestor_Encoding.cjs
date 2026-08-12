@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
 const ENCODING = 'utf8';
 
@@ -70,17 +69,6 @@ function corregirTodo(directorio) {
     return { ok, error };
 }
 
-function deploy() {
-    console.log('\nDeploying to Firebase...');
-    try {
-        execSync('firebase deploy --only hosting', { stdio: 'inherit' });
-        return true;
-    } catch (e) {
-        console.error('Deploy failed:', e.message);
-        return false;
-    }
-}
-
 const args = process.argv.slice(2);
 const cmd = args[0];
 const dir = args[1] || 'public';
@@ -101,13 +89,10 @@ if (cmd === 'check') {
     }
     console.log('\nTotal problematicos:', problematicos);
 } else if (cmd === 'corregir') {
-    const res = corregirTodo(dir);
-    if (res.ok > 0 && args.includes('--deploy')) {
-        deploy();
-    }
+    corregirTodo(dir);
 } else {
-    console.log('\nUso: node Gestor_Encoding.cjs <check|corregir> [directorio] [--deploy]');
+    console.log('\nUso: node Gestor_Encoding.cjs <check|corregir> [directorio]');
     console.log('Ejemplos:');
     console.log('  node Gestor_Encoding.cjs check public');
-    console.log('  node Gestor_Encoding.cjs corregir proyectos --deploy');
+    console.log('  node Gestor_Encoding.cjs corregir proyectos');
 }
