@@ -447,6 +447,22 @@ A pedido del usuario ("no te parece que le falta mucho" tras una primera propues
 
 ---
 
+## 0-U. Migración A — confirmación definitiva en Supabase (2026-08-12)
+
+Tras el hallazgo de §0-J a §0-L (esquema divergente, "updated_at" en vez del diseño real — evidencia de que se estaba pegando un script distinto al del repositorio en varias rondas), se le entregó al usuario el contenido exacto de `_deploy_atomico_migracion_a.sql` directamente en el chat para copiar sin intermediarios. Verificado por API, independiente del reporte:
+
+| Objeto | Resultado |
+|---|---|
+| `project_version_hashes` | ✅ `200` |
+| `security_violations_ledger` | ✅ `200` |
+| `obtener_ultimo_hash` | ✅ `200`, `{"hash_value": null, "created_at": null}` — comportamiento exacto del código fuente |
+| `registrar_version_hash` | ✅ Rechaza proyecto inexistente con el mensaje `P0001` real del `RAISE EXCEPTION` |
+| `guardar_modulo10` (5 parámetros) | ✅ Misma validación correcta |
+
+**Migración A: confirmada en producción, con evidencia independiente, no solo por reporte.** Cierra la saga de despliegue que ocupó varias rondas de esta sesión — la causa raíz nunca fue el código (auditado y corregido desde §0-K) sino que, en más de una ocasión, se ejecutó contra Supabase un script distinto al del repositorio.
+
+---
+
 Todo lo demás (§1-§14) describe con precisión la rama `master` — verificado de nuevo hoy (agents/, `.claude/agents/architect.md`, pre-commit hook, listado de carpetas: sin drift detectado más allá del trabajo propio de esta sesión). **Pero "master" puede no ser la rama que Render despliega realmente** — `remotes/origin/HEAD` apunta a `main`, que es la convención estándar de GitHub para señalar la rama por defecto. Esto no se puede resolver desde disco; requiere que el usuario confirme en el dashboard de Render cuál rama está configurada para el servicio `radar-formulador-360`.
 
 ---
