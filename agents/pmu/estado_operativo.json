@@ -1,10 +1,11 @@
 {
-  "generado": "2026-08-12T04:21:58.036Z",
-  "total_agentes": 7,
+  "generado": "2026-08-12T04:25:45.678Z",
+  "total_agentes": 8,
   "agentes_con_gate": 3,
   "agentes_con_permiso_escritura": [
     "005-ingeniero-backend",
     "006-devsecops-infraestructura",
+    "007-documentador-as-build",
     "008-auditor-de-codigo"
   ],
   "agentes": [
@@ -35,21 +36,18 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "9f9a78602520ad9eeb4193c76c96f8c9e86363d822f92ce68a34e64864e3a626",
-        "timestamp": "2026-08-12T04:21:58.027Z",
+        "firma": "63daeabebf6fe00b6a6205d1733e755b49f2fed423ebcd0546bc2c56857f5f7a",
+        "timestamp": "2026-08-12T04:25:39.386Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "hashEstado() reescrita para hashear contenido real de archivos existentes — cierra el punto ciego crítico confirmado",
-          "Alcance de firma ampliado a .claude/agents/*.md — los prompts de agentes ahora invalidan el gate si se reescriben",
-          "SUBGATES 003/004 correctamente enganchados al enforcement técnico con firma sobre contenido staged",
-          "PMU generado por código con auto-descubrimiento — escalable sin mantenimiento manual",
-          "Chequeos estáticos de 006 son deterministas, sin costo de API, con fallbacks documentados",
-          "001 despojado de Write/Edit/Bash — consistente con su mandato y cierra el único bypass de gate por jerarquía",
-          "Eliminaciones sin contrato de interfaz que preservar — limpiezas correctas",
-          ".env.example creado correctamente sin valores reales",
-          "Riesgo de 006 con Bash sin gate propio explícitamente documentado y aceptado en esta ronda",
-          "require.main === module + module.exports habilita tests unitarios sin efectos secundarios",
-          "Punto menor no bloqueante: verificar que el archivo en disco sea telemetria.jsonl (no .json) — si el diff está truncado y el nombre real es .jsonl, no hay bug"
+          "007-documentador-as-build.md: mandato acotado a docs/, herramientas justificadas, sin colisión con agentes existentes, salida estructurada obligatoria definida",
+          "gate.yml: workflow CI consistente con entorno Windows del proyecto, sin costo de API, lógica delegada a npm run test:gate ya existente, continue-on-error justificado explícitamente en ambos pasos que lo usan",
+          "estado_operativo.json: contadores y lista de escritura actualizados correctamente (7→8, 007 agregado a agentes_con_permiso_escritura)",
+          "telemetria.jsonl: solo append, última línea confirma que el gate detectó el cambio y requirió re-aprobación — mecanismo funcionando correctamente",
+          "§0-S: documenta exactamente lo implementado, sin inventar rondas para cambios triviales, pendiente explícito registrado con instrucción de retomar",
+          "PDF: refleja el .md más reformateo de tablas, sin información nueva",
+          "No hay DDL — criterio de deploy atómico no aplica",
+          "No hay colisión con módulos existentes ni duplicación de funcionalidad identificada"
         ]
       }
     },
@@ -100,6 +98,20 @@
         "Grep",
         "Glob",
         "Bash"
+      ],
+      "permiso_escritura": true,
+      "gate": "sin_gate_propio",
+      "ultimo_veredicto": null
+    },
+    {
+      "archivo": ".claude/agents/007-documentador-as-build.md",
+      "nombre": "007-documentador-as-build",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
       ],
       "permiso_escritura": true,
       "gate": "sin_gate_propio",

@@ -414,6 +414,20 @@ A pedido del usuario ("no te parece que le falta mucho" tras una primera propues
 
 ---
 
+## 0-S. ROSTER COMPLETO — 8 de 8, + CI real (2026-08-12)
+
+**`007_DOCUMENTADOR_AS_BUILD` construido:** `.claude/agents/007-documentador-as-build.md`, `tools: Read, Write, Edit, Grep, Glob` (blast radius limitado a `docs/`). Su mandato original (artefacto atado a `ejecutarTodosLosAgentes()`, el batch executor legado — nunca corrió de verdad, `docs/as-build/` no existe en disco) se amplió a lo que en la práctica ya se venía haciendo toda esta sesión: mantener este mismo documento como registro as-built vivo. **Con esto, los 8 roles del Escuadrón Élite tienen subagente real — roster completo.**
+
+**Fase 3 de la estrategia 100/100 — CI real, no solo el hook local:** `.github/workflows/gate.yml` — corre `npm run test:gate` en cada push/PR a `master`/`main`, sin costo de API (no invoca `--aprobar-diseno`). Cierra la brecha de que el hook de pre-commit, aunque ya versionado (§0-P), solo protege a quien lo tiene instalado — un clone sin `npm install`, o un commit con `--no-verify`, no pasa por él. El paso de `npm audit` queda con `continue-on-error: true` a propósito — las 4 críticas/20 altas de §0-R siguen sin resolver, bloquear el CI por eso ahora mismo pararía todo el equipo sin que nadie lo haya decidido explícitamente. Instrucción dejada en el propio workflow: quitar `continue-on-error` cuando se resuelvan.
+
+**Hallazgo de precisión, encontrado al sellar esta misma ronda:** el chequeo de dependencias de `006` disparaba con solo que `package.json` estuviera en el diff, sin importar qué cambiara adentro — bloqueó un commit que solo agregaba 2 scripts npm, sin tocar ninguna dependencia. Corregido (`diffTocaDependencias()`): ahora inspecciona el diff staged real y solo aplica si un renglón dentro de `dependencies`/`devDependencies` cambió de verdad.
+
+**Pendiente explícito, no resuelto a propósito (orden del usuario, 2026-08-12):** limpieza/reasignación de los subordinados huérfanos de `005` y `006` — se aplaza hasta este punto (roster completo), que es exactamente donde estamos ahora. Sigue en memoria persistente, sacar a relucir en la próxima ronda.
+
+**Validación:** `npm run test:gate` → 19/19, `--pmu-status` confirma 8/8 agentes con subagente real, `--check-gate` pasa limpio tras el fix de precisión, YAML del workflow validado. Commit `c89c54f` sella todo lo de esta ronda hasta `006`; `007` + CI se commitean aparte a continuación.
+
+---
+
 Todo lo demás (§1-§14) describe con precisión la rama `master` — verificado de nuevo hoy (agents/, `.claude/agents/architect.md`, pre-commit hook, listado de carpetas: sin drift detectado más allá del trabajo propio de esta sesión). **Pero "master" puede no ser la rama que Render despliega realmente** — `remotes/origin/HEAD` apunta a `main`, que es la convención estándar de GitHub para señalar la rama por defecto. Esto no se puede resolver desde disco; requiere que el usuario confirme en el dashboard de Render cuál rama está configurada para el servicio `radar-formulador-360`.
 
 ---

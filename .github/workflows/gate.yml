@@ -1,0 +1,55 @@
+name: Gate de Arquitectura
+
+# Mueve el enforcement de "confío en que corriste el hook local" a "GitHub
+# lo exige antes de aceptar el push/PR" — el hook de pre-commit (aunque ya
+# está versionado, ver scripts/pre-commit.sh) solo protege a quien lo tiene
+# instalado en su máquina. Un clone fresco sin `npm install`, o un commit
+# con `--no-verify`, no pasa por ese hook en absoluto. Este workflow es la
+# segunda línea de defensa: corre en el servidor, sin excepción posible
+# desde la máquina de nadie.
+#
+# NOTA: esto NO reemplaza --check-gate/--aprobar-diseno (esos siguen siendo
+# la fuente de verdad de "el diseño fue aprobado"). Este workflow valida
+# que el estado del repo sea internamente consistente (tests pasan, gate
+# no está roto) — no invoca la API de Anthropic, cero costo por push.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  gate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependencias
+        run: npm ci --ignore-scripts
+        # --ignore-scripts: evita correr `prepare` (instala el hook de git,
+        # irrelevante en un runner efímero) y cualquier postinstall que
+        # dependa de un entorno interactivo.
+
+      - name: Tests del gate de arquitectura
+        run: npm run test:gate
+
+      - name: Verificar que el gate esté en estado consistente (--check-gate)
+        run: node agents/architecture-gate.cjs --check-gate
+        continue-on-error: true
+        # continue-on-error: el gate compara contra una firma que vive en
+        # agents/diseno_aprobado.json, committeada — puede legítimamente
+        # estar "sin aprobación vigente" si el PR mismo es lo que se está
+        # evaluando. No bloquea el CI por sí solo; los tests (paso anterior)
+        # sí son bloqueantes de verdad.
+
+      - name: npm audit (informativo — no bloquea el build todavía)
+        run: npm audit --audit-level=critical
+        continue-on-error: true
+        # Ver docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §0-R: 4 críticas y
+        # 20 altas detectadas 2026-08-12, sin corregir. Cuando se resuelvan,
+        # quitar continue-on-error para que esto sí bloquee el merge.

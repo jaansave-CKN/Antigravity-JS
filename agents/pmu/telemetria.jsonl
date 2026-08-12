@@ -7,3 +7,14 @@
 {"timestamp":"2026-08-12T04:19:45.460Z","tipo":"check-gate","subsistema":"006_env_example","resultado":"aprobado"}
 {"timestamp":"2026-08-12T04:19:45.461Z","tipo":"check-gate","subsistema":"006_dependencias","resultado":"rechazado","razon":"npm audit encontró 4 vulnerabilidad(es) crítica(s) y 20 alta(s) — correr 'npm audit' para el detalle."}
 {"timestamp":"2026-08-12T04:21:58.030Z","tipo":"aprobar-diseno","subsistema":"002_principal","resultado":"aprobado","firma":"9f9a78602520ad9eeb4193c76c96f8c9e86363d822f92ce68a34e64864e3a626"}
+{"timestamp":"2026-08-12T04:22:08.807Z","tipo":"check-gate","subsistema":"002_principal","resultado":"aprobado","firma":"9f9a78602520ad9eeb4193c76c96f8c9e86363d822f92ce68a34e64864e3a626"}
+{"timestamp":"2026-08-12T04:22:09.360Z","tipo":"check-gate","subsistema":"006_secretos","resultado":"aprobado"}
+{"timestamp":"2026-08-12T04:22:09.360Z","tipo":"check-gate","subsistema":"006_env_example","resultado":"aprobado"}
+{"timestamp":"2026-08-12T04:22:27.415Z","tipo":"check-gate","subsistema":"002_principal","resultado":"aprobado","firma":"9f9a78602520ad9eeb4193c76c96f8c9e86363d822f92ce68a34e64864e3a626"}
+{"timestamp":"2026-08-12T04:22:27.965Z","tipo":"check-gate","subsistema":"006_secretos","resultado":"aprobado"}
+{"timestamp":"2026-08-12T04:22:27.966Z","tipo":"check-gate","subsistema":"006_env_example","resultado":"aprobado"}
+{"timestamp":"2026-08-12T04:25:00.985Z","tipo":"check-gate","subsistema":"002_principal","resultado":"rechazado","razon":"El estado de agents/ cambió después de la firma — se requiere re-aprobación del Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE)."}
+{"timestamp":"2026-08-12T04:25:39.390Z","tipo":"aprobar-diseno","subsistema":"002_principal","resultado":"aprobado","firma":"63daeabebf6fe00b6a6205d1733e755b49f2fed423ebcd0546bc2c56857f5f7a"}
+{"timestamp":"2026-08-12T04:25:45.432Z","tipo":"check-gate","subsistema":"002_principal","resultado":"aprobado","firma":"63daeabebf6fe00b6a6205d1733e755b49f2fed423ebcd0546bc2c56857f5f7a"}
+{"timestamp":"2026-08-12T04:25:45.670Z","tipo":"check-gate","subsistema":"006_secretos","resultado":"aprobado"}
+{"timestamp":"2026-08-12T04:25:45.673Z","tipo":"check-gate","subsistema":"006_env_example","resultado":"aprobado"}
