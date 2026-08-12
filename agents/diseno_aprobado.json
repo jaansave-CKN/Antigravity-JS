@@ -1,13 +1,14 @@
 {
   "aprobado": true,
-  "firma": "2a615af2ff57929ae7ea05afe23a10206a8426d6421d8de75b454b8ba742d794",
-  "timestamp": "2026-08-12T05:00:55.457Z",
+  "firma": "7d8ef32bb5969864e936c21dce9d5e14b5e90c33caf2bcb486e34606f1d8bc9f",
+  "timestamp": "2026-08-12T22:47:22.511Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Dos carpetas purgadas (03-analista-secop, 14-analista-comportamiento) confirmadas como vacías (solo IDENTITY.md de 3 líneas, cero código)",
-    "Reasignación de 052_Form_Administrativo y 015_intelligence-core de 006 a 005 en ESCUADRON_ELITE es coherente con el dominio real de esos módulos (Formulador/SECOP, no despliegues)",
-    "Referencias colgantes cerradas: tabla de ruteo de 001_ORQUESTADOR_MAESTRO, subagente .claude/agents/006-devsecops-infraestructura.md, y docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md actualizados en forma consistente entre sí",
-    "telemetria.jsonl registra correctamente el rechazo previo del gate y este diff corresponde a la re-aprobación solicitada por ese rechazo — flujo de control íntegro",
-    "No se introduce lógica nueva, no hay DDL, no hay endpoints, no hay duplicación — alcance estrictamente acotado a limpieza organizacional autorizada"
+    "`.env.example` migra Firebase a variables de entorno individuales con documentación de formato — correctamente vacías, sin valores reales expuestos",
+    "La referencia a `FirebaseAdmin.js` como fallback está explicitada; el manejo de des-escapado de PEM debe verificarse en ese archivo al momento de implementación (fuera del alcance de este diff)",
+    "`agents/pmu/` refleja el ciclo normal de re-aprobación tras detección de cambio en agents/ — comportamiento esperado del gate",
+    "`package-lock.json` contiene exclusivamente bumps de versiones menores/patch y una actualización minor de `@google-cloud/storage` (7.22.0) y `@modelcontextprotocol/sdk` (1.30.0), todos marcados como dev o optional",
+    "La eliminación de `clipboardy` y sus transitivas es limpieza upstream de `stitch-mcp` 0.5.5, sin impacto en código propio",
+    "El bump de `@hono/node-server` a v2 (Node≥20) es scope dev/MCP tooling — no afecta el runtime de producción, pero se recomienda verificar versión de Node en entorno de desarrollo"
   ]
 }

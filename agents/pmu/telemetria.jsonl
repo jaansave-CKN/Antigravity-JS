@@ -23,3 +23,17 @@
 {"timestamp":"2026-08-12T04:25:57.626Z","tipo":"check-gate","subsistema":"006_env_example","resultado":"aprobado"}
 {"timestamp":"2026-08-12T05:00:23.318Z","tipo":"check-gate","subsistema":"002_principal","resultado":"rechazado","razon":"El estado de agents/ cambió después de la firma — se requiere re-aprobación del Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE)."}
 {"timestamp":"2026-08-12T05:00:55.459Z","tipo":"aprobar-diseno","subsistema":"002_principal","resultado":"aprobado","firma":"2a615af2ff57929ae7ea05afe23a10206a8426d6421d8de75b454b8ba742d794"}
+{"timestamp":"2026-08-12T05:01:03.487Z","tipo":"check-gate","subsistema":"002_principal","resultado":"aprobado","firma":"2a615af2ff57929ae7ea05afe23a10206a8426d6421d8de75b454b8ba742d794"}
+{"timestamp":"2026-08-12T05:01:03.822Z","tipo":"check-gate","subsistema":"006_secretos","resultado":"aprobado"}
+{"timestamp":"2026-08-12T05:01:03.822Z","tipo":"check-gate","subsistema":"006_env_example","resultado":"aprobado"}
+{"timestamp":"2026-08-12T05:01:19.197Z","tipo":"check-gate","subsistema":"002_principal","resultado":"aprobado","firma":"2a615af2ff57929ae7ea05afe23a10206a8426d6421d8de75b454b8ba742d794"}
+{"timestamp":"2026-08-12T05:01:19.493Z","tipo":"check-gate","subsistema":"006_secretos","resultado":"aprobado"}
+{"timestamp":"2026-08-12T05:01:19.494Z","tipo":"check-gate","subsistema":"006_env_example","resultado":"aprobado"}
+{"timestamp":"2026-08-12T05:18:34.237Z","tipo":"check-gate","subsistema":"002_principal","resultado":"aprobado","firma":"2a615af2ff57929ae7ea05afe23a10206a8426d6421d8de75b454b8ba742d794"}
+{"timestamp":"2026-08-12T05:18:34.353Z","tipo":"check-gate","subsistema":"006_secretos","resultado":"aprobado"}
+{"timestamp":"2026-08-12T05:18:34.354Z","tipo":"check-gate","subsistema":"006_env_example","resultado":"aprobado"}
+{"timestamp":"2026-08-12T05:18:45.233Z","tipo":"check-gate","subsistema":"002_principal","resultado":"aprobado","firma":"2a615af2ff57929ae7ea05afe23a10206a8426d6421d8de75b454b8ba742d794"}
+{"timestamp":"2026-08-12T05:18:45.324Z","tipo":"check-gate","subsistema":"006_secretos","resultado":"aprobado"}
+{"timestamp":"2026-08-12T05:18:45.324Z","tipo":"check-gate","subsistema":"006_env_example","resultado":"aprobado"}
+{"timestamp":"2026-08-12T22:46:45.645Z","tipo":"check-gate","subsistema":"002_principal","resultado":"rechazado","razon":"El estado de agents/ cambió después de la firma — se requiere re-aprobación del Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE)."}
+{"timestamp":"2026-08-12T22:47:22.513Z","tipo":"aprobar-diseno","subsistema":"002_principal","resultado":"aprobado","firma":"7d8ef32bb5969864e936c21dce9d5e14b5e90c33caf2bcb486e34606f1d8bc9f"}
