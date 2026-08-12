@@ -226,6 +226,125 @@ Tras 7 rondas de "éxito reportado, verificación en rojo", la causa se identifi
 
 ---
 
+## 0-M. AUDITORÍA ENFOCADA — AGENTES 001-006 (2026-08-12)
+
+Repetición del protocolo forense original, esta vez con alcance explícito del usuario limitado a los roles `001_ORQUESTADOR_MAESTRO` a `006_DEVSECOPS_INFRAESTRUCTURA` (excluye `007`/`008`). Cada hallazgo se releyó en disco en esta misma ronda, no se heredó de memoria de rondas anteriores — donde algo no cambió desde §0-H/§0-L se dice explícitamente "sin cambio, re-verificado hoy".
+
+### 0-M.1 Inventario total y organigrama jerárquico (001-006)
+
+| Rol | Archivo real | Tools | ¿Subagente ejecutable o etiqueta? |
+|---|---|---|---|
+| `001_ORQUESTADOR_MAESTRO` | `.claude/agents/001-orquestador-maestro.md` (creado por actor externo a esta sesión, corregido 2026-08-11) | `Read, Grep, Glob, Bash, Write, Edit, Agent, WebSearch, WebFetch` | 🟢 Real — único punto de contacto declarado con el usuario, tabla de ruteo a 002-008 |
+| `002_ARQUITECTO_DE_SOFTWARE` | `.claude/agents/002-arquitecto-de-software.md` | `Read, Grep, Glob` (solo lectura) | 🟢 Real — único con gate técnico verdadero: invocado por `agents/architecture-gate.cjs --aprobar-diseno` (API Anthropic real), firma SHA-256 autoinvalidante, obligatorio vía `.git/hooks/pre-commit` |
+| `003_ESP_DISENO_STITCH` | `.claude/agents/003-esp-diseno-stitch.md` | `Read, Grep, Glob` | 🟢 Real — solo lectura, audita tokens Tailwind/estilos, sin conexión a herramientas `mcp__stitch__*` (fuera de su alcance por diseño) |
+| `004_SENTINELA_FRONTEND` | `.claude/agents/004-sentinela-frontend.md` | `Read, Grep, Glob` | 🟢 Real — solo lectura, detecta stubs huérfanos (`FrozenPage.jsx`) y contratos de build rotos |
+| `005_INGENIERO_BACKEND` | `.claude/agents/005-ingeniero-backend.md` | `Read, Write, Edit, Grep, Glob, Bash` | 🟢 Real — **único de los 6 con permiso de escritura**, mayor blast radius del grupo, gobernado por `docs/ADR/ADR-0001-auth-rls-worm-occ.md` |
+| `006_DEVSECOPS_INFRAESTRUCTURA` | **No existe** — confirmado con `ls .claude/agents/` en esta misma ronda | — | 🔴 Etiqueta pura — solo vive como entrada en `ESCUADRON_ELITE` (`agents/architecture-gate.cjs:47-53`) y en `AGENTS.md` |
+
+**Árbol jerárquico (fuente: `agents/architecture-gate.cjs:29-63`, cruzado con `.claude/agents/*.md`):**
+
+```
+001_ORQUESTADOR_MAESTRO (.claude/agents/001-orquestador-maestro.md)
+│   Único punto de contacto con el usuario — enruta, no ejecuta código operativo.
+│
+├── 002_ARQUITECTO_DE_SOFTWARE (.claude/agents/002-arquitecto-de-software.md)
+│     Sin subordinados en ESCUADRON_ELITE — es un gate transversal, no un nodo
+│     de dominio. Invocado por agents/architecture-gate.cjs antes de cualquier
+│     commit (.git/hooks/pre-commit + --check-gate).
+│
+├── 003_ESP_DISENO_STITCH (.claude/agents/003-esp-diseno-stitch.md)
+│     subordinados: [] — nunca tuvo carpeta propia en agents/
+│
+├── 004_SENTINELA_FRONTEND (.claude/agents/004-sentinela-frontend.md)
+│     subordinados: [] — mismo patrón que 003
+│
+├── 005_INGENIERO_BACKEND (.claude/agents/005-ingeniero-backend.md)
+│   ├── 009_gestor_datos
+│   ├── 011_Radar1_minero
+│   ├── 012_Radar2_Estratega
+│   ├── 050_Formulador_proy
+│   ├── 07-ing-concreto_GFRC        (fuera de dominio Formulador/Radar)
+│   └── 08-estratega-neuromarketing (fuera de dominio Formulador/Radar)
+│
+└── 006_DEVSECOPS_INFRAESTRUCTURA [SIN SUBAGENTE REAL]
+    ├── 03-analista-secop
+    ├── 052_Form_Administrativo
+    ├── 14-analista-comportamiento
+    └── 015_intelligence-core
+```
+
+**Desalineaciones de rol detectadas:**
+1. **`006` es el único de los 6 sin ningún archivo `.claude/agents/*.md`** — su `rol` declarado ("Despliegues a producción, servidores, fiscalización de seguridad... COP") no coincide con ninguno de sus 4 subordinados reales (`03-analista-secop`, `052_Form_Administrativo`, `14-analista-comportamiento`, `015_intelligence-core` — ninguno hace despliegues ni gestiona servidores). Ya documentado como mandato pendiente en `AGENTS.md:37` y `[[project_006_devsecops_pendiente]]` (memoria persistente, 2026-08-11) — no repetido aquí como hallazgo nuevo, solo re-confirmado vigente.
+2. **¿Falta un nodo orquestador central?** No — `001_ORQUESTADOR_MAESTRO` cumple ese rol y tiene archivo real, a diferencia de la auditoría original (2026-08-08) donde este nodo no existía como subagente ejecutable de Claude Code, solo como convención en `IDENTITY.md`.
+3. **¿Agentes ejecutores operando sin validación previa?** No entre 001-006: `005` (el único con `Write`/`Edit`) tiene instrucción explícita de invocar a `002` antes de tocar subsistemas nuevos (WORM/OCC), y esa regla se demostró cumplida en la práctica esta misma sesión (ADR-0001). El riesgo real no es ausencia de regla, es que el enforcement depende de que `005` la respete por convención — el frontmatter de Claude Code no tiene forma técnica de impedir que un agente con `Write` ignore una instrucción de texto (ya documentado en `005-ingeniero-backend.md:17`).
+
+**Clasificación transversal vs. específico:**
+- **Transversales (gobiernan todo el proyecto, no un dominio):** `001` (enrutador), `002` (gate de arquitectura).
+- **Específicos por capa del proyecto:** `003`/`004` (frontend/SPA), `005` (persistencia/backend), `006` (infraestructura — hoy sin implementación).
+
+### 0-M.2 Auditoría anatómica y forense de skills (001-006)
+
+`001` y `002` no tienen skills propias en el sentido de `agents/*/skills/*.cjs` — su lógica vive íntegra en el prompt del archivo `.md` (comportamiento de LLM, no código ejecutable independiente). `003`/`004` tampoco (solo lectura vía herramientas nativas de Claude Code). El código real vive bajo los subordinados de `005` y `006`:
+
+| Skill | Bajo | Función real (I/O) | Manejo de errores | Veredicto (re-confirmado hoy, ver §2.3 para el detalle original) |
+|---|---|---|---|---|
+| `Skill_001_Fix_Encoding.cjs` | `005` → `009_gestor_datos` | Corrige acentos rotos a entidades HTML | `try/catch`, retorna `false` en error | 🟢 Real, funcional |
+| `Skill_001_Gestor_Encoding.cjs` | `005` → `009_gestor_datos` | Igual + modo `check` | Parcial | 🔴 **Riesgo sin resolver**: `execSync('firebase deploy --only hosting')` activable con `--deploy`, sin gate de confirmación (plan de remediación ítem 14, sigue pendiente) |
+| `Skill_001_OCR_Soporte.cjs` | `005` → `009_gestor_datos` | Solo lee extensión de archivo, cero OCR real | N/A | 🔴 Nombre engañoso, sin corregir |
+| `radar_oficial.py` / `test_fuentes.py` | `005` → `011_Radar1_minero` | Scraping real (`requests`+`BeautifulSoup`) | `try/except` presente | 🟡 Técnicamente competente, rastrea 6 países no-Colombia (contradice Axioma II.2 de `AGENTS.md`, ítem 18 del plan de remediación, sin resolver) |
+| `Skill_050_Formulador_Proyecto.cjs` | `005` → `050_Formulador_proy` | Generador de plantillas boilerplate, no formula nada | N/A | 🔴 Cita `Skill_057_Interventor`, rol que no existe en la numeración actual |
+| Skills bajo `03-analista-secop`, `052_Form_Administrativo`, `14-analista-comportamiento`, `015_intelligence-core` | `006` (huérfano) | Sin dueño real que las audite — `006` no tiene subagente que revise sus propios subordinados | — | 🟠 Brecha de gobernanza: estos 4 subordinados existen en disco pero ningún subagente real los fiscaliza (a diferencia de los de `005`, que sí tiene dueño ejecutable) |
+
+**Escaneo de anomalías (001-006 específicamente):**
+- **Injerto confirmado y ya corregido esta sesión:** `.claude/agents/001-orquestador-maestro.md` fue agregado por un actor externo a esta sesión con 2 defectos reales — routing a `004_INGENIERO_FRONTEND` (nombre retirado) y una sección "Agentes de Apoyo 06X" que reintroducía la clasificación ya corregida en la ronda §0-B, apuntando a una carpeta (`.agent/`) que para ese momento ya había sido destruida. Corregido en §0-H, verificado de nuevo hoy: `grep -n "004_INGENIERO_FRONTEND\|06X" .claude/agents/001-orquestador-maestro.md` → sin coincidencias, limpio.
+- **Sin código huérfano nuevo detectado en 002-005** en esta ronda — los 4 archivos son internamente consistentes entre sí (cross-referencian nombres de archivo correctos: `002-arquitecto-de-software.md`, `003-esp-diseno-stitch.md`, `004-sentinela-frontend.md`, `005-ingeniero-backend.md`, sin ninguna mención residual a `architect.md`).
+- **Duplicidad de habilidad no resuelta:** `003_ESP_DISENO_STITCH` y `004_SENTINELA_FRONTEND` ambos detectan "componentes huérfanos"/"stubs" desde ángulos distintos (visual vs. datos) — el propio archivo de `003` ya declara la coordinación explícita ("si el stub ya está documentado por 004, no lo reportes de nuevo") para prevenir que se cuente doble, pero es una instrucción de prompt, no un mecanismo técnico — mismo patrón de "restricción de honor" que el resto del sistema.
+
+### 0-M.3 Mapa de integraciones, flujos y comunicaciones (001-006)
+
+**Único flujo con integración real de código verificable, sin cambios desde §0-D:**
+```
+usuario → 001 (enrutamiento por prompt, sin código)
+        → 005 propone tocar WORM/OCC
+        → 002 evalúa (agents/architecture-gate.cjs → API Anthropic real,
+             system prompt = 002-arquitecto-de-software.md, input = git diff)
+        → veredicto {"aprobado": bool} → agents/diseno_aprobado.json
+        → .git/hooks/pre-commit bloquea el commit si la firma no es vigente
+```
+Este es el único punto donde "agente → backend/API externa" es código real, no solo prompt — todo lo demás en 001-006 es razonamiento de LLM sobre Read/Grep/Glob.
+
+**SPOF identificado:** la firma de `agents/diseno_aprobado.json` se invalida por **lista de archivos** en `agents/` + `src/` (`hashEstado()` en `architecture-gate.cjs`), no por contenido — un cambio de contenido en un archivo ya existente (sin agregar/quitar ninguno) **no invalida la firma**. Confirmado empíricamente esta sesión: varios commits de `.claude/agents/*.md` pasaron el gate sin pedir nueva aprobación porque no cambiaron la lista de archivos de `src/`. Es una brecha real del propio gate de `002` — el mecanismo que se supone impide "código sin diseño aprobado" tiene un punto ciego ante ediciones de archivos ya existentes.
+
+**Brecha de estructuración sin aprobar, específica de 006:** como `006` no tiene subagente real, cualquier tarea de "despliegue/infraestructura" delegada por `001` (según su propia tabla de ruteo, `001-orquestador-maestro.md:26`) no tiene a quién llegar — cae por defecto en el agente ejecutor genérico (Claude principal), sin el filtro de dominio que si tienen `003`/`004`/`005`. No hay pérdida de contexto detectada en las transiciones 001→002 y 001→005 (ambas dejan rastro escrito: `diseno_aprobado.json`, y los propios archivos `.md` de cada agente documentan el estado real del proyecto para que la siguiente invocación no repita trabajo) — pero 001→006 no puede dejar rastro porque no hay receptor.
+
+### 0-M.4 Análisis de límites, bloqueos y gaps — expectativa vs. realidad (001-006)
+
+| Agente | Promesa | Realidad verificada hoy |
+|---|---|---|
+| `001` | "Tolerancia cero ante violaciones de arquitectura, aislamiento (RLS) o moneda (COP)" | Enrutador de prompt — no tiene mecanismo propio de bloqueo técnico; la tolerancia cero real la ejecuta `002` (gate) y el guardrail de `assertValidTenant()` en código, no `001` |
+| `002` | "Cero código sin diseño aprobado" | 🟢 Cumplida con mecanismo técnico real (hook + API), con el punto ciego de `hashEstado()` ya señalado en §0-M.3 |
+| `005` | "Aislamiento multi-tenant... Fase 2.1 cero `service_role` en lógica de negocio regular" | 🔴 Contradice el comportamiento actual documentado en su propio archivo (`supabaseClient.js` degrada a `SERVICE_KEY` siempre) — declarado explícitamente como contradicción conocida, no oculta |
+| `006` | "Despliegues a producción, servidores, fiscalización de seguridad... COP" | 🔴 No existe ejecución alguna — ni despliegues, ni fiscalización, ni nada. 100% aspiracional |
+
+**Regla de negocio COP (Axioma II.2 de `AGENTS.md`):** entre 001-006, el único punto con cálculo financiero real es bajo `005` (`AGT-053` en `src/orchestrator-engine.js`, AIU+IVA en COP, sin conversión de divisas) — cumple la regla en el único lugar donde aplica. `011_Radar1_minero` (bajo `005`) sigue rastreando 6 países no-Colombia, dato geográfico no financiero pero sí fuera del foco nacional declarado (Axioma II.2, ítem 18 del plan de remediación, sin resolver desde la auditoría original).
+
+**Aislamiento de estado por usuario:** cumplido a nivel de código (`assertValidTenant()`, filtro `WHERE tenant_id` explícito en cada RPC de `005`) pero no a nivel de RLS real de Postgres — ver ADR-0001, Migración B sigue bloqueada por falta de Third-Party Auth (acción humana pendiente, no de ningún agente 001-006).
+
+### 0-M.5 Plan de remediación y blindaje estructural (001-006)
+
+| # | Hallazgo | Agente | Criticidad | Estado |
+|---|---|---|---|---|
+| 1 | `006_DEVSECOPS_INFRAESTRUCTURA` sin subagente real, rol declarado no coincide con subordinados | 006 | 🔴 Alta | Pendiente — mandato ya anotado en `AGENTS.md:37` y memoria persistente, no construido todavía |
+| 2 | `hashEstado()` del gate no detecta cambios de contenido en archivos ya existentes (solo altas/bajas) | 002 | 🟠 Media | Pendiente — no reportado en rondas anteriores, hallazgo de esta ronda |
+| 3 | `Skill_001_Gestor_Encoding.cjs` dispara `firebase deploy` sin gate | 005 (subordinado `009_gestor_datos`) | 🔴 Alta | Pendiente desde §2.3, sin cambio |
+| 4 | `011_Radar1_minero` rastrea 6 países no-Colombia | 005 (subordinado) | 🟡 Media-baja | Pendiente, decisión de alcance sin tomar |
+| 5 | Coordinación `003`↔`004` es solo instrucción de prompt, sin mecanismo técnico que impida doble reporte | 003, 004 | 🟢 Baja | Aceptable — bajo impacto, ambos son de solo lectura |
+| 6 | `001→006` no tiene receptor real cuando se delega infraestructura | 001, 006 | 🟠 Media | Depende de #1 — se resuelve cuando `006` exista |
+
+**Diseño del Agente de Arquitectura de Software — ya no es un diseño pendiente, es el hallazgo positivo central de esta auditoría enfocada:** a diferencia del prompt original (que asumía la ausencia de este agente como brecha), `002_ARQUITECTO_DE_SOFTWARE` existe, tiene mecanismo técnico real (`.git/hooks/pre-commit` + `agents/architecture-gate.cjs --check-gate`, sin costo de API por commit; `--aprobar-diseno` invoca la API real de Anthropic solo cuando hace falta nueva firma), y se demostró funcionando en múltiples ciclos reales durante esta sesión (ADR-0001, Migración A). El único gap real de diseño que le queda es el de `hashEstado()` señalado en el ítem 2 — no la ausencia del agente.
+
+---
+
 Todo lo demás (§1-§14) describe con precisión la rama `master` — verificado de nuevo hoy (agents/, `.claude/agents/architect.md`, pre-commit hook, listado de carpetas: sin drift detectado más allá del trabajo propio de esta sesión). **Pero "master" puede no ser la rama que Render despliega realmente** — `remotes/origin/HEAD` apunta a `main`, que es la convención estándar de GitHub para señalar la rama por defecto. Esto no se puede resolver desde disco; requiere que el usuario confirme en el dashboard de Render cuál rama está configurada para el servicio `radar-formulador-360`.
 
 ---
