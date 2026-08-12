@@ -74,6 +74,21 @@ END $$;
 DO $$ BEGIN RAISE NOTICE 'CHECKPOINT 0b: overloads previos de las 4 RPCs eliminados (si existian)'; END $$;
 
 -- =============================================================
+-- BLOQUE 0c (nuevo, tras verificacion post-despliegue con evidencia de
+-- esquema divergente -- error real observado: "null value in column
+-- hash_value", fila fallida con solo 3 valores, muy por debajo de las 11
+-- columnas de este diseno): CREATE TABLE IF NOT EXISTS NO corrige una
+-- tabla que ya existe con columnas equivocadas -- la deja intacta, mal.
+-- Se eliminan ambas tablas (confirmado vacias, cero riesgo de datos) antes
+-- de recrearlas, para garantizar el esquema exacto sin importar que haya
+-- quedado desplegado antes.
+-- =============================================================
+DROP TABLE IF EXISTS project_version_hashes CASCADE;
+DROP TABLE IF EXISTS security_violations_ledger CASCADE;
+
+DO $$ BEGIN RAISE NOTICE 'CHECKPOINT 0c: tablas previas (si existian, con cualquier esquema) eliminadas'; END $$;
+
+-- =============================================================
 -- BLOQUE 1 (de 007): tabla project_version_hashes + indices
 -- =============================================================
 CREATE TABLE IF NOT EXISTS project_version_hashes (
