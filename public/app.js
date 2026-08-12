@@ -52,18 +52,33 @@ async function getAuthToken() {
   return window.__antigravityAuth.getIdToken();
 }
 
-async function apiPost(path, body, token) {
+async function apiPost(path, body, token, extraHeaders = {}) {
   const res = await fetch(path, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...extraHeaders,
     },
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status, data });
   return data;
+}
+
+// Idempotencia (auditoría PROTOCOLO TITÁN 2026-08-12, Capa 9): un ID estable
+// por intento de guardado de Fase 1, generado una sola vez por carga de página
+// y persistido en sessionStorage — si el guardado se reintenta (reconexión de
+// red, doble-click) el backend detecta el mismo key y devuelve el proyecto ya
+// creado en vez de duplicarlo. Recargar la página = nuevo proyecto = nuevo key.
+function getFase1IdempotencyKey() {
+  let key = sessionStorage.getItem('fase1_idempotency_key');
+  if (!key) {
+    key = crypto.randomUUID();
+    sessionStorage.setItem('fase1_idempotency_key', key);
+  }
+  return key;
 }
 
 window.FinalizarFase1 = async function FinalizarFase1() {
@@ -87,8 +102,16 @@ window.FinalizarFase1 = async function FinalizarFase1() {
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando Fase 1…'; }
 
   try {
-    const guardado = await apiPost('/api/formulador/fase1', { ficha_fase1, modulo_7, modulo_8, modulo_9 }, token);
+    const guardado = await apiPost(
+      '/api/formulador/fase1',
+      { ficha_fase1, modulo_7, modulo_8, modulo_9 },
+      token,
+      { 'X-Idempotency-Key': getFase1IdempotencyKey() }
+    );
     console.log('💾 Fase 1 guardada en Supabase:', guardado);
+    // Guardado con éxito: limpiar el key para que un futuro proyecto (misma pestaña,
+    // sin recargar) reciba uno nuevo, no reutilice el de este proyecto ya creado.
+    sessionStorage.removeItem('fase1_idempotency_key');
 
     if (btn) btn.textContent = 'Generando Ficha Técnica (IA)…';
     const result = await apiPost('/api/formulador/ficha-tecnica', { ficha }, token);
@@ -233,7 +256,27 @@ function renderDashboard(result, guardado) {
 }
 
 function handleFiles(files, type) { Array.from(files).forEach(file => { window._fileStores[type].push(file); renderAttachments(type); }); }
-function renderAttachments(type) { const list = document.getElementById('list-' + type); if (!list) return; list.innerHTML = ''; window._fileStores[type].forEach((file, idx) => { const item = document.createElement('div'); item.className = 'attachment-item'; item.innerHTML = `<span class="attachment-item__name">${file.name} (${(file.size / 1024).toFixed(1)} KB)</span><button class="attachment-item__remove" onclick="removeFile('${type}',${idx})">✕</button>`; list.appendChild(item); }); }
+// file.name lo controla quien sube el archivo (puede contener HTML/JS) — nunca
+// se interpola en innerHTML (hallazgo XSS, auditoría PROTOCOLO TITÁN 2026-08-12).
+function renderAttachments(type) {
+  const list = document.getElementById('list-' + type);
+  if (!list) return;
+  list.innerHTML = '';
+  window._fileStores[type].forEach((file, idx) => {
+    const item = document.createElement('div');
+    item.className = 'attachment-item';
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'attachment-item__name';
+    nameSpan.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'attachment-item__remove';
+    removeBtn.textContent = '✕';
+    removeBtn.onclick = () => removeFile(type, idx);
+    item.appendChild(nameSpan);
+    item.appendChild(removeBtn);
+    list.appendChild(item);
+  });
+}
 function removeFile(type, idx) { window._fileStores[type].splice(idx, 1); renderAttachments(type); }
 window.removeFile = removeFile;
 

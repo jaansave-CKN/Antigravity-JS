@@ -56,6 +56,7 @@ async function tavilySearch(query, maxResults = 5) {
   const res = await fetch('https://api.tavily.com/search', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal:  AbortSignal.timeout(10_000),
     body: JSON.stringify({
       api_key:         process.env.TAVILY_API_KEY,
       query,
@@ -355,8 +356,13 @@ router.post('/stream', async (req, res) => {
   }
 });
 
-// Invalidar caché
-router.delete('/cache', (_req, res) => {
+// Invalidar caché — solo admin (hallazgo PROTOCOLO TITÁN 2026-08-12, Capa 2:
+// cualquier usuario autenticado podía vaciar el caché compartido de TODOS los
+// usuarios repetidamente, amplificando el costo real de Claude+Tavily).
+router.delete('/cache', (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Requiere rol admin.' });
+  }
   const cleared = clearMemCache();
   res.json({ cleared, message: `${cleared} entradas eliminadas. Redis expira por TTL (24h).` });
 });

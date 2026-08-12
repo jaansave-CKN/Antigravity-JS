@@ -132,8 +132,13 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// MCP Infrastructure
-app.get('/api/mcp', async (_req, res) => {
+// MCP Infrastructure — expone rutas/config internas del servidor: solo admin
+// (hallazgo PROTOCOLO TITÁN 2026-08-12, Capa 2: cualquier usuario autenticado
+// podía enumerar infraestructura interna sin ningún rol especial).
+app.get('/api/mcp', async (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Requiere rol admin.' });
+  }
   try {
     const userProfile  = process.env.USERPROFILE || 'C:\\Users\\Usuario';
     const appData      = process.env.APPDATA || path.join(userProfile, 'AppData', 'Roaming');
@@ -260,6 +265,7 @@ app.get('/api/health', async (_req, res) => {
     try {
       const r = await fetch(`${sbUrl}/rest/v1/formulador_proyectos?limit=0`, {
         headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` },
+        signal:  AbortSignal.timeout(8_000),
       });
       dbPing = r.ok || r.status === 404; // 404 = tabla no existe pero la conexión funciona
     } catch { dbPing = false; }

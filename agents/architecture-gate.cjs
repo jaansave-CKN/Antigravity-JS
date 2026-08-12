@@ -525,9 +525,18 @@ const PATRONES_SECRETOS = [
     { nombre: 'Asignación de key/secret/token con valor largo', patron: /\b(api[_-]?key|secret|token|password)\b\s*[:=]\s*['"][A-Za-z0-9_\-/+=]{20,}['"]/i },
 ];
 
-function contenidoStagedDe(archivo) {
+// Solo las líneas AGREGADAS del diff, no el archivo completo (corrección
+// 2026-08-12, hallazgo propio del gate): antes escaneaba todo el contenido
+// staged, así que tocar un archivo por cualquier motivo ajeno (ej. un fix de
+// XSS en fase1-entrada.html) bloqueaba el commit por un valor preexistente y
+// ya commiteado antes (el apiKey público de Firebase Web SDK, que por diseño
+// no es secreto — se protege con reglas de seguridad/dominio, no con
+// confidencialidad). Un archivo nuevo sigue viéndose completo: git diff
+// marca cada línea como agregada.
+function lineasAgregadasDe(archivo) {
     try {
-        return execFileSync('git', ['show', `:${archivo}`], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 5 * 1024 * 1024 });
+        const diff = execFileSync('git', ['diff', '--cached', '-U0', '--', archivo], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 5 * 1024 * 1024 });
+        return diff.split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++')).map(l => l.slice(1)).join('\n');
     } catch (e) {
         return null; // archivo eliminado en este commit, o binario — nada que escanear como texto
     }
@@ -541,10 +550,10 @@ function escanearSecretos(archivosStaged) {
             continue;
         }
         if (archivo === '.env.example') continue; // plantilla sin valores, por definición segura
-        const contenido = contenidoStagedDe(archivo);
-        if (!contenido) continue;
+        const agregado = lineasAgregadasDe(archivo);
+        if (!agregado) continue;
         for (const { nombre, patron } of PATRONES_SECRETOS) {
-            if (patron.test(contenido)) {
+            if (patron.test(agregado)) {
                 hallazgos.push({ archivo, razon: `posible secreto detectado (${nombre})` });
                 break; // 1 hallazgo por archivo alcanza para bloquear; no hace falta enumerar cada patrón que matchea
             }

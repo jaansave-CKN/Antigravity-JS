@@ -8,6 +8,7 @@ import crypto from 'crypto';
 const UPSTASH_URL   = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const CACHE_TTL_SEC = 86_400; // 24 h
+const FETCH_TIMEOUT_MS = 8_000;
 
 // ── In-memory fallback ─────────────────────────────────────────────────────────
 export const memCache = new Map();
@@ -28,6 +29,7 @@ async function redisGet(key) {
   try {
     const res    = await fetch(`${UPSTASH_URL}/get/${encodeURIComponent(key)}`, {
       headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const { result } = await res.json();
     return result ? JSON.parse(result) : null;
@@ -44,6 +46,7 @@ async function redisSet(key, value, ttlSec = CACHE_TTL_SEC) {
       method:  'POST',
       headers: { Authorization: `Bearer ${UPSTASH_TOKEN}`, 'Content-Type': 'application/json' },
       body:    JSON.stringify(JSON.stringify(value)),
+      signal:  AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
   } catch (err) {
     console.warn('[Cache] Redis SET falló:', err.message);
@@ -56,6 +59,7 @@ async function redisDel(key) {
     await fetch(`${UPSTASH_URL}/del/${encodeURIComponent(key)}`, {
       method:  'POST',
       headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
+      signal:  AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
   } catch (err) {
     console.warn('[Cache] Redis DEL falló:', err.message);

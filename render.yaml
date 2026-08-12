@@ -34,8 +34,12 @@ services:
       - key: ALLOWED_ORIGINS
         sync: false
 
-      # ── OpenRouter (fallback de IA, usado por /api/openrouter/*) ────────────
-      - key: OPENROUTER_API_KEY
+      # ── GitHub (skills/ingenieria/GitHubRouter.js, montado en /api/github) ──
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_OWNER
+        sync: false
+      - key: GITHUB_REPO
         sync: false
 
       # ── Caché Redis Upstash (opcional) ─────────────────────────────────────

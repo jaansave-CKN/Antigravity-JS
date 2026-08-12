@@ -1,14 +1,18 @@
 {
   "aprobado": true,
-  "firma": "7d8ef32bb5969864e936c21dce9d5e14b5e90c33caf2bcb486e34606f1d8bc9f",
-  "timestamp": "2026-08-12T22:47:22.511Z",
+  "firma": "1fa8b2afc839c6a4bfaa6c6b7109e537589b5e7b1ec9b86bc8d96b13ad2e9136",
+  "timestamp": "2026-08-12T23:36:10.890Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "`.env.example` migra Firebase a variables de entorno individuales con documentación de formato — correctamente vacías, sin valores reales expuestos",
-    "La referencia a `FirebaseAdmin.js` como fallback está explicitada; el manejo de des-escapado de PEM debe verificarse en ese archivo al momento de implementación (fuera del alcance de este diff)",
-    "`agents/pmu/` refleja el ciclo normal de re-aprobación tras detección de cambio en agents/ — comportamiento esperado del gate",
-    "`package-lock.json` contiene exclusivamente bumps de versiones menores/patch y una actualización minor de `@google-cloud/storage` (7.22.0) y `@modelcontextprotocol/sdk` (1.30.0), todos marcados como dev o optional",
-    "La eliminación de `clipboardy` y sus transitivas es limpieza upstream de `stitch-mcp` 0.5.5, sin impacto en código propio",
-    "El bump de `@hono/node-server` a v2 (Node≥20) es scope dev/MCP tooling — no afecta el runtime de producción, pero se recomienda verificar versión de Node en entorno de desarrollo"
+    "XSS corregido en app.js y fase1-entrada.html: file.name movido de innerHTML a textContent+appendChild en ambas instancias de forma consistente",
+    "Escáner de secretos corregido para operar solo sobre líneas agregadas del diff (no el archivo completo staged), eliminando falsos positivos en contenido preexistente ya commiteado",
+    "Idempotencia cliente implementada con crypto.randomUUID()+sessionStorage; limpieza post-éxito correcta; controller extrae header opcionalidad correctamente; sin breaking change para clientes sin header",
+    "Schema de validación fase1 agregado con z.record(z.any()) + refine de nombre obligatorio + límite 300KB; router actualizado con validateBody — patrón consistente con el módulo",
+    "Migración 009 cumple íntegramente el criterio 6 (incidente 2026-08-11): BEGIN explícito, tres RAISE NOTICE como checkpoints, DDL idempotente (IF NOT EXISTS / CREATE OR REPLACE), COMMIT, verificación SELECT inline post-COMMIT, NOTIFY pgrst post-transacción",
+    "Guardrails de seguridad en /api/mcp y /radar/cache (req.user?.role==='admin') consistentes con patrón de auth existente en server.js",
+    "Firestore en generar_reporte.cjs restringido a NODE_ENV=production; corrige riesgo de escritura involuntaria en producción desde local",
+    "AbortSignal.timeout() agregado en todos los fetch externos (supabaseClient, cache, m1Pipeline, /api/health) con valores razonables (8-10s)",
+    "Exclusión de test_auth.html del build de producción en vite.config.js correcta",
+    "render.yaml: sustitución de OPENROUTER_API_KEY por variables GITHUB — cambio de configuración puro sin riesgos estructurales"
   ]
 }

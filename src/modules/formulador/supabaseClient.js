@@ -37,11 +37,14 @@ function buildHeaders(userJwt) {
   };
 }
 
+const FETCH_TIMEOUT_MS = 10_000;
+
 async function doFetch(path, options, authHeader) {
   const url = `${SUPABASE_URL}/rest/v1${path}`;
   const res  = await fetch(url, {
     ...options,
     headers: { 'Content-Type': 'application/json', apikey: SERVICE_KEY, Prefer: 'return=representation', ...options.headers, Authorization: authHeader },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;

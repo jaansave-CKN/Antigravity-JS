@@ -59,6 +59,12 @@ export async function guardarFase1(req, res) {
     return res.status(400).json({ error: 'Identificador de tenant inválido (se requiere UUID).' });
   }
 
+  // Idempotencia (auditoría PROTOCOLO TITÁN 2026-08-12, Capa 9): el cliente
+  // genera un ID estable por intento de guardado y lo reenvía si reintenta la
+  // MISMA petición (reconexión de red, doble-click). Opcional — sin header,
+  // el comportamiento es el mismo de siempre (sin dedup). Ver migración 009.
+  const idempotencyKey = req.headers['x-idempotency-key'] || null;
+
   try {
     const userJwt = getUserJwt(req);
     await sb.setTenantContext(tenant, userJwt);
@@ -68,6 +74,7 @@ export async function guardarFase1(req, res) {
       p_modulo_7:  modulo_7,
       p_modulo_8:  modulo_8,
       p_modulo_9:  modulo_9,
+      p_idempotency_key: idempotencyKey,
     }, userJwt);
 
     return res.status(201).json({

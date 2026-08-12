@@ -4,15 +4,26 @@ const admin = require('firebase-admin');
 
 const rootDir = path.join(__dirname, '..');
 
+// Guardrail de entorno (auditoría PROTOCOLO TITÁN, 2026-08-12): este módulo se
+// ejecuta al arrancar server.js y cada 10 min vía setInterval. Antes intentaba
+// Firestore en CUALQUIER entorno, incluido un `node server.js` local de un
+// desarrollador con credenciales válidas (o el fallback config/serviceAccountKey.json)
+// — eso escribe de verdad en el Firestore de PRODUCCIÓN sin que nadie lo pida.
+// Firestore solo se toca si NODE_ENV=production; en cualquier otro caso el
+// reporte se sigue generando (útil localmente), pero solo queda en disco.
 let db = null;
-try {
-    if (!admin.apps.length) {
-        const serviceAccount = require(path.join(rootDir, 'serviceAccountKey.json'));
-        admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+if (process.env.NODE_ENV === 'production') {
+    try {
+        if (!admin.apps.length) {
+            const serviceAccount = require(path.join(rootDir, 'config', 'serviceAccountKey.json'));
+            admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+        }
+        db = admin.firestore();
+    } catch (err) {
+        console.warn('[GenerarReporte] serviceAccountKey.json no disponible — el reporte solo se guardará en local:', err.message);
     }
-    db = admin.firestore();
-} catch (err) {
-    console.warn('[GenerarReporte] serviceAccountKey.json no disponible — el reporte solo se guardará en local:', err.message);
+} else {
+    console.log('[GenerarReporte] NODE_ENV != production — Firestore deshabilitado, solo se escribe public/estado_antigravity.json local.');
 }
 
 // Criterio mínimo verificable de que una carpeta de agente está "definida" (no "operativa" —

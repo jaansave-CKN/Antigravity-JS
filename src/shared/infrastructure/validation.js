@@ -55,6 +55,22 @@ export const schemas = {
     })).default([]),
   }),
 
+  // POST /api/formulador/fase1 — era el único endpoint de escritura del módulo
+  // sin schema (hallazgo auditoría PROTOCOLO TITÁN 2026-08-12, Capa 2): aceptaba
+  // cualquier shape/tamaño de campo directo a JSONB. z.record(z.any()) sigue
+  // siendo flexible (los formularios varían), pero acota tipo objeto y tamaño
+  // total del payload — no bloquea el shape libre que ya usa insertar_fase1.sql.
+  fase1: z.object({
+    ficha_fase1: z.record(z.any()).refine(v => v.nombre || v.nombre_proyecto, {
+      message: 'ficha_fase1.nombre o ficha_fase1.nombre_proyecto es requerido',
+    }),
+    modulo_7: z.record(z.any()).default({}),
+    modulo_8: z.record(z.any()).default({}),
+    modulo_9: z.record(z.any()).default({}),
+  }).refine(v => JSON.stringify(v).length <= 300_000, {
+    message: 'Payload de fase1 excede el tamaño máximo permitido (300KB).',
+  }),
+
   fichaTecnica: z.object({
     ficha: z.object({
       metadata:       z.record(z.any()),

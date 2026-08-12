@@ -17,9 +17,12 @@ const copyStaticPlugin = () => ({
       if (existsSync(src)) { copyFileSync(src, resolve(dist, file)); console.log('✓', file); }
     });
 
-    // Todas las páginas HTML estáticas (excepto index.html que ya genera Vite)
+    // Todas las páginas HTML estáticas (excepto index.html que ya genera Vite
+    // y archivos de debug/test, que no deben quedar públicamente accesibles en
+    // producción — hallazgo auditoría PROTOCOLO TITÁN 2026-08-12, Capa 5).
+    const DEBUG_HTML_EXCLUDE = ['test_auth.html'];
     readdirSync(pub)
-      .filter(f => f.endsWith('.html') && f !== 'index.html')
+      .filter(f => f.endsWith('.html') && f !== 'index.html' && !DEBUG_HTML_EXCLUDE.includes(f))
       .forEach(file => {
         copyFileSync(resolve(pub, file), resolve(dist, file));
         console.log('✓', file);

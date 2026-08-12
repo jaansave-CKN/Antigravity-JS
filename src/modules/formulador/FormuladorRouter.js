@@ -9,7 +9,7 @@ export function createFormuladorRouter() {
   const router = Router();
 
   // POST /api/formulador/fase1  — persiste módulos 7, 8, 9 en PostgreSQL
-  router.post('/fase1', guardarFase1);
+  router.post('/fase1', validateBody(schemas.fase1), guardarFase1);
 
   // GET  /api/formulador/proyectos — lista los proyectos del tenant (Oleada 3)
   router.get('/proyectos', listarProyectos);

@@ -1522,13 +1522,23 @@
       });
     }
 
+    // file.name lo controla quien sube el archivo (puede contener HTML/JS) —
+    // nunca se interpola en innerHTML (hallazgo XSS, auditoría PROTOCOLO TITÁN 2026-08-12).
     function renderAttachments(type) {
       const list = document.getElementById('list-' + type);
       list.innerHTML = '';
       fileStores[type].forEach((file, idx) => {
         const item = document.createElement('div');
         item.className = 'attachment-item';
-        item.innerHTML = '<span class="attachment-item__name">' + file.name + '</span><button class="attachment-item__remove" onclick="removeFile(\'' + type + '\',' + idx + ')">✕</button>';
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'attachment-item__name';
+        nameSpan.textContent = file.name;
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'attachment-item__remove';
+        removeBtn.textContent = '✕';
+        removeBtn.onclick = () => removeFile(type, idx);
+        item.appendChild(nameSpan);
+        item.appendChild(removeBtn);
         list.appendChild(item);
       });
     }
