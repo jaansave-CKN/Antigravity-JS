@@ -195,10 +195,6 @@
       "location": "./agents/012_Radar2_Estratega/",
       "sync_note": "Solo tiene IDENTITY.md — agente definido pero sin ninguna implementación (skills, scripts) todavía. No estaba registrado antes de 2026-08-04."
     },
-    "03_analista_secop": {
-      "skills": [],
-      "location": "./agents/03-analista-secop/skills/"
-    },
     "07_ing_concreto_GFRC": {
       "skills": [],
       "location": "./agents/07-ing-concreto_GFRC/skills/"
@@ -206,10 +202,6 @@
     "08_estratega_neuromarketing": {
       "skills": [],
       "location": "./agents/08-estratega-neuromarketing/skills/"
-    },
-    "14_analista_comportamiento": {
-      "skills": [],
-      "location": "./agents/14-analista-comportamiento/skills/"
     },
     "015_intelligence_core": {
       "skills": [],

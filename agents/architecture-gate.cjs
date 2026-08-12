@@ -40,16 +40,22 @@ const ESCUADRON_ELITE = {
         rol: 'Bases de datos, APIs y lógica de servidor (fusiona el antiguo 002_INGENIERIA_TOTAL)',
         subordinados: [
             '009_gestor_datos', '011_Radar1_minero', '012_Radar2_Estratega',
-            '050_Formulador_proy',
+            '050_Formulador_proy', '052_Form_Administrativo', '015_intelligence-core',
             '07-ing-concreto_GFRC', '08-estratega-neuromarketing',
         ],
     },
+    // Limpieza 2026-08-12 (orden explícita del usuario, aplazada hasta que el
+    // roster de 8 estuviera completo — ver docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md
+    // §0-T): 03-analista-secop y 14-analista-comportamiento se purgaron del
+    // disco (solo tenían IDENTITY.md, cero código — mismo criterio que
+    // Skill_Soporte_Automatico.cjs). 052_Form_Administrativo y
+    // 015_intelligence-core se reasignaron a 005_INGENIERO_BACKEND (dominio
+    // real: Formulador/gestión de proyectos de construcción-SECOP, no
+    // infraestructura de despliegue) — ninguno hacía "despliegues a
+    // producción, servidores" pese a estar declarados aquí antes.
     '006_DEVSECOPS_INFRAESTRUCTURA': {
-        rol: 'Despliegues a producción, servidores, fiscalización de seguridad y cumplimiento estricto en Pesos Colombianos (COP) (fusiona el antiguo 003_DEVSECOPS_Y_AUDITORIA)',
-        subordinados: [
-            '03-analista-secop', '052_Form_Administrativo',
-            '14-analista-comportamiento', '015_intelligence-core',
-        ],
+        rol: 'Despliegues a producción, servidores, fiscalización de seguridad, secretos y dependencias (ver .claude/agents/006-devsecops-infraestructura.md)',
+        subordinados: [],
     },
     '007_DOCUMENTADOR_AS_BUILD': {
         rol: 'Planimetría y documentación final (antiguo 004_DOCUMENTADOR_AS_BUILD)',

@@ -428,6 +428,25 @@ A pedido del usuario ("no te parece que le falta mucho" tras una primera propues
 
 ---
 
+## 0-T. CIERRE DE LOS 4 PENDIENTES HUMANOS + LIMPIEZA DE SUBORDINADOS (2026-08-12)
+
+**3 de 4 pendientes verificados de forma independiente, no solo aceptados por reporte:**
+1. **`npm audit fix` (manual, sin `--force`):** verificado con `npm audit --json` real — bajó de 47 a **23 vulnerabilidades** (2 críticas, 7 altas, 14 moderadas, 0 bajas). Coincide exacto con lo reportado. Correcto no forzar — `--force` de npm aplica bumps de versión mayor que pueden romper el build sin aviso.
+2. **JWT `service_role` de Supabase:** revocación reportada desde el dashboard. **No verificable por mí** — no tengo forma de confirmar el estado de una key desde fuera del dashboard de Supabase. Se acepta el reporte, sin evidencia independiente (a diferencia de los otros 3 puntos).
+3. **Rama de despliegue en Render:** `origin/radfor360-production` — confirmado que la rama **existe de verdad** en el remoto (`git fetch` + `git branch -a`). Cuál rama usa Render en el dashboard sigue sin ser verificable desde disco, pero la existencia de la rama que el usuario nombró es real, no inventada.
+4. **Limpieza/reasignación de subordinados de `005`/`006`:** autorizada y ejecutada esta misma ronda (detalle abajo).
+
+### Limpieza de subordinados — ejecutada
+
+- **Purgados** (`git rm`, vacíos, cero código, mismo criterio que `Skill_Soporte_Automatico.cjs`): `agents/03-analista-secop`, `agents/14-analista-comportamiento`.
+- **Reasignados** de `006_DEVSECOPS_INFRAESTRUCTURA` a `005_INGENIERO_BACKEND` en `ESCUADRON_ELITE` (`agents/architecture-gate.cjs`): `052_Form_Administrativo`, `015_intelligence-core` — su contenido real (Formulador, gestión de proyectos de construcción/SECOP) nunca fue infraestructura de despliegue.
+- **`006_DEVSECOPS_INFRAESTRUCTURA` queda con `subordinados: []`** — ya no agrupa carpetas legacy ajenas a su dominio; su trabajo vive en su propio subagente (`.claude/agents/006-devsecops-infraestructura.md`) y en los chequeos deterministas del gate. Esto cierra, por fin, la desalineación de rol que la auditoría original señaló en §1.4 (2026-08-08): "`006` dice hacer despliegues, ninguno de sus subordinados lo hacía".
+- Referencias colgantes corregidas: `skills/ag_skills_registry.json` (2 entradas huérfanas eliminadas), `agents/001_ORQUESTADOR_MAESTRO/IDENTITY.md` (tabla de ruteo ya no cita `03-analista-secop`), `.claude/agents/006-devsecops-infraestructura.md` (nota de origen actualizada de "pendiente" a "resuelto").
+
+**Validación:** `node --check` limpio, `npm run test:gate` → 19/19, `--pmu-status` sigue mostrando 8/8 correctamente tras la reasignación.
+
+---
+
 Todo lo demás (§1-§14) describe con precisión la rama `master` — verificado de nuevo hoy (agents/, `.claude/agents/architect.md`, pre-commit hook, listado de carpetas: sin drift detectado más allá del trabajo propio de esta sesión). **Pero "master" puede no ser la rama que Render despliega realmente** — `remotes/origin/HEAD` apunta a `main`, que es la convención estándar de GitHub para señalar la rama por defecto. Esto no se puede resolver desde disco; requiere que el usuario confirme en el dashboard de Render cuál rama está configurada para el servicio `radar-formulador-360`.
 
 ---

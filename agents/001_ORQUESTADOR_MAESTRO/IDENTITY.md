@@ -69,7 +69,7 @@ Los agentes 053 y 055 fueron eliminados. El pipeline recibe anexos y los evalúa
 | Solicitud del usuario | Agente primario | Flag activo |
 |---|---|---|
 | Formulación / ficha técnica / MGA | `050_Formulador_proy` | ALIAS_SEMANTICOS |
-| Administrativo / SECOP / pliegos | `052_Form_Administrativo` + `03-analista-secop` | — |
+| Administrativo / SECOP / pliegos | `052_Form_Administrativo` | — |
 | Fondos / convocatorias / subsidios | `011_Radar1_minero` | MARKITDOWN |
 | Inteligencia de mercado / competencia | `012_Radar2_Estratega` | — |
 
