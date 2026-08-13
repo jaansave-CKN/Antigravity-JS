@@ -1,13 +1,16 @@
 {
   "aprobado": true,
-  "firma": "74939ba2c3f4e157f01a65393fbf5b426077ed3e4653f34142fff2ce1faa85e7",
-  "timestamp": "2026-08-13T00:44:14.452Z",
+  "firma": "9c0743daed984d2c34bcdc8b83d4a4d136360d41116c9817bd90d7c6cf0f8a40",
+  "timestamp": "2026-08-13T02:40:46.302Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Rename de nombre de agente de snake_case a kebab-case es consistente con la convención ya usada en 002-arquitecto-de-software visible en el mismo diff",
-    "Cambios en estado_operativo.json y telemetria.jsonl son append-only de metadatos de ejecución sin modificación estructural",
-    "No se tocan interfaces de dominio, autenticación, credenciales ni DDL",
-    "Alcance mínimo y autocontenido",
-    "Riesgo menor identificado: si algún script referencia '001_orquestador_maestro' como string, el rename lo rompería — no hay evidencia de ello en el diff provisto, pero se recomienda grep de confirmación antes de merge"
+    "Sección §6 de 001 operativa y específica, sin colisión con mandatos anteriores",
+    "Sección 'Vigencia del estado' en 002/003/004/005/006 es parche homogéneo, mínimo, sin ampliar mandatos ni herramientas",
+    "Actualización de Fase 2.1 en 005 está respaldada por evidencia de tres pasos documentada en §0-V; lo no verificado (mecanismo exacto de Supabase sin CREATE POLICY explícita) queda abierto como pendiente, no como hecho asumido",
+    "Desbloqueo de Migración B mantiene gate de 002 obligatorio para cualquier DDL nuevo — no hay bypass del proceso",
+    "Instrucción sobre SERVICE_KEY en 005 es precisa: sigue en código, no se borra sin veredicto de 002",
+    "§0-V en docs/ respeta convención de no-reescritura, cita explícitamente qué supersede, deja la pregunta de política RLS explícita a 002",
+    "Artefactos pmu/ (timestamp, telemetría) son operativos y sin cambio semántico en campos de dominio",
+    "Alcance ajustado: cero funcionalidad nueva, solo sincronización de estado verificado y regla de higiene operativa"
   ]
 }

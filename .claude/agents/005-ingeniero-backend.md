@@ -21,9 +21,11 @@ A diferencia de `002`/`003`/`004` (solo lectura, detectan y reportan), **tú tie
 
 No repitas trabajo ya hecho ni inventes sobre una base que no existe. Esto es lo que hay hoy, con archivo y línea:
 
+**ACTUALIZADO 2026-08-13 — Third-Party Auth activo, Migración B desbloqueada.** Antes de leer la tabla de abajo tal cual: el usuario activó Third-Party Auth (Firebase) en el dashboard de Supabase, y se verificó EN VIVO (no solo por reporte) que: (1) PostgREST ya acepta un JWT real de Firebase — antes daba `401 PGRST301`; (2) un usuario con JWT propio puede crear/leer/listar sus propios datos vía `insertar_fase1`/`obtener_fase1`/`listar_proyectos` (rol `authenticated`, sin degradar a `SERVICE_KEY`); (3) un usuario con JWT de un tenant distinto **no ve** los datos de otro tenant real ya existente — aislamiento confirmado, no solo esperado. `sbFetch()` en `supabaseClient.js` ya NO degrada siempre: cuando el JWT de usuario es válido, el intento con rol `authenticated` tiene éxito (200) y ese es el dato que se devuelve — el fallback a `SERVICE_KEY` sigue existiendo en el código pero ya no es la ruta que se ejecuta en el caso normal. **Fase 2.1 del mandato original ya no es una contradicción activa** — sigue sin existir una política RLS restrictiva explícita por `tenant_id` en `pg_policies` (la protección observada podría depender de que Supabase, sin política alguna, deniega por defecto a "authenticated" salvo owner/grants — no se confirmó el mecanismo exacto, solo el resultado), así que antes de dar Fase 2.1 por "cerrada en el papel" confirma con `002` si hace falta una política explícita documentada o si el comportamiento verificado basta.
+
 | Requisito del mandato | Estado real en Antigravity JS (raíz) | Evidencia |
 |---|---|---|
-| Fase 2.1 — cero `service_role` en lógica de negocio regular | 🔴 **Contradicción activa, no un gap silencioso**: `sbFetch()` degrada a `SERVICE_KEY` (bypassa RLS) en **toda** llamada, porque Supabase no tiene Third-Party Auth (Firebase) configurado para aceptar el JWT del usuario final — el aislamiento real hoy depende del filtro `WHERE tenant_id = p_tenant_id` explícito en cada RPC, no de RLS por rol | `src/modules/formulador/supabaseClient.js:27-38,51-68` (comentario propio del archivo lo documenta) |
+| Fase 2.1 — cero `service_role` en lógica de negocio regular | 🟢 **Resuelto y verificado en vivo (2026-08-13)** — ver nota arriba. Third-Party Auth activo, RLS aislando por tenant, acceso a datos propios funcional | Prueba directa contra `insertar_fase1`/`obtener_fase1`/`listar_proyectos` con JWT real de Firebase, 2026-08-13 (ver `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` §0-V) |
 | Fase 2.2 — guardrail duro contra `tenant_id` inválido/ausente | 🟢 Ya existe, agregado 2026-08-08 | `assertValidTenant()`, `src/modules/formulador/supabaseClient.js:18-25` |
 | Fase 1 — WORM (sellado SHA-256, HTTP 423 en mutación de registro sellado) | 🔴 No existe en este proyecto. Si vas a construirlo, no lo inventes desde cero: `proyectos/Proy_05_SIG/app/migrations/008_sprint6_worm.sql` ya implementa este patrón en un proyecto hermano — revísalo como referencia de diseño antes de proponer el tuyo a `002` | — |
 | Fase 3.1 — aritmética entera COP (×100) | 🟡 Parcial — el único cálculo financiero real (`AGT-053`, AIU+IVA) vive en `src/orchestrator-engine.js`, capa de aplicación/navegador, no en una capa de persistencia con guardrail propio. No hay un módulo backend dedicado que rechace divisas extranjeras a nivel de escritura en BD | `src/orchestrator-engine.js` (grep `AIU`) |
@@ -39,9 +41,9 @@ No repitas trabajo ya hecho ni inventes sobre una base que no existe. Esto es lo
 `002` ya emitió veredicto sobre Fase 1/4. Lee ese ADR completo antes de tocar la base de datos — resume así:
 
 - **Autorizado sin nuevo veredicto:** Migración A (triggers WORM append-only + tabla `project_version_hashes` **sin RLS real**, o con `policy USING(true)` marcada explícitamente como temporal) y el mecanismo OCC de aplicación (`version_hash` en PUT/PATCH, lógica Node, HTTP 409 si difiere).
-- **Sigue bloqueado:** Migración B (políticas RLS reales sobre esas tablas) — condicionada a que el usuario confirme Third-Party Auth activo en el dashboard de Supabase. No lo implementes ni lo simules.
+- **Migración B (políticas RLS reales) — DESBLOQUEADA 2026-08-13.** La condición del ADR ("usuario confirme Third-Party Auth activo") ya se cumplió y se verificó en vivo (ver nota al inicio de este documento y §0-V de `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md`). Si vas a escribir políticas RLS explícitas (`CREATE POLICY ... USING (tenant_id = ...)`) para reemplazar las `USING(true)` provisionales de Migración A, eso sigue siendo DDL nuevo — pasa por `002` igual que cualquier otra migración, con el mismo formato atómico de la regla de abajo.
 - **Prohibido explícitamente por el ADR:** reintroducir el paquete `pg` o `SET LOCAL app.tenant_id` — la rama de RLS por GUC de sesión de los proyectos hermanos no es portable a este proyecto (REST-only) y no debe reaparecer aquí.
-- **No toques el fallback a `SERVICE_KEY`** en `supabaseClient.js` — sigue siendo el control primario funcional hasta que Migración B esté activa.
+- **El fallback a `SERVICE_KEY`** en `supabaseClient.js` sigue en el código (no lo borres sin veredicto de `002`) pero **ya no es la ruta que se ejecuta en el caso normal** — con Third-Party Auth activo, el intento con JWT de usuario tiene éxito la mayoría de las veces; el fallback ahora solo cubre el caso de tareas internas sin JWT de usuario (crons, scripts) o un JWT inválido/expirado.
 
 ## Regla permanente — todo DDL contra Supabase se entrega como bloque atómico (2026-08-11)
 
@@ -55,6 +57,9 @@ Incidente que originó esta regla: `007`/`008` se pegaron por separado en el edi
 5. Termina con una consulta de verificación inline (`information_schema`/`pg_proc`/`pg_trigger`, OK/FALTA por objeto) + `NOTIFY pgrst, 'reload schema';` — el operador humano ve el veredicto en la misma pantalla donde corrió el DDL, sin depender de un segundo script ni de una verificación externa por PostgREST que pueda estar mirando una instancia distinta o un caché desactualizado.
 
 Esto no es específico de Migración A — es el formato mínimo aceptable para cualquier DDL que entregues de aquí en adelante.
+
+## Vigencia del estado
+La tabla de "Estado real" de este documento tiene fecha. Antes de actuar sobre un renglón de esa tabla, confirma en `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` (fuente de verdad viva, secciones fechadas, la más reciente prevalece) que no hay una ronda posterior que lo actualice — ya pasó una vez que este archivo quedó desactualizado sobre RLS/Third-Party Auth (corregido 2026-08-13, ver §0-V de ese documento).
 
 ## Salida obligatoria
 

@@ -27,6 +27,9 @@ Este proyecto **no tiene un archivo de tokens de diseño custom** (`@theme` en C
 - No inventas un token que no existe — si no hay `@theme` ni paleta custom (ver contexto arriba), no reportes "no sigue el token X" salvo que ese token exista de verdad en un archivo que citaste.
 - No corriges nada tú mismo — reportas con evidencia, el agente ejecutor aplica el fix.
 
+## Vigencia del estado
+Antes de asumir un hecho sobre el estado del sistema de diseño (o cualquier otro) que no verifiques leyendo el archivo real, revisa `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` (fuente de verdad viva, secciones fechadas, la más reciente prevalece).
+
 ## Salida obligatoria
 
 ```json

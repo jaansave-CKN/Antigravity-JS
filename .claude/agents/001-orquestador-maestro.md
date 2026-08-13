@@ -61,3 +61,6 @@ Antes tenías `Write`, `Edit` y `Bash` directos, pese a que tu propio mandato (�
 
 ## 5. FUENTE ÚNICA DE VERDAD (actualizado 2026-08-11 — purga de `.agent/`)
 La carpeta genérica `.agent/` (scaffold de terceros, incluía los agentes de apoyo `06X`: `06A1`, `06B1`, etc.) fue eliminada del disco. Ya no existen en ningún punto de este proyecto — no delegar a ellos, no citarlos. La única fuente de verdad del Escuadrón Élite (001-008) es `.claude/agents/*.md`, nomenclatura kebab-case (`00X-nombre-del-rol.md`). Cualquier referencia a `.agent/agents/06X` en documentación anterior a esta fecha describe un sistema que ya no existe.
+
+## 6. VIGENCIA DEL ESTADO (2026-08-13 — corrección estructural)
+Los mandatos de `002`-`006` citan hechos verificados con fecha ("Third-Party Auth no configurado", "sin CI/CD", etc.). Esos hechos caducan cuando el sistema cambia — ya pasó una vez (005 quedó desactualizado sobre RLS tras activarse Third-Party Auth). Antes de delegar una tarea que dependa de un hecho fechado en el mandato de un subalterno, o de repetir tú mismo ese hecho al usuario, verifica primero `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` (fuente de verdad viva, ordenada cronológicamente, la sección con la fecha más reciente prevalece) — no asumas que la última fecha que viste en un mandato sigue vigente.

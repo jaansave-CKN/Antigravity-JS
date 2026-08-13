@@ -463,6 +463,24 @@ Tras el hallazgo de §0-J a §0-L (esquema divergente, "updated_at" en vez del d
 
 ---
 
+## 0-V. Third-Party Auth (Firebase) activado — Migración B desbloqueada (2026-08-13)
+
+**Esto supersede lo dicho en §0-G (línea "Migración B sigue bloqueada"), §0-M.5 y el ADR-0001** sobre el estado de Third-Party Auth — no se reescriben esas secciones (convención de este documento), pero a partir de esta fecha son historia, no estado vigente.
+
+El usuario activó "Third-Party Auth → Firebase" en el dashboard de Supabase (`Authentication → Sign In / Providers → Third-Party Auth`, Firebase Project ID `antigravity-jairo-2026`, estado `ENABLED`). Verificado EN VIVO, no solo por captura de pantalla de la UI:
+
+1. **PostgREST acepta JWT real de Firebase** — se generó un ID token real (custom token de Admin SDK intercambiado vía Identity Toolkit REST) para un uid de prueba desechable, y `GET /rest/v1/formulador_proyectos` con ese JWT respondió `200` (antes: `401 PGRST301`, "no suitable key was found to decode the JWT").
+2. **Aislamiento por tenant confirmado** — el mismo JWT de prueba, sobre un tenant SIN datos propios, no vio el único proyecto real existente (perteneciente a otro tenant) — 0 filas, con la tabla confirmada no-vacía vía `SERVICE_KEY`.
+3. **Acceso a datos propios confirmado (sin regresión)** — se creó un proyecto nuevo con un JWT de prueba (vía `insertar_fase1`, mismo path que usa `FormuladorPgController.js` en producción), y ESE MISMO usuario pudo leerlo (`obtener_fase1`) y listarlo (`listar_proyectos`) con su propio JWT — descarta que RLS esté bloqueando también el acceso legítimo (regresión que sí era posible: RLS activo sin política de "dueño" puede denegar todo, no solo lo ajeno).
+
+**Efecto real en el código, sin tocar una sola línea:** `sbFetch()` (`src/modules/formulador/supabaseClient.js`) ya no degrada a `SERVICE_KEY` en el caso normal — el intento con el JWT del usuario final tiene éxito, así que ESA es la respuesta que se usa. El fallback a `SERVICE_KEY` sigue en el código (para tareas internas sin JWT de usuario) pero dejó de ser la ruta dominante.
+
+**`.claude/agents/005-ingeniero-backend.md` actualizado en consecuencia** — Fase 2.1 de su mandato ya no es una contradicción activa, Migración B (políticas RLS explícitas para reemplazar las `USING(true)` provisionales de Migración A) queda desbloqueada, sujeta al mismo gate de `002` que cualquier DDL nuevo.
+
+**Sin verificar todavía, pendiente de decisión de `002` si aplica:** si hace falta escribir políticas RLS explícitas (`CREATE POLICY`) para las tablas `formulador_*`, o si el comportamiento de Supabase sin política explícita (deniega a `authenticated` salvo mecanismo interno no confirmado en detalle) es suficiente tal cual. No se investigó el mecanismo exacto por el que Supabase logra el aislamiento sin una política `CREATE POLICY` visible en el código de este repo — es un comportamiento de la plataforma, no algo que este proyecto haya configurado explícitamente en SQL.
+
+---
+
 Todo lo demás (§1-§14) describe con precisión la rama `master` — verificado de nuevo hoy (agents/, `.claude/agents/architect.md`, pre-commit hook, listado de carpetas: sin drift detectado más allá del trabajo propio de esta sesión). **Pero "master" puede no ser la rama que Render despliega realmente** — `remotes/origin/HEAD` apunta a `main`, que es la convención estándar de GitHub para señalar la rama por defecto. Esto no se puede resolver desde disco; requiere que el usuario confirme en el dashboard de Render cuál rama está configurada para el servicio `radar-formulador-360`.
 
 ---

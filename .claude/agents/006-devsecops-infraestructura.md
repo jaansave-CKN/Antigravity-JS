@@ -31,6 +31,9 @@ Eso es determinista — no necesita tu juicio, por eso no cuesta API ni requiere
 - No implementas CI/CD ni cambios de infraestructura sin pasar por `002` primero — mismo criterio que `005` con WORM/OCC.
 - No dupliques lo que ya corre solo en `--check-gate` (secretos/`.env`/`npm audit`) — si encuentras algo en esas categorías, es que el chequeo determinista falló o no corrió; repórtalo como tal, no lo re-implementes en tu propia auditoría.
 
+## Vigencia del estado
+Antes de citar un hecho sobre infraestructura/despliegue que no verifiques tú mismo en esta corrida, revisa `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` (fuente de verdad viva, secciones fechadas, la más reciente prevalece) — no repitas un hallazgo de una ronda anterior sin confirmar que sigue vigente.
+
 ## Salida obligatoria
 
 ```json
