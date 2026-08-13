@@ -1,7 +1,7 @@
 {
-  "generado": "2026-08-13T05:03:29.263Z",
+  "generado": "2026-08-13T05:14:51.957Z",
   "total_agentes": 9,
-  "agentes_con_gate": 5,
+  "agentes_con_gate": 6,
   "agentes_con_permiso_escritura": [
     "005-ingeniero-backend",
     "006-devsecops-infraestructura",
@@ -37,16 +37,16 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "156a4ac1fa42e5d26fa781513b5a9a0b0f3f4171a8995090ef406e9f8ed82e1d",
-        "timestamp": "2026-08-13T05:03:29.251Z",
+        "firma": "ae1972289eb93c5a5fde29bfb0a9873fc8448f1fdf0ec39a81933fff895520ad",
+        "timestamp": "2026-08-13T05:13:59.546Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "Corrección del bug de path en subgates 003/004 verificada como consistente: /^public\\/src\\/.*\\.(jsx|tsx)$/ es el directorio correcto según el contexto del proyecto descrito en el diff",
-          "009_INGENIERO_FRONTEND tiene mandato no solapado con 003/004 (escritura vs. auditoría), requiere origen trazable por cambio, y no decide arquitectura ni contratos de datos autónomamente",
-          "Auto-registro de subgate vía frontmatter (mecanismo §0-Y) es consistente con el patrón declarado — 009 no necesita entrada manual en SUBGATES",
-          "Cadena de mando en 001-orquestador-maestro.md refleja correctamente la separación 004 (detecta) / 009 (ejecuta)",
-          "Documentación datada y trazable en fuente de verdad viva; el PDF es reformateo de tablas + mismos párrafos, sin contenido divergente",
-          "Archivos omitidos (pmu/estado, telemetria, test file) son de bajo riesgo para esta fiscalización; la ausencia del test file deja sin verificar independientemente los 4 tests nuevos, pero no invalida los cambios de producción que son internamente consistentes"
+          "hashEstado() corregido: ahora incluye public/src/ completo y public/*.html + public/app.js en la firma SHA-256, cerrando el bypass real documentado",
+          "Filtrado de archivos sueltos excluye correctamente artefactos auto-generados (estado_antigravity.json, etc.) — solo incluye .html y app.js por nombre explícito",
+          "Guard fs.existsSync(dirPublic) presente; ausencia de guard equivalente para dirPublicSrc es riesgo menor pre-existente en el patrón, no introducido por este diff",
+          "Documentación .md consistente con el código: el bug descrito, la corrección y el contador de tests (48→63) corresponden al cambio real del .cjs",
+          "PDF es reflejo semántico del .md con reformateo de tablas — sin divergencia de contenido",
+          "Alcance ajustado: solo toca hashEstado() y documentación, sin abstracciones no solicitadas ni cambios a lógica de validación o flujo de aprobación"
         ]
       }
     },
@@ -112,15 +112,15 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "be5107291ab08abf42401866c51e50441b606c74085cbac685f33585215a1da9",
-        "timestamp": "2026-08-13T04:42:12.498Z",
+        "firma": "089d873a8dc226cc66d2f6118369a83ec9af5ffea12abdbebce7601010505f24",
+        "timestamp": "2026-08-13T05:14:51.949Z",
         "firmado_por": "006_DEVSECOPS_INFRAESTRUCTURA (.claude\\agents\\006-devsecops-infraestructura.md, vía API Anthropic)",
         "veredictoCompleto": {
           "infraestructura_segura": true,
           "hallazgos": [
             {
               "categoria": "otro",
-              "evidencia": "Diff contiene únicamente adición de campo 'engines.node>=22' en package.json. Sin cambios en dependencias, lock file, secretos, .env, render.yaml ni scripts de hook.",
+              "evidencia": "package.json scripts.test:gate — se añade scripts/validation.test.mjs al comando de gate; expansión de cobertura, sin riesgo operativo",
               "criticidad": "baja"
             }
           ]
@@ -165,7 +165,7 @@
         "Glob"
       ],
       "permiso_escritura": true,
-      "gate": "sin_gate_propio",
+      "gate": "subgate",
       "ultimo_veredicto": null
     }
   ]

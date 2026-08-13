@@ -360,11 +360,37 @@ function hashEstado(carpetas) {
     const archivosSrc = listarArchivosRecursivo(dirSrc, dirSrc).sort();
     const payloadSrc = `src:${archivosSrc.map(f => `${f}:${hashArchivo(path.join(dirSrc, f))}`).join(',')}`;
 
+    // CORREGIDO 2026-08-13 — mismo bug de raíz que rompía los subgates de
+    // 003/004 (§0-Z), pero aquí en el gate PRINCIPAL: la firma nunca incluía
+    // `public/src/` (el frontend React real, 13 archivos .jsx/.tsx) ni las
+    // páginas HTML/JS sueltas de `public/`. Un cambio no revisado en
+    // App.jsx/RadarApp.jsx/etc. no invalidaba `diseno_aprobado.json` en
+    // absoluto — `--check-gate` seguía diciendo "Aprobación vigente" con una
+    // firma calculada antes de que ese cambio existiera. Bypass real y
+    // silencioso de "cero código sin diseño aprobado" para todo el frontend.
+    const dirPublicSrc = path.join(dirRoot, 'public', 'src');
+    const archivosPublicSrc = listarArchivosRecursivo(dirPublicSrc, dirPublicSrc).sort();
+    const payloadPublicSrc = `public-src:${archivosPublicSrc.map(f => `${f}:${hashArchivo(path.join(dirPublicSrc, f))}`).join(',')}`;
+
+    // Páginas HTML sueltas + app.js (mismo alcance que declara el subgate de
+    // 009_INGENIERO_FRONTEND) — solo nivel superior de public/, no assets/
+    // ni artefactos auto-generados (estado_antigravity.json, etc.).
+    const dirPublic = path.join(dirRoot, 'public');
+    const archivosPublicSueltos = fs.existsSync(dirPublic)
+        ? fs.readdirSync(dirPublic, { withFileTypes: true })
+            .filter(e => e.isFile() && (e.name.endsWith('.html') || e.name === 'app.js'))
+            .map(e => e.name)
+            .sort()
+        : [];
+    const payloadPublicSueltos = `public-sueltos:${archivosPublicSueltos.map(f => `${f}:${hashArchivo(path.join(dirPublic, f))}`).join(',')}`;
+
     const dirClaudeAgents = path.join(dirRoot, '.claude', 'agents');
     const archivosClaudeAgents = listarArchivosRecursivo(dirClaudeAgents, dirClaudeAgents).sort();
     const payloadClaudeAgents = `claude-agents:${archivosClaudeAgents.map(f => `${f}:${hashArchivo(path.join(dirClaudeAgents, f))}`).join(',')}`;
 
-    return crypto.createHash('sha256').update(payloadAgents + '||' + payloadSrc + '||' + payloadClaudeAgents).digest('hex');
+    return crypto.createHash('sha256').update(
+        payloadAgents + '||' + payloadSrc + '||' + payloadPublicSrc + '||' + payloadPublicSueltos + '||' + payloadClaudeAgents
+    ).digest('hex');
 }
 
 function validarDisenoAprobado(carpetas) {

@@ -65,6 +65,36 @@ test('hashEstado: cambiar contenido de un archivo YA EXISTENTE invalida la firma
   assert.equal(hash1, hash2, 'sin cambios reales, 2 corridas seguidas deben dar el mismo hash (determinismo)');
 });
 
+test('hashEstado: public/src/ (frontend React real) SÍ forma parte de la firma (regresión bug crítico 2026-08-13, gate principal)', () => {
+  // hashEstado() antes solo cubría agents/+src/(backend)+.claude/agents/ —
+  // un cambio en App.jsx/RadarApp.jsx no invalidaba diseno_aprobado.json en
+  // absoluto. Prueba real: mutar+restaurar un archivo real de public/src/ y
+  // confirmar que el hash SÍ cambia. Mutación mínima y reversible, con
+  // try/finally para garantizar restauración exacta incluso si el assert falla.
+  const dirAgentsGlobal = path.join(__dirname, '..', 'agents');
+  const dirPublicSrcGlobal = path.join(__dirname, '..', 'public', 'src');
+  const carpetas = fs.readdirSync(dirAgentsGlobal, { withFileTypes: true })
+    .filter(e => e.isDirectory() && /^\d{2,3}[_-]/.test(e.name))
+    .map(e => e.name);
+
+  const archivoReal = fs.existsSync(path.join(dirPublicSrcGlobal, 'App.jsx'))
+    ? path.join(dirPublicSrcGlobal, 'App.jsx')
+    : null;
+  assert.ok(archivoReal, 'precondición: public/src/App.jsx debe existir en el repo real');
+
+  const original = fs.readFileSync(archivoReal, 'utf8');
+  const hashAntes = hashEstado(carpetas);
+  try {
+    fs.writeFileSync(archivoReal, original + '\n// mutación temporal de test, ver architecture-gate.test.cjs\n', 'utf8');
+    const hashDespues = hashEstado(carpetas);
+    assert.notEqual(hashAntes, hashDespues, 'mutar un archivo real de public/src/ DEBE cambiar la firma del gate principal');
+  } finally {
+    fs.writeFileSync(archivoReal, original, 'utf8');
+  }
+  const hashRestaurado = hashEstado(carpetas);
+  assert.equal(hashRestaurado, hashAntes, 'tras restaurar el archivo, la firma debe volver a coincidir con la original');
+});
+
 test('validarDisenoAprobado: rechaza si diseno_aprobado.json no existe', () => {
   const dirTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-test-'));
   // No podemos inyectar APROBACION_PATH (está fijo al módulo real), así que
