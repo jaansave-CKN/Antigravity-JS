@@ -1,15 +1,14 @@
 {
   "aprobado": true,
   "firma": "3564f15053389137e01f850d093f3d0d080c74d95e847ae067d39bb862f23e5f",
-  "timestamp": "2026-08-13T03:44:25.108Z",
+  "timestamp": "2026-08-13T03:48:44.616Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "extraerJSONConCampo reemplaza regex plano con extractor por profundidad de llaves — correcto, cierra bug real documentado en telemetría (4 rechazos 006); test de regresión explícito con el caso que lo rompió presente",
-    "max_tokens 8192 + instrucción de concisión son complementarios y proporcionales al hallazgo real (análisis largo agotando presupuesto antes del JSON)",
-    "check_veto_008.cjs opera solo sobre diff del PR/push, maneja shallow clone sin bloquear, documenta honestamente que son heurísticas de texto no parser SQL, exenciones justificadas en código",
-    "Gate CI integrado sin continue-on-error en posición correcta del workflow; test:gate actualizado de forma aditiva sin romper check-gate",
-    "Sandboxing if(require.main===module) consistente en 10 archivos; caso crítico vision-engine (process.exit en require-time) correctamente resuelto con throw+catch",
-    "generar_reporte.cjs tratado como fósil con advertencia visible, decisión de eliminación dejada al usuario",
-    "No hay DDL, no hay cambios de auth, no hay borrado de interfaces de dominio"
+    "§0-X es consistente con §0-D ya existente en el documento — origin/main como proyecto distinto (RadarFondos 360) ya estaba documentado",
+    "La sección documenta explícitamente el gap no resuelto (bloqueo en Render es imposible desde el repo), sin fingir completitud",
+    "El cambio funcional real (gate.yml: trigger de [main] a [master, radfor360-production]) es conservador — agrega cobertura CI sobre la rama de producción real, elimina rama irrelevante, no introduce permisos ni lógica nueva",
+    "El PDF es artefacto derivado del .md; el reformateo de tablas no introduce contenido nuevo",
+    "Sin DDL, sin cambios de auth, sin borrado de interfaces de dominio — riesgo estructural nulo",
+    "gate.yml omitido del diff por límite de caracteres: riesgo aceptado explícitamente — un CI roto no rompe producción, solo deja de correr el gate"
   ]
 }

@@ -497,6 +497,28 @@ El usuario pidió auditoría profunda de `007` (¿está 100/100, merece estar en
 
 ---
 
+## 0-X. Topología de ramas formalizada — origin/main NO es de este proyecto (2026-08-13)
+
+Orden del usuario ("Protocolo Zero Trust", Fase 1): unificar `origin/master` y `origin/main` bajo una sola fuente de verdad alineada con `radfor360-production`. **Ejecutado parcialmente, con una corrección de premisa crítica antes de tocar nada:**
+
+Verificado en vivo antes de cualquier acción:
+```
+origin/main    → 9dfb577  "fix(sre): Fase 4b — sanitización dinámica de fichaTecnica (XSS de datos)"
+origin/master  → d9e520a  "fix(core): blindaje Nivel Dios..."
+merge-base(main, master) → (vacío — SIN ancestro común)
+```
+
+`origin/main` **no es una rama huérfana/fantasma de Antigravity JS** — es el default branch de otro proyecto real del usuario (RadarFondos 360, ya documentado en §0-D como historial sin ancestro común), con commits reales propios (ver el mensaje del HEAD arriba: una sanitización XSS real de ese otro proyecto). "Unificar" tal como se pidió literalmente habría significado borrar o sobrescribir un repositorio ajeno y en uso. Se detuvo la ejecución, se presentaron 3 opciones al usuario, y se confirmó explícitamente: **no tocar `origin/main`**.
+
+**Lo que sí se ejecutó, alineado con la intención real de la orden (una única fuente de verdad de despliegue, sin destruir nada):**
+
+1. **`.github/workflows/gate.yml` corregido** — el trigger `on: push/pull_request` incluía `main` (irrelevante, es otro proyecto) y **no incluía `radfor360-production`** (la rama que Render despliega de verdad — sin ningún CI corriendo sobre ella hasta hoy, pese a ser producción). Cambiado a `branches: [master, radfor360-production]`.
+2. **Topología formalizada por escrito** (este párrafo): `master` = desarrollo de Antigravity JS; `radfor360-production` = lo que Render despliega, mantenida en fast-forward sincronizada con `master` en cada push de esta sesión; `origin/main` = proyecto distinto (RadarFondos 360), fuera del alcance de cualquier gate/CI/despliegue de Antigravity JS, nunca debe usarse como fuente de un deploy de este proyecto.
+
+**No se implementó** (pedido en la orden original, "sellar el historial... bloqueo automático para cualquier intento futuro de despliegue desde ramas huérfanas"): no existe en este repositorio ningún mecanismo técnico que impida a un humano configurar Render para desplegar desde `main` por error — esa configuración vive en el dashboard de Render, fuera del alcance de este código. Lo que sí se blindó es la superficie que sí es de este repo: el CI ya no corre sobre `main` fingiendo que es parte de este proyecto.
+
+---
+
 ## 0-E. QUINTA RONDA (2026-08-11) — re-verificación forense completa + 2 hallazgos nuevos, sin drift estructural
 
 Pedido explícito del usuario: repetir la auditoría de los 5 bloques del protocolo original (topografía, MVP real vs. stubs, RBAC, multiagente/FinOps, telemetría/monetización) con foco especial en el ecosistema agéntico — inventario total, organigrama, auditoría anatómica de skills, mapa de integraciones, gaps y plan de remediación. Metodología: verificación directa en disco (no se confió en el hallazgo de un subagente de investigación sin comprobarlo por lectura propia de cada archivo citado), más un agente de investigación en paralelo (`general-purpose`, id `ae5a10eaa007aa11c`) que re-descubrió de forma independiente el mismo inventario de §1-§13 — usado como segunda fuente para contraste, no como fuente primaria.

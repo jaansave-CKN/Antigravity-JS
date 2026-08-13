@@ -15,9 +15,17 @@ name: Gate de Arquitectura
 
 on:
   push:
-    branches: [master, main]
+    # NUNCA "main": ese branch en este repositorio remoto es el default
+    # branch de OTRO proyecto real del usuario (RadarFondos 360, sin
+    # ancestro común con master — ver docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md
+    # §0-D/§0-W2). Correr el gate de Antigravity JS contra pushes a "main"
+    # no tenía sentido: es otro código. Corregido 2026-08-13 (Fase 1 del
+    # blindaje de topología de ramas): se quita "main", se agrega
+    # "radfor360-production" — la rama que Render despliega de verdad, que
+    # hasta ahora NO tenía cobertura de CI en absoluto pese a ser producción.
+    branches: [master, radfor360-production]
   pull_request:
-    branches: [master, main]
+    branches: [master, radfor360-production]
 
 jobs:
   gate:
