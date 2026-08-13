@@ -70,13 +70,19 @@ BEGIN
   PERFORM set_tenant_context(p_tenant_id::TEXT);
 
   -- Replay idempotente: esta misma petición ya se procesó antes.
+  -- NOTA (corregido tras prueba en vivo, 2026-08-13): formulador_validaciones_financieras
+  -- usa "evaluated_at", NO "created_at" — la versión original de esta función
+  -- referenciaba una columna inexistente y rompía TODO guardado de Fase 1 con
+  -- idempotency_key (es decir, todo guardado real, ya que el frontend siempre
+  -- lo envía). Detectado y corregido antes de impacto real vía prueba directa
+  -- de la RPC con datos de prueba (tenant_id descartable, sin tocar datos reales).
   IF p_idempotency_key IS NOT NULL THEN
     SELECT fp.id, fv.estado, fv.porcentaje_contrapartida_real
       INTO v_proyecto_id, v_estado, v_pct_real
     FROM formulador_proyectos fp
     LEFT JOIN formulador_validaciones_financieras fv ON fv.proyecto_id = fp.id
     WHERE fp.tenant_id = p_tenant_id AND fp.idempotency_key = p_idempotency_key
-    ORDER BY fv.created_at DESC
+    ORDER BY fv.evaluated_at DESC
     LIMIT 1;
 
     IF FOUND THEN
