@@ -1,12 +1,13 @@
 {
   "aprobado": true,
-  "firma": "12f8733836f62895fbb5b33787f01c173983f8272dfd6aec0e9da9408bf4bcf3",
-  "timestamp": "2026-08-13T00:39:27.845Z",
+  "firma": "74939ba2c3f4e157f01a65393fbf5b426077ed3e4653f34142fff2ce1faa85e7",
+  "timestamp": "2026-08-13T00:44:14.452Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Corrección quirúrgica de nombre de columna (created_at → evaluated_at) en la función RPC de idempotencia Fase 1 — sin nueva lógica ni rutas de error no manejadas.",
-    "No introduce DDL nuevo: los bloques ALTER/INDEX/FUNCTION ya estaban cubiertos por la aprobación firmada anterior (2026-08-12T23:36:10.901Z).",
-    "Telemetría consistente: check-gate 002_principal valida contra la misma firma aprobada; gates 006_secretos y 006_env_example aprobados sin cambios en esos subsistemas.",
-    "Alcance mínimo, sin colisión con otros módulos, sin impacto en auth o interfaces de dominio."
+    "Rename de nombre de agente de snake_case a kebab-case es consistente con la convención ya usada en 002-arquitecto-de-software visible en el mismo diff",
+    "Cambios en estado_operativo.json y telemetria.jsonl son append-only de metadatos de ejecución sin modificación estructural",
+    "No se tocan interfaces de dominio, autenticación, credenciales ni DDL",
+    "Alcance mínimo y autocontenido",
+    "Riesgo menor identificado: si algún script referencia '001_orquestador_maestro' como string, el rename lo rompería — no hay evidencia de ello en el diff provisto, pero se recomienda grep de confirmación antes de merge"
   ]
 }
