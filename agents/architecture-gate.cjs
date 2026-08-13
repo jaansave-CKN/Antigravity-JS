@@ -424,6 +424,44 @@ const SUBGATES = {
     },
 };
 
+// Auto-registro de subgates declarados en el frontmatter de un agente
+// (2026-08-13, "Lego real" — orden explícita: un agente nuevo debe
+// integrarse sin tocar código central). Mutación idempotente y lazy de
+// SUBGATES — se llama explícitamente desde los 3 puntos de entrada CLI
+// reales (--check-gate, --aprobar-subgate, --pmu-status), NUNCA a nivel de
+// módulo (violaría el mismo principio de "sin efectos secundarios al
+// requerir" recién aplicado en Fase 3 a los scripts sueltos de agents/).
+// Nunca pisa un subgate ya definido a mano arriba — esos siguen siendo la
+// fuente de verdad si hay conflicto de nombre.
+let _subgatesAutoRegistrados = false;
+function asegurarSubgatesAutoDescubiertos() {
+    if (_subgatesAutoRegistrados) return;
+    _subgatesAutoRegistrados = true;
+    for (const agente of descubrirAgentes()) {
+        if (!agente.gate || !agente.prefijo) continue;
+        const idBase = agente.archivo.replace('.claude/agents/', '').replace(/\.md$/, '');
+        const agentId = idBase.toUpperCase().replace(/-/g, '_');
+        if (SUBGATES[agentId]) continue;
+        const cfg = agente.gate;
+        if (!cfg.campo || !Array.isArray(cfg.patrones)) continue;
+        let patrones;
+        try {
+            patrones = cfg.patrones.map(p => new RegExp(p));
+        } catch (e) {
+            console.warn(`[SUBGATES auto] ${agente.archivo}: patrón de regex inválido en su gate declarado, se omite (${e.message}).`);
+            continue;
+        }
+        SUBGATES[agentId] = {
+            promptPath: path.join(dirRoot, agente.archivo),
+            patrones,
+            campoAprobado: cfg.campo,
+            ...(cfg.valor ? { valorAprobado: cfg.valor } : {}),
+            veredictoPath: path.join(dirAgents, `veredicto_${agente.prefijo}.json`),
+        };
+        console.log(`[SUBGATES auto] Registrado desde frontmatter: ${agentId} (${agente.archivo})`);
+    }
+}
+
 function obtenerArchivosStaged() {
     try {
         const out = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: dirRoot, encoding: 'utf8' });
@@ -645,11 +683,15 @@ function verificarVigenciaAgentes() {
 
     const alertas = [];
     for (const archivo of fs.readdirSync(dirClaudeAgents).filter(f => f.endsWith('.md'))) {
-        const contenido = fs.readFileSync(path.join(dirClaudeAgents, archivo), 'utf8');
-        // Solo agentes que se comprometieron al patrón — no todos los .md
-        // necesitan estar sincronizados con el documento vivo (ej. uno que
-        // no cite ningún hecho fechado del proyecto).
-        if (!/Vigencia del estado|FUENTE ÚNICA DE VERDAD/i.test(contenido)) continue;
+        // Universal (corregido 2026-08-13, orden explícita: "escalable como
+        // Lego" — antes solo revisaba agentes cuyo archivo contuviera
+        // literalmente la frase "Vigencia del estado", pegada a mano por
+        // archivo. Eso dejó a 008 sin cobertura (nadie le pegó el párrafo) y
+        // habría dejado a cualquier agente futuro igual de descubierto por
+        // defecto — exactamente lo contrario de "Lego": cada pieza nueva
+        // requería una edición manual para integrarse. Ahora aplica a TODOS
+        // los agentes que el PMU descubre automáticamente, sin excepción ni
+        // opt-in — un agente nuevo queda cubierto el día que nace.
         const rutaRel = path.join('.claude', 'agents', archivo);
         const fechaAgente = fechaUltimoCommit(rutaRel);
         if (fechaAgente && fechaDoc > fechaAgente) {
@@ -672,7 +714,20 @@ function leerFrontmatterAgente(rutaMd) {
     const nombre = (bloque.match(/^name:\s*(.+)$/m) || [])[1]?.trim() || null;
     const toolsLine = (bloque.match(/^tools:\s*(.+)$/m) || [])[1]?.trim();
     const tools = toolsLine ? toolsLine.split(',').map(t => t.trim()) : [];
-    return { nombre, tools };
+    // gate: opcional, una línea de JSON compacto (2026-08-13, "Lego real" —
+    // un agente nuevo declara su propio subgate en su frontmatter en vez de
+    // requerir una edición a mano de SUBGATES en este archivo). Formato:
+    // gate: {"campo":"aprobado","patrones":["^src/.*\\.py$"],"veredicto":"010"}
+    // "patrones" son strings de regex (se compilan con new RegExp), "campo"
+    // es el campoAprobado, "valor" es opcional (equivalente a valorAprobado
+    // para campos string no-booleanos). Sin JSON válido → sin gate propio,
+    // no rompe el descubrimiento del agente en sí.
+    const gateLine = (bloque.match(/^gate:\s*(.+)$/m) || [])[1]?.trim();
+    let gate = null;
+    if (gateLine) {
+        try { gate = JSON.parse(gateLine); } catch { gate = null; }
+    }
+    return { nombre, tools, gate };
 }
 
 // Auto-descubrimiento: cualquier .md nuevo en .claude/agents/ aparece en el
@@ -951,6 +1006,7 @@ if (process.argv.includes('--rutear')) {
 // costo recurrente por commit — la API solo se paga cuando de verdad cambió algo
 // y hace falta un veredicto nuevo (2026-08-08).
 if (process.argv.includes('--check-gate')) {
+    asegurarSubgatesAutoDescubiertos();
     const veredicto = validarDisenoAprobado(listarCarpetasAgentes());
     if (!veredicto.aprobado) {
         console.error('\n🛑 [GATE_ARQUITECTURA] Sin aprobación vigente: ' + veredicto.razon);
@@ -1014,6 +1070,7 @@ if (process.argv.includes('--check-gate')) {
 // estado operativo actual del Escuadrón Élite completo, regenerado en el
 // momento (nunca sirve una copia vieja). No consume API.
 if (process.argv.includes('--pmu-status')) {
+    asegurarSubgatesAutoDescubiertos();
     const estado = escribirEstadoOperativo();
     console.log(`\n🎖️  PUESTO DE MANDO UNIFICADO — Escuadrón Élite (${estado.generado})`);
     console.log(`   ${estado.total_agentes} agentes registrados · ${estado.agentes_con_gate} con gate técnico propio\n`);
@@ -1032,6 +1089,7 @@ if (process.argv.includes('--pmu-status')) {
 
 // Modo firma de subgate: `node agents/architecture-gate.cjs --aprobar-subgate <agentId>`
 if (process.argv.includes('--aprobar-subgate')) {
+    asegurarSubgatesAutoDescubiertos();
     const agentId = process.argv[process.argv.indexOf('--aprobar-subgate') + 1];
     if (!SUBGATES[agentId]) {
         console.error(`🛑 [SUBGATE] '${agentId}' no es un subgate configurado. Válidos: ${Object.keys(SUBGATES).join(', ')}`);
@@ -1406,5 +1464,5 @@ module.exports = {
     escanearSecretos, verificarEnvExample, verificarDependencias, ejecutarChequeosEstaticos,
     diffTocaDependencias, bucketDe, construirDiffPriorizado,
     analizarTelemetriaPMU, verificarVigenciaAgentes, leerTelemetria,
-    extraerJSONConCampo,
+    extraerJSONConCampo, asegurarSubgatesAutoDescubiertos,
 };

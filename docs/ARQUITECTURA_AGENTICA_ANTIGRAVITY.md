@@ -519,6 +519,31 @@ merge-base(main, master) → (vacío — SIN ancestro común)
 
 ---
 
+## 0-Y. Escuadrón Élite "Lego" — un agente nuevo se integra sin tocar código central (2026-08-13)
+
+Orden explícita del usuario: desde que se creó el Escuadrón Élite, la intención siempre fue que fuera escalable como piezas de Lego — cada agente nuevo debe encajar solo, sin ensamblaje manual, y el conjunto debe comportarse como "reloj suizo de alta gama". Auditoría honesta encontró que **eso no era cierto en la práctica**: integrar un agente nuevo exigía tocar 2 sitios de código central a mano (agregar su entrada a `SUBGATES` en `agents/architecture-gate.cjs`, pegarle el párrafo de "Vigencia del estado" en su `.md`) — exactamente lo contrario de Lego. Prueba concreta del costo de ese diseño: `008_AUDITOR_DE_CODIGO` se quedó sin cobertura de vigencia simplemente porque nadie le copió el párrafo a mano.
+
+**Corregido, 2 piezas:**
+
+1. **Vigencia universal, no opt-in por texto** — `verificarVigenciaAgentes()` ya no busca la frase "Vigencia del estado" dentro del archivo para decidir si un agente aplica. Ahora aplica a **todos** los agentes que `descubrirAgentes()` encuentra en `.claude/agents/*.md`, sin excepción. Cierra automáticamente el hueco de `008` y cualquier agente futuro, sin editar ningún archivo.
+
+2. **Subgates autodeclarados en el frontmatter del propio agente** — un agente nuevo puede declarar su propio gate agregando una línea `gate: {...}` a su frontmatter (JSON de una sola línea: `campo` = el campo booleano/string de su salida obligatoria que indica aprobación, `patrones` = array de regex de qué archivos le competen, `valor` opcional si `campo` no es booleano). `asegurarSubgatesAutoDescubiertos()` (nueva función, invocada al inicio de `--check-gate`/`--aprobar-subgate`/`--pmu-status`) lee esa declaración y registra el subgate en caliente — **sin tocar `architecture-gate.cjs`**. Los 4 subgates ya existentes (003/004/005/006, definidos a mano con comentarios explicando su origen) siguen intactos y tienen prioridad si hay conflicto de nombre — esto es aditivo, no reemplaza lo ya construido.
+
+**Ejemplo de cómo se vería integrar un agente `009` nuevo, de ahora en adelante:**
+```yaml
+---
+name: 009-nuevo-agente
+description: ...
+tools: Read, Grep, Glob
+gate: {"campo":"limpio","patrones":["^src/nuevo_modulo/.*\\.py$"]}
+---
+```
+Con eso solo, el agente ya aparece en el PMU (auto-descubrimiento ya existía), ya tiene vigilancia de vigencia (universal ahora), y ya tiene subgate automático sobre los archivos que declaró — sin que nadie edite `architecture-gate.cjs`. Esa es la definición operativa de "Lego" para este sistema.
+
+**Verificado, no solo implementado:** `asegurarSubgatesAutoDescubiertos()` corre 2 veces seguidas contra el repo real sin duplicar ni fallar (idempotente), y no pisa ninguno de los 4 subgates ya definidos a mano — 43/43 tests, incluidos 4 nuevos para esta pieza.
+
+---
+
 ## 0-E. QUINTA RONDA (2026-08-11) — re-verificación forense completa + 2 hallazgos nuevos, sin drift estructural
 
 Pedido explícito del usuario: repetir la auditoría de los 5 bloques del protocolo original (topografía, MVP real vs. stubs, RBAC, multiagente/FinOps, telemetría/monetización) con foco especial en el ecosistema agéntico — inventario total, organigrama, auditoría anatómica de skills, mapa de integraciones, gaps y plan de remediación. Metodología: verificación directa en disco (no se confió en el hallazgo de un subagente de investigación sin comprobarlo por lectura propia de cada archivo citado), más un agente de investigación en paralelo (`general-purpose`, id `ae5a10eaa007aa11c`) que re-descubrió de forma independiente el mismo inventario de §1-§13 — usado como segunda fuente para contraste, no como fuente primaria.

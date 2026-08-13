@@ -1,14 +1,17 @@
 {
   "aprobado": true,
   "firma": "3564f15053389137e01f850d093f3d0d080c74d95e847ae067d39bb862f23e5f",
-  "timestamp": "2026-08-13T03:48:44.616Z",
+  "timestamp": "2026-08-13T03:57:12.360Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "§0-X es consistente con §0-D ya existente en el documento — origin/main como proyecto distinto (RadarFondos 360) ya estaba documentado",
-    "La sección documenta explícitamente el gap no resuelto (bloqueo en Render es imposible desde el repo), sin fingir completitud",
-    "El cambio funcional real (gate.yml: trigger de [main] a [master, radfor360-production]) es conservador — agrega cobertura CI sobre la rama de producción real, elimina rama irrelevante, no introduce permisos ni lógica nueva",
-    "El PDF es artefacto derivado del .md; el reformateo de tablas no introduce contenido nuevo",
-    "Sin DDL, sin cambios de auth, sin borrado de interfaces de dominio — riesgo estructural nulo",
-    "gate.yml omitido del diff por límite de caracteres: riesgo aceptado explícitamente — un CI roto no rompe producción, solo deja de correr el gate"
+    "asegurarSubgatesAutoDescubiertos() es idempotente por flag booleano y por guard SUBGATES[agentId], verificado en el diff",
+    "no se llama a nivel de módulo — solo en los 3 puntos de entrada CLI declarados, sin efectos secundarios al require()",
+    "manejo de frontmatter inválido (JSON roto, regex inválida) hace console.warn + continue, no rompe el gate",
+    "verificarVigenciaAgentes() ahora universal es más seguro que opt-in: falsos positivos son imposibles porque la condición de alerta sigue siendo fechaDoc > fechaAgente",
+    "leerFrontmatterAgente() extendido con try/catch sobre JSON.parse, retorna null si falla, no afecta agentes sin gate",
+    "los 4 subgates existentes (003/004/005/006) tienen prioridad explícita por el guard if (SUBGATES[agentId]) continue — nada sobreescrito",
+    "export añadido es coherente con suite de tests mencionada (43/43)",
+    "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md sección 0-Y es consistente con el código, fechada correctamente, sin contradicción con secciones previas",
+    "no hay DDL, no hay cambios a auth/credenciales, no hay abstracciones no solicitadas"
   ]
 }

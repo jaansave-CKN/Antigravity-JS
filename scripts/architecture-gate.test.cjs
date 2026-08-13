@@ -20,6 +20,7 @@ const {
   descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
   escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe,
   analizarTelemetriaPMU, verificarVigenciaAgentes, extraerJSONConCampo,
+  asegurarSubgatesAutoDescubiertos,
 } = require('../agents/architecture-gate.cjs');
 
 const TELEMETRIA_PATH_REAL = path.join(__dirname, '..', 'agents', 'pmu', 'telemetria.jsonl');
@@ -267,6 +268,55 @@ test('extraerJSONConCampo: toma el ÚLTIMO bloque JSON si el texto tiene varios 
 test('extraerJSONConCampo: devuelve null si ningún bloque tiene el campo pedido', () => {
   const texto = 'Sin ningún JSON de salida obligatorio, solo texto.';
   assert.equal(extraerJSONConCampo(texto, 'aprobado'), null);
+});
+
+test('leerFrontmatterAgente: parsea el campo gate: (JSON de una línea, "Lego real" 2026-08-13)', () => {
+  const dirTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-frontmatter-'));
+  const archivo = path.join(dirTmp, '009-nuevo-agente.md');
+  fs.writeFileSync(archivo, [
+    '---',
+    'name: 009-nuevo-agente',
+    'description: agente de prueba',
+    'tools: Read, Grep, Glob',
+    'gate: {"campo":"limpio","patrones":["^src/nuevo/.*\\\\.py$"]}',
+    '---',
+    '',
+    '# cuerpo',
+  ].join('\n'));
+  const meta = leerFrontmatterAgente(archivo);
+  assert.equal(meta.nombre, '009-nuevo-agente');
+  assert.ok(meta.gate);
+  assert.equal(meta.gate.campo, 'limpio');
+  assert.deepEqual(meta.gate.patrones, ['^src/nuevo/.*\\.py$']);
+});
+
+test('leerFrontmatterAgente: sin gate: en el frontmatter -> gate es null (compatibilidad con agentes existentes)', () => {
+  const dirTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-frontmatter-'));
+  const archivo = path.join(dirTmp, '002-arquitecto-de-software.md');
+  fs.writeFileSync(archivo, '---\nname: 002-arquitecto-de-software\ntools: Read, Grep, Glob\n---\n# cuerpo\n');
+  const meta = leerFrontmatterAgente(archivo);
+  assert.equal(meta.gate, null);
+});
+
+test('leerFrontmatterAgente: gate: con JSON inválido no rompe el parseo del resto del frontmatter', () => {
+  const dirTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-frontmatter-'));
+  const archivo = path.join(dirTmp, '009-roto.md');
+  fs.writeFileSync(archivo, '---\nname: 009-roto\ntools: Read\ngate: {esto no es JSON valido}\n---\n# cuerpo\n');
+  const meta = leerFrontmatterAgente(archivo);
+  assert.equal(meta.nombre, '009-roto');
+  assert.equal(meta.gate, null);
+});
+
+test('asegurarSubgatesAutoDescubiertos: corre contra el repo real sin error, es idempotente, y no pisa subgates ya definidos a mano', () => {
+  const antesKeys = Object.keys(SUBGATES).sort();
+  asegurarSubgatesAutoDescubiertos();
+  asegurarSubgatesAutoDescubiertos(); // 2da llamada no debe duplicar ni fallar
+  const despuesKeys = Object.keys(SUBGATES).sort();
+  // Los 4 subgates ya definidos a mano (003/004/005/006) siguen exactamente iguales.
+  for (const k of antesKeys) {
+    assert.ok(despuesKeys.includes(k));
+  }
+  assert.equal(SUBGATES['005_INGENIERO_BACKEND'].campoAprobado, 'estado_backend');
 });
 
 test('diffTocaDependencias: package.json no staged -> false, sin correr git', () => {
