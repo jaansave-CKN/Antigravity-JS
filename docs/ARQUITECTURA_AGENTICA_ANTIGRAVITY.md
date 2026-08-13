@@ -544,6 +544,121 @@ Con eso solo, el agente ya aparece en el PMU (auto-descubrimiento ya existía), 
 
 ---
 
+## 0-Z. AUDITORÍA FORENSE COMPLETA — PROTOCOLO CHIEF AI ARCHITECT (2026-08-13)
+
+Orden explícita del usuario: auditoría exhaustiva del ecosistema multiagente completo (Antigravity JS + proyectos hermanos), estructura fija en 5 bloques, sin alucinaciones, cada hallazgo con archivo real citado. Metodología: verificación directa en disco (`ls`/`grep`/lectura), no confianza ciega en documentación anterior — donde este documento ya tenía un hallazgo, se re-verificó antes de repetirlo; donde no, se investigó desde cero. **No se reescribe ninguna sección anterior** (§0 a §0-Y siguen siendo la fuente para su fecha) — esta sección consolida el estado a HOY, citando las anteriores donde aplica en vez de duplicar su contenido.
+
+### BLOQUE 1 — Inventario total y organigrama jerárquico
+
+**Cuatro sistemas de agentes coexisten en este repositorio, confirmado hoy, sin cambio respecto al hallazgo original (§0-E y anteriores):**
+
+| Sistema | Ruta | ¿Ejecutado por código real (`src/`, `server.js`)? | Estado verificado HOY |
+|---|---|---|---|
+| A — legacy de carpetas numeradas | `agents/001_ORQUESTADOR_MAESTRO/`, `009_gestor_datos/`, `010_redactor_tecnico/`, `011_Radar1_minero/`, `012_Radar2_Estratega/`, `015_intelligence-core/`, `050_Formulador_proy/`, `052_Form_Administrativo/`, `07-ing-concreto_GFRC/`, `08-estratega-neuromarketing/` | **NO** — `grep -rn` de las 6 rutas con código real (009/011/050/052/015) contra `src/` y `server.js` → 0 resultados | Confirmado hoy: `agents/011_Radar1_minero/radar_log.txt` (el único con log real) tiene como última entrada `2026-05-16 12:30:01` — **3 meses dormido**. `07-ing-concreto_GFRC` y `08-estratega-neuromarketing` solo tienen `IDENTITY.md`, cero código, nunca lo tuvieron (agentes "de papel"). |
+| B — `.agent/` (scaffold genérico de terceros) | — | N/A | **Ya no existe en disco** — purgado 2026-08-11 (ver §0-D histórico), confirmado hoy (`ls .agent` → "No such file or directory"). |
+| C — Escuadrón Élite real | `.claude/agents/001-orquestador-maestro.md` a `008-auditor-de-codigo.md` | **SÍ** — es el único sistema con enforcement técnico real (`.git/hooks/pre-commit` + `agents/architecture-gate.cjs`), invocable vía `Agent` tool | 8/8 con subagente real, con contenido verificado (no etiquetas vacías) desde la ronda del 2026-08-12. Detalle completo en §0-Q a §0-Y. |
+| E — `opencode.json` | raíz | No confirmado en runtime | Sin cambio desde §0-E — sigue siendo un fósil de configuración de una herramienta de IDE externa, no invocado por este código. |
+
+**Hallazgo nuevo de esta ronda — `skills/ag_skills_registry.json` hace una afirmación falsa sobre sí mismo.** Su propio campo `canonical_hierarchy_note` dice textualmente: *"agents/ es la jerarquía OPERATIVA real, ejecutada de verdad por agents/architecture-gate.cjs (...) solo A es ejecutado por este registro"* — es decir, afirma explícitamente que el Sistema A (la tabla de arriba) es el que corre de verdad. La evidencia de hoy lo contradice de forma directa: 0 imports desde `src/`/`server.js`, y el único agente con log de actividad real (`011_Radar1_minero`) lleva 3 meses sin ejecutarse. Esto es exactamente el tipo de "discrepancia lógica" que pediste detectar — un archivo de configuración que describe como "operativo" algo que no lo es, y que alguien podría citar de buena fe sin verificar. `agents/architecture-gate.cjs` sí ejecuta código de ese sistema (`ejecutarTodosLosAgentes()`, el batch executor legado), pero solo genera actas de entrega (`docs/as-build/`) sobre las carpetas — no es "ejecutar" en el sentido de correr lógica de negocio, y ni siquiera ese batch corre automáticamente (no está en `package.json`, no está en `render.yaml`, no hay cron).
+
+**Organigrama real (Sistema C, el único vigente):**
+
+```
+                    001_ORQUESTADOR_MAESTRO (usuario habla solo con este)
+                    Read/Grep/Glob/Agent/WebSearch/WebFetch — SIN Write/Edit/Bash
+                                    │
+        ┌───────────┬──────────────┼──────────────┬──────────────┐
+        │           │              │              │              │
+   002_ARQUITECTO  003_STITCH  004_SENTINELA  005_BACKEND    006_DEVSECOPS
+   (gate previo,   (solo        FRONTEND      (único +       (infra/CI,
+   Read/Grep/Glob) lectura)     (solo         Bash, escribe   Read/Grep/
+                                 lectura)      persistencia)   Glob/Bash)
+        │                                          │              │
+        │                                    subordinados:   subgate propio
+   bloquea código                          009/011/012/050/  (render.yaml,
+   sin veredicto                           052/015/07-/08-   .env.example,
+   aprobado:true                          (Sistema A, NO      deps)
+                                            ejecutado en
+                                            runtime real)
+
+   007_DOCUMENTADOR_AS_BUILD          008_AUDITOR_DE_CODIGO
+   (Read/Write/Edit — docs/ only)    (Protocolo Titán, Read/
+   mantiene el documento vivo         Grep/Glob/Bash, QA
+   + PDF                              bajo demanda)
+```
+
+**Desalineación de rol detectada — confirmada, no nueva:** el organigrama de arriba muestra que `002_ARQUITECTO_DE_SOFTWARE` SÍ existe y SÍ bloquea (a diferencia de lo que este mismo protocolo de auditoría suele encontrar en otros proyectos) — el gate `.git/hooks/pre-commit` invoca `--check-gate` en cada commit, que exige una firma `aprobado:true` vigente antes de permitir cualquier escritura. **No falta el nodo orquestador de arquitectura** — es la pieza que más rondas de esta sesión reforzaron (ver §0-N a §0-Y). Lo que sí sigue sin resolver (documentado ya en §0-W): **007 y 008 nunca se invocan vía el mecanismo real `Agent`** — existen, funcionan cuando se les llama, pero el hábito operativo real de esta sesión ha sido que Claude principal haga su trabajo directamente.
+
+**Clasificación transversal vs. específico de proyecto:** los 8 agentes de `.claude/agents/` son 100% transversales a Antigravity JS (ninguno está escrito para un proyecto hermano). Las carpetas del Sistema A (`agents/`) también son específicas de Antigravity JS/RadFor-360 en su dominio (Formulador, Radar) pero no ejecutan código real, como ya se estableció. Los proyectos hermanos (`proyectos/Proy_03_RadarFondos`, `Proy_04_Geomatrix`, `Proy_05_SIG`, `api-usuarios`) tienen sus propios sistemas de agentes independientes, fuera del alcance de `agents/architecture-gate.cjs` — confirmado hoy que `Proy_03_RadarFondos/` tiene su propio `000-orquestador.js`, `AGENTS.md` y `CLAUDE.md` propios, un ecosistema paralelo completo, no una extensión del de la raíz.
+
+### BLOQUE 2 — Auditoría anatómica y forense de skills
+
+**Skills reales con código (no solo `IDENTITY.md`), Sistema A, inventariadas hoy:**
+
+| Carpeta | Skills reales | I/O | Manejo de errores | Anomalía |
+|---|---|---|---|---|
+| `009_gestor_datos/skills/` | `Skill_001_Fix_Encoding.cjs`, `Skill_001_Gestor_Directorios.cjs`, `Skill_001_Gestor_Encoding.cjs`, `Skill_001_OCR_Soporte.cjs`, + `paddleocr-text-recognition/` (Python, `scripts/ocr_caller.py`) | Archivo `.html`/directorio → archivo corregido/JSON. `Skill_001_Gestor_Encoding.cjs` ya confinado hoy (`require.main===module`, ver commit `63348d6`) | Try/catch local en cada función, retorna `{error}` en vez de lanzar | Cuatro skills con el mismo prefijo `Skill_001_` en la misma carpeta — nombres no describen que hacen tareas distintas (encoding vs. directorios vs. OCR), riesgo de colisión mental para quien las use |
+| `010_redactor_tecnico/skills/` | `Skill_002_Generador_Anexos.cjs`, `Skill_002_Redactor_Propuestas.cjs` | No verificado su I/O interno esta ronda (fuera de foco — ya confirmado código muerto, ver §0-W hallazgo 2) | No revisado | **Huérfanas confirmadas** — 0 imports en `src/`/`server.js` (§0-W), y desde hoy también purgadas de `ESCUADRON_ELITE['007_...'].subordinados` |
+| `050_Formulador_proy/skills/` | `Skill_050_Formulador_Proyecto.cjs` | No verificado I/O interno esta ronda | No revisado | Mismo patrón: carpeta de dominio real (Formulador) pero sin conexión a `src/modules/formulador/` (el Formulador REAL vive ahí, en TypeScript/JS moderno con Supabase — esta skill es un vestigio de una implementación anterior) |
+| `052_Form_Administrativo/skills/` | `Skill_052_Metodologia_Maestra.cjs` | No verificado | No revisado | Igual — huérfana |
+| `011_Radar1_minero/` | `radar_oficial.py`, `miner_deep_scan.py` (no `.cjs`, Python suelto) | Escribe `repositorio_convocatorias.json` + `radar_log.txt` | No revisado | **Dormido 3 meses** (evidencia arriba) — el Radar REAL de producción es `src/modules/radar/m1Pipeline.js` (Claude + Tavily, function-calling nativo, sí conectado a `/api/radar`). Dos sistemas de "radar" coexisten, uno fósil y uno real. |
+| `015_intelligence-core/` | 4 scripts PowerShell (`gatekeeper.ps1`, `maestro_forense.ps1`, `processor.ps1`, `project_manager.ps1`, `war_room.ps1`) | No verificado esta ronda | No revisado | Nombres evocan un sistema de gobernanza propio ("gatekeeper", "war_room") que no tiene relación con el gate real (`architecture-gate.cjs`) — riesgo de que alguien confunda cuál es el mecanismo de control vigente |
+
+**Injerto mal estructurado, confirmado y ya corregido esta sesión (no nuevo, pero es el ejemplo más claro del patrón que pediste detectar):** `agents/generar_reporte.cjs` (raíz, distinto de `scripts/generar_reporte.cjs`) escribía un JSON con estado **hardcodeado falso** ("17 OPERATIVOS", "SINCRONIZADA CON FIRESTORE", "AUTÓNOMO ACTIVO") sin verificar nada real, cada vez que se cargaba el módulo — corregido hoy (commit `63348d6`), confinado detrás de `require.main===module` y marcado con advertencia explícita en el propio archivo.
+
+**Manejo de errores, patrón general observado:** las skills del Sistema A con código real usan try/catch local consistentemente (no dejan excepciones sin atrapar), pero **ninguna reporta a un sistema central de logging** — a diferencia del Sistema C, que desde hoy sí tiene esa pieza (`AuditLogger` + Sentry, ver commit `4f38c15`). Si una skill del Sistema A fallara en producción (si alguna vez se ejecutara), nadie se enteraría.
+
+### BLOQUE 3 — Mapa de integraciones, flujos y comunicaciones
+
+**Cómo se comunican los agentes del Sistema C entre sí, verificado en código, no supuesto:**
+1. **Usuario → 001** — único punto de entrada, enruta por descripción de tarea (no hay un protocolo de mensajería estructurado real entre 001 y sus subalternos; la "Puerta Socrática" y el "Protocolo Caveman" descritos en `001-orquestador-maestro.md` son reglas de estilo para el propio 001, no un bus de mensajes).
+2. **002 → gate técnico** — `agents/architecture-gate.cjs` invoca la API de Anthropic directamente con el system prompt de `002-arquitecto-de-software.md` sobre el `git diff` pendiente (`pedirVeredictoArquitecto()`), firma un JSON en `agents/diseno_aprobado.json` si aprueba. Esto es real y verificado en cada commit de hoy.
+3. **003/004/005/006 → subgates** — mismo mecanismo, alcance acotado a los archivos que le competen a cada uno (`SUBGATES`, ahora también autodeclarable vía frontmatter — §0-Y).
+4. **006 → PMU** — lee `agents/pmu/telemetria.jsonl`; desde hoy también hay vigilancia activa automática (`analizarTelemetriaPMU()`, `verificarVigenciaAgentes()`) que no depende de que se invoque a 006.
+5. **007 → documento vivo** — `Write`/`Edit` sobre `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` y su PDF, mecanismo real pero — como ya se documentó — nunca invocado vía `Agent` en la práctica.
+6. **008 → auditoría bajo demanda** — sin conexión automática a CI todavía (el veto de CI que sí corre solo es `scripts/check_veto_008.cjs`, heurísticas deterministas, NO el subagente 008 en sí con juicio de LLM — distinción importante: 008 audita bajo invocación manual/Agent, el script de su mismo nombre es un chequeo de texto sin IA).
+
+**Backend real (fuera del ecosistema de agentes, pero es donde termina la cadena de aprobación):** `server.js` monta routers Express (`FormuladorRouter`, `GitHubRouter`, `CommunicationRouter`, `m1Router`) que hablan con Supabase vía REST/RPC (`src/modules/formulador/supabaseClient.js`) — no hay conexión directa entre los agentes de IA y el backend en tiempo de ejecución; los agentes gobiernan qué código se puede escribir, no ejecutan lógica de negocio ellos mismos.
+
+**Puntos de Fallo Único (SPOF), verificados hoy:**
+- `ANTHROPIC_API_KEY` — si se agota el saldo o falla, TODO el gate de arquitectura (002/003/004/005/006) deja de poder emitir veredictos nuevos (aunque los ya firmados siguen siendo válidos vía `--check-gate`, que no llama a la API). Ya ocurrió una vez (2026-08-07, saldo agotado, documentado en rondas anteriores).
+- `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` — es la única fuente de verdad viva que 001-007 citan (`verificarVigenciaAgentes()`, "Vigencia del estado" en cada mandato). Si este archivo se corrompe o se borra (ya pasó una vez, commit `c6fbfab`, ver §0-E histórico), toda la cadena de "vigencia" queda ciega simultáneamente.
+- **Corregido hoy:** el extractor de JSON de los veredictos (bug real, ver commit `2894ad5`) era un SPOF silencioso — cualquier hallazgo con array de objetos anidados rompía el parseo de CUALQUIER subgate, no solo uno.
+
+**Brecha real donde el sistema permitía escribir código sin estructuración aprobada, ya cerrada:** antes de esta sesión, `001_ORQUESTADOR_MAESTRO` tenía `Write`/`Edit`/`Bash` pese a que su propio mandato decía "tu función NO es escribir código" — el único agente capaz de saltarse el gate por completo. Corregido (`.claude/agents/001-orquestador-maestro.md`, sección 4, "cierre de brecha de enforcement").
+
+**Pérdida de contexto en transiciones de sesión:** confirmada como patrón recurrente en todo el historial de este documento (§0-E, §0-M, y esta misma sesión con 005/RLS, §0-V) — cada vez que el estado real del sistema cambia (una fase que pasó de "no existe" a "ya construida"), el `.md` del agente que lo describía puede quedar desactualizado si nadie lo actualiza a mano. Mitigado estructuralmente hoy (§0-Y, patrón "vigencia universal"), no eliminado — la vigilancia ahora es automática, pero sigue siendo una advertencia, no una corrección automática.
+
+### BLOQUE 4 — Límites, bloqueos y gaps (expectativa vs. realidad)
+
+| Regla de negocio esperada | ¿Existe? | ¿Se respeta? | Evidencia |
+|---|---|---|---|
+| Cálculos financieros exclusivamente en COP | Sí | Sí, verificado hoy — 0 ocurrencias de `USD` en `src/` (`grep -rn "\bUSD\b" src/` → 0 resultados) | `src/modules/formulador/migrations/005_fix_insertar_fase1.sql:76` (`COALESCE(moneda,'COP')`), y desde hoy además hay un veto de CI (`scripts/check_veto_008.cjs`) que bloquea si aparece "USD" en cualquier `.sql`/`.js` tocado |
+| Aislamiento de estado por usuario (multi-tenant) | Sí | Sí, verificado **en vivo** hoy con JWT reales (no solo por código) — ver §0-V | `assertValidTenant()` + filtro `tenant_id` en cada RPC, RLS de Supabase activo vía Third-Party Auth (Firebase) desde hoy |
+| Cero código sin diseño aprobado | Sí | Sí, con enforcement técnico real (no solo convención) | `.git/hooks/pre-commit` → `--check-gate`, obligatorio en cada commit local; `.github/workflows/gate.yml` como segunda línea de defensa en servidor (agregado 2026-08-12) |
+| Captura de errores de producción | **No existía hasta hoy** | Ahora sí, parcial (opt-in, falta configurar `SENTRY_DSN` en Render) | `src/shared/infrastructure/SentryMonitoring.js`, commit `4f38c15` |
+| Rama de despliegue única y clara | Existía ambigüedad real | Corregida hoy | §0-X — `origin/main` formalmente excluido del CI de este proyecto (es otro proyecto real, RadarFondos 360) |
+
+### BLOQUE 5 — Plan de remediación y blindaje estructural
+
+**Tabla de triaje — lo que queda pendiente HOY, con criticidad real (no la del texto que ya se corrigió antes de esta ronda):**
+
+| # | Hallazgo | Criticidad | Acción recomendada |
+|---|---|---|---|
+| 1 | `skills/ag_skills_registry.json` afirma que el Sistema A es "operativo real" cuando no lo es (0 imports, 3 meses dormido) | **Media** — no es una vulnerabilidad de seguridad, pero es un documento de configuración que miente sobre el estado del sistema; puede inducir a error a cualquiera (humano o agente) que lo consulte | Corregir `canonical_hierarchy_note` para reflejar la realidad, o eliminar el registro si ya no cumple ningún propósito real |
+| 2 | 8 carpetas del Sistema A (`agents/001_ORQUESTADOR_MAESTRO`...`08-estratega-neuromarketing`) sin ejecución real, incluidas 2 completamente vacías (`07-ing-concreto_GFRC`, `08-estratega-neuromarketing`, solo `IDENTITY.md`) | **Baja** — no representan riesgo de seguridad activo (confirmado 0 imports), pero son deuda técnica que infla el inventario y confunde auditorías futuras | Decisión del usuario: purgar (como ya se hizo con `03-analista-secop`/`14-analista-comportamiento`) o declarar explícitamente como "archivo histórico", no queda a criterio del agente |
+| 3 | 007 y 008 nunca invocados vía `Agent` real en ninguna sesión | **Media** — el trabajo se hace igual (por Claude principal), pero el diseño "un agente audita a otro" pierde su valor de segunda opinión independiente si quien reporta y quien ejecuta son la misma sesión | Hábito de invocación, no código — pendiente ya documentado en §0-W |
+| 4 | `agents/001_ORQUESTADOR_MAESTRO/` conserva 20+ skills legacy en `_archivo_historico/skills_radar_legacy/` sin ningún propósito activo confirmado | **Baja** | Candidato a purga si se confirma que nada las referencia (no verificado en esta ronda — requiere grep dedicado) |
+| 5 | `agents/011_Radar1_minero/` (Python) sigue en el árbol pese a estar dormido 3 meses, mientras existe un Radar real y conectado (`m1Pipeline.js`) | **Baja-Media** — riesgo de que alguien lo reactive por error pensando que es el sistema vigente | Documentar explícitamente cuál es el Radar real (ya lo dice este documento) o purgar el fósil |
+
+**El "Agente de Arquitectura de Software" que pedías diseñar YA EXISTE y está operando** — no es una brecha de esta ronda, es la pieza más consolidada de todo el sistema:
+- Archivo: `.claude/agents/002-arquitecto-de-software.md`.
+- Regla impuesta: "cero código sin diseño aprobado", con enforcement técnico real vía `.git/hooks/pre-commit` (`--check-gate`) + `.github/workflows/gate.yml` (servidor).
+- Salida obligatoria: JSON `{"aprobado": true|false, "razones": [...]}`, sin excepción.
+- Extendido hoy a un tercer nivel: agentes nuevos pueden autodeclarar su propio subgate en su frontmatter (§0-Y) sin tocar código central.
+
+---
+
 ## 0-E. QUINTA RONDA (2026-08-11) — re-verificación forense completa + 2 hallazgos nuevos, sin drift estructural
 
 Pedido explícito del usuario: repetir la auditoría de los 5 bloques del protocolo original (topografía, MVP real vs. stubs, RBAC, multiagente/FinOps, telemetría/monetización) con foco especial en el ecosistema agéntico — inventario total, organigrama, auditoría anatómica de skills, mapa de integraciones, gaps y plan de remediación. Metodología: verificación directa en disco (no se confió en el hallazgo de un subagente de investigación sin comprobarlo por lectura propia de cada archivo citado), más un agente de investigación en paralelo (`general-purpose`, id `ae5a10eaa007aa11c`) que re-descubrió de forma independiente el mismo inventario de §1-§13 — usado como segunda fuente para contraste, no como fuente primaria.
