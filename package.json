@@ -1,6 +1,9 @@
 {
   "name": "brevo-total-integration",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "version": "1.0.0",
   "type": "module",
   "scripts": {

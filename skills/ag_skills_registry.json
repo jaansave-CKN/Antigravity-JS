@@ -1,8 +1,8 @@
 {
   "project": "Antigravity OS - agents/ (jerarquía canónica)",
   "version": "4.0.0",
-  "last_migration": "2026-08-04",
-  "canonical_hierarchy_note": "agents/ es la jerarquía OPERATIVA real, ejecutada de verdad por agents/architecture-gate.cjs (antes agents/000_Orquestador.cjs, renombrado 2026-08-08 por colisión de nombres — ver docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §5.1 ítem 11). Renumeración 2026-08-08: el Escuadrón Élite pasó a 8 roles (001-008, AGENTS.md §IV); las carpetas de agentes reales que chocaban con esos números se movieron — 000_ORQUESTADOR→001_ORQUESTADOR_MAESTRO, 001_gestor_datos→009_gestor_datos, 002_redactor_tecnico→010_redactor_tecnico, 005_Radar1_minero→011_Radar1_minero, 006_Radar2_Estratega→012_Radar2_Estratega. 4 sistemas de agentes coexisten (A=agents/, B=.agent/, C=.claude/agents/, E=opencode.json); solo A es ejecutado por este registro.",
+  "last_migration": "2026-08-13",
+  "canonical_hierarchy_note": "CORREGIDO 2026-08-13 (auditoría forense §0-Z, docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md): la afirmación anterior de esta nota ('agents/ es la jerarquía OPERATIVA real, ejecutada de verdad') era FALSA, verificado por evidencia directa — 0 imports desde src/ o server.js de cualquier carpeta listada en agent_mappings, y el único agente con log de actividad real (011_Radar1_minero/radar_log.txt) no se actualiza desde 2026-05-16 (3+ meses dormido a la fecha de esta corrección). agents/architecture-gate.cjs SÍ ejecuta código de este directorio (ejecutarTodosLosAgentes(), el batch executor legado), pero solo genera actas de entrega (docs/as-build/) sobre estas carpetas — no corre lógica de negocio de ninguna de ellas, y ese batch tampoco se dispara automáticamente (no está en package.json, render.yaml, ni ningún cron). La jerarquía que SÍ es operativa real hoy es el Sistema C (.claude/agents/001-008, con enforcement técnico vía .git/hooks/pre-commit + .github/workflows/gate.yml) — ver docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md. Historia previa preservada: renombrado 2026-08-08 desde agents/000_Orquestador.cjs (colisión de nombres); renumeración 2026-08-08 movió 000_ORQUESTADOR→001_ORQUESTADOR_MAESTRO, 001_gestor_datos→009_gestor_datos, 002_redactor_tecnico→010_redactor_tecnico, 005_Radar1_minero→011_Radar1_minero, 006_Radar2_Estratega→012_Radar2_Estratega. 4 sistemas de agentes coexisten (A=agents/, B=.agent/ [ya no existe en disco, purgado 2026-08-11], C=.claude/agents/, E=opencode.json).",
   "sync_method": "Glob ampliado: agents/**/skills/**/*.{cjs,js,py} + skills/**/*.{cjs,js,py} (antes solo *.cjs). Punto ciego de extensiones cerrado en Fase 1; poda de entradas huérfanas añadida en Fase 3, 2026-08-04.",
   "agent_mappings": {
     "001_ORQUESTADOR_MAESTRO": {
@@ -13,110 +13,7 @@
           "sync_note": "Único skill real y activo de esta lista — importado de verdad por src/modules/radar/m1Pipeline.js:11. No es parte del archivo legacy de abajo."
         }
       ],
-      "skills_archivadas_2026-08-08": [
-        {
-          "id": "Skill_Organizador_Sistema",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Organizador_Sistema.cjs"
-        },
-        {
-          "id": "Skill_Creador_Skills",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Creador_Skills.cjs"
-        },
-        {
-          "id": "Skill_Radar_Master",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Radar_Master.cjs"
-        },
-        {
-          "id": "Skill_Radar_Supervisor",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Radar_Supervisor.cjs"
-        },
-        {
-          "id": "Skill_UI_Geography_Link",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_UI_Geography_Link.cjs"
-        },
-        {
-          "id": "Skill_Geo_Recognizer",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Geo_Recognizer.cjs"
-        },
-        {
-          "id": "Skill_Matriz_Sectores",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Matriz_Sectores.cjs"
-        },
-        {
-          "id": "Skill_Traductor_ODS",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Traductor_ODS.cjs"
-        },
-        {
-          "id": "Skill_Coordinador_Radar",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Coordinador_Radar.cjs"
-        },
-        {
-          "id": "Skill_Elegibilidad",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Elegibilidad.cjs"
-        },
-        {
-          "id": "Skill_Notas_Personales",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Notas_Personales.cjs"
-        },
-        {
-          "id": "Skill_Contexto_Dinamico",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Contexto_Dinamico.cjs"
-        },
-        {
-          "id": "Skill_Parametros_Mandatorios",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Parametros_Mandatorios.cjs"
-        },
-        {
-          "id": "Skill_Firebase_Handshake",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Firebase_Handshake.cjs"
-        },
-        {
-          "id": "Skill_Firebase_Bridge",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Firebase_Bridge.cjs"
-        },
-        {
-          "id": "Skill_Bridge_Produccion",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Bridge_Produccion.cjs"
-        },
-        {
-          "id": "Skill_Upload_Contexto",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Upload_Contexto.cjs"
-        },
-        {
-          "id": "Skill_Vinculo_Validacion",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Vinculo_Validacion.cjs"
-        },
-        {
-          "id": "Skill_Peso_Documentos",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Peso_Documentos.cjs"
-        },
-        {
-          "id": "Skill_Peso_Documentos_API",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Peso_Documentos_API.cjs"
-        },
-        {
-          "id": "Skill_Validacion_Busqueda",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Validacion_Busqueda.cjs"
-        },
-        {
-          "id": "Skill_Propagacion_API",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Propagacion_API.cjs"
-        },
-        {
-          "id": "Skill_Loader",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Loader.cjs"
-        },
-        {
-          "id": "Skill_Propagacion_Estados",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_Propagacion_Estados.cjs"
-        },
-        {
-          "id": "Skill_API_Alertas",
-          "file": "agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/Skill_API_Alertas.cjs"
-        }
-      ],
-      "location_archivadas": "./agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/",
-      "sync_note": "Pipeline Radar legacy (Firebase-based) completo, archivado 2026-08-08 tras confirmar cero consumidores (Skill_Loader.cjs, el único que las cargaba, tampoco tenía importadores externos — ver docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §2.1). No corresponde al Radar real de producción (src/modules/radar/m1Pipeline.js, Claude+Tavily+Supabase). Historial previo: antes registraba 4 skills, 3 de las cuales (Skill_Monitor_Vivo, Skill_Gestion_Dinamica, Skill_Active_Sync) no existían en disco — corregido a las 25 reales el 2026-08-04; ahora las 3 quarentenadas viven en reserve/ sin registrar (nunca se reactivaron)."
+      "sync_note": "Pipeline Radar legacy (Firebase-based), archivado 2026-08-08, PURGADO DEL DISCO 2026-08-13 (auditoria forense Sec 0-Z, confirmado 0 consumidores reales en src/ ni server.js). No corresponde al Radar real de produccion (src/modules/radar/m1Pipeline.js, Claude+Tavily+Supabase). Tambien purgado: reserve/ (Skill_Monitor_Vivo, Skill_Gestion_Dinamica, Skill_Active_Sync -- nunca tuvieron ningun consumidor, ni siquiera en este registro)."
     },
     "009_gestor_datos": {
       "skills": [
@@ -194,14 +91,6 @@
       "skills": [],
       "location": "./agents/012_Radar2_Estratega/",
       "sync_note": "Solo tiene IDENTITY.md — agente definido pero sin ninguna implementación (skills, scripts) todavía. No estaba registrado antes de 2026-08-04."
-    },
-    "07_ing_concreto_GFRC": {
-      "skills": [],
-      "location": "./agents/07-ing-concreto_GFRC/skills/"
-    },
-    "08_estratega_neuromarketing": {
-      "skills": [],
-      "location": "./agents/08-estratega-neuromarketing/skills/"
     },
     "015_intelligence_core": {
       "skills": [],

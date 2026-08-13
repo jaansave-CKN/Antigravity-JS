@@ -39,10 +39,12 @@ const ESCUADRON_ELITE = {
     },
     '005_INGENIERO_BACKEND': {
         rol: 'Bases de datos, APIs y lógica de servidor (fusiona el antiguo 002_INGENIERIA_TOTAL)',
+        // '07-ing-concreto_GFRC' y '08-estratega-neuromarketing' purgados
+        // 2026-08-13 (auditoría §0-Z): solo tenían IDENTITY.md, cero código,
+        // 0 referencias reales — confirmado y autorizado explícitamente.
         subordinados: [
             '009_gestor_datos', '011_Radar1_minero', '012_Radar2_Estratega',
             '050_Formulador_proy', '052_Form_Administrativo', '015_intelligence-core',
-            '07-ing-concreto_GFRC', '08-estratega-neuromarketing',
         ],
     },
     // Limpieza 2026-08-12 (orden explícita del usuario, aplazada hasta que el
@@ -1157,6 +1159,33 @@ if (process.argv.includes('--pmu-status')) {
 }
 
 // Modo firma de subgate: `node agents/architecture-gate.cjs --aprobar-subgate <agentId>`
+// Aprueba UN subgate — extraído para reutilizar entre --aprobar-subgate
+// (uno a la vez) y --aprobar-pendientes (todos en paralelo, ver abajo).
+// Nunca escribe en consola directamente salvo su propio resultado — el
+// caller decide cómo presentar/agregar varios resultados.
+async function aprobarUnSubgate(agentId, archivosStaged) {
+    const cfg = SUBGATES[agentId];
+    const relevantes = archivosRelevantesPara(agentId, archivosStaged);
+    if (relevantes.length === 0) {
+        return { agentId, estado: 'sin_archivos_relevantes' };
+    }
+    const veredicto = await pedirVeredictoSubagente(agentId, relevantes);
+    if (!veredicto.aprobado) {
+        registrarTelemetria({ tipo: 'aprobar-subgate', subsistema: agentId, resultado: 'rechazado', razon: veredicto.razon || null });
+        return { agentId, estado: 'rechazado', razon: veredicto.razon, respuestaCruda: veredicto.respuestaCruda };
+    }
+    const firma = hashArchivosStaged(relevantes);
+    fs.writeFileSync(cfg.veredictoPath, JSON.stringify({
+        aprobado: true,
+        firma,
+        timestamp: new Date().toISOString(),
+        firmado_por: `${agentId} (${path.relative(dirRoot, cfg.promptPath)}, vía API Anthropic)`,
+        veredictoCompleto: veredicto.veredictoCompleto,
+    }, null, 2) + '\n', 'utf8');
+    registrarTelemetria({ tipo: 'aprobar-subgate', subsistema: agentId, resultado: 'aprobado', firma });
+    return { agentId, estado: 'aprobado', firma };
+}
+
 if (process.argv.includes('--aprobar-subgate')) {
     asegurarSubgatesAutoDescubiertos();
     const agentId = process.argv[process.argv.indexOf('--aprobar-subgate') + 1];
@@ -1166,37 +1195,64 @@ if (process.argv.includes('--aprobar-subgate')) {
         return;
     }
     (async () => {
-        const cfg = SUBGATES[agentId];
         const archivosStaged = obtenerArchivosStaged();
         const relevantes = archivosRelevantesPara(agentId, archivosStaged);
-        if (relevantes.length === 0) {
-            console.log(`ℹ️  [SUBGATE_${agentId}] Ningún archivo staged le compete a este agente — nada que aprobar.`);
-            process.exitCode = 0;
-            return;
-        }
-        console.log(`\n🔎 [${agentId}] Evaluando ${relevantes.length} archivo(s) staged contra ${path.basename(cfg.promptPath)}...`);
-        const veredicto = await pedirVeredictoSubagente(agentId, relevantes);
-        if (!veredicto.aprobado) {
+        console.log(relevantes.length === 0
+            ? `ℹ️  [SUBGATE_${agentId}] Ningún archivo staged le compete a este agente — nada que aprobar.`
+            : `\n🔎 [${agentId}] Evaluando ${relevantes.length} archivo(s) staged contra ${path.basename(SUBGATES[agentId].promptPath)}...`);
+        const r = await aprobarUnSubgate(agentId, archivosStaged);
+        if (r.estado === 'sin_archivos_relevantes') { process.exitCode = 0; return; }
+        if (r.estado === 'rechazado') {
             console.error(`\n🛑 [SUBGATE_${agentId}] Rechazado — o no se pudo evaluar.`);
-            if (veredicto.razon) console.error(`   - ${veredicto.razon}`);
-            if (veredicto.respuestaCruda) console.error(`   Respuesta cruda: ${veredicto.respuestaCruda}`);
-            registrarTelemetria({ tipo: 'aprobar-subgate', subsistema: agentId, resultado: 'rechazado', razon: veredicto.razon || null });
+            if (r.razon) console.error(`   - ${r.razon}`);
+            if (r.respuestaCruda) console.error(`   Respuesta cruda: ${r.respuestaCruda}`);
             escribirEstadoOperativo();
             process.exitCode = 1;
             return;
         }
-        const firma = hashArchivosStaged(relevantes);
-        fs.writeFileSync(cfg.veredictoPath, JSON.stringify({
-            aprobado: true,
-            firma,
-            timestamp: new Date().toISOString(),
-            firmado_por: `${agentId} (${path.relative(dirRoot, cfg.promptPath)}, vía API Anthropic)`,
-            veredictoCompleto: veredicto.veredictoCompleto,
-        }, null, 2) + '\n', 'utf8');
-        console.log(`\n✅ [SUBGATE_${agentId}] Aprobado. Firma: ${firma}`);
-        registrarTelemetria({ tipo: 'aprobar-subgate', subsistema: agentId, resultado: 'aprobado', firma });
+        console.log(`\n✅ [SUBGATE_${agentId}] Aprobado. Firma: ${r.firma}`);
         escribirEstadoOperativo();
         process.exitCode = 0;
+    })();
+    return;
+}
+
+// Modo lote: `node agents/architecture-gate.cjs --aprobar-pendientes` —
+// optimización de velocidad (2026-08-13, hallazgo real: aprobar 3 subgates
+// tras el cambio de Sentry tomó varios minutos porque --aprobar-subgate solo
+// aprueba uno a la vez, en serie, y cada llamada real a Anthropic tarda
+// 10-30s). Detecta TODOS los subgates que aplican al diff staged actual y
+// que no tienen aprobación vigente, y los manda en paralelo (Promise.all)
+// — mismo trabajo, una fracción del tiempo de pared. No toca 002 (el gate
+// principal) porque ese es un solo veredicto sobre TODO el diff, no hay
+// nada que paralelizar ahí.
+if (process.argv.includes('--aprobar-pendientes')) {
+    asegurarSubgatesAutoDescubiertos();
+    (async () => {
+        const archivosStaged = obtenerArchivosStaged();
+        const pendientes = Object.keys(SUBGATES).filter(agentId => {
+            const resultado = validarSubgate(agentId, archivosStaged);
+            return resultado.aplica && !resultado.aprobado;
+        });
+        if (pendientes.length === 0) {
+            console.log('ℹ️  [LOTE] Ningún subgate pendiente sobre los archivos staged actuales.');
+            process.exitCode = 0;
+            return;
+        }
+        console.log(`\n🔎 [LOTE] ${pendientes.length} subgate(s) pendiente(s), evaluando en paralelo: ${pendientes.join(', ')}...`);
+        const resultados = await Promise.all(pendientes.map(agentId => aprobarUnSubgate(agentId, archivosStaged)));
+        let algunRechazo = false;
+        for (const r of resultados) {
+            if (r.estado === 'aprobado') {
+                console.log(`✅ [SUBGATE_${r.agentId}] Aprobado. Firma: ${r.firma}`);
+            } else if (r.estado === 'rechazado') {
+                algunRechazo = true;
+                console.error(`🛑 [SUBGATE_${r.agentId}] Rechazado — o no se pudo evaluar.`);
+                if (r.razon) console.error(`   - ${r.razon}`);
+            }
+        }
+        escribirEstadoOperativo();
+        process.exitCode = algunRechazo ? 1 : 0;
     })();
     return;
 }

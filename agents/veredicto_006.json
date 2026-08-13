@@ -1,15 +1,15 @@
 {
   "aprobado": true,
-  "firma": "7c04bd63f2ff61e431dc2da529cf71fa03187a265a5a68801247f0092d5abc9d",
-  "timestamp": "2026-08-13T04:13:27.799Z",
+  "firma": "be5107291ab08abf42401866c51e50441b606c74085cbac685f33585215a1da9",
+  "timestamp": "2026-08-13T04:42:12.498Z",
   "firmado_por": "006_DEVSECOPS_INFRAESTRUCTURA (.claude\\agents\\006-devsecops-infraestructura.md, vía API Anthropic)",
   "veredictoCompleto": {
     "infraestructura_segura": true,
     "hallazgos": [
       {
         "categoria": "otro",
-        "evidencia": "package-lock.json incluye dependencias transitivas bajo namespace @apm-js-collab/* (code-transformer@0.18.1, code-transformer-bundler-plugins@0.7.4, tracing-hooks@0.13.0), introducidas por @sentry/server-utils@10.70.0. Namespace no pertenece a Sentry Foundation ni a OpenTelemetry. Verificación recomendada: npm view @sentry/server-utils@10.70.0 dependencies en npmjs.com para confirmar que la dependencia es declarada upstream y no fue inyectada localmente.",
-        "criticidad": "media"
+        "evidencia": "Diff contiene únicamente adición de campo 'engines.node>=22' en package.json. Sin cambios en dependencias, lock file, secretos, .env, render.yaml ni scripts de hook.",
+        "criticidad": "baja"
       }
     ]
   }

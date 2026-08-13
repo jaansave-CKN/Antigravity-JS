@@ -657,6 +657,14 @@ Orden explícita del usuario: auditoría exhaustiva del ecosistema multiagente c
 - Salida obligatoria: JSON `{"aprobado": true|false, "razones": [...]}`, sin excepción.
 - Extendido hoy a un tercer nivel: agentes nuevos pueden autodeclarar su propio subgate en su frontmatter (§0-Y) sin tocar código central.
 
+**Remediación ejecutada el mismo día (2026-08-13, misma sesión) — cierra los ítems 1, 2 y 4 de la tabla de arriba, más 2 hallazgos operativos nuevos encontrados al verificar la CI real:**
+
+1. **CI de GitHub Actions estaba fallando en las 4 últimas ejecuciones reales** (verificado vía API de GitHub, no supuesto — `gh`/API de Actions, run ids consultados directamente) — `npm ci` fallaba con `Missing: @types/react@19.2.18 from lock file` porque `.github/workflows/gate.yml` fijaba Node 20, pero una dependencia transitiva real (`file-type@22.0.1`, parte del árbol de `@sentry/node`) exige Node ≥22 (EBADENGINE). Corregido: `node-version: '22'` en el workflow + `"engines": {"node": ">=22"}` agregado a `package.json` para que quede documentado, no solo corregido en un sitio.
+2. **Aprobación de subgates paralelizada** — hallazgo real de esta sesión: aprobar 3 subgates afectados por un solo commit (el de Sentry) tomó varios minutos porque `--aprobar-subgate` solo aprobaba uno a la vez, en serie, cada llamada real a Anthropic. Nuevo modo `--aprobar-pendientes`: detecta todos los subgates que aplican al diff staged y los manda en paralelo (`Promise.all`), mismo trabajo en una fracción del tiempo de pared.
+3. **`skills/ag_skills_registry.json` corregido** — su `canonical_hierarchy_note` ya no afirma que el Sistema A es "operativo real"; ahora documenta explícitamente, con la misma evidencia de este documento, que no lo es.
+4. **4 fósiles purgados, con autorización explícita del usuario tras verificación de 0 referencias reales:** `agents/07-ing-concreto_GFRC/`, `agents/08-estratega-neuromarketing/` (ambos solo `IDENTITY.md`, nunca tuvieron código), `agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/` (24 skills legacy) y `agents/001_ORQUESTADOR_MAESTRO/reserve/` (3 skills, 0 referencias ni siquiera en el propio registro). `ESCUADRON_ELITE['005_INGENIERO_BACKEND'].subordinados` y `ag_skills_registry.json` actualizados en consecuencia. **`011_Radar1_minero` (ítem 5) deliberadamente NO se tocó** — tiene datos reales scrapeados, distinto perfil de riesgo que código huérfano puro, queda documentado como hallazgo, no purgado.
+5. **Ítem 3 (007/008 nunca invocados vía `Agent`) sigue sin resolver** — es un hábito de invocación, no algo que se resuelva con una línea de código; se mantiene como pendiente explícito, no se marca falsamente como cerrado.
+
 ---
 
 ## 0-E. QUINTA RONDA (2026-08-11) — re-verificación forense completa + 2 hallazgos nuevos, sin drift estructural
