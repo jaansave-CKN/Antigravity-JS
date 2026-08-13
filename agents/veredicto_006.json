@@ -1,0 +1,16 @@
+{
+  "aprobado": true,
+  "firma": "7e81b2529da1ff210ddbdaa959353126baefd8c25abef9c3af038253fd4ebdf8",
+  "timestamp": "2026-08-13T03:43:46.773Z",
+  "firmado_por": "006_DEVSECOPS_INFRAESTRUCTURA (.claude\\agents\\006-devsecops-infraestructura.md, vía API Anthropic)",
+  "veredictoCompleto": {
+    "infraestructura_segura": true,
+    "hallazgos": [
+      {
+        "categoria": "otro",
+        "evidencia": "package.json: script test:gate agrega scripts/check_veto_008.test.cjs como segundo argumento a node --test. Diff no contiene secretos, .env, render.yaml, ni cambios de hooks. Existencia del archivo no verificable en esta llamada (sin FS).",
+        "criticidad": "baja"
+      }
+    ]
+  }
+}

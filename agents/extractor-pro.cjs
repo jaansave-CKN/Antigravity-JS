@@ -41,5 +41,13 @@ async function extractData(filePath) {
     }
 }
 
-const file = process.argv[2];
-if (file) extractData(file);
+// Confinamiento (2026-08-13, Fase 3 — sandboxing de skills): el guard de
+// process.argv ya evitaba ejecución sin argumento, pero no evitaba que un
+// require() con args heredados del proceso padre disparara extractData()
+// igual. Ahora solo corre bajo invocación directa.
+if (require.main === module) {
+    const file = process.argv[2];
+    if (file) extractData(file);
+}
+
+module.exports = { extractData };

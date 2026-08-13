@@ -1,14 +1,15 @@
 {
   "aprobado": true,
   "firma": "3564f15053389137e01f850d093f3d0d080c74d95e847ae067d39bb862f23e5f",
-  "timestamp": "2026-08-13T03:08:28.916Z",
+  "timestamp": "2026-08-13T03:44:25.108Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Subgate 005 es estructuralmente consistente con los subgates existentes; la generalización de valorAprobado preserva el comportamiento booleano anterior sin regresión",
-    "analizarTelemetriaPMU es determinista, tolerante a líneas corruptas, y sus entradas de telemetría propias (resultado: advertencia) no retroalimentan el contador de rechazos",
-    "verificarVigenciaAgentes acota correctamente la heurística de vigencia a agentes que citen el patrón explícito, con manejo de error en git log",
-    "Los advisories son explícitamente no-bloqueantes: process.exitCode no se modifica por ellos",
-    "Tests verifican los dos caminos relevantes de analizarTelemetriaPMU (patrón detectado / subsistema sano) con restore en finally; el test de SUBGATES 005 valida valorAprobado y el filtrado de patrones",
-    "No hay DDL, no hay cambios de auth, no hay borrado de interfaces de dominio — no aplican criterios adicionales de migraciones o seguridad"
+    "extraerJSONConCampo reemplaza regex plano con extractor por profundidad de llaves — correcto, cierra bug real documentado en telemetría (4 rechazos 006); test de regresión explícito con el caso que lo rompió presente",
+    "max_tokens 8192 + instrucción de concisión son complementarios y proporcionales al hallazgo real (análisis largo agotando presupuesto antes del JSON)",
+    "check_veto_008.cjs opera solo sobre diff del PR/push, maneja shallow clone sin bloquear, documenta honestamente que son heurísticas de texto no parser SQL, exenciones justificadas en código",
+    "Gate CI integrado sin continue-on-error en posición correcta del workflow; test:gate actualizado de forma aditiva sin romper check-gate",
+    "Sandboxing if(require.main===module) consistente en 10 archivos; caso crítico vision-engine (process.exit en require-time) correctamente resuelto con throw+catch",
+    "generar_reporte.cjs tratado como fósil con advertencia visible, decisión de eliminación dejada al usuario",
+    "No hay DDL, no hay cambios de auth, no hay borrado de interfaces de dominio"
   ]
 }

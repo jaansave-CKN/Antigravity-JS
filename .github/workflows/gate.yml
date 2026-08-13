@@ -38,6 +38,19 @@ jobs:
       - name: Tests del gate de arquitectura
         run: npm run test:gate
 
+      - name: Veto de 008_AUDITOR_DE_CODIGO — tenant_id / idempotencia / COP (BLOQUEANTE)
+        run: node scripts/check_veto_008.cjs --base ${{ github.event.pull_request.base.sha || github.event.before }}
+        # SIN continue-on-error, a propósito (orden explícita 2026-08-13,
+        # "Fase 2 — Guillotina CI/CD"): esto SÍ debe abortar el pipeline.
+        # Chequeos deterministas sobre el diff del push/PR (nunca sobre todo
+        # el árbol — evita bloquear por archivos históricos ya deployados
+        # que nadie está tocando): fuga de aislamiento multi-tenant (RPC con
+        # p_tenant_id obligatorio sin filtro), ausencia de idempotencia/OCC
+        # en funciones que hacen INSERT, y la cadena "USD" en cualquier
+        # archivo .sql/.js tocado. Ver scripts/check_veto_008.cjs para el
+        # detalle y las exenciones documentadas (funciones registrar_*,
+        # set_tenant_context).
+
       - name: Verificar que el gate esté en estado consistente (--check-gate)
         run: node agents/architecture-gate.cjs --check-gate
         continue-on-error: true

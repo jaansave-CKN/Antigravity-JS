@@ -19,7 +19,7 @@ const {
   SUBGATES, archivosRelevantesPara, validarSubgate,
   descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
   escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe,
-  analizarTelemetriaPMU, verificarVigenciaAgentes,
+  analizarTelemetriaPMU, verificarVigenciaAgentes, extraerJSONConCampo,
 } = require('../agents/architecture-gate.cjs');
 
 const TELEMETRIA_PATH_REAL = path.join(__dirname, '..', 'agents', 'pmu', 'telemetria.jsonl');
@@ -237,6 +237,36 @@ test('SUBGATES: 005 configurado con valorAprobado string (no booleano) sobre mó
     'public/app.js',
   ]);
   assert.deepEqual(relevantes.sort(), ['src/modules/formulador/supabaseClient.js', 'src/shared/infrastructure/session-manager.js']);
+});
+
+test('extraerJSONConCampo: veredicto SIN hallazgos anidados (caso simple, regex viejo también servía)', () => {
+  const texto = 'Análisis breve.\n\n{"aprobado": true, "razones": ["ok"]}';
+  const v = extraerJSONConCampo(texto, 'aprobado');
+  assert.equal(v.aprobado, true);
+});
+
+test('extraerJSONConCampo: veredicto CON array de objetos anidados (regresión real 2026-08-13 — subgate 006)', () => {
+  const texto = 'Análisis largo con varios párrafos...\n\n' +
+    '{"infraestructura_segura": false, "hallazgos": [' +
+    '{"categoria": "ci_cd", "evidencia": "no puedo verificar si el archivo existe", "criticidad": "media"}, ' +
+    '{"categoria": "telemetria", "evidencia": "otro hallazgo", "criticidad": "baja"}' +
+    ']}';
+  const v = extraerJSONConCampo(texto, 'infraestructura_segura');
+  assert.ok(v, 'debe extraer el JSON pese a los objetos anidados en hallazgos[]');
+  assert.equal(v.infraestructura_segura, false);
+  assert.equal(v.hallazgos.length, 2);
+});
+
+test('extraerJSONConCampo: toma el ÚLTIMO bloque JSON si el texto tiene varios (ej. un ejemplo de código antes del veredicto real)', () => {
+  const texto = 'Ejemplo de esquema: {"campo_de_ejemplo": "no soy el veredicto"}\n\n' +
+    'Veredicto final:\n{"diseno_valido": true, "inconsistencias": []}';
+  const v = extraerJSONConCampo(texto, 'diseno_valido');
+  assert.equal(v.diseno_valido, true);
+});
+
+test('extraerJSONConCampo: devuelve null si ningún bloque tiene el campo pedido', () => {
+  const texto = 'Sin ningún JSON de salida obligatorio, solo texto.';
+  assert.equal(extraerJSONConCampo(texto, 'aprobado'), null);
 });
 
 test('diffTocaDependencias: package.json no staged -> false, sin correr git', () => {

@@ -183,6 +183,45 @@ function construirDiffPriorizado(limiteChars) {
     return { diff: acumulado, truncado: omitidos.length > 0, omitidos };
 }
 
+// Extrae el ÚLTIMO objeto JSON de nivel superior balanceado del texto que
+// contenga el campo dado. Corrige un bug real (2026-08-13, encontrado en
+// vivo con el subgate de 006): el regex anterior (`\{[^{}]*"campo"...[^{}]*\}`)
+// asumía que no había llaves anidadas entre el campo y el cierre — se
+// rompía en cuanto el veredicto incluía un array de objetos (hallazgos/
+// inconsistencias/anomalias, que TODOS los agentes del escuadrón usan en su
+// salida obligatoria), reportando "veredicto JSON no parseable" con un
+// hallazgo real presente. Este extractor cuenta profundidad de llaves en
+// vez de asumir que no hay anidamiento.
+function extraerJSONConCampo(texto, campo) {
+    const bloques = [];
+    let profundidad = 0;
+    let inicio = -1;
+    for (let i = 0; i < texto.length; i++) {
+        if (texto[i] === '{') {
+            if (profundidad === 0) inicio = i;
+            profundidad++;
+        } else if (texto[i] === '}') {
+            profundidad--;
+            if (profundidad === 0 && inicio !== -1) {
+                bloques.push(texto.slice(inicio, i + 1));
+                inicio = -1;
+            }
+        }
+    }
+    // De atrás hacia adelante: el veredicto siempre va al final ("termina
+    // siempre con tu JSON de salida obligatorio").
+    for (let i = bloques.length - 1; i >= 0; i--) {
+        try {
+            const obj = JSON.parse(bloques[i]);
+            if (Object.prototype.hasOwnProperty.call(obj, campo)) return obj;
+        } catch {
+            // bloque no es JSON válido por sí solo (ej. un ejemplo de código
+            // en el análisis narrativo) — seguir probando bloques anteriores.
+        }
+    }
+    return null;
+}
+
 // Invoca al Agente Arquitecto real: system prompt = 002-arquitecto-de-software.md, input = git diff
 // pendiente contra HEAD. Nunca autoaprueba por ausencia de respuesta — todo camino
 // de error devuelve aprobado:false con la razón concreta (Honestidad Técnica).
@@ -240,15 +279,9 @@ async function pedirVeredictoArquitecto() {
     }
 
     const text = response.content?.[0]?.text ?? '';
-    const match = text.match(/\{[^{}]*"aprobado"\s*:\s*(true|false)[^{}]*\}/s);
-    if (!match) {
+    const veredicto = extraerJSONConCampo(text, 'aprobado');
+    if (!veredicto) {
         return { aprobado: false, razones: ['El Agente Arquitecto no devolvió un veredicto JSON parseable.'], respuestaCruda: text.slice(0, 800) };
-    }
-    let veredicto;
-    try {
-        veredicto = JSON.parse(match[0]);
-    } catch (e) {
-        return { aprobado: false, razones: [`Veredicto JSON corrupto: ${e.message}`], respuestaCruda: text.slice(0, 800) };
     }
     return { aprobado: veredicto.aprobado === true, razones: veredicto.razones || [] };
 }
@@ -466,13 +499,22 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
         const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
         response = await client.messages.create({
             model: ANTHROPIC_MODEL,
-            max_tokens: 4096,
+            // 8192, no 4096 (hallazgo real 2026-08-13): la instrucción de "sé
+            // conciso" en el prompt no bastó para 006 — su mandato tiene 5
+            // categorías que insiste en cubrir con detalle antes del JSON,
+            // agotando 4096 igual. Más presupuesto es más confiable que
+            // depender de que el modelo se autolimite.
+            max_tokens: 8192,
             system: systemPrompt,
             messages: [{
                 role: 'user',
                 content: `Audita el siguiente diff staged (git diff --cached), limitado a los archivos que te competen según tu mandato. ` +
                     `Esta es una llamada directa a la API de Anthropic, sin Read/Grep/Glob reales — basa tu veredicto solo en este ` +
-                    `texto. Termina siempre con tu JSON de salida obligatorio, tal como especifica tu propio system prompt.\n\n${diff.slice(0, 60000)}`,
+                    `texto. Sé conciso en el análisis narrativo (párrafos cortos, sin repetir el diff) — el veredicto JSON obligatorio ` +
+                    `al final es lo único que este proceso puede parsear; si te quedas sin espacio antes de emitirlo, el subgate entero ` +
+                    `falla (hallazgo real 2026-08-13: un análisis narrativo largo agotó el presupuesto de tokens antes del JSON). ` +
+                    `Prioriza terminar con el JSON sobre extender el análisis. Termina siempre con tu JSON de salida obligatorio, tal ` +
+                    `como especifica tu propio system prompt.\n\n${diff.slice(0, 60000)}`,
             }],
         });
     } catch (e) {
@@ -484,16 +526,9 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
     // ("aislado_y_seguro"|"brechas_detectadas"|"bloqueado_por_diseno"), no
     // true/false. Con `valorAprobado` configurado, se matchea contra ese
     // string exacto en vez de contra (true|false).
-    const patronValor = cfg.valorAprobado ? `"${cfg.valorAprobado}"` : '(true|false)';
-    const match = text.match(new RegExp(`\\{[^{}]*"${cfg.campoAprobado}"\\s*:\\s*${patronValor}[^{}]*\\}`, 's'));
-    if (!match) {
+    const veredicto = extraerJSONConCampo(text, cfg.campoAprobado);
+    if (!veredicto) {
         return { aprobado: false, razon: `${agentId} no devolvió un veredicto JSON parseable.`, respuestaCruda: text.slice(0, 800) };
-    }
-    let veredicto;
-    try {
-        veredicto = JSON.parse(match[0]);
-    } catch (e) {
-        return { aprobado: false, razon: `Veredicto JSON corrupto: ${e.message}` };
     }
     const aprobado = cfg.valorAprobado
         ? veredicto[cfg.campoAprobado] === cfg.valorAprobado
@@ -1371,4 +1406,5 @@ module.exports = {
     escanearSecretos, verificarEnvExample, verificarDependencias, ejecutarChequeosEstaticos,
     diffTocaDependencias, bucketDe, construirDiffPriorizado,
     analizarTelemetriaPMU, verificarVigenciaAgentes, leerTelemetria,
+    extraerJSONConCampo,
 };

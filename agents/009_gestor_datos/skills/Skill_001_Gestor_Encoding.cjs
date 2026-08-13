@@ -69,15 +69,12 @@ function corregirTodo(directorio) {
     return { ok, error };
 }
 
-const args = process.argv.slice(2);
-const cmd = args[0];
-const dir = args[1] || 'public';
-
-console.log('='.repeat(40));
-console.log('GESTOR ENCODING - AUTOCORRECCION');
-console.log('='.repeat(40));
-
-if (cmd === 'check') {
+// Confinamiento (2026-08-13, Fase 3 — sandboxing de skills, orden explícita
+// del usuario): antes escaneaba y podía REESCRIBIR archivos .html reales
+// apenas se cargaba el módulo — sin importar si se invocaba directo o vía
+// require() desde otro script. Ahora requerirlo no dispara nada; solo corre
+// bajo invocación directa (`node Skill_001_Gestor_Encoding.cjs <check|corregir> [dir]`).
+function verificarProblemas(dir = 'public') {
     const archivos = scandir(dir);
     let problematicos = 0;
     for (let archivo of archivos) {
@@ -88,11 +85,28 @@ if (cmd === 'check') {
         }
     }
     console.log('\nTotal problematicos:', problematicos);
-} else if (cmd === 'corregir') {
-    corregirTodo(dir);
-} else {
-    console.log('\nUso: node Gestor_Encoding.cjs <check|corregir> [directorio]');
-    console.log('Ejemplos:');
-    console.log('  node Gestor_Encoding.cjs check public');
-    console.log('  node Gestor_Encoding.cjs corregir proyectos');
+    return problematicos;
 }
+
+if (require.main === module) {
+    const args = process.argv.slice(2);
+    const cmd = args[0];
+    const dir = args[1] || 'public';
+
+    console.log('='.repeat(40));
+    console.log('GESTOR ENCODING - AUTOCORRECCION');
+    console.log('='.repeat(40));
+
+    if (cmd === 'check') {
+        verificarProblemas(dir);
+    } else if (cmd === 'corregir') {
+        corregirTodo(dir);
+    } else {
+        console.log('\nUso: node Gestor_Encoding.cjs <check|corregir> [directorio]');
+        console.log('Ejemplos:');
+        console.log('  node Gestor_Encoding.cjs check public');
+        console.log('  node Gestor_Encoding.cjs corregir proyectos');
+    }
+}
+
+module.exports = { verificarProblemas, corregirTodo, corregirHTML, contieneProblemas, scandir };
