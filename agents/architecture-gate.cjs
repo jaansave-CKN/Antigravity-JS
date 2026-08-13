@@ -292,6 +292,16 @@ const SUBGATES = {
         campoAprobado: 'diseno_valido',
         veredictoPath: path.join(dirAgents, 'veredicto_003.json'),
     },
+    // Agregado 2026-08-13: antes 006 solo se invocaba manualmente ("bajo demanda"),
+    // sin ningún gate automático — un commit podía tocar render.yaml, .env.example
+    // o dependencias sin que nadie con juicio (no solo los chequeos deterministas
+    // de secretos/env/npm audit) lo revisara. Mismo patrón que 003/004.
+    '006_DEVSECOPS_INFRAESTRUCTURA': {
+        promptPath: path.join(dirRoot, '.claude', 'agents', '006-devsecops-infraestructura.md'),
+        patrones: [/^render\.yaml$/, /^\.env\.example$/, /^package\.json$/, /^package-lock\.json$/],
+        campoAprobado: 'infraestructura_segura',
+        veredictoPath: path.join(dirAgents, 'veredicto_006.json'),
+    },
 };
 
 function obtenerArchivosStaged() {
@@ -732,9 +742,9 @@ if (process.argv.includes('--check-gate')) {
     console.log(`✅ [GATE_ARQUITECTURA] Aprobación vigente (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
     registrarTelemetria({ tipo: 'check-gate', subsistema: '002_principal', resultado: 'aprobado', firma: veredicto.firma });
 
-    // Subgates elite (003/004) — solo bloquean si el commit toca algo que
-    // les compete (src/**/*.jsx|tsx); si no, no agregan fricción a commits
-    // que no tocan frontend.
+    // Subgates elite (003/004/006) — solo bloquean si el commit toca algo que
+    // les compete (003/004: src/**/*.jsx|tsx; 006: render.yaml/.env.example/
+    // dependencias); si no, no agregan fricción a commits que no los tocan.
     const archivosStaged = obtenerArchivosStaged();
     let subgatesOk = true;
     for (const agentId of Object.keys(SUBGATES)) {

@@ -64,3 +64,7 @@
 {"timestamp":"2026-08-13T00:44:23.244Z","tipo":"check-gate","subsistema":"006_secretos","resultado":"aprobado"}
 {"timestamp":"2026-08-13T00:44:23.245Z","tipo":"check-gate","subsistema":"006_env_example","resultado":"aprobado"}
 {"timestamp":"2026-08-13T02:40:46.304Z","tipo":"aprobar-diseno","subsistema":"002_principal","resultado":"aprobado","firma":"9c0743daed984d2c34bcdc8b83d4a4d136360d41116c9817bd90d7c6cf0f8a40"}
+{"timestamp":"2026-08-13T02:40:58.715Z","tipo":"check-gate","subsistema":"002_principal","resultado":"aprobado","firma":"9c0743daed984d2c34bcdc8b83d4a4d136360d41116c9817bd90d7c6cf0f8a40"}
+{"timestamp":"2026-08-13T02:40:59.019Z","tipo":"check-gate","subsistema":"006_secretos","resultado":"aprobado"}
+{"timestamp":"2026-08-13T02:40:59.020Z","tipo":"check-gate","subsistema":"006_env_example","resultado":"aprobado"}
+{"timestamp":"2026-08-13T02:46:19.778Z","tipo":"aprobar-diseno","subsistema":"002_principal","resultado":"aprobado","firma":"3564f15053389137e01f850d093f3d0d080c74d95e847ae067d39bb862f23e5f"}

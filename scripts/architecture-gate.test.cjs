@@ -84,6 +84,13 @@ test('SUBGATES: 003 y 004 están configurados con patrones de src/**/*.jsx|tsx',
   assert.equal(SUBGATES['003_ESP_DISENO_STITCH'].campoAprobado, 'diseno_valido');
 });
 
+test('SUBGATES: 006 está configurado con patrones de render.yaml/.env.example/dependencias', () => {
+  assert.ok(SUBGATES['006_DEVSECOPS_INFRAESTRUCTURA']);
+  assert.equal(SUBGATES['006_DEVSECOPS_INFRAESTRUCTURA'].campoAprobado, 'infraestructura_segura');
+  const relevantes = archivosRelevantesPara('006_DEVSECOPS_INFRAESTRUCTURA', ['render.yaml', '.env.example', 'package.json', 'package-lock.json', 'src/modules/formulador/occGuard.js']);
+  assert.deepEqual(relevantes.sort(), ['.env.example', 'package-lock.json', 'package.json', 'render.yaml']);
+});
+
 test('archivosRelevantesPara: un .cjs de backend no le compete a 004 (no bloquea commits de DB)', () => {
   const relevantes = archivosRelevantesPara('004_SENTINELA_FRONTEND', ['src/modules/formulador/occGuard.js', 'server.js']);
   assert.deepEqual(relevantes, []);

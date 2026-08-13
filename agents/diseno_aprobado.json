@@ -1,16 +1,14 @@
 {
   "aprobado": true,
-  "firma": "9c0743daed984d2c34bcdc8b83d4a4d136360d41116c9817bd90d7c6cf0f8a40",
-  "timestamp": "2026-08-13T02:40:46.302Z",
+  "firma": "3564f15053389137e01f850d093f3d0d080c74d95e847ae067d39bb862f23e5f",
+  "timestamp": "2026-08-13T02:46:19.776Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Sección §6 de 001 operativa y específica, sin colisión con mandatos anteriores",
-    "Sección 'Vigencia del estado' en 002/003/004/005/006 es parche homogéneo, mínimo, sin ampliar mandatos ni herramientas",
-    "Actualización de Fase 2.1 en 005 está respaldada por evidencia de tres pasos documentada en §0-V; lo no verificado (mecanismo exacto de Supabase sin CREATE POLICY explícita) queda abierto como pendiente, no como hecho asumido",
-    "Desbloqueo de Migración B mantiene gate de 002 obligatorio para cualquier DDL nuevo — no hay bypass del proceso",
-    "Instrucción sobre SERVICE_KEY en 005 es precisa: sigue en código, no se borra sin veredicto de 002",
-    "§0-V en docs/ respeta convención de no-reescritura, cita explícitamente qué supersede, deja la pregunta de política RLS explícita a 002",
-    "Artefactos pmu/ (timestamp, telemetría) son operativos y sin cambio semántico en campos de dominio",
-    "Alcance ajustado: cero funcionalidad nueva, solo sincronización de estado verificado y regla de higiene operativa"
+    "007: extensión coherente del rol documentador — Mermaid desde código real y detección financiera son additive sin nuevas dependencias de infraestructura; rechazo explícito del scope aspiracional previene duplicación futura",
+    "007: campo hallazgos_financieros_o_idempotencia bien tipado en salida obligatoria, compatible con el patrón de veredicto estructurado ya establecido",
+    "architecture-gate.cjs: nuevo subgate 006 sigue exactamente el mismo shape que 003/004 (promptPath, patrones, campoAprobado, veredictoPath); patrones de archivos infra son correctos y disjuntos de los de 003/004",
+    "test: cobertura del nuevo subgate incluye verificación de campo, patrones positivos y exclusión de falsos positivos — consistente con tests existentes de 003/004",
+    "telemetría y estado_operativo: actualizaciones menores coherentes con la sesión documentada; único punto menor (agentes_con_gate: 3 vs potencial 4) no bloquea porque la semántica del campo podría excluir subgates",
+    "sin DDL en este diff — regla de atomicidad de migraciones no aplica"
   ]
 }
