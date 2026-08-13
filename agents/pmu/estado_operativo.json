@@ -1,12 +1,13 @@
 {
-  "generado": "2026-08-13T04:45:58.440Z",
-  "total_agentes": 8,
+  "generado": "2026-08-13T05:03:29.263Z",
+  "total_agentes": 9,
   "agentes_con_gate": 5,
   "agentes_con_permiso_escritura": [
     "005-ingeniero-backend",
     "006-devsecops-infraestructura",
     "007-documentador-as-build",
-    "008-auditor-de-codigo"
+    "008-auditor-de-codigo",
+    "009-ingeniero-frontend"
   ],
   "agentes": [
     {
@@ -36,17 +37,16 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "b27687103b649152578cfc1823e317d309a17da84e247adf44b4c441292a4a90",
-        "timestamp": "2026-08-13T04:45:58.428Z",
+        "firma": "156a4ac1fa42e5d26fa781513b5a9a0b0f3f4171a8995090ef406e9f8ed82e1d",
+        "timestamp": "2026-08-13T05:03:29.251Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "Cambio de npm ci → npm install justificado con evidencia operativa (5 fallos verificados vía API GitHub Actions, no supuestos)",
-          "Se mantiene --ignore-scripts en ambas variantes — sin regresión de seguridad",
-          "Alineación CI con render.yaml (producción) reduce brecha de entornos, patrón correcto",
-          "Node 22 se mantiene correctamente — el diff aclara que fue necesario pero insuficiente por sí solo",
-          "telemetria.jsonl es append-only sin modificación de registros anteriores",
-          "estado_operativo.json: solo timestamp actualizado, sin cambios de valores sustantivos",
-          "Alcance mínimo y quirúrgico — ningún módulo de dominio, auth, ni interfaz tocados"
+          "Corrección del bug de path en subgates 003/004 verificada como consistente: /^public\\/src\\/.*\\.(jsx|tsx)$/ es el directorio correcto según el contexto del proyecto descrito en el diff",
+          "009_INGENIERO_FRONTEND tiene mandato no solapado con 003/004 (escritura vs. auditoría), requiere origen trazable por cambio, y no decide arquitectura ni contratos de datos autónomamente",
+          "Auto-registro de subgate vía frontmatter (mecanismo §0-Y) es consistente con el patrón declarado — 009 no necesita entrada manual en SUBGATES",
+          "Cadena de mando en 001-orquestador-maestro.md refleja correctamente la separación 004 (detecta) / 009 (ejecuta)",
+          "Documentación datada y trazable en fuente de verdad viva; el PDF es reformateo de tablas + mismos párrafos, sin contenido divergente",
+          "Archivos omitidos (pmu/estado, telemetria, test file) son de bajo riesgo para esta fiscalización; la ausencia del test file deja sin verificar independientemente los 4 tests nuevos, pero no invalida los cambios de producción que son internamente consistentes"
         ]
       }
     },
@@ -149,6 +149,20 @@
         "Grep",
         "Glob",
         "Bash"
+      ],
+      "permiso_escritura": true,
+      "gate": "sin_gate_propio",
+      "ultimo_veredicto": null
+    },
+    {
+      "archivo": ".claude/agents/009-ingeniero-frontend.md",
+      "nombre": "009-ingeniero-frontend",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
       ],
       "permiso_escritura": true,
       "gate": "sin_gate_propio",

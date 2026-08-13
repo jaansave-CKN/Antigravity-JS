@@ -37,6 +37,15 @@ const ESCUADRON_ELITE = {
         rol: 'Auditoría de stubs huérfanos y contratos de build en la SPA (subagente real: .claude/agents/004-sentinela-frontend.md, solo lectura — detecta, no corrige)',
         subordinados: [],
     },
+    // Agregado 2026-08-13: brecha real encontrada en auditoría — 003/004
+    // auditan frontend (solo lectura) pero nadie del escuadrón lo
+    // construía; el trabajo lo hacía Claude principal fuera del sistema de
+    // agentes. Auto-registra su propio subgate vía frontmatter (patrón
+    // "Lego", §0-Y) — no necesita entrada en SUBGATES aquí.
+    '009_INGENIERO_FRONTEND': {
+        rol: 'Único con permiso de escritura sobre public/ — implementa hallazgos de 003/004/008 y pantallas ya aprobadas por 002 (subagente real: .claude/agents/009-ingeniero-frontend.md)',
+        subordinados: [],
+    },
     '005_INGENIERO_BACKEND': {
         rol: 'Bases de datos, APIs y lógica de servidor (fusiona el antiguo 002_INGENIERIA_TOTAL)',
         // '07-ing-concreto_GFRC' y '08-estratega-neuromarketing' purgados
@@ -389,15 +398,23 @@ function validarDisenoAprobado(carpetas) {
 // aquí. No hace falta tocar el resto del gate.
 // =============================================================================
 const SUBGATES = {
+    // CORREGIDO 2026-08-13 — bug crítico encontrado en vivo, verificado con
+    // certeza (0 coincidencias probadas contra archivos reales): el patrón
+    // original (/^src\/.*\.(jsx|tsx)$/) apuntaba a `src/` en la raíz, que es
+    // 100% backend (0 archivos .jsx/.tsx ahí, confirmado por find). El
+    // frontend React real vive en `public/src/` (13 archivos .jsx/.tsx
+    // reales, App.jsx/RadarApp.jsx/Modulo10Page.jsx/etc.). Estos 2 subgates
+    // llevaban desde su creación sin poder aplicarse NUNCA a ningún cambio
+    // real de frontend — silenciosamente inertes, sin error visible.
     '004_SENTINELA_FRONTEND': {
         promptPath: path.join(dirRoot, '.claude', 'agents', '004-sentinela-frontend.md'),
-        patrones: [/^src\/.*\.(jsx|tsx)$/],
+        patrones: [/^public\/src\/.*\.(jsx|tsx)$/],
         campoAprobado: 'limpio',
         veredictoPath: path.join(dirAgents, 'veredicto_004.json'),
     },
     '003_ESP_DISENO_STITCH': {
         promptPath: path.join(dirRoot, '.claude', 'agents', '003-esp-diseno-stitch.md'),
-        patrones: [/^src\/.*\.(jsx|tsx)$/],
+        patrones: [/^public\/src\/.*\.(jsx|tsx)$/],
         campoAprobado: 'diseno_valido',
         veredictoPath: path.join(dirAgents, 'veredicto_003.json'),
     },

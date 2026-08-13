@@ -81,7 +81,7 @@ test('rutear: clave inválida lanza RUTEO_FALLIDO, nunca aprueba por defecto', (
   assert.throws(() => rutear('clave_que_no_existe'), /RUTEO_FALLIDO/);
 });
 
-test('SUBGATES: 003 y 004 están configurados con patrones de src/**/*.jsx|tsx', () => {
+test('SUBGATES: 003 y 004 están configurados con patrones de public/src/**/*.jsx|tsx (corregido 2026-08-13 — el frontend real vive ahí, no en src/ raíz)', () => {
   assert.ok(SUBGATES['004_SENTINELA_FRONTEND']);
   assert.ok(SUBGATES['003_ESP_DISENO_STITCH']);
   assert.equal(SUBGATES['004_SENTINELA_FRONTEND'].campoAprobado, 'limpio');
@@ -100,9 +100,32 @@ test('archivosRelevantesPara: un .cjs de backend no le compete a 004 (no bloquea
   assert.deepEqual(relevantes, []);
 });
 
-test('archivosRelevantesPara: un .jsx bajo src/ sí le compete a 004', () => {
-  const relevantes = archivosRelevantesPara('004_SENTINELA_FRONTEND', ['src/components/Panel.jsx', 'server.js']);
-  assert.deepEqual(relevantes, ['src/components/Panel.jsx']);
+test('archivosRelevantesPara: un .jsx bajo public/src/ (frontend real) sí le compete a 004', () => {
+  const relevantes = archivosRelevantesPara('004_SENTINELA_FRONTEND', ['public/src/components/Panel.jsx', 'server.js']);
+  assert.deepEqual(relevantes, ['public/src/components/Panel.jsx']);
+});
+
+test('archivosRelevantesPara: regresión del bug real 2026-08-13 — un .jsx bajo src/ (raíz, backend) NO le compete a 004 (ahí no vive el frontend)', () => {
+  const relevantes = archivosRelevantesPara('004_SENTINELA_FRONTEND', ['src/components/Panel.jsx']);
+  assert.deepEqual(relevantes, []);
+});
+
+test('archivosRelevantesPara: los 13 archivos .jsx/.tsx reales de public/src/ SÍ competen a 003 y 004 (verificación contra el repo real)', () => {
+  const fs2 = require('fs');
+  const dirPublicSrc = path.join(__dirname, '..', 'public', 'src');
+  function listarJsxTsx(dir) {
+    let out = [];
+    for (const e of fs2.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) out = out.concat(listarJsxTsx(full));
+      else if (/\.(jsx|tsx)$/.test(e.name)) out.push(path.relative(path.join(__dirname, '..'), full).replace(/\\/g, '/'));
+    }
+    return out;
+  }
+  const reales = listarJsxTsx(dirPublicSrc);
+  assert.ok(reales.length > 0, 'debe haber al menos 1 archivo .jsx/.tsx real en public/src/');
+  const relevantesPara004 = archivosRelevantesPara('004_SENTINELA_FRONTEND', reales);
+  assert.equal(relevantesPara004.length, reales.length, 'TODOS los .jsx/.tsx reales deben ser relevantes para 004 — si no, el patrón sigue roto');
 });
 
 test('validarSubgate: no aplica (aprobado=true) si el commit no toca nada relevante para el agente', () => {
@@ -305,6 +328,18 @@ test('leerFrontmatterAgente: gate: con JSON inválido no rompe el parseo del res
   const meta = leerFrontmatterAgente(archivo);
   assert.equal(meta.nombre, '009-roto');
   assert.equal(meta.gate, null);
+});
+
+test('asegurarSubgatesAutoDescubiertos: 009_INGENIERO_FRONTEND se autoregistra desde su frontmatter y matchea los archivos reales que le competen (primera validación real del mecanismo Lego)', () => {
+  asegurarSubgatesAutoDescubiertos();
+  const cfg = SUBGATES['009_INGENIERO_FRONTEND'];
+  assert.ok(cfg, '009 debe auto-registrarse desde su gate: en el frontmatter');
+  assert.equal(cfg.campoAprobado, 'codigo_valido');
+  const relevantes = archivosRelevantesPara('009_INGENIERO_FRONTEND', [
+    'public/src/App.jsx', 'public/app.js', 'public/fase1-entrada.html',
+    'src/modules/formulador/supabaseClient.js', 'server.js',
+  ]);
+  assert.deepEqual(relevantes.sort(), ['public/app.js', 'public/fase1-entrada.html', 'public/src/App.jsx']);
 });
 
 test('asegurarSubgatesAutoDescubiertos: corre contra el repo real sin error, es idempotente, y no pisa subgates ya definidos a mano', () => {
