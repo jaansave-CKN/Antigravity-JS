@@ -19,7 +19,10 @@ const {
   SUBGATES, archivosRelevantesPara, validarSubgate,
   descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
   escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe,
+  analizarTelemetriaPMU, verificarVigenciaAgentes,
 } = require('../agents/architecture-gate.cjs');
+
+const TELEMETRIA_PATH_REAL = path.join(__dirname, '..', 'agents', 'pmu', 'telemetria.jsonl');
 
 function crearFixture() {
   const dirTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-test-'));
@@ -180,6 +183,60 @@ test('bucketDe: prioriza .claude/agents/ y código de gate sobre lockfiles/artef
   // package-lock.json y los artefactos auto-generados quedan al final (mismo bucket, el "resto").
   assert.equal(bucketDe('package-lock.json'), bucketDe('agents/pmu/telemetria.jsonl'));
   assert.equal(ordenado[ordenado.length - 1] === 'package-lock.json' || ordenado[ordenado.length - 1] === 'agents/pmu/telemetria.jsonl' || ordenado[ordenado.length - 1] === 'public/estado_antigravity.json', true);
+});
+
+test('analizarTelemetriaPMU: detecta 3+ rechazos consecutivos de un mismo subsistema (vigilancia activa 2026-08-13)', () => {
+  // Opera sobre el archivo real (leerTelemetria() no es inyectable sin
+  // refactorizar el módulo) — append + restore exacto para no dejar rastro.
+  const original = fs.existsSync(TELEMETRIA_PATH_REAL) ? fs.readFileSync(TELEMETRIA_PATH_REAL, 'utf8') : null;
+  const subsistemaFalso = '999_TEST_FICTICIO_NO_REAL';
+  const lineasFalsas = [1, 2, 3].map(n => JSON.stringify({
+    timestamp: new Date().toISOString(), tipo: 'check-gate', subsistema: subsistemaFalso, resultado: 'rechazado', razon: `fallo de prueba ${n}`,
+  })).join('\n') + '\n';
+  try {
+    fs.appendFileSync(TELEMETRIA_PATH_REAL, lineasFalsas, 'utf8');
+    const alertas = analizarTelemetriaPMU();
+    const alerta = alertas.find(a => a.subsistema === subsistemaFalso);
+    assert.ok(alerta, 'debe detectar el patrón de 3 rechazos consecutivos inyectado');
+    assert.equal(alerta.cantidad, 3);
+  } finally {
+    if (original !== null) fs.writeFileSync(TELEMETRIA_PATH_REAL, original, 'utf8');
+    else fs.rmSync(TELEMETRIA_PATH_REAL, { force: true });
+  }
+});
+
+test('analizarTelemetriaPMU: sin patrón de rechazo, no genera alerta para un subsistema sano', () => {
+  const original = fs.existsSync(TELEMETRIA_PATH_REAL) ? fs.readFileSync(TELEMETRIA_PATH_REAL, 'utf8') : null;
+  const subsistemaFalso = '999_TEST_SANO_NO_REAL';
+  const linea = JSON.stringify({ timestamp: new Date().toISOString(), tipo: 'check-gate', subsistema: subsistemaFalso, resultado: 'aprobado' }) + '\n';
+  try {
+    fs.appendFileSync(TELEMETRIA_PATH_REAL, linea, 'utf8');
+    const alertas = analizarTelemetriaPMU();
+    assert.ok(!alertas.some(a => a.subsistema === subsistemaFalso));
+  } finally {
+    if (original !== null) fs.writeFileSync(TELEMETRIA_PATH_REAL, original, 'utf8');
+    else fs.rmSync(TELEMETRIA_PATH_REAL, { force: true });
+  }
+});
+
+test('verificarVigenciaAgentes: corre contra el repo real sin error y devuelve un arreglo', () => {
+  const alertas = verificarVigenciaAgentes();
+  assert.ok(Array.isArray(alertas));
+  if (alertas.length > 0) {
+    assert.ok(alertas[0].agente && alertas[0].razon, 'cada alerta debe citar el agente y la razón');
+  }
+});
+
+test('SUBGATES: 005 configurado con valorAprobado string (no booleano) sobre módulo formulador/infra compartida', () => {
+  assert.ok(SUBGATES['005_INGENIERO_BACKEND']);
+  assert.equal(SUBGATES['005_INGENIERO_BACKEND'].campoAprobado, 'estado_backend');
+  assert.equal(SUBGATES['005_INGENIERO_BACKEND'].valorAprobado, 'aislado_y_seguro');
+  const relevantes = archivosRelevantesPara('005_INGENIERO_BACKEND', [
+    'src/modules/formulador/supabaseClient.js',
+    'src/shared/infrastructure/session-manager.js',
+    'public/app.js',
+  ]);
+  assert.deepEqual(relevantes.sort(), ['src/modules/formulador/supabaseClient.js', 'src/shared/infrastructure/session-manager.js']);
 });
 
 test('diffTocaDependencias: package.json no staged -> false, sin correr git', () => {

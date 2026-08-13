@@ -375,6 +375,20 @@ const SUBGATES = {
         campoAprobado: 'infraestructura_segura',
         veredictoPath: path.join(dirAgents, 'veredicto_006.json'),
     },
+    // Agregado 2026-08-13 (orden explícita: "todos los agentes... PMU real,
+    // no solo documentado"): 005 es el único subagente además de 001 con
+    // Bash, y el de mayor blast radius del escuadrón (Write/Edit sobre
+    // persistencia real) — no tenía NINGÚN gate automático propio hasta hoy.
+    // campoAprobado no es booleano aquí: 005 emite `estado_backend` con 3
+    // valores string posibles, "aislado_y_seguro" es el único que aprueba
+    // (ver valorAprobado, generalización de pedirVeredictoSubagente).
+    '005_INGENIERO_BACKEND': {
+        promptPath: path.join(dirRoot, '.claude', 'agents', '005-ingeniero-backend.md'),
+        patrones: [/^src\/modules\/formulador\//, /^src\/shared\/infrastructure\//],
+        campoAprobado: 'estado_backend',
+        valorAprobado: 'aislado_y_seguro',
+        veredictoPath: path.join(dirAgents, 'veredicto_005.json'),
+    },
 };
 
 function obtenerArchivosStaged() {
@@ -465,7 +479,13 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
         return { aprobado: false, razon: `Fallo de la API de Anthropic: ${e.message}` };
     }
     const text = response.content?.[0]?.text ?? '';
-    const match = text.match(new RegExp(`\\{[^{}]*"${cfg.campoAprobado}"\\s*:\\s*(true|false)[^{}]*\\}`, 's'));
+    // Generalizado 2026-08-13 (subgate de 005): no todo campoAprobado es
+    // booleano — 005 emite `estado_backend` con 3 valores string posibles
+    // ("aislado_y_seguro"|"brechas_detectadas"|"bloqueado_por_diseno"), no
+    // true/false. Con `valorAprobado` configurado, se matchea contra ese
+    // string exacto en vez de contra (true|false).
+    const patronValor = cfg.valorAprobado ? `"${cfg.valorAprobado}"` : '(true|false)';
+    const match = text.match(new RegExp(`\\{[^{}]*"${cfg.campoAprobado}"\\s*:\\s*${patronValor}[^{}]*\\}`, 's'));
     if (!match) {
         return { aprobado: false, razon: `${agentId} no devolvió un veredicto JSON parseable.`, respuestaCruda: text.slice(0, 800) };
     }
@@ -475,7 +495,10 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
     } catch (e) {
         return { aprobado: false, razon: `Veredicto JSON corrupto: ${e.message}` };
     }
-    return { aprobado: veredicto[cfg.campoAprobado] === true, veredictoCompleto: veredicto };
+    const aprobado = cfg.valorAprobado
+        ? veredicto[cfg.campoAprobado] === cfg.valorAprobado
+        : veredicto[cfg.campoAprobado] === true;
+    return { aprobado, veredictoCompleto: veredicto };
 }
 
 // =============================================================================
@@ -497,12 +520,15 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
 //      había manera de responder "¿cuántas veces bloqueó el gate?" salvo
 //      leyendo la narrativa de la auditoría a mano.
 //
-// Lo que el PMU NO incluye todavía, a propósito (fuera de alcance de esta
-// ronda, señalado como "siguiente fase" en la auditoría): un agente que
-// vigile la telemetría y proponga fixes solo, y un protocolo estructurado
-// de mensajería entre agentes (hoy siguen coordinando por prosa en su
-// propio system prompt). Ambos son decisiones de diseño mayores, no un
-// ítem de "una entrada de config más".
+// Vigilancia activa (2026-08-13, orden explícita del usuario: "la totalidad
+// de los agentes... se comporte como una real, verdadera e integral PMU de
+// alto nivel" — no un tablero pasivo que solo se mira si alguien lo invoca).
+// Dos chequeos deterministas, sin costo de API, corren en TODO --check-gate:
+// analizarTelemetriaPMU() (patrones de rechazo repetido) y
+// verificarVigenciaAgentes() (agentes cuyo archivo quedó más viejo que la
+// última actualización del documento vivo). Ninguno de los dos bloquea el
+// commit — son advisories, no un tercer tipo de gate duro — pero ya no
+// dependen de que alguien invoque a 006 a mano para notarlos.
 // =============================================================================
 const PMU_DIR = path.join(dirAgents, 'pmu');
 const ESTADO_OPERATIVO_PATH = path.join(PMU_DIR, 'estado_operativo.json');
@@ -512,6 +538,93 @@ function registrarTelemetria(evento) {
     fs.mkdirSync(PMU_DIR, { recursive: true });
     const linea = JSON.stringify({ timestamp: new Date().toISOString(), ...evento });
     fs.appendFileSync(TELEMETRIA_PATH, linea + '\n', 'utf8');
+}
+
+// Lee telemetria.jsonl (si existe) y la parsea tolerando líneas corruptas —
+// una línea mal escrita no debe tumbar la vigilancia del resto del historial.
+function leerTelemetria() {
+    if (!fs.existsSync(TELEMETRIA_PATH)) return [];
+    return fs.readFileSync(TELEMETRIA_PATH, 'utf8')
+        .split('\n').map(l => l.trim()).filter(Boolean)
+        .map(l => { try { return JSON.parse(l); } catch { return null; } })
+        .filter(Boolean);
+}
+
+// Vigilancia activa #1 — detecta, sin que nadie tenga que invocar a 006 a
+// mano, patrones de rechazo repetido por subsistema: si los últimos N
+// eventos consecutivos de un mismo subsistema son todos 'rechazado', es
+// señal de que algo estructural está mal (no una falla puntual) y merece
+// atención humana, no solo reintentar --aprobar-diseno/--aprobar-subgate
+// hasta que pase.
+const UMBRAL_RECHAZOS_CONSECUTIVOS = 3;
+
+function analizarTelemetriaPMU() {
+    const eventos = leerTelemetria();
+    const porSubsistema = {};
+    for (const e of eventos) {
+        if (!e.subsistema || !e.resultado) continue;
+        (porSubsistema[e.subsistema] ||= []).push(e);
+    }
+    const alertas = [];
+    for (const [subsistema, evs] of Object.entries(porSubsistema)) {
+        let seguidos = 0;
+        for (let i = evs.length - 1; i >= 0; i--) {
+            if (evs[i].resultado === 'rechazado') seguidos++; else break;
+        }
+        if (seguidos >= UMBRAL_RECHAZOS_CONSECUTIVOS) {
+            alertas.push({
+                subsistema,
+                tipo: 'rechazos_consecutivos',
+                cantidad: seguidos,
+                ultima_razon: evs[evs.length - 1].razon || null,
+            });
+        }
+    }
+    return alertas;
+}
+
+// Vigilancia activa #2 — compara la fecha del último commit que tocó el
+// documento vivo (docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md) contra la fecha
+// del último commit de cada agente que se comprometió al patrón "Vigencia
+// del estado"/"Fuente única de verdad". Si el documento se movió después
+// que el agente, es una señal de que puede haber una sección nueva que le
+// compete y todavía no leyó — exactamente el tipo de brecha que dejó a 005
+// desactualizado sobre RLS antes de esta ronda (detectado a mano esa vez,
+// por código de aquí en adelante).
+function fechaUltimoCommit(rutaRelativa) {
+    try {
+        const out = execFileSync('git', ['log', '-1', '--format=%ct', '--', rutaRelativa], { cwd: dirRoot, encoding: 'utf8' }).trim();
+        return out ? Number(out) : null;
+    } catch {
+        return null;
+    }
+}
+
+function verificarVigenciaAgentes() {
+    const docRel = path.join('docs', 'ARQUITECTURA_AGENTICA_ANTIGRAVITY.md');
+    const fechaDoc = fechaUltimoCommit(docRel);
+    if (!fechaDoc) return [];
+
+    const dirClaudeAgents = path.join(dirRoot, '.claude', 'agents');
+    if (!fs.existsSync(dirClaudeAgents)) return [];
+
+    const alertas = [];
+    for (const archivo of fs.readdirSync(dirClaudeAgents).filter(f => f.endsWith('.md'))) {
+        const contenido = fs.readFileSync(path.join(dirClaudeAgents, archivo), 'utf8');
+        // Solo agentes que se comprometieron al patrón — no todos los .md
+        // necesitan estar sincronizados con el documento vivo (ej. uno que
+        // no cite ningún hecho fechado del proyecto).
+        if (!/Vigencia del estado|FUENTE ÚNICA DE VERDAD/i.test(contenido)) continue;
+        const rutaRel = path.join('.claude', 'agents', archivo);
+        const fechaAgente = fechaUltimoCommit(rutaRel);
+        if (fechaAgente && fechaDoc > fechaAgente) {
+            alertas.push({
+                agente: archivo,
+                razon: 'docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete.',
+            });
+        }
+    }
+    return alertas;
 }
 
 // Parseo de frontmatter minimalista (sin dependencia de una librería YAML) —
@@ -844,6 +957,17 @@ if (process.argv.includes('--check-gate')) {
             console.log(`✅ [006_DEVSECOPS · ${r.categoria}] OK`);
             registrarTelemetria({ tipo: 'check-gate', subsistema: `006_${r.categoria}`, resultado: 'aprobado' });
         }
+    }
+
+    // Vigilancia activa del PMU — advisories, nunca bloquean el commit, pero
+    // ya no dependen de que alguien invoque a 006 a mano para notarlas.
+    for (const alerta of analizarTelemetriaPMU()) {
+        console.warn(`\n⚠️  [PMU] ${alerta.subsistema}: ${alerta.cantidad} rechazos consecutivos. Última razón: ${alerta.ultima_razon || 'sin razón registrada'}`);
+        registrarTelemetria({ tipo: 'alerta_pmu', subsistema: alerta.subsistema, resultado: 'advertencia', razon: `${alerta.cantidad} rechazos consecutivos` });
+    }
+    for (const alerta of verificarVigenciaAgentes()) {
+        console.warn(`\n⚠️  [PMU] ${alerta.agente}: ${alerta.razon}`);
+        registrarTelemetria({ tipo: 'alerta_pmu', subsistema: alerta.agente, resultado: 'advertencia', razon: alerta.razon });
     }
 
     escribirEstadoOperativo();
@@ -1246,4 +1370,5 @@ module.exports = {
     descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
     escanearSecretos, verificarEnvExample, verificarDependencias, ejecutarChequeosEstaticos,
     diffTocaDependencias, bucketDe, construirDiffPriorizado,
+    analizarTelemetriaPMU, verificarVigenciaAgentes, leerTelemetria,
 };

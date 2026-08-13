@@ -1,13 +1,14 @@
 {
   "aprobado": true,
   "firma": "3564f15053389137e01f850d093f3d0d080c74d95e847ae067d39bb862f23e5f",
-  "timestamp": "2026-08-13T03:01:54.401Z",
+  "timestamp": "2026-08-13T03:08:28.916Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "architecture-gate.cjs: eliminación de subordinado fantasma 010_redactor_tecnico es quirúrgica y consistente con el patrón de purga ya aplicado en 006; no toca lógica de ruteo ni elimina carpeta física",
-    "ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §0-W: sección bien posicionada, 3 hallazgos registrados con honestidad (PDF regenerado, subordinado purgado, brecha de invocación documentada como pendiente no resuelta)",
-    "PDF: diff refleja solo reformateo de saltos de línea, contenido semántico idéntico al .md — coherente con el entregable descrito en §0-W",
-    "No hay DDL, no hay cambios a auth, no hay eliminación de módulos de dominio — criterios de seguridad y persistencia no activados",
-    "Archivos omitidos del diff (PMU, script de PDF) evaluados por nombre y función: ninguno es crítico para el veredicto de este alcance específico"
+    "Subgate 005 es estructuralmente consistente con los subgates existentes; la generalización de valorAprobado preserva el comportamiento booleano anterior sin regresión",
+    "analizarTelemetriaPMU es determinista, tolerante a líneas corruptas, y sus entradas de telemetría propias (resultado: advertencia) no retroalimentan el contador de rechazos",
+    "verificarVigenciaAgentes acota correctamente la heurística de vigencia a agentes que citen el patrón explícito, con manejo de error en git log",
+    "Los advisories son explícitamente no-bloqueantes: process.exitCode no se modifica por ellos",
+    "Tests verifican los dos caminos relevantes de analizarTelemetriaPMU (patrón detectado / subsistema sano) con restore en finally; el test de SUBGATES 005 valida valorAprobado y el filtrado de patrones",
+    "No hay DDL, no hay cambios de auth, no hay borrado de interfaces de dominio — no aplican criterios adicionales de migraciones o seguridad"
   ]
 }
