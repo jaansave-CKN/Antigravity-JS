@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { db } from './FirebaseAdmin.js';
+import { capturarEnSentry } from './SentryMonitoring.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -23,6 +24,14 @@ export const AuditLogger = {
     const entry = { event, data, timestamp: new Date().toISOString() };
 
     appendLocal(entry);
+
+    // Reenvío a Sentry — AuditLogger ya decide qué es un error por el nombre
+    // del evento (convención *_ERROR ya usada en todo el código, ej.
+    // CLAUDE_CHAT_ERROR); esto no duplica esa decisión, solo la propaga a
+    // donde alguien realmente se entera sin ir a revisar logs a mano.
+    if (event.endsWith('_ERROR')) {
+      capturarEnSentry(event, data);
+    }
 
     if (db) {
       db.collection('audit_logs').add(entry).catch(err => {

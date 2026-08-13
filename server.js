@@ -21,9 +21,11 @@ import './src/shared/infrastructure/FirebaseAdmin.js';
 import { verifyFirebaseAuth }        from './src/shared/infrastructure/FirebaseAuthMiddleware.js';
 import { validateBody, schemas }     from './src/shared/infrastructure/validation.js';
 import { m1Router, runM1Pipeline }   from './src/modules/radar/m1Pipeline.js';
+import { initSentry, Sentry }        from './src/shared/infrastructure/SentryMonitoring.js';
 import './scripts/generar_reporte.cjs'; // regenera public/estado_antigravity.json con inventario real de agents/ al arrancar + cada 10 min
 
 dotenv.config();
+initSentry();
 
 // ── Configuración central ─────────────────────────────────────────────────────
 // Agnosticismo de modelo: un solo punto de verdad vía env var — al salir una
@@ -317,6 +319,14 @@ app.get('*', (_req, res) => {
     res.status(404).send('Frontend no compilado. Ejecuta: npm run build');
   }
 });
+
+// ── 5. HANDLER DE ERRORES DE SENTRY (después de TODAS las rutas, antes de ─────
+// cualquier otro middleware de error) — captura cualquier error no atrapado
+// explícitamente por un try/catch dentro de un handler, que antes desaparecía
+// en los logs de Render sin que nadie se enterara.
+if (typeof Sentry.setupExpressErrorHandler === 'function') {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 // ── WebSocket Server — Radar Live (reemplaza FastAPI en producción) ───────────
 const wss = new WebSocketServer({ server: httpServer, path: '/ws/live_radar' });

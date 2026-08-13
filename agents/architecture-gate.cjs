@@ -1,5 +1,6 @@
 const { exec, execFileSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
@@ -928,14 +929,7 @@ function diffTocaDependencias(archivosStaged) {
     return false;
 }
 
-function verificarDependencias(archivosStaged) {
-    const tocaLock = archivosStaged.includes('package-lock.json'); // no versionado hoy, pero si algún día lo está, cualquier cambio ahí sí es relevante por definición
-    const tocaDependencias = tocaLock || diffTocaDependencias(archivosStaged);
-    if (!tocaDependencias) return { ok: true, aplica: false };
-    const npmBin = resolverNpmBin();
-    if (!npmBin) {
-        return { ok: true, aplica: true, razon: "No se encontró 'npm' en PATH ni en la ruta de fallback conocida — no se pudo verificar, no se bloquea por un fallo de la herramienta en sí." };
-    }
+function ejecutarNpmAudit(npmBin, cwd) {
     let salida;
     try {
         // shell:true es necesario en Windows porque npm.cmd es un batch script,
@@ -944,24 +938,99 @@ function verificarDependencias(archivosStaged) {
         // shell es peligroso con INPUT DE USUARIO — aquí los args son literales
         // fijos ('audit', '--json'), nunca datos externos, así que no aplica el
         // riesgo que la advertencia señala.
-        salida = execFileSync(`"${npmBin}"`, ['audit', '--json'], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, shell: true });
+        salida = execFileSync(`"${npmBin}"`, ['audit', '--json'], { cwd, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, shell: true });
     } catch (e) {
         // npm audit sale con exit code != 0 cuando SÍ encuentra vulnerabilidades
         // (no es un error de ejecución) — su stdout sigue siendo el JSON útil.
         salida = e.stdout || '';
     }
-    let reporte;
     try {
-        reporte = JSON.parse(salida);
-    } catch (e) {
+        return JSON.parse(salida);
+    } catch {
+        return null;
+    }
+}
+
+// Vulnerabilidades críticas/altas por nombre de paquete, del reporte de `npm audit --json`.
+function paquetesVulnerables(reporte, severidades = ['critical', 'high']) {
+    if (!reporte?.vulnerabilities) return new Set();
+    return new Set(
+        Object.entries(reporte.vulnerabilities)
+            .filter(([, v]) => severidades.includes(v.severity))
+            .map(([nombre]) => nombre)
+    );
+}
+
+// Audita el package.json+package-lock.json de un ref de git específico, en un
+// directorio temporal aislado — sin tocar el working tree, sin necesitar
+// node_modules (`--package-lock-only`).
+function auditarLockfileDeRef(npmBin, ref) {
+    let dirTmp;
+    try {
+        dirTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-audit-base-'));
+        const pkgJson = execFileSync('git', ['show', `${ref}:package.json`], { cwd: dirRoot, encoding: 'utf8' });
+        const pkgLock = execFileSync('git', ['show', `${ref}:package-lock.json`], { cwd: dirRoot, encoding: 'utf8' });
+        fs.writeFileSync(path.join(dirTmp, 'package.json'), pkgJson);
+        fs.writeFileSync(path.join(dirTmp, 'package-lock.json'), pkgLock);
+        let salida;
+        try {
+            salida = execFileSync(`"${npmBin}"`, ['audit', '--package-lock-only', '--json'], { cwd: dirTmp, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, shell: true });
+        } catch (e) {
+            salida = e.stdout || '';
+        }
+        return JSON.parse(salida);
+    } catch {
+        return null; // sin base disponible (ref inexistente, primer commit, etc.) — el caller decide qué hacer
+    } finally {
+        if (dirTmp) { try { fs.rmSync(dirTmp, { recursive: true, force: true }); } catch { /* best-effort */ } }
+    }
+}
+
+// Corregido 2026-08-13 (hallazgo real: agregar @sentry/node — una dependencia
+// nueva, sin ninguna vulnerabilidad propia — quedó bloqueada por 46
+// vulnerabilidades PREEXISTENTES sin relación con el cambio, que el usuario ya
+// había decidido explícitamente no resolver con --force por riesgo de
+// romper algo). Bloquear en bloque cualquier diff que toque package-lock.json
+// mientras existan vulnerabilidades viejas vuelve el gate inútil para
+// cualquier cambio de dependencias futuro, sin importar cuán seguro sea.
+// Ahora compara contra HEAD: solo bloquea si el cambio introduce
+// vulnerabilidades críticas/altas NUEVAS (paquetes que no estaban en esa
+// severidad antes) — las preexistentes se reportan como advertencia, no
+// como bloqueo, preservando la decisión ya tomada por el usuario sobre ellas.
+function verificarDependencias(archivosStaged) {
+    const tocaLock = archivosStaged.includes('package-lock.json'); // no versionado hoy, pero si algún día lo está, cualquier cambio ahí sí es relevante por definición
+    const tocaDependencias = tocaLock || diffTocaDependencias(archivosStaged);
+    if (!tocaDependencias) return { ok: true, aplica: false };
+    const npmBin = resolverNpmBin();
+    if (!npmBin) {
+        return { ok: true, aplica: true, razon: "No se encontró 'npm' en PATH ni en la ruta de fallback conocida — no se pudo verificar, no se bloquea por un fallo de la herramienta en sí." };
+    }
+    const reporteActual = ejecutarNpmAudit(npmBin, dirRoot);
+    if (!reporteActual) {
         return { ok: true, aplica: true, razon: 'npm audit no devolvió JSON parseable — no se pudo verificar, no se bloquea por un fallo de la herramienta en sí.' };
     }
-    const criticas = reporte?.metadata?.vulnerabilities?.critical || 0;
-    const altas = reporte?.metadata?.vulnerabilities?.high || 0;
-    if (criticas > 0 || altas > 0) {
-        return { ok: false, aplica: true, razon: `npm audit encontró ${criticas} vulnerabilidad(es) crítica(s) y ${altas} alta(s) — correr 'npm audit' para el detalle.` };
+    const criticas = reporteActual?.metadata?.vulnerabilities?.critical || 0;
+    const altas = reporteActual?.metadata?.vulnerabilities?.high || 0;
+    if (criticas === 0 && altas === 0) return { ok: true, aplica: true };
+
+    const vulnActuales = paquetesVulnerables(reporteActual);
+    const reporteBase = auditarLockfileDeRef(npmBin, 'HEAD');
+    if (!reporteBase) {
+        // Sin base para comparar (ej. primer commit del repo) — no se puede
+        // distinguir "nuevo" de "preexistente", así que se mantiene el
+        // criterio conservador anterior: bloquear.
+        return { ok: false, aplica: true, razon: `npm audit encontró ${criticas} vulnerabilidad(es) crítica(s) y ${altas} alta(s), y no se pudo comparar contra HEAD para descartar que sean nuevas — correr 'npm audit' para el detalle.` };
     }
-    return { ok: true, aplica: true };
+    const vulnBase = paquetesVulnerables(reporteBase);
+    const nuevas = [...vulnActuales].filter(p => !vulnBase.has(p));
+
+    if (nuevas.length > 0) {
+        return { ok: false, aplica: true, razon: `npm audit encontró ${nuevas.length} vulnerabilidad(es) crítica/alta NUEVA(S) introducida(s) por este cambio: ${nuevas.join(', ')} — correr 'npm audit' para el detalle.` };
+    }
+    return {
+        ok: true, aplica: true,
+        razon: `${criticas} crítica(s) + ${altas} alta(s) preexistentes sin cambiar (ninguna nueva introducida por este diff) — no bloquea, ver 'npm audit' para el detalle si aún no se han resuelto.`,
+    };
 }
 
 function ejecutarChequeosEstaticos(archivosStaged) {
@@ -1045,8 +1114,8 @@ if (process.argv.includes('--check-gate')) {
             registrarTelemetria({ tipo: 'check-gate', subsistema: `006_${r.categoria}`, resultado: 'rechazado', razon: r.razon });
             chequeosOk = false;
         } else {
-            console.log(`✅ [006_DEVSECOPS · ${r.categoria}] OK`);
-            registrarTelemetria({ tipo: 'check-gate', subsistema: `006_${r.categoria}`, resultado: 'aprobado' });
+            console.log(`✅ [006_DEVSECOPS · ${r.categoria}] OK${r.razon ? ` — ${r.razon}` : ''}`);
+            registrarTelemetria({ tipo: 'check-gate', subsistema: `006_${r.categoria}`, resultado: 'aprobado', razon: r.razon || null });
         }
     }
 
@@ -1464,5 +1533,5 @@ module.exports = {
     escanearSecretos, verificarEnvExample, verificarDependencias, ejecutarChequeosEstaticos,
     diffTocaDependencias, bucketDe, construirDiffPriorizado,
     analizarTelemetriaPMU, verificarVigenciaAgentes, leerTelemetria,
-    extraerJSONConCampo, asegurarSubgatesAutoDescubiertos,
+    extraerJSONConCampo, asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
 };

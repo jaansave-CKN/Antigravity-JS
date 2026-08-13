@@ -1,17 +1,17 @@
 {
   "aprobado": true,
-  "firma": "3564f15053389137e01f850d093f3d0d080c74d95e847ae067d39bb862f23e5f",
-  "timestamp": "2026-08-13T03:57:12.360Z",
+  "firma": "55c10ac443472cc956af63afeefec26aa0713feaf8f32a14b474fb3ab03e4b71",
+  "timestamp": "2026-08-13T04:13:03.143Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "asegurarSubgatesAutoDescubiertos() es idempotente por flag booleano y por guard SUBGATES[agentId], verificado en el diff",
-    "no se llama a nivel de módulo — solo en los 3 puntos de entrada CLI declarados, sin efectos secundarios al require()",
-    "manejo de frontmatter inválido (JSON roto, regex inválida) hace console.warn + continue, no rompe el gate",
-    "verificarVigenciaAgentes() ahora universal es más seguro que opt-in: falsos positivos son imposibles porque la condición de alerta sigue siendo fechaDoc > fechaAgente",
-    "leerFrontmatterAgente() extendido con try/catch sobre JSON.parse, retorna null si falla, no afecta agentes sin gate",
-    "los 4 subgates existentes (003/004/005/006) tienen prioridad explícita por el guard if (SUBGATES[agentId]) continue — nada sobreescrito",
-    "export añadido es coherente con suite de tests mencionada (43/43)",
-    "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md sección 0-Y es consistente con el código, fechada correctamente, sin contradicción con secciones previas",
+    "ejecutarNpmAudit/paquetesVulnerables/auditarLockfileDeRef correctamente extraídas y testeadas; la comparación por Set de nombres es más precisa que por conteo",
+    "auditarLockfileDeRef limpia el directorio temporal en finally con force:true, sin riesgo de leak aunque JSON.parse falle",
+    "fallback conservador cuando reporteBase===null (primer commit / package-lock no versionado) mantiene el criterio de bloqueo anterior",
+    "SentryMonitoring.js degrada graciosamente sin SENTRY_DSN: warning en arranque, todas las funciones son no-ops, arranque no falla",
+    "initSentry() invocado post-dotenv.config() — env vars garantizadas; setupExpressErrorHandler registrado después de todas las rutas con guard typeof",
+    "hook en AuditLogger respeta convención *_ERROR existente, no duplica lógica de decisión, no altera flujo Firestore",
+    "árbol OTel y @apm-js-collab/* son dependencias transitivas estándar de @sentry/node v10, licencias Apache-2.0/MIT",
+    "SENTRY_DSN documentado como opcional en .env.example y render.yaml, consistente con otras variables del proyecto",
     "no hay DDL, no hay cambios a auth/credenciales, no hay abstracciones no solicitadas"
   ]
 }

@@ -1,15 +1,15 @@
 {
   "aprobado": true,
-  "firma": "7e81b2529da1ff210ddbdaa959353126baefd8c25abef9c3af038253fd4ebdf8",
-  "timestamp": "2026-08-13T03:43:46.773Z",
+  "firma": "7c04bd63f2ff61e431dc2da529cf71fa03187a265a5a68801247f0092d5abc9d",
+  "timestamp": "2026-08-13T04:13:27.799Z",
   "firmado_por": "006_DEVSECOPS_INFRAESTRUCTURA (.claude\\agents\\006-devsecops-infraestructura.md, vía API Anthropic)",
   "veredictoCompleto": {
     "infraestructura_segura": true,
     "hallazgos": [
       {
         "categoria": "otro",
-        "evidencia": "package.json: script test:gate agrega scripts/check_veto_008.test.cjs como segundo argumento a node --test. Diff no contiene secretos, .env, render.yaml, ni cambios de hooks. Existencia del archivo no verificable en esta llamada (sin FS).",
-        "criticidad": "baja"
+        "evidencia": "package-lock.json incluye dependencias transitivas bajo namespace @apm-js-collab/* (code-transformer@0.18.1, code-transformer-bundler-plugins@0.7.4, tracing-hooks@0.13.0), introducidas por @sentry/server-utils@10.70.0. Namespace no pertenece a Sentry Foundation ni a OpenTelemetry. Verificación recomendada: npm view @sentry/server-utils@10.70.0 dependencies en npmjs.com para confirmar que la dependencia es declarada upstream y no fue inyectada localmente.",
+        "criticidad": "media"
       }
     ]
   }

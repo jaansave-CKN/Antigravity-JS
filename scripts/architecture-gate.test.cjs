@@ -20,7 +20,7 @@ const {
   descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
   escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe,
   analizarTelemetriaPMU, verificarVigenciaAgentes, extraerJSONConCampo,
-  asegurarSubgatesAutoDescubiertos,
+  asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
 } = require('../agents/architecture-gate.cjs');
 
 const TELEMETRIA_PATH_REAL = path.join(__dirname, '..', 'agents', 'pmu', 'telemetria.jsonl');
@@ -317,6 +317,26 @@ test('asegurarSubgatesAutoDescubiertos: corre contra el repo real sin error, es 
     assert.ok(despuesKeys.includes(k));
   }
   assert.equal(SUBGATES['005_INGENIERO_BACKEND'].campoAprobado, 'estado_backend');
+});
+
+test('paquetesVulnerables: filtra por severidad y devuelve el set de nombres de paquete (regresión 2026-08-13, npm audit comparativo)', () => {
+  const reporte = {
+    vulnerabilities: {
+      xlsx: { severity: 'high' },
+      'form-data': { severity: 'critical' },
+      lodash: { severity: 'moderate' },
+      chalk: { severity: 'low' },
+    },
+  };
+  const criticasYAltas = paquetesVulnerables(reporte);
+  assert.deepEqual([...criticasYAltas].sort(), ['form-data', 'xlsx']);
+  const soloCriticas = paquetesVulnerables(reporte, ['critical']);
+  assert.deepEqual([...soloCriticas], ['form-data']);
+});
+
+test('paquetesVulnerables: reporte sin campo vulnerabilities -> set vacío, no lanza', () => {
+  assert.deepEqual(paquetesVulnerables({}), new Set());
+  assert.deepEqual(paquetesVulnerables(null), new Set());
 });
 
 test('diffTocaDependencias: package.json no staged -> false, sin correr git', () => {

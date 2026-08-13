@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-13T03:57:12.367Z",
+  "generado": "2026-08-13T04:14:08.432Z",
   "total_agentes": 8,
   "agentes_con_gate": 5,
   "agentes_con_permiso_escritura": [
@@ -36,18 +36,18 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "3564f15053389137e01f850d093f3d0d080c74d95e847ae067d39bb862f23e5f",
-        "timestamp": "2026-08-13T03:57:12.360Z",
+        "firma": "55c10ac443472cc956af63afeefec26aa0713feaf8f32a14b474fb3ab03e4b71",
+        "timestamp": "2026-08-13T04:13:03.143Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "asegurarSubgatesAutoDescubiertos() es idempotente por flag booleano y por guard SUBGATES[agentId], verificado en el diff",
-          "no se llama a nivel de módulo — solo en los 3 puntos de entrada CLI declarados, sin efectos secundarios al require()",
-          "manejo de frontmatter inválido (JSON roto, regex inválida) hace console.warn + continue, no rompe el gate",
-          "verificarVigenciaAgentes() ahora universal es más seguro que opt-in: falsos positivos son imposibles porque la condición de alerta sigue siendo fechaDoc > fechaAgente",
-          "leerFrontmatterAgente() extendido con try/catch sobre JSON.parse, retorna null si falla, no afecta agentes sin gate",
-          "los 4 subgates existentes (003/004/005/006) tienen prioridad explícita por el guard if (SUBGATES[agentId]) continue — nada sobreescrito",
-          "export añadido es coherente con suite de tests mencionada (43/43)",
-          "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md sección 0-Y es consistente con el código, fechada correctamente, sin contradicción con secciones previas",
+          "ejecutarNpmAudit/paquetesVulnerables/auditarLockfileDeRef correctamente extraídas y testeadas; la comparación por Set de nombres es más precisa que por conteo",
+          "auditarLockfileDeRef limpia el directorio temporal en finally con force:true, sin riesgo de leak aunque JSON.parse falle",
+          "fallback conservador cuando reporteBase===null (primer commit / package-lock no versionado) mantiene el criterio de bloqueo anterior",
+          "SentryMonitoring.js degrada graciosamente sin SENTRY_DSN: warning en arranque, todas las funciones son no-ops, arranque no falla",
+          "initSentry() invocado post-dotenv.config() — env vars garantizadas; setupExpressErrorHandler registrado después de todas las rutas con guard typeof",
+          "hook en AuditLogger respeta convención *_ERROR existente, no duplica lógica de decisión, no altera flujo Firestore",
+          "árbol OTel y @apm-js-collab/* son dependencias transitivas estándar de @sentry/node v10, licencias Apache-2.0/MIT",
+          "SENTRY_DSN documentado como opcional en .env.example y render.yaml, consistente con otras variables del proyecto",
           "no hay DDL, no hay cambios a auth/credenciales, no hay abstracciones no solicitadas"
         ]
       }
@@ -89,7 +89,17 @@
       ],
       "permiso_escritura": true,
       "gate": "subgate",
-      "ultimo_veredicto": null
+      "ultimo_veredicto": {
+        "aprobado": true,
+        "firma": "b6d1ccaebfc344028f166d685aa284a91ad720738fac71de73d23952d36147c8",
+        "timestamp": "2026-08-13T04:14:08.424Z",
+        "firmado_por": "005_INGENIERO_BACKEND (.claude\\agents\\005-ingeniero-backend.md, vía API Anthropic)",
+        "veredictoCompleto": {
+          "estado_backend": "aislado_y_seguro",
+          "brechas_rls": 0,
+          "anomalias": []
+        }
+      }
     },
     {
       "archivo": ".claude/agents/006-devsecops-infraestructura.md",
@@ -104,16 +114,16 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "7e81b2529da1ff210ddbdaa959353126baefd8c25abef9c3af038253fd4ebdf8",
-        "timestamp": "2026-08-13T03:43:46.773Z",
+        "firma": "7c04bd63f2ff61e431dc2da529cf71fa03187a265a5a68801247f0092d5abc9d",
+        "timestamp": "2026-08-13T04:13:27.799Z",
         "firmado_por": "006_DEVSECOPS_INFRAESTRUCTURA (.claude\\agents\\006-devsecops-infraestructura.md, vía API Anthropic)",
         "veredictoCompleto": {
           "infraestructura_segura": true,
           "hallazgos": [
             {
               "categoria": "otro",
-              "evidencia": "package.json: script test:gate agrega scripts/check_veto_008.test.cjs como segundo argumento a node --test. Diff no contiene secretos, .env, render.yaml, ni cambios de hooks. Existencia del archivo no verificable en esta llamada (sin FS).",
-              "criticidad": "baja"
+              "evidencia": "package-lock.json incluye dependencias transitivas bajo namespace @apm-js-collab/* (code-transformer@0.18.1, code-transformer-bundler-plugins@0.7.4, tracing-hooks@0.13.0), introducidas por @sentry/server-utils@10.70.0. Namespace no pertenece a Sentry Foundation ni a OpenTelemetry. Verificación recomendada: npm view @sentry/server-utils@10.70.0 dependencies en npmjs.com para confirmar que la dependencia es declarada upstream y no fue inyectada localmente.",
+              "criticidad": "media"
             }
           ]
         }

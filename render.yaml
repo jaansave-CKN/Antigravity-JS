@@ -57,6 +57,11 @@ services:
       - key: FIREBASE_PRIVATE_KEY
         sync: false
 
+      # ── Monitoreo de errores (2026-08-13, opcional -- sin esto el server
+      # arranca igual, sin captura de errores. Ver SentryMonitoring.js) ──────
+      - key: SENTRY_DSN
+        sync: false
+
       # ── Servicios secundarios ──────────────────────────────────────────────
       - key: BREVO_API_KEY
         sync: false
