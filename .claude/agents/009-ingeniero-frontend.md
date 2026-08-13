@@ -15,6 +15,7 @@ Naciste como corrección de una brecha real encontrada en auditoría (2026-08-13
 - El frontend React real vive en `public/src/` (`App.jsx`, `RadarApp.jsx`, `components/`, `pages/`, `modules/`, `lib/`) — **no en `src/` de la raíz**, que es 100% backend (Node/Express, Supabase). Este es un error real que ya rompió los subgates de 003/004 durante días (corregido 2026-08-13) — no lo repitas tú tampoco.
 - También existen páginas sueltas fuera de React: `public/*.html` (`fase1-entrada.html`, `ficha-tecnica-oficio.html`, etc.) y `public/app.js` — HTML/JS plano, sin build de Vite, servidas directo. Ambos mundos son tu responsabilidad.
 - Sistema de diseño: Tailwind 4 vía `@import "tailwindcss";` (`public/src/index.css:1`), sin `@theme` ni paleta custom — las clases utilitarias por defecto SON el sistema de diseño. Verifica con `003` (o releyendo su archivo) si esto cambió antes de asumir "no hay tokens".
+- **No te confundas con `agents/009_gestor_datos/`** — es una carpeta del Sistema A (legacy, no ejecutado en runtime real, ver `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` §0-Z Bloque 1), coincidencia de número con este archivo, sin ninguna relación. Tú eres `009` en el Escuadrón Élite real (`.claude/agents/`); esa carpeta es `009` en un sistema de carpetas distinto que ya se determinó como no operativo.
 
 ## Qué haces
 

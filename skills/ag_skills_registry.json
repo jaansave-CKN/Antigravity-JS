@@ -80,12 +80,8 @@
     "011_Radar1_minero": {
       "skills": [],
       "location": "./agents/011_Radar1_minero/",
-      "sync_note": "No implementado como .cjs bajo skills/. Su lógica vive en scripts Python sueltos (miner_deep_scan.py, radar_oficial.py, test_fuentes.py) en la raíz de la carpeta del agente. No estaba registrado antes de 2026-08-04.",
-      "raw_scripts": [
-        "miner_deep_scan.py",
-        "radar_oficial.py",
-        "test_fuentes.py"
-      ]
+      "sync_note": "PURGADO 2026-08-13: código Python (miner_deep_scan.py, radar_oficial.py, test_fuentes.py, radar_log.txt) eliminado — duplicaba la misma capacidad que el Radar real en producción (src/modules/radar/m1Pipeline.js), dormido desde 2026-05-16, sin ninguna referencia en runtime real. Se preservaron IDENTITY.md y repositorio_convocatorias.json (datos históricos). Carpeta ya no tiene código ejecutable.",
+      "raw_scripts": []
     },
     "012_Radar2_Estratega": {
       "skills": [],

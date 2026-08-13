@@ -128,5 +128,10 @@ BAJO / MEDIO / ALTO / CRÍTICO
 * ¿Qué puede romper un usuario? ¿Cuánto dinero puedes perder? ¿En cuánto tiempo falla?
 
 ---
+
+## Vigencia del estado
+Antes de citar un hecho sobre el estado del proyecto que no verifiques en esta corrida (CAPA 0 — inventario real), revisa `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` (fuente de verdad viva, secciones fechadas, la más reciente prevalece) — corregido 2026-08-13, era el único de los 9 agentes sin esta sección.
+
+---
 ## 🔒 FRASE FINAL OBLIGATORIA
 **"Auditoría ejecutada con pruebas reproducibles y evidencia verificable. Sin suposiciones."**

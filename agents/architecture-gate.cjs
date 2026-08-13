@@ -51,8 +51,13 @@ const ESCUADRON_ELITE = {
         // '07-ing-concreto_GFRC' y '08-estratega-neuromarketing' purgados
         // 2026-08-13 (auditoría §0-Z): solo tenían IDENTITY.md, cero código,
         // 0 referencias reales — confirmado y autorizado explícitamente.
+        // '011_Radar1_minero' purgado (solo código, IDENTITY.md/datos históricos
+        // preservados) 2026-08-13: duplicaba la misma capacidad que el Radar
+        // real en producción (src/modules/radar/m1Pipeline.js), inactivo desde
+        // 2026-05-16 — orden explícita del usuario ("no admito sistemas o
+        // agentes paralelos con las mismas habilidades").
         subordinados: [
-            '009_gestor_datos', '011_Radar1_minero', '012_Radar2_Estratega',
+            '009_gestor_datos', '012_Radar2_Estratega',
             '050_Formulador_proy', '052_Form_Administrativo', '015_intelligence-core',
         ],
     },
@@ -100,10 +105,13 @@ function comandanteDe(carpetaAgente) {
 // agents/001_ORQUESTADOR_MAESTRO/IDENTITY.md, con los nombres de carpeta
 // vigentes hoy en disco (post-renumeración 2026-08-08).
 // =============================================================================
+// 'convocatorias' removido 2026-08-13: apuntaba a '011_Radar1_minero',
+// purgado por duplicar la capacidad real del Radar en producción
+// (src/modules/radar/m1Pipeline.js + endpoint /api/convocatorias en
+// server.js) — sin código ejecutable, no hay destino válido al que rutear.
 const ENRUTADOR_ESTATICO = {
     formulacion: '050_Formulador_proy',
     administrativo: '052_Form_Administrativo',
-    convocatorias: '011_Radar1_minero',
     inteligencia_mercado: '012_Radar2_Estratega',
 };
 
@@ -802,6 +810,14 @@ function mapaGatesPorPrefijo() {
 }
 
 function generarEstadoOperativo() {
+    // Corregido 2026-08-13 (auditoría A-Z, hallazgo real): antes dependía de
+    // que el CALLER hubiera invocado asegurarSubgatesAutoDescubiertos() antes
+    // — un contrato implícito no forzado. Reproducido en vivo: llamar a esta
+    // función directamente (sin pasar por --check-gate/--pmu-status primero)
+    // reportaba a 009_INGENIERO_FRONTEND como "sin_gate_propio" pese a tener
+    // uno real. Ahora se autoasegura — idempotente, sin efectos secundarios
+    // de I/O más allá de un console.log, seguro de llamar redundantemente.
+    asegurarSubgatesAutoDescubiertos();
     const agentes = descubrirAgentes();
     const gatesPorPrefijo = mapaGatesPorPrefijo();
 

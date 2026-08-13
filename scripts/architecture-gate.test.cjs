@@ -194,6 +194,18 @@ test('generarEstadoOperativo: PMU — el tablero completo se genera sin error y 
   assert.equal(cero01.permiso_escritura, false, '001 no debe tener Write/Edit/Bash (fix de la ronda anterior)');
 });
 
+test('generarEstadoOperativo: se autoasegura (llama asegurarSubgatesAutoDescubiertos internamente) — 009 siempre reporta "subgate", nunca "sin_gate_propio" (regresión 2026-08-13)', () => {
+  // Antes dependía de que el caller invocara asegurarSubgatesAutoDescubiertos()
+  // primero — un contrato implícito no forzado, reproducido en vivo: llamar
+  // a esta función directamente reportaba a 009 como "sin_gate_propio" pese
+  // a tener un gate real declarado en su frontmatter.
+  const estado = generarEstadoOperativo();
+  const nueve = estado.agentes.find(a => a.archivo.includes('009-ingeniero-frontend'));
+  assert.ok(nueve, '009 debe aparecer en el tablero (auto-descubierto)');
+  assert.equal(nueve.gate, 'subgate', '009 debe reportar gate=subgate sin depender de una llamada previa externa');
+  assert.equal(nueve.permiso_escritura, true);
+});
+
 test('escanearSecretos: bloquea .env real sin necesitar leer contenido (nombre de archivo alcanza)', () => {
   const hallazgos = escanearSecretos(['.env']);
   assert.equal(hallazgos.length, 1);
