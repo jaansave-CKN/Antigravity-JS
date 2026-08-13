@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
 const Anthropic = require('@anthropic-ai/sdk');
+const { z } = require('zod');
 
 // A diferencia de server.js, este script se invoca standalone (node agents/architecture-gate.cjs)
 // — nada más en el proceso carga .env. Sin esto, pedirVeredictoArquitecto() siempre fallaba con
@@ -242,6 +243,79 @@ function extraerJSONConCampo(texto, campo) {
     return null;
 }
 
+// Harness Engineering (orden explícita del usuario, 2026-08-13): hasta ahora
+// extraerJSONConCampo() solo verificaba que el campo de aprobación existiera
+// — el resto de la forma (arrays de hallazgos con sus claves, tipos correctos)
+// no se validaba nunca. Un veredicto con "razones": "string suelto" en vez de
+// array, o un hallazgo sin "archivo", pasaba silenciosamente hacia el resto
+// del sistema (PMU, docs). Cierra la brecha real de "salida de agente sin
+// validar por esquema" identificada al evaluar Harness Engineering contra
+// este sistema — con precedente concreto (el bug de extraerJSONConCampo con
+// arrays anidados, 2026-08-13). Contrato tomado literal de la sección
+// "Salida obligatoria" de cada .claude/agents/*.md — si ese archivo cambia
+// su contrato, este objeto debe actualizarse en el mismo commit.
+const VEREDICTO_SCHEMAS = {
+    '002_ARQUITECTO_DE_SOFTWARE': z.object({
+        aprobado: z.boolean(),
+        razones: z.array(z.string()),
+    }),
+    '003_ESP_DISENO_STITCH': z.object({
+        diseno_valido: z.boolean(),
+        inconsistencias: z.array(z.object({
+            archivo: z.string(),
+            tipo: z.string(),
+            evidencia: z.string(),
+        })),
+    }),
+    '004_SENTINELA_FRONTEND': z.object({
+        limpio: z.boolean(),
+        hallazgos: z.array(z.object({
+            archivo: z.string(),
+            tipo: z.string(),
+            evidencia: z.string(),
+        })),
+    }),
+    '005_INGENIERO_BACKEND': z.object({
+        estado_backend: z.enum(['aislado_y_seguro', 'brechas_detectadas', 'bloqueado_por_diseno']),
+        brechas_rls: z.number(),
+        anomalias: z.array(z.object({
+            archivo: z.string(),
+            tipo: z.string(),
+            evidencia: z.string(),
+        })),
+    }),
+    '006_DEVSECOPS_INFRAESTRUCTURA': z.object({
+        infraestructura_segura: z.boolean(),
+        hallazgos: z.array(z.object({
+            categoria: z.string(),
+            evidencia: z.string(),
+            criticidad: z.enum(['alta', 'media', 'baja']),
+        })),
+    }),
+    '009_INGENIERO_FRONTEND': z.object({
+        codigo_valido: z.boolean(),
+        cambios: z.array(z.object({
+            archivo: z.string(),
+            tipo: z.string(),
+            origen_hallazgo: z.string(),
+            resumen: z.string(),
+        })),
+    }),
+};
+
+// Fail-closed: un veredicto que no matchea la forma declarada por su propio
+// agente NUNCA se trata como aprobado, aunque el campo booleano diga true —
+// mismo criterio de "Honestidad Técnica" que el resto del gate. Agentes sin
+// contrato en VEREDICTO_SCHEMAS no bloquean (compatibilidad hacia atrás).
+function validarFormaVeredicto(agentId, veredicto) {
+    const schema = VEREDICTO_SCHEMAS[agentId];
+    if (!schema) return { ok: true };
+    const resultado = schema.safeParse(veredicto);
+    if (resultado.success) return { ok: true };
+    const detalle = resultado.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
+    return { ok: false, razon: `Veredicto de ${agentId} no cumple su contrato de salida declarado: ${detalle}` };
+}
+
 // Invoca al Agente Arquitecto real: system prompt = 002-arquitecto-de-software.md, input = git diff
 // pendiente contra HEAD. Nunca autoaprueba por ausencia de respuesta — todo camino
 // de error devuelve aprobado:false con la razón concreta (Honestidad Técnica).
@@ -302,6 +376,10 @@ async function pedirVeredictoArquitecto() {
     const veredicto = extraerJSONConCampo(text, 'aprobado');
     if (!veredicto) {
         return { aprobado: false, razones: ['El Agente Arquitecto no devolvió un veredicto JSON parseable.'], respuestaCruda: text.slice(0, 800) };
+    }
+    const forma = validarFormaVeredicto('002_ARQUITECTO_DE_SOFTWARE', veredicto);
+    if (!forma.ok) {
+        return { aprobado: false, razones: [forma.razon], respuestaCruda: text.slice(0, 800) };
     }
     return { aprobado: veredicto.aprobado === true, razones: veredicto.razones || [] };
 }
@@ -396,8 +474,23 @@ function hashEstado(carpetas) {
     const archivosClaudeAgents = listarArchivosRecursivo(dirClaudeAgents, dirClaudeAgents).sort();
     const payloadClaudeAgents = `claude-agents:${archivosClaudeAgents.map(f => `${f}:${hashArchivo(path.join(dirClaudeAgents, f))}`).join(',')}`;
 
+    // CORREGIDO 2026-08-13 — mismo bug de raíz, ahora en el motor del gate
+    // mismo: `listarCarpetasAgentes()` solo devuelve subcarpetas numeradas de
+    // `agents/`, así que `agents/architecture-gate.cjs` (el código que decide
+    // qué aprueba y qué bloquea) y `scripts/check_veto_008.cjs` (el veto
+    // determinista que bloquea en CI) NUNCA estaban dentro del alcance de su
+    // propia firma. Se podía debilitar la lógica de enforcement — por
+    // ejemplo, hacer que `validarFormaVeredicto()` siempre devuelva
+    // `{ok:true}` — sin invalidar `diseno_aprobado.json` en absoluto.
+    // Encontrado en vivo (2026-08-13): al editar este mismo archivo para
+    // agregar VEREDICTO_SCHEMAS, `--aprobar-diseno` reportó la firma
+    // IDÉNTICA a la de antes del cambio, pese a haber código nuevo real.
+    // Harness que no protege su propio motor no es un harness completo.
+    const payloadGateEngine = `gate-engine:architecture-gate.cjs:${hashArchivo(__filename)}` +
+        `,check_veto_008.cjs:${hashArchivo(path.join(dirRoot, 'scripts', 'check_veto_008.cjs'))}`;
+
     return crypto.createHash('sha256').update(
-        payloadAgents + '||' + payloadSrc + '||' + payloadPublicSrc + '||' + payloadPublicSueltos + '||' + payloadClaudeAgents
+        payloadAgents + '||' + payloadSrc + '||' + payloadPublicSrc + '||' + payloadPublicSueltos + '||' + payloadClaudeAgents + '||' + payloadGateEngine
     ).digest('hex');
 }
 
@@ -621,6 +714,10 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
     const veredicto = extraerJSONConCampo(text, cfg.campoAprobado);
     if (!veredicto) {
         return { aprobado: false, razon: `${agentId} no devolvió un veredicto JSON parseable.`, respuestaCruda: text.slice(0, 800) };
+    }
+    const forma = validarFormaVeredicto(agentId, veredicto);
+    if (!forma.ok) {
+        return { aprobado: false, razon: forma.razon, respuestaCruda: text.slice(0, 800) };
     }
     const aprobado = cfg.valorAprobado
         ? veredicto[cfg.campoAprobado] === cfg.valorAprobado
@@ -1649,4 +1746,5 @@ module.exports = {
     diffTocaDependencias, bucketDe, construirDiffPriorizado,
     analizarTelemetriaPMU, verificarVigenciaAgentes, leerTelemetria,
     extraerJSONConCampo, asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
+    validarFormaVeredicto, VEREDICTO_SCHEMAS,
 };

@@ -21,6 +21,7 @@ const {
   escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe,
   analizarTelemetriaPMU, verificarVigenciaAgentes, extraerJSONConCampo,
   asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
+  validarFormaVeredicto, VEREDICTO_SCHEMAS,
 } = require('../agents/architecture-gate.cjs');
 
 const TELEMETRIA_PATH_REAL = path.join(__dirname, '..', 'agents', 'pmu', 'telemetria.jsonl');
@@ -90,6 +91,34 @@ test('hashEstado: public/src/ (frontend React real) SÍ forma parte de la firma 
     assert.notEqual(hashAntes, hashDespues, 'mutar un archivo real de public/src/ DEBE cambiar la firma del gate principal');
   } finally {
     fs.writeFileSync(archivoReal, original, 'utf8');
+  }
+  const hashRestaurado = hashEstado(carpetas);
+  assert.equal(hashRestaurado, hashAntes, 'tras restaurar el archivo, la firma debe volver a coincidir con la original');
+});
+
+test('hashEstado: el propio motor del gate (agents/architecture-gate.cjs y scripts/check_veto_008.cjs) SÍ forma parte de la firma (regresión bug crítico 2026-08-13, harness engineering — auto-integridad)', () => {
+  // Hallazgo real: listarCarpetasAgentes() solo devuelve subcarpetas
+  // numeradas de agents/ — el código del propio gate (architecture-gate.cjs,
+  // en la raíz de agents/, no en una subcarpeta) y el veto de CI
+  // (scripts/check_veto_008.cjs) nunca estaban en el alcance de hashEstado().
+  // Se podía debilitar la lógica de enforcement (ej. validarFormaVeredicto()
+  // siempre {ok:true}) sin invalidar diseno_aprobado.json. Reproducido en
+  // vivo antes de corregir: --aprobar-diseno reportó la MISMA firma tras
+  // agregar código real nuevo a este archivo.
+  const dirAgentsGlobal = path.join(__dirname, '..', 'agents');
+  const gateEnginePath = path.join(dirAgentsGlobal, 'architecture-gate.cjs');
+  const carpetas = fs.readdirSync(dirAgentsGlobal, { withFileTypes: true })
+    .filter(e => e.isDirectory() && /^\d{2,3}[_-]/.test(e.name))
+    .map(e => e.name);
+
+  const original = fs.readFileSync(gateEnginePath, 'utf8');
+  const hashAntes = hashEstado(carpetas);
+  try {
+    fs.writeFileSync(gateEnginePath, original + '\n// mutación temporal de test, ver architecture-gate.test.cjs\n', 'utf8');
+    const hashDespues = hashEstado(carpetas);
+    assert.notEqual(hashAntes, hashDespues, 'mutar agents/architecture-gate.cjs DEBE cambiar la firma — protege al motor del gate de sí mismo');
+  } finally {
+    fs.writeFileSync(gateEnginePath, original, 'utf8');
   }
   const hashRestaurado = hashEstado(carpetas);
   assert.equal(hashRestaurado, hashAntes, 'tras restaurar el archivo, la firma debe volver a coincidir con la original');
@@ -427,3 +456,43 @@ test('diffTocaDependencias: package.json no staged -> false, sin correr git', ()
 // casos (sí lo logran para hashArchivo, que sí recibe una ruta como
 // parámetro). Cubre el bug real que ya se detectó (contenido vs. nombre) sin
 // pretender ser cobertura exhaustiva del archivo completo.
+
+// Harness Engineering (orden explícita del usuario, 2026-08-13): validación de
+// forma real de los veredictos de agente, no solo del campo de aprobación.
+test('validarFormaVeredicto: 002 con "razones" como string suelto (no array) es RECHAZADO aunque aprobado:true', () => {
+  const r = validarFormaVeredicto('002_ARQUITECTO_DE_SOFTWARE', { aprobado: true, razones: 'todo bien' });
+  assert.equal(r.ok, false);
+  assert.match(r.razon, /razones/);
+});
+
+test('validarFormaVeredicto: 002 con forma correcta es aceptado', () => {
+  const r = validarFormaVeredicto('002_ARQUITECTO_DE_SOFTWARE', { aprobado: true, razones: ['verifiqué X', 'verifiqué Y'] });
+  assert.equal(r.ok, true);
+});
+
+test('validarFormaVeredicto: 004 con un hallazgo sin campo "archivo" (contrato real de 004-sentinela-frontend.md) es RECHAZADO', () => {
+  const r = validarFormaVeredicto('004_SENTINELA_FRONTEND', {
+    limpio: false,
+    hallazgos: [{ tipo: 'stub_huerfano', evidencia: 'sin fetch/useEffect' }],
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.razon, /archivo/);
+});
+
+test('validarFormaVeredicto: 005 con estado_backend fuera del enum real (aislado_y_seguro|brechas_detectadas|bloqueado_por_diseno) es RECHAZADO', () => {
+  const r = validarFormaVeredicto('005_INGENIERO_BACKEND', { estado_backend: 'todo_ok', brechas_rls: 0, anomalias: [] });
+  assert.equal(r.ok, false);
+});
+
+test('validarFormaVeredicto: agente sin contrato declarado en VEREDICTO_SCHEMAS no bloquea (compatibilidad)', () => {
+  const r = validarFormaVeredicto('999_AGENTE_INEXISTENTE', { cualquier_cosa: true });
+  assert.equal(r.ok, true);
+});
+
+test('VEREDICTO_SCHEMAS: cubre exactamente los agentes con veredicto JSON real hoy (002 + subgates 003/004/005/006/009)', () => {
+  const claves = Object.keys(VEREDICTO_SCHEMAS).sort();
+  assert.deepEqual(claves, [
+    '002_ARQUITECTO_DE_SOFTWARE', '003_ESP_DISENO_STITCH', '004_SENTINELA_FRONTEND',
+    '005_INGENIERO_BACKEND', '006_DEVSECOPS_INFRAESTRUCTURA', '009_INGENIERO_FRONTEND',
+  ].sort());
+});

@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-13T05:15:09.555Z",
+  "generado": "2026-08-13T23:22:51.844Z",
   "total_agentes": 9,
   "agentes_con_gate": 6,
   "agentes_con_permiso_escritura": [
@@ -37,16 +37,17 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "ae1972289eb93c5a5fde29bfb0a9873fc8448f1fdf0ec39a81933fff895520ad",
-        "timestamp": "2026-08-13T05:13:59.546Z",
+        "firma": "2baa861f162a426b085823a8fa2f75dbd8585d1328a94c72492eb66620083750",
+        "timestamp": "2026-08-13T23:21:40.881Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "hashEstado() corregido: ahora incluye public/src/ completo y public/*.html + public/app.js en la firma SHA-256, cerrando el bypass real documentado",
-          "Filtrado de archivos sueltos excluye correctamente artefactos auto-generados (estado_antigravity.json, etc.) — solo incluye .html y app.js por nombre explícito",
-          "Guard fs.existsSync(dirPublic) presente; ausencia de guard equivalente para dirPublicSrc es riesgo menor pre-existente en el patrón, no introducido por este diff",
-          "Documentación .md consistente con el código: el bug descrito, la corrección y el contador de tests (48→63) corresponden al cambio real del .cjs",
-          "PDF es reflejo semántico del .md con reformateo de tablas — sin divergencia de contenido",
-          "Alcance ajustado: solo toca hashEstado() y documentación, sin abstracciones no solicitadas ni cambios a lógica de validación o flujo de aprobación"
+          "Esquema de 002_ARQUITECTO_DE_SOFTWARE coincide con contrato declarado en este system prompt",
+          "Fail-closed confirmado: veredicto con forma inválida nunca se trata como aprobado, sin intento de reparar JSON",
+          "Wireado en exactamente los dos puntos de parseo reales (pedirVeredictoArquitecto, pedirVeredictoSubagente), justo después de extraerJSONConCampo — sin duplicación con función existente",
+          "Compatibilidad hacia atrás explícita para agentes sin esquema en VEREDICTO_SCHEMAS",
+          "Alcance ajustado: solo validación de forma, sin abstracciones adicionales",
+          "Advertencia no bloqueante: package.json no visible en el diff — verificar que zod esté en dependencias antes del merge",
+          "Advertencia no bloqueante: scripts/architecture-gate.test.cjs omitido del diff — los 6 tests nuevos declarados no fueron verificados, pero el riesgo es falsa cobertura, no bypass de gate"
         ]
       }
     },
