@@ -59,7 +59,14 @@ const ESCUADRON_ELITE = {
     },
     '007_DOCUMENTADOR_AS_BUILD': {
         rol: 'Planimetría y documentación final (antiguo 004_DOCUMENTADOR_AS_BUILD)',
-        subordinados: ['010_redactor_tecnico'],
+        // subordinados: [] — 010_redactor_tecnico purgado de esta lista 2026-08-13
+        // (auditoría del propio 007): sus 2 skills (Skill_002_Redactor_Propuestas.cjs,
+        // Skill_002_Generador_Anexos.cjs) no las importa nada en src/ ni server.js —
+        // código muerto, mismo patrón ya purgado de 006 (03-analista-secop,
+        // 14-analista-comportamiento). La carpeta agents/010_redactor_tecnico/ en sí
+        // no se borró (a diferencia de esas 2) porque no se confirmó que esté vacía
+        // de contenido útil — solo se cortó la asignación fantasma como subordinado.
+        subordinados: [],
         carpetaSalida: path.join(dirRoot, 'docs', 'as-build'),
     },
     '008_AUDITOR_DE_CODIGO': {

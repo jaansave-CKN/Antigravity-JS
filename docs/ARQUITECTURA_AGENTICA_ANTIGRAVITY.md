@@ -485,6 +485,18 @@ Todo lo demás (§1-§14) describe con precisión la rama `master` — verificad
 
 ---
 
+## 0-W. Auditoría de 007_DOCUMENTADOR_AS_BUILD — configurado pero inactivo (2026-08-13)
+
+El usuario pidió auditoría profunda de `007` (¿está 100/100, merece estar en el escuadrón?). Veredicto: **el mandato (el texto del archivo) es sólido, pero el agente nunca operó en la práctica** — confirmado por el propio PMU (`generarEstadoOperativo()`: `gate: "sin_gate_propio", ultimo_veredicto: null` para 007) y por evidencia directa:
+
+1. **PDF desactualizado, corregido esta ronda** — `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.pdf` seguía siendo de antes de §0-U/§0-V pese a que el mandato de 007 promete regenerarlo. No existía ningún script reutilizable para hacerlo (se hacía ad-hoc en sesiones anteriores, sin dejar artefacto). Se creó `scripts/generar_pdf_arquitectura.cjs` (markdown→HTML propio, sin dependencia nueva, → Edge headless `--print-to-pdf`) y se regeneró el PDF con este mismo contenido.
+2. **Subordinado fantasma purgado** — `ESCUADRON_ELITE['007_DOCUMENTADOR_AS_BUILD'].subordinados` listaba a `010_redactor_tecnico`, cuyas 2 skills (`Skill_002_Redactor_Propuestas.cjs`, `Skill_002_Generador_Anexos.cjs`) no las importa nada en `src/`/`server.js` — código muerto, mismo patrón ya purgado de `006` (§0-... limpieza de subordinados 2026-08-12). Se cortó la asignación (`subordinados: []`); la carpeta `agents/010_redactor_tecnico/` no se borró (a diferencia de las purgadas de 006), solo se dejó de citar como subordinado real.
+3. **Nunca invocado vía el mecanismo real (`Agent` tool)** en ninguna sesión — todo el trabajo de documentación atribuido a "007" hasta hoy lo hizo Claude principal directamente. No corregido en esta ronda (es un hábito de invocación, no un bug de código); queda como pendiente para la próxima vez que se cierre una ronda de trabajo significativa: invocar a 007 de verdad, no hacer su trabajo por él.
+
+**Conclusión:** 007 se queda en el escuadrón (el rol es necesario — 005 ya quedó desactualizado una vez sobre RLS, ver §0-V, y ese es exactamente el tipo de brecha que 007 debería atrapar). Se cierran las 2 brechas de código (PDF stale, subordinado fantasma); la brecha de invocación real queda documentada, no resuelta.
+
+---
+
 ## 0-E. QUINTA RONDA (2026-08-11) — re-verificación forense completa + 2 hallazgos nuevos, sin drift estructural
 
 Pedido explícito del usuario: repetir la auditoría de los 5 bloques del protocolo original (topografía, MVP real vs. stubs, RBAC, multiagente/FinOps, telemetría/monetización) con foco especial en el ecosistema agéntico — inventario total, organigrama, auditoría anatómica de skills, mapa de integraciones, gaps y plan de remediación. Metodología: verificación directa en disco (no se confió en el hallazgo de un subagente de investigación sin comprobarlo por lectura propia de cada archivo citado), más un agente de investigación en paralelo (`general-purpose`, id `ae5a10eaa007aa11c`) que re-descubrió de forma independiente el mismo inventario de §1-§13 — usado como segunda fuente para contraste, no como fuente primaria.
