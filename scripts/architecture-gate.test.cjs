@@ -18,7 +18,7 @@ const {
   hashArchivo, hashEstado, validarDisenoAprobado, rutear,
   SUBGATES, archivosRelevantesPara, validarSubgate,
   descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
-  escanearSecretos, verificarEnvExample, diffTocaDependencias,
+  escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe,
 } = require('../agents/architecture-gate.cjs');
 
 function crearFixture() {
@@ -156,6 +156,30 @@ test('escanearSecretos: un archivo committeado normal (package.json) no da falso
 test('verificarEnvExample: .env.example existe y cubre todas las variables de .env (generado 2026-08-12)', () => {
   const resultado = verificarEnvExample();
   assert.equal(resultado.ok, true, resultado.razon);
+});
+
+test('bucketDe: prioriza .claude/agents/ y código de gate sobre lockfiles/artefactos generados (regresión 2026-08-13)', () => {
+  const archivos = [
+    'package-lock.json',
+    'agents/pmu/telemetria.jsonl',
+    'public/estado_antigravity.json',
+    '.claude/agents/005-ingeniero-backend.md',
+    'agents/architecture-gate.cjs',
+    'src/modules/formulador/supabaseClient.js',
+    'server.js',
+    'public/app.js',
+    'docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md',
+  ];
+  const ordenado = archivos.slice().sort((a, b) => bucketDe(a) - bucketDe(b));
+  // Los 3 primeros deben ser los críticos, no el lockfile ni los artefactos auto-generados.
+  assert.ok(bucketDe('.claude/agents/005-ingeniero-backend.md') < bucketDe('package-lock.json'));
+  assert.ok(bucketDe('agents/architecture-gate.cjs') < bucketDe('package-lock.json'));
+  assert.ok(bucketDe('src/modules/formulador/supabaseClient.js') < bucketDe('package-lock.json'));
+  assert.ok(bucketDe('server.js') < bucketDe('agents/pmu/telemetria.jsonl'));
+  assert.ok(bucketDe('public/app.js') < bucketDe('public/estado_antigravity.json'));
+  // package-lock.json y los artefactos auto-generados quedan al final (mismo bucket, el "resto").
+  assert.equal(bucketDe('package-lock.json'), bucketDe('agents/pmu/telemetria.jsonl'));
+  assert.equal(ordenado[ordenado.length - 1] === 'package-lock.json' || ordenado[ordenado.length - 1] === 'agents/pmu/telemetria.jsonl' || ordenado[ordenado.length - 1] === 'public/estado_antigravity.json', true);
 });
 
 test('diffTocaDependencias: package.json no staged -> false, sin correr git', () => {

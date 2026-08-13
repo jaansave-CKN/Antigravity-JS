@@ -117,6 +117,65 @@ const ARCHITECT_PROMPT_PATH = path.join(dirRoot, '.claude', 'agents', '002-arqui
 // archivos pero se pasó por alto este).
 const ANTHROPIC_MODEL = process.env.PRIMARY_AI_MODEL || 'claude-sonnet-4-6';
 
+// Orden de prioridad para el diff que se manda a 002 — más crítico primero.
+// Corrige un hallazgo real (2026-08-13): un corte crudo de `git diff HEAD` a
+// 60000 caracteres, por orden alfabético, dejó fuera los fixes de seguridad
+// reales (server.js, public/app.js) porque package-lock.json (1400+ líneas)
+// venía antes alfabéticamente y se comió el presupuesto — 002 aprobó habiendo
+// visto solo cambios de PMU/dependencias, no el diff que realmente importaba.
+const PRIORIDAD_DIFF = [
+    /^\.claude\/agents\//,
+    /^agents\/architecture-gate\.cjs$/,
+    /^src\//,
+    /^server\.js$/,
+    /^public\/(?!estado_antigravity\.json)/,       // frontend real, no el JSON auto-generado
+    /^docs\//,
+    // todo lo demás (lockfiles, telemetría/estado PMU auto-generados, etc.)
+    // cae al final por no matchear ningún patrón de arriba — ver bucketDe().
+];
+
+function bucketDe(archivo) {
+    const idx = PRIORIDAD_DIFF.findIndex(p => p.test(archivo));
+    return idx === -1 ? PRIORIDAD_DIFF.length : idx;
+}
+
+// Construye el diff a mandar a la API ordenando por criticidad, no
+// alfabéticamente — si algo se trunca, que sea lo menos importante
+// (lockfiles/artefactos auto-generados), nunca código de aplicación o
+// definiciones de agentes.
+function construirDiffPriorizado(limiteChars) {
+    let archivos;
+    try {
+        archivos = execFileSync('git', ['diff', 'HEAD', '--name-only'], { cwd: dirRoot, encoding: 'utf8' })
+            .split('\n').map(l => l.trim()).filter(Boolean);
+    } catch (e) {
+        return { diff: '', truncado: false, error: `No se pudo leer 'git diff HEAD --name-only': ${e.message}` };
+    }
+    if (archivos.length === 0) return { diff: '', truncado: false };
+
+    archivos.sort((a, b) => bucketDe(a) - bucketDe(b));
+
+    let acumulado = '';
+    const omitidos = [];
+    for (const archivo of archivos) {
+        if (acumulado.length >= limiteChars) { omitidos.push(archivo); continue; }
+        let diffArchivo;
+        try {
+            diffArchivo = execFileSync('git', ['diff', 'HEAD', '--', archivo], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+        } catch (e) {
+            diffArchivo = `[No se pudo leer el diff de ${archivo}: ${e.message}]\n`;
+        }
+        const espacioRestante = limiteChars - acumulado.length;
+        if (diffArchivo.length > espacioRestante) {
+            acumulado += diffArchivo.slice(0, espacioRestante) + `\n[... ${archivo} truncado aquí, sin espacio restante ...]\n`;
+            omitidos.push(...archivos.slice(archivos.indexOf(archivo) + 1));
+            break;
+        }
+        acumulado += diffArchivo;
+    }
+    return { diff: acumulado, truncado: omitidos.length > 0, omitidos };
+}
+
 // Invoca al Agente Arquitecto real: system prompt = 002-arquitecto-de-software.md, input = git diff
 // pendiente contra HEAD. Nunca autoaprueba por ausencia de respuesta — todo camino
 // de error devuelve aprobado:false con la razón concreta (Honestidad Técnica).
@@ -129,15 +188,21 @@ async function pedirVeredictoArquitecto() {
     }
     const systemPrompt = fs.readFileSync(ARCHITECT_PROMPT_PATH, 'utf8');
 
-    let diff;
-    try {
-        diff = execFileSync('git', ['diff', 'HEAD'], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
-    } catch (e) {
-        return { aprobado: false, razones: [`No se pudo leer 'git diff HEAD': ${e.message}`] };
+    const { diff, truncado, omitidos, error } = construirDiffPriorizado(60000);
+    if (error) {
+        return { aprobado: false, razones: [error] };
     }
     if (!diff || !diff.trim()) {
         return { aprobado: false, razones: ['git diff HEAD está vacío — no hay cambios pendientes que aprobar.'] };
     }
+
+    const avisoTruncamiento = truncado
+        ? `\n\nAVISO: el diff completo no cabía en el presupuesto de caracteres. Se priorizó por criticidad ` +
+          `(.claude/agents/, código de gate, src/, server.js, frontend real, docs — en ese orden); lo que quedó ` +
+          `fuera son archivos de menor riesgo (lockfiles, artefactos auto-generados como telemetría/estado PMU): ` +
+          `${omitidos.slice(0, 10).join(', ')}${omitidos.length > 10 ? ` (+${omitidos.length - 10} más)` : ''}. ` +
+          `Si alguno de esos archivos omitidos SÍ te parece crítico por su nombre, no apruebes sin verlo — pide que se re-envíe.`
+        : '';
 
     let response;
     try {
@@ -152,14 +217,15 @@ async function pedirVeredictoArquitecto() {
             system: systemPrompt,
             messages: [{
                 role: 'user',
-                content: `Fiscaliza el siguiente diff pendiente de aprobación (git diff HEAD, truncado a 60000 caracteres si aplica). ` +
+                content: `Fiscaliza el siguiente diff pendiente de aprobación (git diff HEAD, reordenado por criticidad y ` +
+                    `truncado a 60000 caracteres si aplica — ver aviso al final si corresponde). ` +
                     `IMPORTANTE: esta invocación es una llamada directa a la API de Anthropic, no una sesión de Claude Code — ` +
                     `no tienes acceso real a Read/Grep/Glob aquí pese a lo que indique tu system prompt para tu uso habitual. ` +
                     `No emitas tool_call ni nada similar: no se ejecutará. Basa tu fiscalización únicamente en el diff de texto ` +
                     `provisto abajo (línea de contexto suficiente para evaluar consistencia, completitud y alcance). ` +
                     `Sé conciso en el análisis narrativo (párrafos cortos, sin repetir el diff) — el veredicto JSON obligatorio ` +
                     `al final es lo único que este proceso puede parsear; si te quedas sin espacio antes de emitirlo, el gate ` +
-                    `entero falla. Prioriza terminar con el JSON sobre extender el análisis.\n\n${diff.slice(0, 60000)}`,
+                    `entero falla. Prioriza terminar con el JSON sobre extender el análisis.\n\n${diff}${avisoTruncamiento}`,
             }],
         });
     } catch (e) {
@@ -1172,5 +1238,5 @@ module.exports = {
     SUBGATES, archivosRelevantesPara, validarSubgate,
     descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
     escanearSecretos, verificarEnvExample, verificarDependencias, ejecutarChequeosEstaticos,
-    diffTocaDependencias,
+    diffTocaDependencias, bucketDe, construirDiffPriorizado,
 };

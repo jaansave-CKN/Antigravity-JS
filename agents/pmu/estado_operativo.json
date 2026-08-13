@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-13T02:46:19.784Z",
+  "generado": "2026-08-13T02:53:52.541Z",
   "total_agentes": 8,
   "agentes_con_gate": 4,
   "agentes_con_permiso_escritura": [
@@ -37,15 +37,16 @@
       "ultimo_veredicto": {
         "aprobado": true,
         "firma": "3564f15053389137e01f850d093f3d0d080c74d95e847ae067d39bb862f23e5f",
-        "timestamp": "2026-08-13T02:46:19.776Z",
+        "timestamp": "2026-08-13T02:53:52.534Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "007: extensión coherente del rol documentador — Mermaid desde código real y detección financiera son additive sin nuevas dependencias de infraestructura; rechazo explícito del scope aspiracional previene duplicación futura",
-          "007: campo hallazgos_financieros_o_idempotencia bien tipado en salida obligatoria, compatible con el patrón de veredicto estructurado ya establecido",
-          "architecture-gate.cjs: nuevo subgate 006 sigue exactamente el mismo shape que 003/004 (promptPath, patrones, campoAprobado, veredictoPath); patrones de archivos infra son correctos y disjuntos de los de 003/004",
-          "test: cobertura del nuevo subgate incluye verificación de campo, patrones positivos y exclusión de falsos positivos — consistente con tests existentes de 003/004",
-          "telemetría y estado_operativo: actualizaciones menores coherentes con la sesión documentada; único punto menor (agentes_con_gate: 3 vs potencial 4) no bloquea porque la semántica del campo podría excluir subgates",
-          "sin DDL en este diff — regla de atomicidad de migraciones no aplica"
+          "Corrige bug documentado (2026-08-13): ordenamiento por bucket de criticidad antes de truncar evita que lockfiles consuman el presupuesto antes que código de aplicación",
+          "construirDiffPriorizado reemplaza el bloque de lectura cruda manteniendo el mismo contrato de errores (aprobado:false con razón concreta)",
+          "Aviso de truncamiento al prompt de 002 es accionable: nombra los omitidos y le instruye no aprobar si alguno parece crítico",
+          "bucketDe y construirDiffPriorizado exportados correctamente para ser testeables",
+          "Test de regresión cubre los casos reales del incidente: .claude/agents/ y src/ antes que package-lock.json, public/app.js antes que estado_antigravity.json",
+          "Artefactos pmu/ (estado_operativo.json, telemetria.jsonl) son cambios de timestamp esperados sin riesgo",
+          "No toca autenticación, no borra interfaces, no introduce DDL — alcance ajustado al problema declarado"
         ]
       }
     },
