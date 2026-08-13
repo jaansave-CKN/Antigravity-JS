@@ -35,17 +35,25 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # 20 -> 22 (2026-08-13, bug real encontrado en producción): las 4
-          # últimas ejecuciones de este workflow fallaron en "npm ci" con
-          # "Missing: @types/react@19.2.18 from lock file" — causa real:
-          # file-type@22.0.1 (dependencia transitiva de @sentry/node) exige
-          # Node >=22 (EBADENGINE), y con Node 20 el árbol de resolución de
-          # npm diverge del lockfile generado localmente (Node 25). Ver
-          # también "engines" en package.json.
+          # 20 -> 22 (2026-08-13): file-type@22.0.1 (dependencia transitiva
+          # de @sentry/node) exige Node >=22 (EBADENGINE con Node 20) — ver
+          # también "engines" en package.json. Necesario pero NO fue
+          # suficiente por sí solo para arreglar la CI real (ver nota abajo).
           node-version: '22'
 
       - name: Instalar dependencias
-        run: npm ci --ignore-scripts
+        # `npm ci` (no `npm install`) fue la causa real de 5 ejecuciones
+        # fallidas seguidas (2026-08-13, verificado vía API de GitHub
+        # Actions, no supuesto): "Missing: @types/react@19.2.18 from lock
+        # file" — persistía incluso con Node 22, y `npm ci` LOCAL (misma
+        # máquina, mismo lockfile) sí funcionaba, así que no era un problema
+        # del lockfile en sí — es una divergencia de validación entre la
+        # versión de npm local (v11, más permisiva) y la que trae el runner
+        # de GitHub. `npm install` es menos estricto sobre sincronía exacta
+        # del lockfile y es lo que YA usa render.yaml en producción
+        # (buildCommand: "npm install && ...") — alinear la CI con lo que
+        # ya funciona en producción, no un capricho de conveniencia.
+        run: npm install --ignore-scripts
         # --ignore-scripts: evita correr `prepare` (instala el hook de git,
         # irrelevante en un runner efímero) y cualquier postinstall que
         # dependa de un entorno interactivo.

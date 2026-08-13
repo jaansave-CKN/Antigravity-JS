@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-13T04:42:12.506Z",
+  "generado": "2026-08-13T04:45:58.440Z",
   "total_agentes": 8,
   "agentes_con_gate": 5,
   "agentes_con_permiso_escritura": [
@@ -37,16 +37,16 @@
       "ultimo_veredicto": {
         "aprobado": true,
         "firma": "b27687103b649152578cfc1823e317d309a17da84e247adf44b4c441292a4a90",
-        "timestamp": "2026-08-13T04:42:00.097Z",
+        "timestamp": "2026-08-13T04:45:58.428Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "Extracción de aprobarUnSubgate es equivalente al inline anterior: mismo flujo, mismos efectos, sin regresión visible en --aprobar-subgate",
-          "Promise.all en --aprobar-pendientes es seguro: cada subgate escribe en su propio veredictoPath, escribirEstadoOperativo() se invoca una sola vez al final del lote",
-          "Purga de 07-ing-concreto_GFRC y 08-estratega-neuromarketing de ESCUADRON_ELITE está autorizada explícitamente y documentada con evidencia (0 referencias reales, solo IDENTITY.md)",
-          "Sección §0-Z en ARQUITECTURA_AGENTICA_ANTIGRAVITY.md es consistente cronológicamente y reconoce honestamente el ítem 5 como pendiente sin marcarlo como cerrado",
-          "PDF es artefacto derivado del .md; desalineaciones de tabla son cosméticas, no estructurales",
-          "Archivos omitidos del diff (gate.yml, skills legacy) son de riesgo bajo: gate.yml es configuración de CI ya ejecutada y verificable en el próximo push; skills legacy son archivos archivados sin consumidor activo",
-          "No hay DDL, no hay nuevas dependencias, alcance ajustado a lo pedido"
+          "Cambio de npm ci → npm install justificado con evidencia operativa (5 fallos verificados vía API GitHub Actions, no supuestos)",
+          "Se mantiene --ignore-scripts en ambas variantes — sin regresión de seguridad",
+          "Alineación CI con render.yaml (producción) reduce brecha de entornos, patrón correcto",
+          "Node 22 se mantiene correctamente — el diff aclara que fue necesario pero insuficiente por sí solo",
+          "telemetria.jsonl es append-only sin modificación de registros anteriores",
+          "estado_operativo.json: solo timestamp actualizado, sin cambios de valores sustantivos",
+          "Alcance mínimo y quirúrgico — ningún módulo de dominio, auth, ni interfaz tocados"
         ]
       }
     },
