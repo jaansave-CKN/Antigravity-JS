@@ -1,11 +1,22 @@
 {
   "aprobado": true,
-  "firma": "b6d1ccaebfc344028f166d685aa284a91ad720738fac71de73d23952d36147c8",
-  "timestamp": "2026-08-13T04:14:08.424Z",
+  "firma": "1e2a9bdeb51f623f73c9fcba7840d5c105a70a86396294c38b37b6587cbfd156",
+  "timestamp": "2026-08-14T01:04:50.779Z",
   "firmado_por": "005_INGENIERO_BACKEND (.claude\\agents\\005-ingeniero-backend.md, vía API Anthropic)",
   "veredictoCompleto": {
     "estado_backend": "aislado_y_seguro",
     "brechas_rls": 0,
-    "anomalias": []
+    "anomalias": [
+      {
+        "archivo": "src/shared/infrastructure/session-manager.js",
+        "tipo": "otro",
+        "evidencia": "req.ip puede resolver a IP de proxy si trust proxy no está configurado en server.js — ban se aplicaría a toda la instancia, no al cliente atacante. No es un bug del diff, es riesgo de configuración de despliegue."
+      },
+      {
+        "archivo": "src/shared/infrastructure/session-manager.js",
+        "tipo": "otro",
+        "evidencia": "recordLoginFailure: cacheGet+cacheSet no atómico — conteo de fallos puede ser impreciso bajo concurrencia alta, no un bypass real. Riesgo de robustez menor."
+      }
+    ]
   }
 }

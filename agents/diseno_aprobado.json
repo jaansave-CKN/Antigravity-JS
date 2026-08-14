@@ -1,13 +1,15 @@
 {
   "aprobado": true,
-  "firma": "a7c9b76d5ac47707e723ebfbf3982af07523452bb62dcbcdcd2a73a8c4e404c9",
-  "timestamp": "2026-08-14T00:30:57.274Z",
+  "firma": "c5a6eb5cc5026e83e163043612fc7161da256611e16ee4dadefeb22fdd1661b1",
+  "timestamp": "2026-08-14T01:04:32.757Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "escapeHtml() cubre los 5 caracteres estándar y se aplica en todos los puntos de interpolación de strings controlados por datos externos en renderDashboard() y showBlockingErrors(); los valores numéricos y ternarios con literales no escapados son correctos por tipo",
-    "stroke-dashoffset interpolado sin escape en atributo SVG no constituye vector XSS ejecutable en contexto de presentación inline",
-    "diseno_aprobado.json/estado_operativo.json/veredicto_006.json/veredicto_010.json/telemetria.jsonl son artefactos de trazabilidad del pipeline de gates, consistentes con el estado declarado del sistema multiagente",
-    "hallazgo real de 010 (vite.config.js copyStaticPlugin no sirve app.js ni firebase-config.js) correctamente documentado con responsabilidad asignada a 009/005, no bloqueante para este diff",
-    "ningún cambio toca autenticación, RLS, src/, ni introduce DDL; alcance ajustado al fix de seguridad XSS y actualización de registros de gobernanza"
+    "registrarBypassAuditoria usa fire-and-forget correcto y no bloquea el fallback existente; decodeJwtSubUnsafe no se usa para autorizar nada, solo para enriquecer auditoría post-rechazo",
+    "violation_type 'rls_bypass_attempt' es la solución pragmática correcta dado el CHECK constraint existente; p_detalle preserva la causa textual exacta sin requerir migración fuera de alcance",
+    "checkLoginBan/recordLoginFailure usan cache.js (Redis-backed en prod) — correcto para que el ban sobreviva reinicios de proceso; lógica de reset del contador al activar ban evita acumulación paralela",
+    "loginBanGuard se inserta antes de validateBody en server.js (orden correcto); recordLoginFailure con .catch() no contamina el 401 ya en curso",
+    "suite login_ban.test.mjs cubre los 5 casos críticos con IPs aleatorias por test para evitar contaminación; añadida correctamente a test:gate en package.json",
+    "§0-AB es investigación forense de solo lectura; distingue honestamente entre 'confirmado por comportamiento' y 'leído en pg_policies'; riesgo residual del endpoint REST directo identificado correctamente",
+    "no hay DDL, no hay módulos duplicados, alcance ajustado a lo solicitado"
   ]
 }

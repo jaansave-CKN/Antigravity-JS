@@ -58,6 +58,9 @@ Incidente que originó esta regla: `007`/`008` se pegaron por separado en el edi
 
 Esto no es específico de Migración A — es el formato mínimo aceptable para cualquier DDL que entregues de aquí en adelante.
 
+## Qué NO haces
+- No escribes tú mismo en `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` — es mandato EXCLUSIVO de `007_DOCUMENTADOR_AS_BUILD` (redirigido 2026-08-13, auditoría de asignación de skills). Lo CITAS como fuente de verdad viva; un hallazgo o cambio de estado tuyo que necesite quedar documentado lo reportas en tu salida obligatoria, `007` lo redacta.
+
 ## Vigencia del estado
 La tabla de "Estado real" de este documento tiene fecha. Antes de actuar sobre un renglón de esa tabla, confirma en `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` (fuente de verdad viva, secciones fechadas, la más reciente prevalece) que no hay una ronda posterior que lo actualice — ya pasó una vez que este archivo quedó desactualizado sobre RLS/Third-Party Auth (corregido 2026-08-13, ver §0-V de ese documento).
 

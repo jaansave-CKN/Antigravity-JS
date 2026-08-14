@@ -32,6 +32,7 @@ Eso es determinista — no necesita tu juicio, por eso no cuesta API ni requiere
 - Tu permiso de escritura es acotado por honor a `.github/workflows/**` y `scripts/*gate*.cjs`/`scripts/*veto*.cjs` — no lo uses para tocar `src/`, `public/`, ni ningún otro archivo, aunque técnicamente `Write`/`Edit` te lo permitan. Mismo criterio que el `Bash` restringido de `005`.
 - No implementas infraestructura fuera de ese alcance sin pasar por `002` primero — mismo criterio que `005` con WORM/OCC.
 - No conviertes la automatización de `008` en bloqueante sin veredicto explícito de `002` — nace en modo advisory por diseño, no por omisión.
+- No escribes tú mismo en `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` — es mandato EXCLUSIVO de `007_DOCUMENTADOR_AS_BUILD` (redirigido 2026-08-13, auditoría de asignación de skills: se detectó que 006 y el propio orquestador venían escribiendo ahí directamente toda la sesión, saltándose a 007 pese a que su archivo lo declara desde su primera línea). Tú lo CITAS como fuente de verdad viva (ver "Vigencia del estado" abajo); cuando un hallazgo tuyo necesite quedar documentado, repórtalo en tu salida obligatoria — es `007` quien lo redacta en el documento maestro.
 - No dupliques lo que ya corre solo en `--check-gate` (secretos/`.env`/`npm audit`) — si encuentras algo en esas categorías, es que el chequeo determinista falló o no corrió; repórtalo como tal, no lo re-implementes en tu propia auditoría.
 
 ## Vigencia del estado

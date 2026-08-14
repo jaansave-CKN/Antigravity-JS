@@ -1,5 +1,5 @@
 # ARQUITECTURA AGÉNTICA ANTIGRAVITY — Auditoría Forense 360° Multiagente + Sistema Completo
-**Fecha:** 2026-08-08, re-verificado y ampliado 2026-08-10 (§0-D) y 2026-08-11/12 (§0-E…§0-K en el camino, §0-L Migración A confirmada en Supabase con evidencia)
+**Fecha:** 2026-08-08, re-verificado y ampliado 2026-08-10 (§0-D), 2026-08-11/12 (§0-E…§0-K en el camino, §0-L Migración A confirmada en Supabase con evidencia), y 2026-08-13 (§0-M…§0-AC, cierre: hallazgo de gobernanza sobre el mandato exclusivo de `007` para este documento)
 **Auditor:** Chief AI Architect / Auditor Forense de Sistemas Multiagente / DevSecOps Lead / Chief Software Auditor / System Architect
 **Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS`, **ambas ramas remotas** (`origin/master` y `origin/main`, ver §0-D). `proyectos/` queda fuera del árbol de trabajo local (repos git independientes, `.gitignore:19-24`) — pero ver §0-D sobre su relación real con `origin/main`.
 **Regla de evidencia:** cero suposiciones — cada hallazgo cita archivo real. Donde el volumen hizo impracticable la lectura línea-por-línea de decenas de archivos (los skills de `agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/`, o los 171 commits de `origin/main`), se declara el muestreo usado.
@@ -1302,3 +1302,39 @@ PostgREST, prueba 2), no la única barrera del flujo normal de la app.
    de `002`, no de esta auditoría.
 
 **No se tocó código de aplicación ni migraciones en esta ronda** — investigación de solo lectura, como fue encargado.
+
+---
+
+## 0-AC. Hallazgo de gobernanza — el mandato exclusivo de `007_DOCUMENTADOR_AS_BUILD` sobre este documento no se estaba respetando en la práctica (2026-08-13)
+
+**Encargo:** el usuario ordenó auditar si alguna skill/responsabilidad del Escuadrón Élite necesitaba redirigirse a
+otro agente ("solución grado militar de forma quirúrgica"). Al auditar la asignación de responsabilidades se encontró
+una brecha entre lo declarado y lo ejecutado — no una brecha de definición (el rol `007_DOCUMENTADOR_AS_BUILD`
+siempre tuvo este documento como su mandato de escritura exclusivo, línea 3 de `.claude/agents/007-documentador-as-build.md`
+desde que ese archivo se creó), sino de **uso real**.
+
+**Qué se encontró:** durante toda la sesión que produjo este documento — cuarta remediación (§0-D), quinta
+remediación (§0-E), sexta remediación (§0-F), y la sección inmediatamente anterior a esta (§0-AB, escrita por
+`006_DEVSECOPS_INFRAESTRUCTURA`), además de varias secciones anteriores — cada ronda se escribió directamente por
+el orquestador (Claude, fuera del sistema formal de agentes) o por `006`, sin invocar a `007` vía la herramienta
+`Agent` en ningún momento real. Es la misma clase de brecha que ya se corrigió antes en este proyecto para frontend
+(`003`/`004` auditaban pero nadie construía → nació `009`, ver §0-Y) — aquí el rol sí existe y está correctamente
+definido en el papel desde el origen, simplemente nunca se usó de verdad para la función que declara.
+
+**Corrección aplicada esta ronda — 2 líneas agregadas, ambas verificadas en disco:**
+- `.claude/agents/006-devsecops-infraestructura.md:62` — sección "Qué NO haces" ampliada: *"No escribes tú mismo en
+  `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` — es mandato EXCLUSIVO de `007_DOCUMENTADOR_AS_BUILD` (redirigido
+  2026-08-13, auditoría de asignación de skills). Lo CITAS como fuente de verdad viva; un hallazgo o cambio de
+  estado tuyo que necesite quedar documentado lo reportas en tu salida obligatoria, `007` lo redacta."*
+- `.claude/agents/005-ingeniero-backend.md:61-62` — sección nueva "Qué NO haces" agregada (no existía antes en ese
+  archivo pese a que `005` tiene `Write`/`Edit`), con la restricción explícita equivalente a la de `006`.
+
+**Constancia para el futuro, efectiva desde esta sección en adelante:** las actualizaciones a
+`docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` deben enrutarse a través de `007_DOCUMENTADOR_AS_BUILD` como agente real
+invocado (herramienta `Agent`, subagente `007`), no escribirse directamente por quien esté haciendo el trabajo en el
+momento — orquestador incluido. Esta misma sección (§0-AC) es la primera escrita bajo ese enrutamiento correcto: fue
+producida por una invocación real del agente `007`, con evidencia citada de archivo:línea en ambos casos, no
+redactada de oficio por el orquestador.
+
+**Qué no se hizo en esta ronda:** no se modificó ningún otro `.claude/agents/*.md` más allá de los 2 ya corregidos
+por el encargo original, y no se tocó código de aplicación — el blast radius de `007` está limitado a `docs/`.
