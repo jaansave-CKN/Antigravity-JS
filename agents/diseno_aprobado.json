@@ -1,15 +1,15 @@
 {
   "aprobado": true,
-  "firma": "2baa861f162a426b085823a8fa2f75dbd8585d1328a94c72492eb66620083750",
-  "timestamp": "2026-08-13T23:21:40.881Z",
+  "firma": "924cc878c147d969b6e364e41caf6d16e6e10dadbaf931ff46e042ede792fc09",
+  "timestamp": "2026-08-13T23:24:19.321Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Esquema de 002_ARQUITECTO_DE_SOFTWARE coincide con contrato declarado en este system prompt",
-    "Fail-closed confirmado: veredicto con forma inválida nunca se trata como aprobado, sin intento de reparar JSON",
-    "Wireado en exactamente los dos puntos de parseo reales (pedirVeredictoArquitecto, pedirVeredictoSubagente), justo después de extraerJSONConCampo — sin duplicación con función existente",
-    "Compatibilidad hacia atrás explícita para agentes sin esquema en VEREDICTO_SCHEMAS",
-    "Alcance ajustado: solo validación de forma, sin abstracciones adicionales",
-    "Advertencia no bloqueante: package.json no visible en el diff — verificar que zod esté en dependencias antes del merge",
-    "Advertencia no bloqueante: scripts/architecture-gate.test.cjs omitido del diff — los 6 tests nuevos declarados no fueron verificados, pero el riesgo es falsa cobertura, no bypass de gate"
+    "VEREDICTO_SCHEMAS define contratos Zod que replican exactamente los campos declarados en la sección 'Salida obligatoria' de cada .claude/agents/*.md relevante (002, 003, 004, 005, 006, 009)",
+    "validarFormaVeredicto() es fail-closed: agentes sin esquema pasan (compatibilidad hacia atrás), agentes con esquema que fallan retornan aprobado:false con detalle exacto de ruta/tipo — nunca intento de reparación forzada",
+    "Wireo correcto en pedirVeredictoArquitecto() y pedirVeredictoSubagente(): validación de forma se inserta después de extraerJSONConCampo() y antes de la evaluación del booleano de aprobación, en ambos puntos de parseo reales",
+    "Fix de hashEstado() técnicamente correcto: __filename en CJS apunta al archivo en ejecución; la concatenación con || es consistente con el patrón existente de la función; el comportamiento resultante es más estricto (más archivos invalidan la firma), nunca más laxo",
+    "Exportación de validarFormaVeredicto y VEREDICTO_SCHEMAS en module.exports es necesaria para los tests declarados — no expone nada sensible",
+    "El cambio no toca autenticación, RLS, módulos de dominio src/, ni introduce abstracciones no solicitadas; alcance ajustado al hallazgo puntual de gobernanza de salida de agentes",
+    "Riesgo menor aceptado: architecture-gate.test.cjs quedó fuera del diff truncado — los 7 tests nuevos no son verificables desde este diff, pero el código de producción es correcto por inspección directa y el riesgo es de cobertura, no de lógica"
   ]
 }

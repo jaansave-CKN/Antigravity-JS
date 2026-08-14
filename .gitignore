@@ -9,6 +9,11 @@ dist/
 .vercel
 .vscode/
 
+# Artefactos de ejecución de Playwright (no son código, se regeneran en cada corrida)
+/test-results/
+/playwright-report/
+/blob-report/
+
 # Seguridad — credenciales y claves
 serviceAccountKey.json
 config/serviceAccountKey.json

@@ -1159,3 +1159,53 @@ Honesto, no inflado: separado en lo que el código puede resolver (100%) y lo qu
 - **Bloqueo estructural de `005_INGENIERO_BACKEND` resuelto vía ADR-0001** (`docs/ADR/ADR-0001-auth-rls-worm-occ.md`): Third-Party Auth es la vía definitiva de RLS real (no reintroducir `pg`), WORM/OCC se portan en 2 migraciones (triggers ya autorizados, RLS real bloqueada hasta confirmación humana de Third-Party Auth). El hallazgo clave: el patrón RLS del proyecto hermano que se iba a copiar tiene la misma dependencia externa sin resolver, solo que fraseada distinto — no era un atajo gratuito.
 
 **Documento consolidado, actualizado 6 veces (§0/§0-B/§0-C/§0-D/§0-E/§0-F — cada ronda no reescribe, extiende y re-verifica lo anterior), guardado en disco:** `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` ✅ — más `docs/ADR/ADR-0001-auth-rls-worm-occ.md` (nuevo)
+
+---
+
+## 0-AA. 008_AUDITOR_DE_CODIGO integrado al pipeline de CI — modo ADVISORY (2026-08-13)
+
+**Encargo:** Misión 3 de la directiva estratégica del usuario (RadFor-360) — integrar el PROTOCOLO TITÁN completo de
+`008_AUDITOR_DE_CODIGO` (`.claude/agents/008-auditor-de-codigo.md`, Capas 0-9, red team narrativo) como paso automático
+del pipeline de CI, ejecutado por `006_DEVSECOPS_INFRAESTRUCTURA` con permiso de escritura acotado (autorizado por
+veredicto de `002_ARQUITECTO_DE_SOFTWARE` + orden explícita del usuario).
+
+**Qué ya existía y qué faltaba de verdad:** `.github/workflows/gate.yml` ya corría `scripts/check_veto_008.cjs`
+(bloqueante) — un proxy determinista sobre `.sql`/`.js` tocados: fuga de aislamiento multi-tenant, ausencia de
+idempotencia/OCC, divisa distinta de COP. Eso es regex, no juicio. Lo que faltaba era la ejecución real del protocolo
+completo de 008 (9 capas, matriz de hallazgos, red team, BLOQUE FINAL con score y veredicto) — hasta hoy solo se
+invocaba a mano, nunca en CI.
+
+**Qué se construyó:**
+- `scripts/auditor_008_advisory_gate.cjs` — invoca a 008 vía Anthropic SDK contra el diff real del push/PR (`git diff
+  <base>...HEAD`), con el MISMO patrón que `pedirVeredictoSubagente()`/`pedirVeredictoArquitecto()` de
+  `agents/architecture-gate.cjs` (system prompt = archivo `.md` del agente, extracción del veredicto vía
+  `extraerJSONConCampo()` reutilizado — importado, no reimplementado). Diferencia deliberada de diseño: el
+  system prompt de 008 (`.claude/agents/008-auditor-de-codigo.md`) NO SE MODIFICÓ — el alcance de escritura
+  otorgado para esta tarea cubre `.github/workflows/**` y `scripts/*gate*.cjs`/`*veto*.cjs`, no `.claude/agents/**`.
+  En vez de editar el archivo fuente del protocolo, la exigencia de un JSON final estructurado
+  (`{"apto": bool, "score": 0-100, "hallazgos_criticos": [...]}`) se inyecta SOLO en el mensaje de usuario de la
+  llamada de API — mismo mecanismo que ya usa el resto del gate para dar contexto de CI sin tocar prompts
+  versionados. Resultado: 008 corre su protocolo íntegro, sin una sola línea reescrita.
+- Paso nuevo en `gate.yml`, DESPUÉS del veto determinista: `continue-on-error: true` — Y el script mismo siempre
+  sale con `exit 0` (doble cinturón, nunca depende de una sola capa de protección). Publica el veredicto
+  (apto/no apto, score, hallazgos críticos, análisis narrativo completo en un bloque `<details>`) en el log del step
+  y en `GITHUB_STEP_SUMMARY` para revisión humana.
+- `scripts/auditor_008_advisory_gate.test.cjs` (16 tests, cero llamadas reales a la API — mismo criterio que
+  `check_veto_008.test.cjs`: solo funciones puras/deterministas). Agregado a `test:gate` en `package.json`.
+
+**Verificación end-to-end real ejecutada (no solo el diseño en papel):** una corrida real contra `HEAD~1` del repo
+(con `ANTHROPIC_API_KEY` real) devolvió un análisis narrativo completo y válido de las 9 capas — pero con
+`max_tokens: 8192` se quedó sin espacio antes de emitir el JSON final (`parseable:false`), un hallazgo real, no
+hipotético: el protocolo de 008 es más verboso que el de cualquier otro agente del escuadrón (9 capas + matriz de
+hallazgos + matriz de validaciones + TOP 15 + score + veredicto + impacto). Corregido en el mismo commit:
+`max_tokens` subido a `16000`.
+
+**Condición NO NEGOCIABLE, impuesta por `002_ARQUITECTO_DE_SOFTWARE` y reafirmada aquí por escrito:** este paso
+NUNCA puede volverse bloqueante sin veredicto explícito de `002`. El único gate que bloquea de verdad en CI sigue
+siendo `scripts/check_veto_008.cjs` (determinista). Un "NO APTO" de 008 en modo advisory es una señal para revisión
+humana, no un veto automático.
+
+**Pendiente real, fuera de alcance de este cambio:** si en el futuro se decide volver este paso bloqueante, requiere
+(a) veredicto explícito de `002`, (b) decidir un umbral de score/veredicto reproducible (el LLM puede variar entre
+corridas del mismo diff), y (c) el secret `ANTHROPIC_API_KEY` configurado en GitHub Actions — no verificado en esta
+ronda si ya existe como secret del repositorio remoto.

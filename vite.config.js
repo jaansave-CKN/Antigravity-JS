@@ -11,8 +11,17 @@ const copyStaticPlugin = () => ({
 
     if (!existsSync(dist)) mkdirSync(dist, { recursive: true });
 
-    // JSON y datos
-    ['municipios_index.json', 'data.js', 'styles.css'].forEach(file => {
+    // JSON y datos, y los scripts sueltos que las páginas HTML de public/
+    // cargan como <script type="module"> (app.js, firebase-config.js) —
+    // BUG REAL DE PRODUCCIÓN encontrado 2026-08-13 por la suite E2E de
+    // 010_INGENIERO_QA_AUTOMATIZACION (tests/e2e/formulario-fase1.spec.js):
+    // faltaban de esta allowlist, así que en dist/ (lo que server.js sirve
+    // de verdad) esa petición caía en el catch-all SPA de server.js, que
+    // responde index.html con Content-Type text/html — el navegador rechaza
+    // el <script type="module"> por MIME type. Consecuencia real: app.js
+    // nunca se ejecutaba, el listener de #btn-generar-ficha jamás se
+    // registraba, "Finalizar Fase 1" quedaba mudo en producción.
+    ['municipios_index.json', 'data.js', 'styles.css', 'app.js', 'firebase-config.js'].forEach(file => {
       const src = resolve(pub, file);
       if (existsSync(src)) { copyFileSync(src, resolve(dist, file)); console.log('✓', file); }
     });
