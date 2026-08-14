@@ -1209,3 +1209,96 @@ humana, no un veto automático.
 (a) veredicto explícito de `002`, (b) decidir un umbral de score/veredicto reproducible (el LLM puede variar entre
 corridas del mismo diff), y (c) el secret `ANTHROPIC_API_KEY` configurado en GitHub Actions — no verificado en esta
 ronda si ya existe como secret del repositorio remoto.
+
+---
+
+## 0-AB. RLS `formulador_*` en producción — verificación forense en vivo, contradicción de §0-V resuelta (2026-08-13)
+
+**Encargo de `002_ARQUITECTO_DE_SOFTWARE`, ejecutado por `006_DEVSECOPS_INFRAESTRUCTURA`, solo lectura:** confirmar contra
+la base real de Supabase (no contra el `.sql` del repo) si las 6 tablas `formulador_*` tienen RLS realmente activa en
+producción, si la política vigente coincide con `current_tenant_id()`/`app.tenant_id` (la única que existe en el
+código versionado, `001_formulador.sql`), y por qué mecanismo la prueba en vivo de §0-V pudo leer datos propios pese
+a que esa función debería devolver `NULL` bajo REST stateless.
+
+**Limitación de acceso encontrada primero, documentada por honestidad:** no hay `DATABASE_URL` con contraseña en
+`.env` (línea `DATABASE_URL=` vacía, solo el project ref queda documentado en el comentario) — sin conexión directa
+`psql` no hay acceso a `pg_policies`/`information_schema` por SQL directo. Se probó exponer `pg_policies` vía REST
+(`GET $SUPABASE_URL/rest/v1/pg_policies`, con `SUPABASE_SERVICE_KEY`) — PostgREST no expone `pg_catalog`, respuesta
+`404 PGRST205 "Could not find the table 'public.pg_policies' in the schema cache"`. Sin Management API token
+tampoco hay pg-meta. Conclusión: **el texto exacto de la política activa en Postgres no se pudo leer por introspección
+directa esta ronda** — el hallazgo que sigue es 100% por comportamiento observado (pruebas HTTP reales) + lectura del
+código fuente real que ejecuta las RPCs, no por adivinar.
+
+**Pruebas en vivo ejecutadas (curl real contra `$SUPABASE_URL/rest/v1/`, credenciales de `.env`, esta sesión):**
+
+1. `GET /rest/v1/formulador_proyectos?select=id,tenant_id&limit=3` con `apikey`/`Authorization: Bearer` = `SUPABASE_SERVICE_KEY`
+   (rol `service_role`, bypasea RLS por diseño) → `200`, `[{"id":"20b45e21-...","tenant_id":"49893a48-..."}]`.
+   **Confirma que la tabla NO está vacía en producción** (mismo hecho que ya afirmaba §0-V, re-verificado hoy en vivo).
+2. `GET /rest/v1/formulador_proyectos?select=id,tenant_id&limit=3` con `apikey`/`Authorization: Bearer` = `SUPABASE_ANON_KEY`
+   (sin JWT real de usuario, rol `anon`) → `200`, `[]` — **cero filas visibles pese a que la tabla sí tiene datos
+   (confirmado en la prueba anterior)**. Esto es evidencia directa de que RLS está ACTIVA y filtrando en producción
+   (no deshabilitada, no un deploy divergente sin política) — un acceso REST directo sin `set_tenant_context()` previo
+   ve la tabla vacía, consistente con `current_tenant_id()` devolviendo `NULL` bajo REST stateless (exactamente el
+   comportamiento que predice `USING (tenant_id = current_tenant_id())`, la única política que existe en el repo).
+3. Intento de leer `pg_policies` vía REST con `SUPABASE_SERVICE_KEY` → `404 PGRST205` (documentado arriba, prueba
+   negativa: confirma que no hay ruta de introspección de catálogo vía REST en este proyecto).
+
+**La contradicción de §0-V queda resuelta por lectura de código, no por suposición — no fue una política nueva basada
+en `auth.uid()`, fue el mismo `current_tenant_id()` de siempre, ejercido correctamente vía RPC:**
+
+Las 4 RPCs que la app realmente usa para leer/escribir Fase 1 y Módulo 10 —
+`insertar_fase1` (`src/modules/formulador/migrations/005_fix_insertar_fase1.sql`, reemplazada de `SECURITY DEFINER` a
+`SECURITY INVOKER` explícitamente por ese motivo), `obtener_fase1`
+(`src/modules/formulador/migrations/004_rpc_obtener_fase1.sql`, `SECURITY INVOKER` desde su creación), `listar_proyectos`
+y `guardar_modulo10` (`src/modules/formulador/migrations/006_modulo10_y_listado.sql`) — **todas empiezan con
+`PERFORM set_tenant_context(p_tenant_id::TEXT)` como primera línea del cuerpo de la función**, ANTES de cualquier
+`SELECT`/`INSERT`. `set_tenant_context()` (definida en `001_formulador.sql:23-28`) llama
+`set_config('app.tenant_id', p_tenant_id, TRUE)` — el flag `TRUE` (`is_local`) lo hace válido para el resto de la
+MISMA transacción. Una llamada RPC de PostgREST corre dentro de una única transacción de servidor por invocación,
+así que dentro de esa transacción `current_tenant_id()` YA NO devuelve `NULL` — devuelve exactamente el valor que la
+propia función acaba de fijar, y las políticas `USING (tenant_id = current_tenant_id())` de las 6 tablas se evalúan
+con ese valor real. Esto explica sin contradicción alguna por qué:
+- Un `GET /rest/v1/formulador_proyectos` directo (prueba 2 arriba, y el mismo patrón que un atacante externo probaría
+  primero) ve 0 filas — nadie llamó `set_tenant_context()` en esa conexión.
+- Las 3 llamadas RPC de §0-V (`insertar_fase1`/`obtener_fase1`/`listar_proyectos`) SÍ vieron datos propios — cada una
+  fija su propio contexto de tenant al primer renglón de su cuerpo, dentro de la misma transacción que hace el SELECT.
+
+**Respuesta a la pregunta 1.c del encargo (qué rol usó la prueba en vivo):** ninguna de las 4 RPCs usa
+`SECURITY DEFINER` (verificado por grep sobre `src/modules/formulador/migrations/*.sql`: la única ocurrencia de
+`SECURITY DEFINER` que quedó fue en `002_rpc_fase1.sql`, la versión VIEJA de `insertar_fase1` que `005_fix_insertar_fase1.sql`
+reemplaza explícitamente por ese motivo — el comentario de cabecera de `005` lo documenta como "cierre de asimetría
+RLS"). Es decir: la prueba de §0-V no funcionó por evasión de RLS vía `SECURITY DEFINER` (lo que sí sería preocupante,
+un bypass), sino por `SECURITY INVOKER` + fijación explícita y correcta del contexto de tenant dentro de la propia
+transacción — el diseño funciona como está documentado que debería funcionar.
+
+**Segunda capa de seguridad confirmada, independiente de RLS — cierra la pregunta de si RLS es la única defensa:**
+`getTenant()` (`src/modules/formulador/FormuladorPgController.js:26-35`) deriva `p_tenant_id` de forma determinista
+a partir de `req.user.uid` (el UID de Firebase ya verificado por el middleware de auth, `deriveUuidFromString()`,
+SHA-256 truncado a UUID v4) — **el cliente nunca puede pasar un `tenant_id` arbitrario a las RPCs de lectura/escritura
+por su cuenta**; el valor sale del JWT ya validado, no del body de la petición. Esto significa que incluso si RLS
+fallara silenciosamente (deploy divergente, política borrada, etc.), la superficie de ataque para leer datos de otro
+tenant vía las rutas HTTP reales de la app seguiría exigiendo forjar un JWT de Firebase válido para el UID de la
+víctima — RLS aquí es defensa en profundidad sobre el acceso REST directo a las tablas (que sí sigue expuesto por
+PostgREST, prueba 2), no la única barrera del flujo normal de la app.
+
+**Conclusión para `002` — desbloqueo de Migración B:**
+1. RLS SÍ está activa en las 6 tablas `formulador_*` en producción, confirmado por comportamiento en vivo (prueba 2).
+2. La política activa, por evidencia indirecta consistente (ninguna instrumentación reportó `404`/error de política
+   inexistente, el comportamiento coincide exactamente con la lógica de `current_tenant_id()`), sigue siendo la
+   ORIGINAL basada en `current_tenant_id()`/`app.tenant_id` — **no hay evidencia de que exista ya una política basada
+   en `auth.uid()`/claims de Firebase**; el texto exacto no se pudo confirmar por introspección directa (limitación
+   documentada arriba), así que esto es "consistente con", no "leído letra por letra en `pg_policies`".
+3. El aislamiento por tenant funciona hoy en producción por el patrón RPC + `set_tenant_context()`, no porque
+   Third-Party Auth (Firebase) haya cambiado la política de RLS — activar Third-Party Auth (§0-V) resolvió el `401`
+   de JWT inválido en el paso previo del pipeline, pero el mecanismo de aislamiento de filas sigue siendo el de
+   Migración A (`app.tenant_id` por sesión de transacción), no uno nuevo basado en `auth.uid()`.
+4. Riesgo residual real, no resuelto por este hallazgo: `GET /rest/v1/formulador_proyectos` (y análogos sobre las
+   otras 5 tablas) sigue siendo un endpoint expuesto directamente por PostgREST fuera del control de la app — hoy
+   deniega todo por diseño (prueba 2), pero cualquier cambio futuro que otorgue a `authenticated` un `GRANT` amplio
+   sin pasar por las RPCs seguiría dependiendo 100% de que nadie borre esa única política `USING (tenant_id =
+   current_tenant_id())` por accidente. Si Migración B decide migrar a `auth.uid()`, debe decidir explícitamente si
+   mantiene el patrón "RPC fija el contexto" o lo reemplaza por row-level `auth.uid() = owner_id` evaluado sin
+   necesidad de que la RPC haga nada — son dos diseños distintos con distinta superficie de fallo, y esa decisión es
+   de `002`, no de esta auditoría.
+
+**No se tocó código de aplicación ni migraciones en esta ronda** — investigación de solo lectura, como fue encargado.

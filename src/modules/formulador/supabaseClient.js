@@ -39,6 +39,53 @@ function buildHeaders(userJwt) {
 
 const FETCH_TIMEOUT_MS = 10_000;
 
+// Decodifica el payload de un JWT sin verificar firma. En el único punto donde
+// se usa (abajo), el token YA fue rechazado por PostgREST (401) — no hay
+// garantía de autenticidad en este momento, así que esto es solo para
+// enriquecer un registro de auditoría con el 'sub' si el payload es legible;
+// nunca se usa para autorizar nada.
+function decodeJwtSubUnsafe(token) {
+  try {
+    const payloadB64 = token.split('.')[1];
+    const json = Buffer.from(payloadB64, 'base64').toString('utf8');
+    const payload = JSON.parse(json);
+    return payload.sub || payload.user_id || null;
+  } catch {
+    return null;
+  }
+}
+
+// Un JWT de usuario rechazado por PostgREST (401) y degradado a SERVICE_KEY es
+// un evento de seguridad real (bypass de RLS) — antes solo quedaba en un
+// console.warn efímero. Se registra en el Shadow Ledger append-only
+// (security_violations_ledger, 007_worm_occ_shadow_ledger.sql) vía la RPC ya
+// existente registrar_violacion_seguridad (mismo patrón fire-and-forget que
+// occGuard.js::registrarViolacionSeguridad — nunca bloquea ni retarda el
+// fallback que ya estaba en curso; si el propio registro falla, se traga el
+// error). No se pasa `ip`: hoy sbFetch() no recibe el request Express (llega
+// varias capas más abajo del controller) y threadear IP hasta aquí para un
+// solo campo opcional de auditoría es más invasivo de lo que justifica esta
+// tarea — queda documentado como decisión, no como omisión accidental.
+// violation_type usa 'rls_bypass_attempt' (no 'jwt_rechazado_fallback_service_key':
+// ese valor no está en el CHECK de security_violations_ledger y agregarlo
+// requeriría una migración nueva fuera del alcance de este cambio) — el
+// detalle textual sí queda explícito para no perder la causa exacta.
+async function registrarBypassAuditoria(path, userJwt) {
+  try {
+    await doFetch('/rpc/registrar_violacion_seguridad', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_endpoint: path,
+        p_violation_type: 'rls_bypass_attempt',
+        p_jwt_sub: decodeJwtSubUnsafe(userJwt),
+        p_detalle: 'jwt_rechazado_fallback_service_key',
+      }),
+    }, `Bearer ${SERVICE_KEY}`);
+  } catch (err) {
+    console.error('[Supabase] No se pudo registrar la violación en security_violations_ledger:', err.message);
+  }
+}
+
 async function doFetch(path, options, authHeader) {
   const url = `${SUPABASE_URL}/rest/v1${path}`;
   const res  = await fetch(url, {
@@ -69,6 +116,7 @@ async function sbFetch(path, options = {}, userJwt) {
       throw Object.assign(new Error(attempt.data?.message || attempt.data?.error || 'Supabase error'), { status: attempt.status, data: attempt.data });
     }
     console.warn('[Supabase] JWT de usuario rechazado (401) — degradando a SERVICE_KEY para esta llamada. Ver supabaseClient.js:sbFetch.');
+    registrarBypassAuditoria(path, userJwt); // fire-and-forget, ver definición arriba
   }
 
   const fallback = await doFetch(path, options, `Bearer ${SERVICE_KEY}`);

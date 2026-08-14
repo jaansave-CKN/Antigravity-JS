@@ -123,6 +123,65 @@ export function burstLimiter(req, res, next) {
   next();
 }
 
+// ── Ban temporal de IP tras fallos de login repetidos ──────────────────────────
+// Deliberadamente async y persistido vía cache.js (Redis si UPSTASH_* está
+// configurado; memoria si no) — a diferencia de checkQuota/checkBurst
+// (in-memory puro, por-proceso): un contador de fuerza bruta que se resetea
+// en cada reinicio del proceso dejaría de proteger justo en el peor momento
+// (un deploy no debería regalarle al atacante una ventana nueva de intentos).
+// Umbral: 5 fallos en 15 min → ban de 15 min. Se consulta ANTES de intentar
+// admin.auth().verifyIdToken() en /api/session/login (server.js) para no
+// gastar la llamada a Firebase si la IP ya está baneada; se incrementa en el
+// catch de esa misma verificación.
+const LOGIN_FAIL_WINDOW_SEC = 15 * 60; // 15 min
+const LOGIN_FAIL_MAX        = 5;
+const LOGIN_BAN_SEC         = 15 * 60; // 15 min
+
+const loginFailKey = (ip) => `login_fail:${ip}`;
+const loginBanKey  = (ip) => `login_ban:${ip}`;
+
+// Consultado por loginBanGuard (abajo) antes de tocar Firebase.
+export async function checkLoginBan(ip) {
+  const ban = await cacheGet(loginBanKey(ip));
+  if (ban?.until && ban.until > Date.now()) {
+    return { allowed: false, retryAfterMs: ban.until - Date.now() };
+  }
+  return { allowed: true };
+}
+
+// Llamado desde el catch de verifyIdToken() en /api/session/login cuando el
+// token de Firebase es rechazado. Al llegar al umbral banea la IP y resetea
+// el contador de fallos (el ban activo ya es la protección vigente).
+export async function recordLoginFailure(ip) {
+  const key = loginFailKey(ip);
+  const entry = (await cacheGet(key)) || { count: 0 };
+  entry.count += 1;
+
+  if (entry.count >= LOGIN_FAIL_MAX) {
+    const until = Date.now() + LOGIN_BAN_SEC * 1000;
+    await cacheSet(loginBanKey(ip), { until }, LOGIN_BAN_SEC);
+    await cacheDel(key);
+    console.warn(`[Session] IP baneada por fuerza bruta de login: ${ip} (${entry.count} fallos en ${LOGIN_FAIL_WINDOW_SEC / 60} min)`);
+    return { banned: true, retryAfterMs: LOGIN_BAN_SEC * 1000 };
+  }
+
+  await cacheSet(key, entry, LOGIN_FAIL_WINDOW_SEC);
+  return { banned: false, remaining: LOGIN_FAIL_MAX - entry.count };
+}
+
+// Middleware Express — aplica ANTES de la ruta /api/session/login, mismo
+// shape de respuesta 429 que burstLimiter (ver retryAfterMs arriba).
+export async function loginBanGuard(req, res, next) {
+  const { allowed, retryAfterMs } = await checkLoginBan(req.ip);
+  if (!allowed) {
+    return res.status(429).json({
+      error: 'Demasiados intentos fallidos de inicio de sesión, intenta de nuevo más tarde.',
+      retryAfterMs,
+    });
+  }
+  next();
+}
+
 // ── Guard de consultas pesadas — evita que el frontend lance duplicados ─────────
 // Nota: ya no depende de si existe alguna sesión activa en el proceso (ese chequeo
 // era incorrecto — rechazaba usuarios válidos si el Map local estaba vacío, p.ej.

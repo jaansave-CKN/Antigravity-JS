@@ -16,7 +16,7 @@ import { createGitHubRouter }        from './skills/ingenieria/GitHubRouter.js';
 import { createFormuladorRouter }    from './src/modules/formulador/FormuladorRouter.js';
 import { AuditLogger }               from './src/shared/infrastructure/AuditLogger.js';
 import { cacheInfo, cacheGet, cacheSet } from './src/shared/infrastructure/cache.js';
-import { issueToken, verifyToken, revokeSession, sessionStats, checkQuota, burstLimiter } from './src/shared/infrastructure/session-manager.js';
+import { issueToken, verifyToken, revokeSession, sessionStats, checkQuota, burstLimiter, loginBanGuard, recordLoginFailure } from './src/shared/infrastructure/session-manager.js';
 import './src/shared/infrastructure/FirebaseAdmin.js';
 import { verifyFirebaseAuth }        from './src/shared/infrastructure/FirebaseAuthMiddleware.js';
 import { validateBody, schemas }     from './src/shared/infrastructure/validation.js';
@@ -177,7 +177,7 @@ app.use('/api/radar', m1Router);
 // =============================================================================
 
 // POST /api/session/login — intercambia Firebase ID token por JWT propio
-app.post('/api/session/login', validateBody(schemas.sessionLogin), async (req, res) => {
+app.post('/api/session/login', loginBanGuard, validateBody(schemas.sessionLogin), async (req, res) => {
   try {
     const { firebaseToken } = req.body;
     const admin   = (await import('./src/shared/infrastructure/FirebaseAdmin.js')).default;
@@ -186,6 +186,11 @@ app.post('/api/session/login', validateBody(schemas.sessionLogin), async (req, r
     AuditLogger.log('SESSION_LOGIN', { uid: decoded.uid });
     res.json({ ...session, uid: decoded.uid, email: decoded.email });
   } catch (err) {
+    // Fuerza bruta: cada verifyIdToken() rechazado cuenta contra el ban de IP
+    // (session-manager.js: recordLoginFailure). Fire-and-forget deliberado —
+    // un fallo al registrar el contador no debe tumbar la respuesta 401 que
+    // ya se le va a devolver al cliente.
+    recordLoginFailure(req.ip).catch((e) => console.error('[Session] recordLoginFailure falló:', e.message));
     res.status(401).json({ error: 'Firebase token inválido', detail: err.message });
   }
 });
