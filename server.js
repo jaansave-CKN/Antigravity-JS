@@ -134,40 +134,16 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// MCP Infrastructure — expone rutas/config internas del servidor: solo admin
-// (hallazgo PROTOCOLO TITÁN 2026-08-12, Capa 2: cualquier usuario autenticado
-// podía enumerar infraestructura interna sin ningún rol especial).
-app.get('/api/mcp', async (req, res) => {
-  if (req.user?.role !== 'admin') {
-    return res.status(403).json({ error: 'Requiere rol admin.' });
-  }
-  try {
-    const userProfile  = process.env.USERPROFILE || 'C:\\Users\\Usuario';
-    const appData      = process.env.APPDATA || path.join(userProfile, 'AppData', 'Roaming');
-    const pathsToTry   = [
-      process.env.MCP_CONFIG_PATH,
-      path.join(appData, 'Code', 'User', 'globalStorage', 'rooveterinaryinc.roo-cline', 'settings', 'cline_mcp_settings.json'),
-      path.join(userProfile, '.claude', 'antigravity', 'mcp_config.json'),
-      path.join(__dirname, 'config', 'mcp_config.json'),
-    ].filter(Boolean);
-    let mergedConfig   = { mcpServers: {} };
-    const sources      = [];
-    const scanResults  = await Promise.all(pathsToTry.map(async p => {
-      try {
-        if (!fs.existsSync(p)) return null;
-        const config = JSON.parse((await fs.promises.readFile(p, 'utf8')).replace(/^﻿/, ''));
-        return { path: p, servers: config.mcpServers || {} };
-      } catch { return null; }
-    }));
-    scanResults.forEach(r => {
-      if (!r?.servers) return;
-      for (const [name, details] of Object.entries(r.servers)) mergedConfig.mcpServers[name] = { ...details, _source: r.path };
-      sources.push(path.basename(r.path));
-    });
-    if (Object.keys(mergedConfig.mcpServers).length === 0) return res.status(404).json({ error: 'No MCP nodes found' });
-    res.json({ ...mergedConfig, loadedFrom: sources.join(' + ') });
-  } catch { res.status(500).json({ error: 'Critical MCP load failure' }); }
-});
+// Endpoint /api/mcp ELIMINADO 2026-08-13 (PROTOCOLO TITÁN ∞, hallazgo crítico
+// de seguridad, confirmado en vivo): escaneaba rutas del sistema de archivos
+// local (configs de extensiones de VSCode ajenas a esta app, ej.
+// cline_mcp_settings.json) y devolvía por HTTP cualquier secreto encontrado
+// ahí — con un token admin real, el auditor extrajo credenciales de Trello
+// de una herramienta sin ninguna relación con RadFor-360. Gateado solo por
+// un claim de rol es insuficiente: un servidor de producción no debe
+// escanear ni exponer configuración/secretos de rutas arbitrarias del
+// sistema de archivos bajo ninguna circunstancia. No es funcionalidad de
+// negocio de RadFor-360 — no se reemplaza, se elimina.
 
 // M1 Pipeline — protegido por el gate universal /api/* (ver línea ~65)
 app.use('/api/radar', m1Router);

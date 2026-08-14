@@ -1791,6 +1791,19 @@
       tbody.appendChild(tr);
     }
 
+    // Escapa entidades HTML antes de interpolar en innerHTML — cierra un XSS
+    // real confirmado 2026-08-13 (PROTOCOLO TITÁN): f.nombre viene de un
+    // <input type="text"> sin sanitizar y validation.js permite modulo_8
+    // como objeto libre (z.record(z.any())), así que un payload como
+    // <img src=x onerror=...> pasaba intacto hasta aquí. No reusa el
+    // escapeHtml() de app.js porque ese vive en un <script type="module">
+    // (scope aislado) y este bloque es un <script> plano.
+    function escapeHtmlGantt(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[ch]));
+    }
+
     function renderGantt() {
       const rows = Array.from(document.querySelectorAll('#fases-tbody tr'));
       const container = document.getElementById('gantt-container');
@@ -1817,11 +1830,11 @@
         const widthPct  = ((f.fin - f.inicio + 1) / maxMes * 100).toFixed(2);
         const cells = months.map(() => '<div class="gantt-cell"></div>').join('');
         html += `<div class="gantt-row">
-          <div class="gantt-row-label" title="${f.nombre}">${f.nombre}</div>
+          <div class="gantt-row-label" title="${escapeHtmlGantt(f.nombre)}">${escapeHtmlGantt(f.nombre)}</div>
           <div class="gantt-row-track" style="grid-template-columns:repeat(${maxMes},1fr);">
             ${cells}
             <div class="gantt-bar" style="left:${startPct}%;width:${widthPct}%;background:${f.color};">
-              ${f.nombre.length > 18 ? f.nombre.substring(0,16)+'…' : f.nombre}
+              ${escapeHtmlGantt(f.nombre.length > 18 ? f.nombre.substring(0,16)+'…' : f.nombre)}
             </div>
           </div>
         </div>`;

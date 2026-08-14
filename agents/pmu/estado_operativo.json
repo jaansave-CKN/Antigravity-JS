@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-14T01:05:04.959Z",
+  "generado": "2026-08-14T01:11:47.483Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -38,17 +38,15 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "c5a6eb5cc5026e83e163043612fc7161da256611e16ee4dadefeb22fdd1661b1",
-        "timestamp": "2026-08-14T01:04:32.757Z",
+        "firma": "705007680dd6a5d88b611afa74dab0a7f6f1b5983c86b41bfe8e3c1a7f663cd9",
+        "timestamp": "2026-08-14T01:11:23.417Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "registrarBypassAuditoria usa fire-and-forget correcto y no bloquea el fallback existente; decodeJwtSubUnsafe no se usa para autorizar nada, solo para enriquecer auditoría post-rechazo",
-          "violation_type 'rls_bypass_attempt' es la solución pragmática correcta dado el CHECK constraint existente; p_detalle preserva la causa textual exacta sin requerir migración fuera de alcance",
-          "checkLoginBan/recordLoginFailure usan cache.js (Redis-backed en prod) — correcto para que el ban sobreviva reinicios de proceso; lógica de reset del contador al activar ban evita acumulación paralela",
-          "loginBanGuard se inserta antes de validateBody en server.js (orden correcto); recordLoginFailure con .catch() no contamina el 401 ya en curso",
-          "suite login_ban.test.mjs cubre los 5 casos críticos con IPs aleatorias por test para evitar contaminación; añadida correctamente a test:gate en package.json",
-          "§0-AB es investigación forense de solo lectura; distingue honestamente entre 'confirmado por comportamiento' y 'leído en pg_policies'; riesgo residual del endpoint REST directo identificado correctamente",
-          "no hay DDL, no hay módulos duplicados, alcance ajustado a lo solicitado"
+          "005-ingeniero-backend.md y 006-devsecops-infraestructura.md agregan restricción 'Qué NO haces' sobre escritura en el documento maestro — simétricas, accionables, no contradicen otros mandatos del diff",
+          "§0-AC documenta hallazgo de gobernanza real (007 nunca invocado de verdad) con corrección declarada y blast radius acotado a 2 líneas en 2 archivos de agente",
+          "artefactos de trazabilidad (diseno_aprobado.json, veredictos, telemetria, estado_operativo) son rotación de firmas de un ciclo de gate anterior ya aprobado — comportamiento normal del pipeline",
+          "anomalías documentadas por 005 (req.ip/proxy, cacheGet+cacheSet no atómico) correctamente calificadas como riesgos de robustez menor, no brechas RLS, fuera del alcance de este diff",
+          "sin DDL, sin código de aplicación, sin cambios de autenticación, sin módulos nuevos — alcance ajustado a gobernanza documental y propagación de estado de trazabilidad"
         ]
       }
     },

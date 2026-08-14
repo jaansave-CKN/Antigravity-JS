@@ -42,10 +42,17 @@ async function redisGet(key) {
 async function redisSet(key, value, ttlSec = CACHE_TTL_SEC) {
   if (!UPSTASH_URL || !UPSTASH_TOKEN) return;
   try {
+    // BUG REAL DE PRODUCCIÓN corregido 2026-08-13 (PROTOCOLO TITÁN, hallazgo
+    // crítico #1): doble JSON.stringify() aquí vs. un solo JSON.parse() en
+    // redisGet() — toda lectura devolvía el STRING serializado en vez del
+    // objeto original. Rompía en silencio checkLoginBan/recordLoginFailure
+    // (el ban de fuerza bruta de login nunca se aplicaba, confirmado con 6
+    // intentos reales) y el caché de 24h de runM1Pipeline (cada consulta
+    // repetida pagaba Claude+Tavily de nuevo en vez de servirse del caché).
     await fetch(`${UPSTASH_URL}/set/${encodeURIComponent(key)}?ex=${ttlSec}`, {
       method:  'POST',
       headers: { Authorization: `Bearer ${UPSTASH_TOKEN}`, 'Content-Type': 'application/json' },
-      body:    JSON.stringify(JSON.stringify(value)),
+      body:    JSON.stringify(value),
       signal:  AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
   } catch (err) {

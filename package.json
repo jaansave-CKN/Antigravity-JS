@@ -8,7 +8,7 @@
   "type": "module",
   "scripts": {
     "prepare": "node scripts/install-git-hooks.cjs",
-    "test:gate": "node --test scripts/architecture-gate.test.cjs scripts/check_veto_008.test.cjs scripts/auditor_008_advisory_gate.test.cjs scripts/validation.test.mjs scripts/financiero.test.mjs scripts/login_ban.test.mjs",
+    "test:gate": "node --test scripts/architecture-gate.test.cjs scripts/check_veto_008.test.cjs scripts/auditor_008_advisory_gate.test.cjs scripts/validation.test.mjs scripts/financiero.test.mjs scripts/login_ban.test.mjs scripts/cache_redis.test.mjs",
     "kill-port": "powershell -Command \"@(5000,5173) | ForEach-Object { $port=$_; Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue; Write-Host 'Puerto' $port 'liberado' } }\"",
     "fresh": "npm run kill-port && npm start",
     "dev": "vite",
