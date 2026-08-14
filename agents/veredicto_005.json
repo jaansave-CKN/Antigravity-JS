@@ -1,21 +1,16 @@
 {
   "aprobado": true,
-  "firma": "1e2a9bdeb51f623f73c9fcba7840d5c105a70a86396294c38b37b6587cbfd156",
-  "timestamp": "2026-08-14T01:04:50.779Z",
+  "firma": "2d327968d4a5ea1896aa2f16fcb4ca60f8e55e25b17caa9bf46510d1eaa17c15",
+  "timestamp": "2026-08-14T04:04:25.753Z",
   "firmado_por": "005_INGENIERO_BACKEND (.claude\\agents\\005-ingeniero-backend.md, vía API Anthropic)",
   "veredictoCompleto": {
     "estado_backend": "aislado_y_seguro",
     "brechas_rls": 0,
     "anomalias": [
       {
-        "archivo": "src/shared/infrastructure/session-manager.js",
+        "archivo": "src/modules/formulador/FormuladorPgController.js",
         "tipo": "otro",
-        "evidencia": "req.ip puede resolver a IP de proxy si trust proxy no está configurado en server.js — ban se aplicaría a toda la instancia, no al cliente atacante. No es un bug del diff, es riesgo de configuración de despliegue."
-      },
-      {
-        "archivo": "src/shared/infrastructure/session-manager.js",
-        "tipo": "otro",
-        "evidencia": "recordLoginFailure: cacheGet+cacheSet no atómico — conteo de fallos puede ser impreciso bajo concurrencia alta, no un bypass real. Riesgo de robustez menor."
+        "evidencia": "setServerAuthToken eliminado y userJwt pasado como parámetro explícito — corrección válida de race condition multi-tenant. No verificable en este diff: que orchestrator-engine.js no reinserte el estado global internamente con el parámetro recibido."
       }
     ]
   }

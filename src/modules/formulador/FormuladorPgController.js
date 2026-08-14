@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import sb from './supabaseClient.js';
-import { Orchestrator000, setServerAuthToken } from '../../orchestrator-engine.js';
+import { Orchestrator000 } from '../../orchestrator-engine.js';
 import occGuard from './occGuard.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -221,7 +221,6 @@ export async function generarFichaTecnica(req, res) {
   }
 
   const userJwt = getUserJwt(req);
-  if (userJwt) setServerAuthToken(userJwt);
 
   try {
     const orchestrator = new Orchestrator000();
@@ -233,7 +232,10 @@ export async function generarFichaTecnica(req, res) {
         evaluation: disenoAprobado,
       });
     }
-    const result = await orchestrator.run(ficha, disenoAprobado);
+    // userJwt viaja como parámetro explícito de esta llamada, no como estado
+    // global mutable — cierra la race condition de identidad cruzada bajo
+    // concurrencia real (PROTOCOLO TITÁN ∞, segunda ronda, 2026-08-14).
+    const result = await orchestrator.run(ficha, disenoAprobado, userJwt);
     if (!result.success) return res.status(500).json({ error: result.error });
     return res.json(result);
   } catch (err) {

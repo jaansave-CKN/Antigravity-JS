@@ -48,17 +48,28 @@ const NORMATIVA_MAP = {
 // callAI() SIEMPRE caía silenciosamente al fallback local (hallazgo real, Oleada 1,
 // Grupo Elite 2026-08-06: esta llamada nunca llevó Authorization, en navegador ni
 // server, así que el texto "generado por IA" de AGT-052 nunca fue IA real).
-let _serverAuthToken = null;
-export function setServerAuthToken(token) { _serverAuthToken = token; }
+//
+// BUG CRÍTICO corregido 2026-08-14 (PROTOCOLO TITÁN ∞, segunda ronda): esto
+// ANTES vivía como `_serverAuthToken`, una variable mutable a nivel de módulo,
+// escrita por setServerAuthToken() antes de invocar run(). Confirmado
+// reproducible al 100% bajo concurrencia real (Node es single-threaded; entre
+// el `setServerAuthToken()` de una request y el primer `await` real de I/O en
+// callAI() hay ventana de microtask suficiente para que otra request pise el
+// token antes de que la primera lo use) — un usuario podía recibir contenido
+// generado con el token de OTRO usuario, consumir su cuota de IA (checkQuota),
+// o que su request fallara con 401 por un token ajeno ya revocado. Eliminado
+// el estado global: el token ahora viaja como parámetro explícito en toda la
+// cadena de llamadas (callAI -> AgentAdministrativo.process -> Orchestrator000.run),
+// sin ningún estado compartido entre requests concurrentes.
 
 // ── Llamada unificada al proxy de IA con fallback local ───────────────────────
-async function callAI(systemPrompt, userContent, { maxTokens = 1200 } = {}) {
+async function callAI(systemPrompt, userContent, { maxTokens = 1200, authToken = null } = {}) {
   try {
     const res = await fetch(AI_ENDPOINT, {
       method:  'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(_serverAuthToken ? { Authorization: `Bearer ${_serverAuthToken}` } : {}),
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
       body: JSON.stringify({
         max_tokens: maxTokens,
@@ -81,7 +92,7 @@ async function callAI(systemPrompt, userContent, { maxTokens = 1200 } = {}) {
 // AGT-052 — Componente Administrativo y Legal
 // =============================================================================
 class AgentAdministrativo {
-  async process(ficha) {
+  async process(ficha, authToken = null) {
     const sector     = ficha.metadata?.sector     || 'general';
     const mecanismo  = ficha.metadata?.mecanismo  || 'inversion_directa';
     const userType   = ficha.metadata?.user_type  || 'Entidad pública';
@@ -111,7 +122,7 @@ class AgentAdministrativo {
       `Ubicación: ${municipio}, ${depto}. Territorialidad: ${territorialidad}. ` +
       `Normativa: ${normativa}. Genera la justificación legal institucional.`;
 
-    const justificacion_legal = await callAI(systemPrompt, userContent) ??
+    const justificacion_legal = await callAI(systemPrompt, userContent, { authToken }) ??
       `El proyecto se enmarca en los lineamientos del Plan Nacional de Desarrollo y ` +
       `la normativa sectorial vigente (${normativa}), garantizando la inversión eficiente ` +
       `de recursos públicos en ${municipio || 'el territorio de intervención'}, con ` +
@@ -318,7 +329,7 @@ export class Orchestrator000 {
     };
   }
 
-  async run(ficha, disenoAprobado) {
+  async run(ficha, disenoAprobado, authToken = null) {
     try {
       if (!ficha || typeof ficha !== 'object') {
         throw new Error('Ficha inválida: se requiere un objeto con los datos de Fase 1.');
@@ -339,8 +350,11 @@ export class Orchestrator000 {
       }
 
       // Diseño aprobado y firma vigente ⇒ AGT-052, 053, 054 corren en paralelo.
+      // authToken se pasa explícito por parámetro (no estado global) — cierra
+      // la race condition de identidad cruzada bajo concurrencia, ver nota en
+      // la definición de callAI() más arriba.
       const [comp_admin, comp_operativo, comp_riesgos] = await Promise.all([
-        this._agents.AGT_052.process(ficha),
+        this._agents.AGT_052.process(ficha, authToken),
         this._agents.AGT_053.process(ficha),
         this._agents.AGT_054.process(ficha),
       ]);

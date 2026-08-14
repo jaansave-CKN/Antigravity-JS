@@ -1,16 +1,16 @@
 {
   "aprobado": true,
-  "firma": "5306082f4066b7c59271bbf277bbbff7de64a387c558e1a364dfabfa76c96b84",
-  "timestamp": "2026-08-14T00:31:08.048Z",
+  "firma": "9b8a388a98bb4babe9609ab9237ee43c6692cf592a6377ef15741142e903d845",
+  "timestamp": "2026-08-14T03:27:30.065Z",
   "firmado_por": "009_INGENIERO_FRONTEND (.claude\\agents\\009-ingeniero-frontend.md, vía API Anthropic)",
   "veredictoCompleto": {
     "codigo_valido": true,
     "cambios": [
       {
-        "archivo": "public/app.js",
+        "archivo": "public/fase1-entrada.html",
         "tipo": "correccion",
-        "origen_hallazgo": "Auditoría PROTOCOLO TITÁN 2026-08-12 — patrón XSS por interpolación de datos controlados por usuario/IA en innerHTML, mismo vector que file.name ya corregido",
-        "resumen": "Añade escapeHtml() y aplica escaping a todos los campos de datos variables en renderDashboard() y showBlockingErrors()"
+        "origen_hallazgo": "XSS confirmado 2026-08-13 PROTOCOLO TITÁN — f.nombre interpolado sin sanitizar en innerHTML de renderGantt()",
+        "resumen": "Introduce escapeHtmlGantt() local y aplica escape en los tres puntos de interpolación del Gantt (title, label, bar text)"
       }
     ]
   }

@@ -1,13 +1,16 @@
 {
   "aprobado": true,
-  "firma": "705007680dd6a5d88b611afa74dab0a7f6f1b5983c86b41bfe8e3c1a7f663cd9",
-  "timestamp": "2026-08-14T01:11:23.417Z",
+  "firma": "3793adf163083e50ca2ac92ddb1d4c017ddc472066f41ad50d10eed3fb616736",
+  "timestamp": "2026-08-14T04:04:14.431Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "005-ingeniero-backend.md y 006-devsecops-infraestructura.md agregan restricción 'Qué NO haces' sobre escritura en el documento maestro — simétricas, accionables, no contradicen otros mandatos del diff",
-    "§0-AC documenta hallazgo de gobernanza real (007 nunca invocado de verdad) con corrección declarada y blast radius acotado a 2 líneas en 2 archivos de agente",
-    "artefactos de trazabilidad (diseno_aprobado.json, veredictos, telemetria, estado_operativo) son rotación de firmas de un ciclo de gate anterior ya aprobado — comportamiento normal del pipeline",
-    "anomalías documentadas por 005 (req.ip/proxy, cacheGet+cacheSet no atómico) correctamente calificadas como riesgos de robustez menor, no brechas RLS, fuera del alcance de este diff",
-    "sin DDL, sin código de aplicación, sin cambios de autenticación, sin módulos nuevos — alcance ajustado a gobernanza documental y propagación de estado de trazabilidad"
+    "orchestrator-engine.js: eliminación de _serverAuthToken (estado global mutable) verificada — token viaja como parámetro explícito en toda la cadena run→process→callAI, sin estado compartido entre requests concurrentes; firma de callAI es no-breaking (authToken=null por defecto)",
+    "server.js app.set('trust proxy',1): cierra la anomalía req.ip=IP-de-proxy reportada en veredicto_005 anterior; valor 1 correcto para topología PaaS de un hop; burstLimiter y loginBanGuard recuperan granularidad real por cliente",
+    "server.js await recordLoginFailure: ventana de microtask documentada y cerrada; comportamiento de respuesta 401 no cambia porque try/catch interno no lanza hacia afuera",
+    "server.js audit logging: uid verificado (req.user?.uid??null) en CLAUDE_CHAT_SUCCESS, CLAUDE_CHAT_ERROR y FORMAL_ORDER; separación uid/user_claimed en /api/execute elimina vector de suplantación en ledger de auditoría",
+    "orchestrator_race.test.mjs: diseño de regresión correcto — fakeServer con jitter real, 30 requests concurrentes, verificación de echo de Authorization por usuario; integrado en test:gate vía package.json",
+    "veredicto_005 actualizado coherente: anomalias[] vacío porque trust proxy y recordLoginFailure están corregidos en este mismo diff",
+    "artefactos de trazabilidad (firmas, timestamps, telemetria.jsonl, estado_antigravity.json): rotación de ciclo de gate anterior — comportamiento normal del pipeline",
+    "sin DDL, sin módulos nuevos, sin cambios de autenticación estructural, alcance ajustado a hallazgos PROTOCOLO TITÁN ∞ segunda ronda confirmados en producción"
   ]
 }

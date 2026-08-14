@@ -65,6 +65,18 @@ let radarData = [...CONVOCATORIAS_SEED];
 const app        = express();
 const httpServer = http.createServer(app);
 
+// Agregado 2026-08-14 (PROTOCOLO TITÁN ∞, segunda ronda): sin esto, Express
+// reporta como req.ip el socket inmediato (el proxy de Render), no la IP real
+// del cliente, para CUALQUIER request pública. burstLimiter/loginBanGuard
+// (ambos usan req.ip como clave para tráfico sin sesión) colapsarían a un
+// único "cliente" compartido por todo el tráfico anónimo — un atacante podría
+// banear el login de TODOS los usuarios legítimos con 5 intentos fallidos.
+// Render enruta a través de un único hop de proxy (topología estándar de
+// PaaS tipo Heroku/Render/Railway) — 1 es el valor correcto documentado para
+// ese caso: confía en el X-Forwarded-For del primer proxy, no en hops
+// posteriores (evita que un cliente spoofee la cabecera libremente).
+app.set('trust proxy', 1);
+
 // ── 1. MIDDLEWARES ────────────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5000,http://localhost:5173')
   .split(',').map(s => s.trim()).filter(Boolean);
@@ -122,14 +134,18 @@ app.post('/api/chat', async (req, res) => {
       messages: chatMessages,
     });
     const reply = response.content[0]?.text ?? '';
-    AuditLogger.log('CLAUDE_CHAT_SUCCESS', { model: CLAUDE_MODEL, tokens: response.usage?.input_tokens });
+    AuditLogger.log('CLAUDE_CHAT_SUCCESS', { uid: req.user?.uid ?? null, model: CLAUDE_MODEL, tokens: response.usage?.input_tokens });
     res.json({
       choices: [{ message: { role: 'assistant', content: reply }, finish_reason: response.stop_reason }],
       usage:   response.usage,
       model:   CLAUDE_MODEL,
     });
   } catch (err) {
-    AuditLogger.log('CLAUDE_CHAT_ERROR', { error: err.message });
+    // uid agregado 2026-08-14 (PROTOCOLO TITÁN ∞, segunda ronda): ninguno de
+    // los 2 eventos de este endpoint incluía uid pese a que req.user ya está
+    // poblado en el mismo scope (ver checkQuota 2 líneas arriba) — sin esto,
+    // el ledger de auditoría no permitía atribuir consumo de IA a un usuario.
+    AuditLogger.log('CLAUDE_CHAT_ERROR', { uid: req.user?.uid ?? null, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -163,10 +179,15 @@ app.post('/api/session/login', loginBanGuard, validateBody(schemas.sessionLogin)
     res.json({ ...session, uid: decoded.uid, email: decoded.email });
   } catch (err) {
     // Fuerza bruta: cada verifyIdToken() rechazado cuenta contra el ban de IP
-    // (session-manager.js: recordLoginFailure). Fire-and-forget deliberado —
-    // un fallo al registrar el contador no debe tumbar la respuesta 401 que
-    // ya se le va a devolver al cliente.
-    recordLoginFailure(req.ip).catch((e) => console.error('[Session] recordLoginFailure falló:', e.message));
+    // (session-manager.js: recordLoginFailure). Se espera (await) antes de
+    // responder — corregido 2026-08-14 (PROTOCOLO TITÁN ∞, segunda ronda):
+    // el fire-and-forget original dejaba una ventana real donde una request
+    // inmediatamente posterior al 5º fallo (el que dispara el ban) podía
+    // llegar antes de que el contador terminara de escribirse en Upstash,
+    // confirmado en vivo con 6 intentos reales. Un fallo al registrar el
+    // contador (try/catch interno de recordLoginFailure) no lanza — sigue
+    // sin poder tumbar la respuesta 401.
+    await recordLoginFailure(req.ip).catch((e) => console.error('[Session] recordLoginFailure falló:', e.message));
     res.status(401).json({ error: 'Firebase token inválido', detail: err.message });
   }
 });
@@ -283,7 +304,14 @@ app.use('/api/formulador', createFormuladorRouter());
 
 app.post('/api/execute', validateBody(schemas.execute), (req, res) => {
   const { user, action } = req.body;
-  AuditLogger.log('FORMAL_ORDER', { user, action });
+  // uid agregado 2026-08-14 (PROTOCOLO TITÁN ∞, segunda ronda): "user" venía
+  // solo de req.body (texto libre validado por schemas.execute, no por el
+  // gate de autenticación) — cualquier usuario autenticado podía escribir en
+  // el ledger de auditoría con la identidad de otra persona. "user" se
+  // conserva como dato reportado por el cliente (user_claimed), pero uid es
+  // la identidad real verificada por Firebase (req.user, ya poblado por el
+  // gate universal de la línea ~85).
+  AuditLogger.log('FORMAL_ORDER', { uid: req.user?.uid ?? null, user_claimed: user, action });
   res.json({ status: 'SUCCESS' });
 });
 
