@@ -1,14 +1,19 @@
 {
   "aprobado": true,
-  "firma": "089d873a8dc226cc66d2f6118369a83ec9af5ffea12abdbebce7601010505f24",
-  "timestamp": "2026-08-13T05:14:51.949Z",
+  "firma": "9cd8d85530f329d01d8b86d667e2fbbca73133d845887591a75e940e9d4e9739",
+  "timestamp": "2026-08-14T00:08:20.858Z",
   "firmado_por": "006_DEVSECOPS_INFRAESTRUCTURA (.claude\\agents\\006-devsecops-infraestructura.md, vía API Anthropic)",
   "veredictoCompleto": {
     "infraestructura_segura": true,
     "hallazgos": [
       {
+        "categoria": "ci_cd",
+        "evidencia": "package.json script test:gate añade auditor_008_advisory_gate.test.cjs y financiero.test.mjs. Consistente con directiva Misión 3 de integrar protocolo 008 en pipeline en modo advisory. Sin acceso al código fuente de esos archivos en este diff.",
+        "criticidad": "baja"
+      },
+      {
         "categoria": "otro",
-        "evidencia": "package.json scripts.test:gate — se añade scripts/validation.test.mjs al comando de gate; expansión de cobertura, sin riesgo operativo",
+        "evidencia": "Root engines.node subió a >=22 en el mismo commit que añade @playwright/test (requiere >=20). Sin conflicto real pero sugiere actualización intencional del constraint del proyecto. Verificar que CI/CD corre Node >=22.",
         "criticidad": "baja"
       }
     ]

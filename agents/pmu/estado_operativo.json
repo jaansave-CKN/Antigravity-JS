@@ -1,13 +1,14 @@
 {
-  "generado": "2026-08-13T23:24:43.863Z",
-  "total_agentes": 9,
-  "agentes_con_gate": 6,
+  "generado": "2026-08-14T00:31:08.061Z",
+  "total_agentes": 10,
+  "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
     "005-ingeniero-backend",
     "006-devsecops-infraestructura",
     "007-documentador-as-build",
     "008-auditor-de-codigo",
-    "009-ingeniero-frontend"
+    "009-ingeniero-frontend",
+    "010-ingeniero-qa-automatizacion"
   ],
   "agentes": [
     {
@@ -37,17 +38,15 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "924cc878c147d969b6e364e41caf6d16e6e10dadbaf931ff46e042ede792fc09",
-        "timestamp": "2026-08-13T23:24:19.321Z",
+        "firma": "a7c9b76d5ac47707e723ebfbf3982af07523452bb62dcbcdcd2a73a8c4e404c9",
+        "timestamp": "2026-08-14T00:30:57.274Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "VEREDICTO_SCHEMAS define contratos Zod que replican exactamente los campos declarados en la sección 'Salida obligatoria' de cada .claude/agents/*.md relevante (002, 003, 004, 005, 006, 009)",
-          "validarFormaVeredicto() es fail-closed: agentes sin esquema pasan (compatibilidad hacia atrás), agentes con esquema que fallan retornan aprobado:false con detalle exacto de ruta/tipo — nunca intento de reparación forzada",
-          "Wireo correcto en pedirVeredictoArquitecto() y pedirVeredictoSubagente(): validación de forma se inserta después de extraerJSONConCampo() y antes de la evaluación del booleano de aprobación, en ambos puntos de parseo reales",
-          "Fix de hashEstado() técnicamente correcto: __filename en CJS apunta al archivo en ejecución; la concatenación con || es consistente con el patrón existente de la función; el comportamiento resultante es más estricto (más archivos invalidan la firma), nunca más laxo",
-          "Exportación de validarFormaVeredicto y VEREDICTO_SCHEMAS en module.exports es necesaria para los tests declarados — no expone nada sensible",
-          "El cambio no toca autenticación, RLS, módulos de dominio src/, ni introduce abstracciones no solicitadas; alcance ajustado al hallazgo puntual de gobernanza de salida de agentes",
-          "Riesgo menor aceptado: architecture-gate.test.cjs quedó fuera del diff truncado — los 7 tests nuevos no son verificables desde este diff, pero el código de producción es correcto por inspección directa y el riesgo es de cobertura, no de lógica"
+          "escapeHtml() cubre los 5 caracteres estándar y se aplica en todos los puntos de interpolación de strings controlados por datos externos en renderDashboard() y showBlockingErrors(); los valores numéricos y ternarios con literales no escapados son correctos por tipo",
+          "stroke-dashoffset interpolado sin escape en atributo SVG no constituye vector XSS ejecutable en contexto de presentación inline",
+          "diseno_aprobado.json/estado_operativo.json/veredicto_006.json/veredicto_010.json/telemetria.jsonl son artefactos de trazabilidad del pipeline de gates, consistentes con el estado declarado del sistema multiagente",
+          "hallazgo real de 010 (vite.config.js copyStaticPlugin no sirve app.js ni firebase-config.js) correctamente documentado con responsabilidad asignada a 009/005, no bloqueante para este diff",
+          "ningún cambio toca autenticación, RLS, src/, ni introduce DDL; alcance ajustado al fix de seguridad XSS y actualización de registros de gobernanza"
         ]
       }
     },
@@ -105,6 +104,8 @@
       "nombre": "006-devsecops-infraestructura",
       "tools": [
         "Read",
+        "Write",
+        "Edit",
         "Grep",
         "Glob",
         "Bash"
@@ -113,15 +114,20 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "089d873a8dc226cc66d2f6118369a83ec9af5ffea12abdbebce7601010505f24",
-        "timestamp": "2026-08-13T05:14:51.949Z",
+        "firma": "9cd8d85530f329d01d8b86d667e2fbbca73133d845887591a75e940e9d4e9739",
+        "timestamp": "2026-08-14T00:08:20.858Z",
         "firmado_por": "006_DEVSECOPS_INFRAESTRUCTURA (.claude\\agents\\006-devsecops-infraestructura.md, vía API Anthropic)",
         "veredictoCompleto": {
           "infraestructura_segura": true,
           "hallazgos": [
             {
+              "categoria": "ci_cd",
+              "evidencia": "package.json script test:gate añade auditor_008_advisory_gate.test.cjs y financiero.test.mjs. Consistente con directiva Misión 3 de integrar protocolo 008 en pipeline en modo advisory. Sin acceso al código fuente de esos archivos en este diff.",
+              "criticidad": "baja"
+            },
+            {
               "categoria": "otro",
-              "evidencia": "package.json scripts.test:gate — se añade scripts/validation.test.mjs al comando de gate; expansión de cobertura, sin riesgo operativo",
+              "evidencia": "Root engines.node subió a >=22 en el mismo commit que añade @playwright/test (requiere >=20). Sin conflicto real pero sugiere actualización intencional del constraint del proyecto. Verificar que CI/CD corre Node >=22.",
               "criticidad": "baja"
             }
           ]
@@ -167,7 +173,68 @@
       ],
       "permiso_escritura": true,
       "gate": "subgate",
-      "ultimo_veredicto": null
+      "ultimo_veredicto": {
+        "aprobado": true,
+        "firma": "5306082f4066b7c59271bbf277bbbff7de64a387c558e1a364dfabfa76c96b84",
+        "timestamp": "2026-08-14T00:31:08.048Z",
+        "firmado_por": "009_INGENIERO_FRONTEND (.claude\\agents\\009-ingeniero-frontend.md, vía API Anthropic)",
+        "veredictoCompleto": {
+          "codigo_valido": true,
+          "cambios": [
+            {
+              "archivo": "public/app.js",
+              "tipo": "correccion",
+              "origen_hallazgo": "Auditoría PROTOCOLO TITÁN 2026-08-12 — patrón XSS por interpolación de datos controlados por usuario/IA en innerHTML, mismo vector que file.name ya corregido",
+              "resumen": "Añade escapeHtml() y aplica escaping a todos los campos de datos variables en renderDashboard() y showBlockingErrors()"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "archivo": ".claude/agents/010-ingeniero-qa-automatizacion.md",
+      "nombre": "010-ingeniero-qa-automatizacion",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob",
+        "Bash"
+      ],
+      "permiso_escritura": true,
+      "gate": "subgate",
+      "ultimo_veredicto": {
+        "aprobado": true,
+        "firma": "2b514adc6cdc61ca7e968b60127e89ab7e4efdb4386f5e00c2ebc2527f35adbb",
+        "timestamp": "2026-08-14T00:09:11.000Z",
+        "firmado_por": "010_INGENIERO_QA_AUTOMATIZACION (.claude\\agents\\010-ingeniero-qa-automatizacion.md, vía API Anthropic)",
+        "veredictoCompleto": {
+          "suite_valida": true,
+          "specs": [
+            {
+              "archivo": "tests/e2e/health.spec.js",
+              "flujo": "GET /api/health verifica backend real; '/' carga SPA y redirige a /inicio por RequireAuth sin sesión Firebase",
+              "resultado": "pass"
+            },
+            {
+              "archivo": "tests/e2e/navigation.spec.js",
+              "flujo": "Rutas protegidas (/radar, /panel, /modulo10, /anexos) redirigen a /inicio; navegación real /inicio → /fase1-entrada.html con verificación de DOM y banner de auth",
+              "resultado": "pass"
+            },
+            {
+              "archivo": "tests/e2e/formulario-fase1.spec.js",
+              "flujo": "Fase 1 del Formulador: carga página, llena campos reales, click en #btn-generar-ficha sin sesión, espera #blocking-overlay con 'Debes iniciar sesión'",
+              "resultado": "fail_hallazgo_real — vite.config.js copyStaticPlugin no copia app.js ni firebase-config.js a dist/; el servidor responde text/html para esos módulos; el navegador rechaza el MIME type; el listener de #btn-generar-ficha nunca se registra; #blocking-overlay nunca aparece. Bug en producción, no en el spec. Corrección fuera del alcance de 010 (requiere intervención en vite.config.js por 009_INGENIERO_FRONTEND o 005_BACKEND)."
+            },
+            {
+              "archivo": "playwright.config.js",
+              "flujo": "Configuración E2E: testDir=./tests/e2e, baseURL=http://localhost:5000, webServer arranca node server.js, señal de arranque en '/' (no /api/health)",
+              "resultado": "pass"
+            }
+          ]
+        }
+      }
     }
   ]
 }

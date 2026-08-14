@@ -1,15 +1,13 @@
 {
   "aprobado": true,
-  "firma": "924cc878c147d969b6e364e41caf6d16e6e10dadbaf931ff46e042ede792fc09",
-  "timestamp": "2026-08-13T23:24:19.321Z",
+  "firma": "a7c9b76d5ac47707e723ebfbf3982af07523452bb62dcbcdcd2a73a8c4e404c9",
+  "timestamp": "2026-08-14T00:30:57.274Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "VEREDICTO_SCHEMAS define contratos Zod que replican exactamente los campos declarados en la sección 'Salida obligatoria' de cada .claude/agents/*.md relevante (002, 003, 004, 005, 006, 009)",
-    "validarFormaVeredicto() es fail-closed: agentes sin esquema pasan (compatibilidad hacia atrás), agentes con esquema que fallan retornan aprobado:false con detalle exacto de ruta/tipo — nunca intento de reparación forzada",
-    "Wireo correcto en pedirVeredictoArquitecto() y pedirVeredictoSubagente(): validación de forma se inserta después de extraerJSONConCampo() y antes de la evaluación del booleano de aprobación, en ambos puntos de parseo reales",
-    "Fix de hashEstado() técnicamente correcto: __filename en CJS apunta al archivo en ejecución; la concatenación con || es consistente con el patrón existente de la función; el comportamiento resultante es más estricto (más archivos invalidan la firma), nunca más laxo",
-    "Exportación de validarFormaVeredicto y VEREDICTO_SCHEMAS en module.exports es necesaria para los tests declarados — no expone nada sensible",
-    "El cambio no toca autenticación, RLS, módulos de dominio src/, ni introduce abstracciones no solicitadas; alcance ajustado al hallazgo puntual de gobernanza de salida de agentes",
-    "Riesgo menor aceptado: architecture-gate.test.cjs quedó fuera del diff truncado — los 7 tests nuevos no son verificables desde este diff, pero el código de producción es correcto por inspección directa y el riesgo es de cobertura, no de lógica"
+    "escapeHtml() cubre los 5 caracteres estándar y se aplica en todos los puntos de interpolación de strings controlados por datos externos en renderDashboard() y showBlockingErrors(); los valores numéricos y ternarios con literales no escapados son correctos por tipo",
+    "stroke-dashoffset interpolado sin escape en atributo SVG no constituye vector XSS ejecutable en contexto de presentación inline",
+    "diseno_aprobado.json/estado_operativo.json/veredicto_006.json/veredicto_010.json/telemetria.jsonl son artefactos de trazabilidad del pipeline de gates, consistentes con el estado declarado del sistema multiagente",
+    "hallazgo real de 010 (vite.config.js copyStaticPlugin no sirve app.js ni firebase-config.js) correctamente documentado con responsabilidad asignada a 009/005, no bloqueante para este diff",
+    "ningún cambio toca autenticación, RLS, src/, ni introduce DDL; alcance ajustado al fix de seguridad XSS y actualización de registros de gobernanza"
   ]
 }
