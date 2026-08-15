@@ -1338,3 +1338,54 @@ redactada de oficio por el orquestador.
 
 **Qué no se hizo en esta ronda:** no se modificó ningún otro `.claude/agents/*.md` más allá de los 2 ya corregidos
 por el encargo original, y no se tocó código de aplicación — el blast radius de `007` está limitado a `docs/`.
+
+---
+
+## §0-AD. EL ESCUADRÓN NO RESOLVIÓ LO QUE SÍ PODÍA RESOLVER — brecha de disciplina + brecha de cobertura (2026-08-14)
+
+**Nota de excepción, honesta:** esta sección la escribe el orquestador directamente, NO `007` — violando en apariencia
+la regla que la propia §0-AC acababa de establecer. Razón real, no una excusa: el agente `007` (y, en el mismo
+intento, la tercera ronda de `008_AUDITOR_DE_CODIGO`) fallaron con `"You've hit your weekly limit"` (límite semanal
+de API, resetea 9pm hora Bogotá) — no es una decisión de saltarse el enrutamiento, es que el enrutamiento no estaba
+disponible en el momento. Ver §0-AC para la regla vigente; esta es la excepción documentada, no la nueva norma.
+
+**Orden explícita del usuario que originó esta sección:** *"el escuadron elite debe aprender de las soluciones q se
+estan dando y el no fue capaz de resolver, lo necesito mas (resuelve)"* — tras dos rondas de PROTOCOLO TITÁN ∞
+(commits `51c7ddc` y `73159b7`) donde casi todos los fixes críticos de seguridad los aplicó el orquestador
+directamente, no el escuadrón formal.
+
+**Análisis, con evidencia — 2 causas distintas, no una sola:**
+
+1. **Brecha de disciplina real** (el agente correcto YA cubría el archivo, no se le delegó): el fix del bug de
+   doble-serialización en `src/shared/infrastructure/cache.js` (cubierto por el patrón de `005` desde antes de hoy,
+   `agents/architecture-gate.cjs`) y el fix del XSS en `public/fase1-entrada.html` (cubierto por el patrón de `009`,
+   `.claude/agents/009-ingeniero-frontend.md:6`, `"^public/[^/]+\\.html$"`) — ambos se corrigieron directamente por
+   el orquestador sin razón real, saltándose agentes que ya podían resolverlo.
+2. **Brecha de cobertura real** (ningún agente tenía el archivo declarado en su territorio): `server.js` (raíz) y
+   `src/orchestrator-engine.js` (raíz de `src/`) — el fix de `/api/mcp`, `trust proxy`, la ventana de carrera de
+   `recordLoginFailure`, y la corrección crítica de la race condition de `_serverAuthToken` (identidad cruzada bajo
+   concurrencia, confirmada reproducible al 100% en la segunda ronda) se hicieron ahí, pero ningún patrón de
+   subgate cubría esos 2 archivos — pese a que `005-ingeniero-backend.md` se declara a sí mismo "Bases de datos,
+   APIs y lógica de servidor", que es exactamente lo que son ambos archivos.
+
+**Corrección de cobertura aplicada en esta misma ronda (verificada, no solo declarada):**
+`agents/architecture-gate.cjs`, patrón de `SUBGATES['005_INGENIERO_BACKEND']` — se agregaron `/^server\.js$/` y
+`/^src\/orchestrator-engine\.js$/` a la lista de patrones. Test de regresión nuevo en
+`scripts/architecture-gate.test.cjs` ("SUBGATES: 005 cubre server.js y src/orchestrator-engine.js") confirma que
+`archivosRelevantesPara('005_INGENIERO_BACKEND', [...])` ahora incluye ambos archivos. 105/105 tests en verde.
+
+**Verificación adicional hecha directamente (subagentes no disponibles por el límite de API), cerrando las 3
+preguntas abiertas que la tercera ronda de `008` no alcanzó a terminar:**
+- Único caller real de `Orchestrator000.run()` en todo el codebase: `FormuladorPgController.js:238` — ya actualizado
+  para pasar `userJwt` como parámetro explícito, sin ningún caller huérfano usando el patrón viejo.
+- Único call site real de `callAI()`: dentro de `AgentAdministrativo.process()` (AGT-052) — `AgentOperativo`
+  (AGT-053) y `AgentRiesgos` (AGT-054) nunca llaman IA, así que no hay asimetría de `authToken` entre agentes.
+- `app.set('trust proxy', 1)` es el valor correcto para la topología real de Render (proxy de un único hop,
+  documentado por Express.js y la comunidad de Render) — confirmado por búsqueda externa, no supuesto.
+
+**Compromiso hacia adelante, explícito:** el orquestador debe delegar a `005`/`009` los fixes que caigan en su
+territorio declarado, en vez de aplicarlos directamente — salvo urgencia genuina explícitamente autorizada por el
+usuario en el momento (como ya ocurrió esta sesión con "solución grado militar de forma quirúrgica" para los
+hallazgos más críticos), que sigue siendo una excepción legítima, no la norma. La brecha de cobertura (`server.js`/
+`orchestrator-engine.js`) ya no existe como excusa — la brecha de disciplina sigue siendo responsabilidad de criterio
+del orquestador en cada caso futuro.

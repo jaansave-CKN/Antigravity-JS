@@ -564,7 +564,17 @@ const SUBGATES = {
     // (ver valorAprobado, generalización de pedirVeredictoSubagente).
     '005_INGENIERO_BACKEND': {
         promptPath: path.join(dirRoot, '.claude', 'agents', '005-ingeniero-backend.md'),
-        patrones: [/^src\/modules\/formulador\//, /^src\/shared\/infrastructure\//],
+        // server.js y src/orchestrator-engine.js agregados 2026-08-14 —
+        // brecha de cobertura real encontrada por el usuario: el propio 005
+        // se declara "Bases de datos, APIs y lógica de servidor" pero el
+        // patrón no cubría ningún archivo de servidor en la raíz. Consecuencia
+        // real: varios fixes críticos de seguridad de hoy (bug de Redis en
+        // cache.js — sí cubierto pero hecho directamente igual; race
+        // condition de _serverAuthToken en orchestrator-engine.js, trust
+        // proxy y /api/mcp en server.js — NO cubiertos) los hizo el
+        // orquestador directamente en vez de pasar por 005. Ver
+        // docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md para el hallazgo completo.
+        patrones: [/^src\/modules\/formulador\//, /^src\/shared\/infrastructure\//, /^server\.js$/, /^src\/orchestrator-engine\.js$/],
         campoAprobado: 'estado_backend',
         valorAprobado: 'aislado_y_seguro',
         veredictoPath: path.join(dirAgents, 'veredicto_005.json'),

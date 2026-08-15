@@ -154,6 +154,13 @@ test('SUBGATES: 006 está configurado con patrones de render.yaml/.env.example/d
   assert.deepEqual(relevantes.sort(), ['.env.example', 'package-lock.json', 'package.json', 'render.yaml']);
 });
 
+test('SUBGATES: 005 cubre server.js y src/orchestrator-engine.js (regresión brecha de cobertura 2026-08-14 — el orquestador arregló ambos directamente porque ningún subgate los cubría)', () => {
+  const relevantes = archivosRelevantesPara('005_INGENIERO_BACKEND', [
+    'server.js', 'src/orchestrator-engine.js', 'src/shared/infrastructure/cache.js', 'public/src/App.jsx',
+  ]);
+  assert.deepEqual(relevantes.sort(), ['server.js', 'src/orchestrator-engine.js', 'src/shared/infrastructure/cache.js'].sort());
+});
+
 test('archivosRelevantesPara: un .cjs de backend no le compete a 004 (no bloquea commits de DB)', () => {
   const relevantes = archivosRelevantesPara('004_SENTINELA_FRONTEND', ['src/modules/formulador/occGuard.js', 'server.js']);
   assert.deepEqual(relevantes, []);
