@@ -1,14 +1,14 @@
 {
   "aprobado": true,
   "firma": "9423b77806795f8901e6900cf0c9b6c460d01b164b0d9f6ca6ac3892684f0a44",
-  "timestamp": "2026-08-15T14:23:39.719Z",
+  "timestamp": "2026-08-15T14:32:40.321Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Firmas consistentes cruzadas: 9423b77 en diseno_aprobado.json, estado_operativo.json (agente 002) y telemetria.jsonl; c707b47 en veredicto_005.json y estado_operativo.json (agente 005)",
-    "Eliminación de anomalía Redis en veredicto_005 es correcta: pertenecía al diff anterior (checkQuota), ya comiteado en 9ea1271, no a este ciclo",
-    "§0-AF documenta hallazgo WebSocket /ws/live_radar sin corrección de código — severidad 🟡 clasificada correctamente, decisión de capacidad explícitamente diferida",
+    "Endpoint /api/sys/sentry-verify usa rol 'admin' consistente con el único rol real del proyecto y sentryHabilitado() como función propia — no inventa métodos de SDK",
+    "WS hardening: MAX_WS_CLIENTS configurable por env, verifyClient bloquea en 503 al límite, heartbeat con clearInterval previene fuga de timer, maxPayload 4096 apropiado para canal read-only",
+    "Decisión de no auth en WS handshake documentada y justificada: datos ya públicos por REST, riesgo real es DoS (mitigado por MAX_WS_CLIENTS), no fuga de datos",
     "Sin DDL — regla BEGIN/COMMIT no aplica",
-    "Sin código de producción modificado — diff es exclusivamente artefactos de estado PMU y documentación as-build",
-    "Alcance ajustado: rotación de firma/timestamp + nueva sección de documentación, sin abstracciones ni módulos no solicitados"
+    "Artefactos de estado PMU (diseno_aprobado.json, estado_operativo.json, telemetria.jsonl, public/estado_antigravity.json) son rotaciones de firma/timestamp consistentes entre sí",
+    "Sin módulos nuevos, sin cambios de autenticación estructural, sin abstracciones no solicitadas"
   ]
 }

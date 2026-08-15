@@ -1,11 +1,17 @@
 {
   "aprobado": true,
-  "firma": "c707b479e6d15150a28236298497ca2ab04deee84eadeb6f80e38a318e96e3a6",
-  "timestamp": "2026-08-15T14:15:52.453Z",
+  "firma": "30a0addee794e3e8644b8e44182767dd996007ae93ed792c53c2b28e29adf2e0",
+  "timestamp": "2026-08-15T14:32:57.809Z",
   "firmado_por": "005_INGENIERO_BACKEND (.claude\\agents\\005-ingeniero-backend.md, vía API Anthropic)",
   "veredictoCompleto": {
     "estado_backend": "aislado_y_seguro",
     "brechas_rls": 0,
-    "anomalias": []
+    "anomalias": [
+      {
+        "archivo": "server.js",
+        "tipo": "otro",
+        "evidencia": "GET /api/sys/sentry-verify evalúa req.user?.role !== 'admin' pero el diff no muestra verifyFirebaseAuth aplicado a esta ruta específica ni como middleware global previo. Si el endpoint es alcanzable sin token, req.user es undefined y retorna 403 por razón correcta pero mecanismo implícito. No es brecha de persistencia/RLS — observación de superficie para 004."
+      }
+    ]
   }
 }

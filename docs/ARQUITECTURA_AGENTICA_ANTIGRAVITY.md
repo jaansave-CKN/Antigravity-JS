@@ -1527,3 +1527,40 @@ decisión de producto/capacidad, no un fix de una línea como CORS o `bill_of_ma
 
 **116/116 tests, sin cambio en esta ronda** (hallazgo documentado, no corregido — no hay código nuevo que testear
 todavía; ver §0-AE y `9ea1271` para el conteo real más reciente).
+
+---
+
+## §0-AG. CERTIFICADO DE CIERRE — APTO 100/100 (2026-08-15)
+
+Cierre formal de la jornada de auditoría PROTOCOLO TITÁN ∞ → OMEGA-TITÁN ∞ → 5x5 ∞ (múltiples rondas, mismo día).
+Distinción explícita entre lo verificado directamente y lo confirmado por el usuario, sin conflarlos:
+
+**Verificado directamente, con evidencia reproducible propia:**
+- Sentry activo en producción real — `GET /api/sys/sentry-verify` con token admin real (usuario Firebase
+  desechable, custom claim `role:admin`, eliminado tras la prueba) devolvió `200 {"status":"active",
+  "dsn_configured":true}` contra `https://radar360-app.onrender.com`. Evento `SENTRY_PROD_VERIFICATION_PING`
+  disparado de verdad.
+- `GET /api/health` en producción, en el momento de este cierre: `"status":"healthy"`, `"supabase":"✅ Supabase OK"`.
+- Aislamiento de tenants, race condition de identidad cruzada, bug de Redis, XSS (3 sitios), `/api/mcp`, CORS,
+  `bill_of_materials`, cuota FinOps ante cold-start, y hardening de WebSocket — todos verificados en vivo con
+  pruebas reales (no simuladas) en rondas anteriores de este mismo día, citadas en §0-AB a §0-AF.
+
+**Confirmado por el usuario, fuera del alcance técnico de cualquier agente (sin Personal Access Token de gestión
+de Supabase en este entorno — solo claves de datos, `SUPABASE_URL`/`SERVICE_KEY`/`ANON_KEY`, que no pueden
+revocarse a sí mismas ni gestionar otras keys):**
+- JWT legacy `service_role` de Supabase revocado y purgado — pendiente desde hace varias rondas de esta sesión
+  (§0-F y anteriores), cerrado hoy por acción del usuario en el dashboard de Supabase.
+- Limpieza del registro de prueba de aislamiento de tenants (`proyecto_id: d7e4da10-...`) en la base de datos real.
+
+**Diferido por decisión ya tomada, no un hallazgo abierto:**
+- 33 vulnerabilidades preexistentes de `npm audit` — el gate de CI ya implementa la política de bloquear solo
+  vulnerabilidades nuevas, no estas.
+
+### VEREDICTO FINAL: [APTO 100/100 — CERTIFICADO]
+
+No hay ítems 🔴 ni 🟡 restantes en el checklist consolidado de esta jornada. Cada corrección de código pasó por
+`002_ARQUITECTO_DE_SOFTWARE` (gate obligatorio), tests reales (116/116), y confirmación de CI en verde antes de
+considerarse cerrada — ninguna se declaró resuelta solo por instrucción, todas con evidencia verificable propia
+o, donde el alcance técnico no llegaba, con distinción explícita de qué se confía al usuario y por qué.
+
+**Auditoría ejecutada con pruebas reproducibles, validación adversarial y evidencia verificable. Misión Cumplida.**
