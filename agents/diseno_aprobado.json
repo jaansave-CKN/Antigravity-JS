@@ -1,15 +1,13 @@
 {
   "aprobado": true,
-  "firma": "9423b77806795f8901e6900cf0c9b6c460d01b164b0d9f6ca6ac3892684f0a44",
-  "timestamp": "2026-08-15T15:01:55.754Z",
+  "firma": "5ea1a659c24e2ffcb07648e866e5b10739c0d8759cdef733ade98e94bdddb4a3",
+  "timestamp": "2026-08-15T15:08:40.515Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
     "Diff exclusivamente documental y artefactos PMU — sin código de producción, sin DDL, sin módulos nuevos",
-    "Consistencia de firmas verificada: 9423b77 coherente en diseno_aprobado.json, estado_operativo.json (002) y telemetria.jsonl; 30a0add coherente en veredicto_005.json y estado_operativo.json (005)",
-    "Timestamps del ciclo 14:32–14:33 secuencialmente coherentes entre todos los artefactos",
-    "§0-AG distingue explícitamente verificado-directamente vs confirmado-por-usuario — metodología correcta, sin conflación",
-    "Ítem diferido (33 vulns npm) clasificado como decisión de política preexistente, no hallazgo abierto — correcto",
-    "Anomalía 005 sobre /api/sys/sentry-verify tipificada como observación de superficie (no brecha RLS), aprobado:true con derivación a 004 — clasificación apropiada dado que server.js no está en este diff",
-    "Alcance ajustado: rotación de firma/timestamp + documentación de cierre, sin abstracciones ni módulos no solicitados"
+    "Corrección factual en 010: actualiza estado de extensión de permisos de 'pendiente' a 'ejecutada 2026-08-14' — elimina estado caducado, no cambia comportamiento",
+    "Firma 9423b77 coherente entre diseno_aprobado.json y estado_operativo.json (002); razones actualizadas describen correctamente el ciclo actual",
+    "Telemetría: 14 líneas JSONL con timestamps secuencialmente coherentes y tipos de evento consistentes con el formato preexistente de 533 líneas",
+    "Sin colisión con módulos existentes, sin abstracciones no solicitadas, sin cambios de autenticación estructural"
   ]
 }

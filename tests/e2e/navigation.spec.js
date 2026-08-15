@@ -13,7 +13,14 @@
 // /fase1-entrada.html (página estática real, module_b_formulador).
 import { test, expect } from '@playwright/test';
 
-const PROTECTED_ROUTES = ['/radar', '/panel', '/modulo10', '/anexos'];
+// De estas, /radar y /modulo10 son pantallas reales (no FrozenPage); las
+// otras 8 son las rutas stub reales de App.jsx — todas quedan cubiertas
+// aquí 2026-08-15 (antes solo /panel y /anexos, 2/8 de los stubs reales).
+const PROTECTED_ROUTES = [
+  '/radar', '/modulo10',
+  '/panel', '/directorio', '/favoritos', '/calendario',
+  '/anexos', '/logistica', '/dialetica', '/ficha',
+];
 
 test.describe('Navegación real entre pantallas', () => {
   for (const route of PROTECTED_ROUTES) {
