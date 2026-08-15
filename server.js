@@ -21,7 +21,7 @@ import './src/shared/infrastructure/FirebaseAdmin.js';
 import { verifyFirebaseAuth }        from './src/shared/infrastructure/FirebaseAuthMiddleware.js';
 import { validateBody, schemas }     from './src/shared/infrastructure/validation.js';
 import { m1Router, runM1Pipeline }   from './src/modules/radar/m1Pipeline.js';
-import { initSentry, Sentry }        from './src/shared/infrastructure/SentryMonitoring.js';
+import { initSentry, Sentry, sentryHabilitado } from './src/shared/infrastructure/SentryMonitoring.js';
 import './scripts/generar_reporte.cjs'; // regenera public/estado_antigravity.json con inventario real de agents/ al arrancar + cada 10 min
 
 dotenv.config();
@@ -327,6 +327,24 @@ app.use('/api',            createCommunicationRouter(sendEmailUseCase));
 app.use('/api/github',     createGitHubRouter());
 app.use('/api/formulador', createFormuladorRouter());
 
+// GET /api/sys/sentry-verify — diagnóstico de si Sentry está capturando en
+// este proceso, agregado 2026-08-15 (PROTOCOLO 5x5): cierra el único
+// hallazgo que ninguna auditoría de código podía verificar por sí sola
+// (necesita el runtime real de producción). Rol 'admin' (el único rol real
+// que existe en este proyecto — no se inventa un tier nuevo). Usa
+// sentryHabilitado() (SentryMonitoring.js), no un método inventado de la
+// SDK — @sentry/node no expone un Sentry.isInitialized() público.
+app.get('/api/sys/sentry-verify', (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Requiere rol admin.' });
+  }
+  if (!sentryHabilitado()) {
+    return res.status(503).json({ status: 'inactive', dsn_configured: false });
+  }
+  Sentry.captureMessage('SENTRY_PROD_VERIFICATION_PING', 'info');
+  res.json({ status: 'active', dsn_configured: true, timestamp: Date.now() });
+});
+
 app.post('/api/execute', validateBody(schemas.execute), (req, res) => {
   const { user, action } = req.body;
   // uid agregado 2026-08-14 (PROTOCOLO TITÁN ∞, segunda ronda): "user" venía
@@ -363,7 +381,28 @@ if (typeof Sentry.setupExpressErrorHandler === 'function') {
 }
 
 // ── WebSocket Server — Radar Live (reemplaza FastAPI en producción) ───────────
-const wss = new WebSocketServer({ server: httpServer, path: '/ws/live_radar' });
+// Hardening 2026-08-15 (PROTOCOLO 5x5, hallazgo §0-AF): sin auth en el
+// handshake, a propósito — este WS transmite exactamente el mismo dato que
+// GET /api/convocatorias (PUBLIC_API_PREFIXES, público por diseño); gatear
+// solo el canal WS no añade confidencialidad real (el mismo dato sigue
+// disponible sin token por REST) y rompería el caso de uso real de usuarios
+// anónimos viendo el radar en vivo. El riesgo real que se cierra aquí es
+// agotamiento de recursos (DoS), no fuga de datos.
+const MAX_WS_CLIENTS  = Number(process.env.MAX_WS_CLIENTS) || 1000;
+const WS_HEARTBEAT_MS = 30_000;
+
+const wss = new WebSocketServer({
+  server: httpServer,
+  path: '/ws/live_radar',
+  maxPayload: 4096, // 4KB — este canal es solo de lectura (broadcast servidor->cliente), el cliente nunca necesita mandar payloads grandes
+  verifyClient(_info, callback) {
+    if (wss.clients.size >= MAX_WS_CLIENTS) {
+      console.warn(`[WS] Conexión rechazada — límite de ${MAX_WS_CLIENTS} clientes alcanzado.`);
+      return callback(false, 503, 'Límite de conexiones alcanzado');
+    }
+    callback(true);
+  },
+});
 
 function broadcastRadar(event, data) {
   const payload = JSON.stringify({ event, data });
@@ -374,11 +413,25 @@ function broadcastRadar(event, data) {
 
 wss.on('connection', (ws) => {
   console.log('[WS] Cliente conectado. Total:', wss.clients.size);
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
   // Enviar snapshot inicial
   ws.send(JSON.stringify({ event: 'INITIAL_DATA', data: radarData }));
   ws.on('close', () => console.log('[WS] Cliente desconectado. Total:', wss.clients.size));
   ws.on('error', (err) => console.error('[WS] Error:', err.message));
 });
+
+// Heartbeat — termina conexiones muertas (cliente que cerró sin avisar,
+// conexión colgada de red) que de otro modo quedarían contando contra
+// MAX_WS_CLIENTS indefinidamente.
+const wsHeartbeat = setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, WS_HEARTBEAT_MS);
+wss.on('close', () => clearInterval(wsHeartbeat));
 
 // ── Feed "Live" real — cron único de baja frecuencia para todo el sistema ──────
 // Oleada 2, Grupo Elite (2026-08-06). Reemplaza el setInterval simulado anterior

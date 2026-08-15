@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-15T14:16:05.089Z",
+  "generado": "2026-08-15T14:23:53.863Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -39,18 +39,15 @@
       "ultimo_veredicto": {
         "aprobado": true,
         "firma": "9423b77806795f8901e6900cf0c9b6c460d01b164b0d9f6ca6ac3892684f0a44",
-        "timestamp": "2026-08-15T14:15:39.756Z",
+        "timestamp": "2026-08-15T14:23:39.719Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "schemas.fichaTecnica: sustitución de z.record(z.any()) por objeto estructurado con .int() en cantidad/precio_unitario es quirúrgica y no rompe campos no-financieros gracias a .passthrough() en dos niveles (ítem y technical_core)",
-          "Opcionalidad de bill_of_materials y de cada campo financiero individual preserva compatibilidad con fichas parciales",
-          "Cuatro tests nuevos en validation.test.mjs cubren los cuatro bordes relevantes (fraccionario en cantidad, fraccionario en precio_unitario, passthrough de campos descriptivos, opcionalidad del array)",
-          "CORS fix en server.js: middleware previo devuelve 403 explícito con log distinguible para orígenes rechazados; callback de cors queda como booleano puro — no lanza error — eliminando la ruta 500-sin-clasificar documentada en el comentario",
-          "Peticiones sin header origin (server-to-server) no se ven afectadas: el middleware previo llama next() y cors las admite con !origin",
-          "Artefactos de estado (diseno_aprobado.json, estado_operativo.json, veredicto_005/006.json, telemetria.jsonl) son actualizaciones de firma/timestamp consistentes con el flujo normal del PMU",
-          "Anomalía de no-atomicidad Redis documentada por 005 correctamente clasificada como deuda técnica aceptable — no bloqueante",
+          "Firmas consistentes cruzadas: 9423b77 en diseno_aprobado.json, estado_operativo.json (agente 002) y telemetria.jsonl; c707b47 en veredicto_005.json y estado_operativo.json (agente 005)",
+          "Eliminación de anomalía Redis en veredicto_005 es correcta: pertenecía al diff anterior (checkQuota), ya comiteado en 9ea1271, no a este ciclo",
+          "§0-AF documenta hallazgo WebSocket /ws/live_radar sin corrección de código — severidad 🟡 clasificada correctamente, decisión de capacidad explícitamente diferida",
           "Sin DDL — regla BEGIN/COMMIT no aplica",
-          "Sin módulos nuevos, sin cambios de autenticación estructural, sin abstracciones no solicitadas"
+          "Sin código de producción modificado — diff es exclusivamente artefactos de estado PMU y documentación as-build",
+          "Alcance ajustado: rotación de firma/timestamp + nueva sección de documentación, sin abstracciones ni módulos no solicitados"
         ]
       }
     },
