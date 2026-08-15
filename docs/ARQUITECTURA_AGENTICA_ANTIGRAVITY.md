@@ -1457,3 +1457,73 @@ autorización para ese gasto específico) — cálculo analítico con los límit
 ### Tests nuevos, 112/112 en total tras esta ronda
 `scripts/quota_persistence.test.mjs` (3 tests: persistencia lógica de cuota, ventana fija no deslizante,
 independencia entre `uid`s) + 4 tests nuevos de `schemas.chat` en `scripts/validation.test.mjs`.
+
+---
+
+## §0-AF. PROTOCOLO 5x5 ∞ — consolidación final + hallazgo nuevo de WebSocket (2026-08-15)
+
+Quinta ronda de la sesión. El prompt del usuario es idéntico en estructura al de §0-AE (mismos 5 vectores, mismos
+3 entregables) — no repite hallazgos ya cerrados, se enfoca en **Fase 1 ya comiteada (`9ea1271`, CORS 403 +
+validación entera de `bill_of_materials`, 116/116 tests, CI verde)** y en un vector genuinamente no auditado antes.
+
+### Organigrama jerárquico del Escuadrón Élite (Sistema C, `.claude/agents/`, real y operativo)
+
+```
+001_ORQUESTADOR_MAESTRO (interfaz única con el usuario, Read/Grep/Glob/Agent/WebSearch/WebFetch)
+│
+├── 002_ARQUITECTO_DE_SOFTWARE (gate principal, Read/Grep/Glob) — bloquea código sin diseño aprobado
+│     └── hashEstado()/diseno_aprobado.json cubre: agents/, src/, public/src/, public/*.html,
+│         .claude/agents/, server.js, src/orchestrator-engine.js, y su propio motor
+│         (agents/architecture-gate.cjs, scripts/check_veto_008.cjs)
+│
+├── 003_ESP_DISENO_STITCH (solo lectura) — audita tokens de diseño
+├── 004_SENTINELA_FRONTEND (solo lectura) — audita stubs huérfanos/contratos de build
+├── 009_INGENIERO_FRONTEND (Write/Edit) — único que escribe public/, ejecuta hallazgos de 003/004
+├── 005_INGENIERO_BACKEND (Write/Edit/Bash) — persistencia, server.js, orchestrator-engine.js
+├── 006_DEVSECOPS_INFRAESTRUCTURA (Write/Edit acotado + Bash) — .github/workflows/, scripts/*gate*/*veto*
+├── 007_DOCUMENTADOR_AS_BUILD (Write/Edit acotado a docs/) — único que mantiene este documento
+├── 008_AUDITOR_DE_CODIGO (solo lectura + Bash) — PROTOCOLO TITÁN, Red Team, bloqueante en juicio, no en tools
+└── 010_INGENIERO_QA_AUTOMATIZACION (Write/Edit acotado a tests/e2e/ + Bash) — Playwright real
+```
+
+**Sistema A** (`agents/009_gestor_datos/`, `012_Radar2_Estratega/`, `050_Formulador_proy/`, etc.) confirmado
+no-operativo desde §0-Z — 0 imports reales desde `src/`/`server.js`, batch executor legado sin disparo automático.
+No es parte del organigrama real, solo carpetas históricas con `IDENTITY.md`.
+
+### Auditoría anatómica de Skills — I/O y anomalías
+`skills/ag_skills_registry.json` v4.0.0 (última sincronización 2026-08-13): `canonical_hierarchy_note` ya corregida
+(no afirma falsamente que Sistema A es operativo). `011_Radar1_minero` con `raw_scripts: []` (purgado 2026-08-13).
+Sin anomalías nuevas encontradas en esta ronda — el registro refleja el estado real de disco.
+
+### Mapa de integraciones y SPOF
+- **SPOF real 1 — Upstash Redis**: sesiones, ban de login, cuota diaria y caché del Radar dependen de él. Si cae,
+  `cache.js` degrada a `Map` en memoria (fallback ya existente) — degradación aceptable, no caída total.
+- **SPOF real 2 — Firebase Auth**: sin él, ningún endpoint `/api/*` protegido funciona (gate universal). Sin
+  fallback — es una decisión de diseño correcta (no debe haberlo para autenticación).
+- **SPOF real 3 — Anthropic API**: `/api/chat`, `/api/formulador/ficha-tecnica`, `/api/radar/*` dependen de Claude.
+  Sin fallback real de IA (el "fallback local" de `orchestrator-engine.js` es texto genérico, no otro proveedor).
+- **Nuevo — WebSocket sin límite de conexiones** (ver hallazgo abajo): no es SPOF de disponibilidad de datos
+  (misma info que `/api/convocatorias`, público), pero sí de agotamiento de recursos del propio proceso.
+
+### Plan de remediación para el "Agente Arquitecto faltante" — YA RESUELTO, no pendiente
+El prompt pide un plan de remediación asumiendo que este rol no existe. **Corrección de premisa:** existe desde
+antes de esta sesión y es el gate más maduro del sistema — `002_ARQUITECTO_DE_SOFTWARE` (`.claude/agents/
+002-arquitecto-de-software.md`) bloquea código sin diseño aprobado vía `.git/hooks/pre-commit` (local) y
+`.github/workflows/gate.yml` (CI, remoto e inevitable). No hay plan de remediación que ejecutar — el bloqueo
+sistémico que el prompt pide verificar ya existe, ya se demostró funcionando decenas de veces hoy mismo (cada
+commit de esta sesión pasó por él).
+
+### Hallazgo nuevo — WebSocket `/ws/live_radar` sin autenticación ni límite de conexiones
+**Evidencia:** `server.js:366-381`. `new WebSocketServer({ server: httpServer, path: '/ws/live_radar' })` acepta
+cualquier conexión — sin verificar token, sin `origin` check (el middleware CORS de Express, corregido hoy mismo
+en `9ea1271`, no cubre WebSocket — es un protocolo de upgrade HTTP distinto), sin `maxPayload`, sin tope de
+`wss.clients.size`. **Severidad real: 🟡 media, no crítica** — el payload transmitido (`INITIAL_DATA`/broadcasts de
+`radarData`) es idéntico al de `GET /api/convocatorias`, que ya está en `PUBLIC_API_PREFIXES` (público por diseño,
+sin fuga de datos nuevos). El riesgo real es agotamiento de recursos: conexiones WS ilimitadas en un proceso de
+Render plan `free` (memoria/file-descriptors limitados) podrían tumbar el proceso completo con suficientes
+conexiones concurrentes — no auditado hasta esta ronda porque ningún hallazgo anterior tocó WebSocket. **No se
+corrige en esta ronda** — un tope de conexiones requiere decidir el número correcto para el tráfico real esperado,
+decisión de producto/capacidad, no un fix de una línea como CORS o `bill_of_materials`.
+
+**116/116 tests, sin cambio en esta ronda** (hallazgo documentado, no corregido — no hay código nuevo que testear
+todavía; ver §0-AE y `9ea1271` para el conteo real más reciente).
