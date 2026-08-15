@@ -1,14 +1,15 @@
 {
   "aprobado": true,
   "firma": "9423b77806795f8901e6900cf0c9b6c460d01b164b0d9f6ca6ac3892684f0a44",
-  "timestamp": "2026-08-15T14:32:40.321Z",
+  "timestamp": "2026-08-15T15:01:55.754Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Endpoint /api/sys/sentry-verify usa rol 'admin' consistente con el único rol real del proyecto y sentryHabilitado() como función propia — no inventa métodos de SDK",
-    "WS hardening: MAX_WS_CLIENTS configurable por env, verifyClient bloquea en 503 al límite, heartbeat con clearInterval previene fuga de timer, maxPayload 4096 apropiado para canal read-only",
-    "Decisión de no auth en WS handshake documentada y justificada: datos ya públicos por REST, riesgo real es DoS (mitigado por MAX_WS_CLIENTS), no fuga de datos",
-    "Sin DDL — regla BEGIN/COMMIT no aplica",
-    "Artefactos de estado PMU (diseno_aprobado.json, estado_operativo.json, telemetria.jsonl, public/estado_antigravity.json) son rotaciones de firma/timestamp consistentes entre sí",
-    "Sin módulos nuevos, sin cambios de autenticación estructural, sin abstracciones no solicitadas"
+    "Diff exclusivamente documental y artefactos PMU — sin código de producción, sin DDL, sin módulos nuevos",
+    "Consistencia de firmas verificada: 9423b77 coherente en diseno_aprobado.json, estado_operativo.json (002) y telemetria.jsonl; 30a0add coherente en veredicto_005.json y estado_operativo.json (005)",
+    "Timestamps del ciclo 14:32–14:33 secuencialmente coherentes entre todos los artefactos",
+    "§0-AG distingue explícitamente verificado-directamente vs confirmado-por-usuario — metodología correcta, sin conflación",
+    "Ítem diferido (33 vulns npm) clasificado como decisión de política preexistente, no hallazgo abierto — correcto",
+    "Anomalía 005 sobre /api/sys/sentry-verify tipificada como observación de superficie (no brecha RLS), aprobado:true con derivación a 004 — clasificación apropiada dado que server.js no está en este diff",
+    "Alcance ajustado: rotación de firma/timestamp + documentación de cierre, sin abstracciones ni módulos no solicitados"
   ]
 }
