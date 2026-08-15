@@ -89,11 +89,25 @@ export const schemas = {
 
   fichaTecnica: z.object({
     ficha: z.object({
-      metadata:       z.record(z.any()),
-      geography:      z.record(z.any()),
-      population:     z.record(z.any()).optional(),
-      technical_core: z.record(z.any()),
-      attachments:    z.record(z.any()).optional(),
+      metadata:  z.record(z.any()),
+      geography: z.record(z.any()),
+      population: z.record(z.any()).optional(),
+      // technical_core sigue siendo flexible (.passthrough()) — solo
+      // bill_of_materials[].cantidad/precio_unitario quedan acotados a
+      // enteros. Regla de negocio innegociable 2026-08-15 (PROTOCOLO
+      // OMEGA-TITÁN, hallazgo #4): COP no usa decimales, y AgentOperativo
+      // (src/orchestrator-engine.js:147-156) calcula costo_directo/AIU/IVA
+      // directo de estos dos campos sin normalizar — un valor fraccionario
+      // aquí propagaría un presupuesto_total no entero. .passthrough() en
+      // cada ítem preserva campos descriptivos adicionales (nombre, unidad)
+      // que el formulario ya envía y que ningún cálculo financiero usa.
+      technical_core: z.object({
+        bill_of_materials: z.array(z.object({
+          cantidad:        z.number().int('cantidad debe ser un número entero — COP no maneja decimales').optional(),
+          precio_unitario: z.number().int('precio_unitario debe ser un número entero — COP no maneja decimales').optional(),
+        }).passthrough()).optional(),
+      }).passthrough(),
+      attachments: z.record(z.any()).optional(),
     }),
   }),
 };

@@ -119,3 +119,45 @@ test('schemas.chat: acepta un payload válido dentro de los límites', () => {
   const r = schemas.chat.safeParse({ messages: [{ role: 'system', content: 'x' }, { role: 'user', content: 'y' }], max_tokens: 2000 });
   assert.equal(r.success, true);
 });
+
+test('schemas.fichaTecnica: rechaza bill_of_materials con cantidad fraccionaria (regresión regla de negocio 2026-08-15 — COP sin decimales)', () => {
+  const r = schemas.fichaTecnica.safeParse({
+    ficha: {
+      metadata: {}, geography: {},
+      technical_core: { bill_of_materials: [{ cantidad: 2.5, precio_unitario: 1000 }] },
+    },
+  });
+  assert.equal(r.success, false);
+});
+
+test('schemas.fichaTecnica: rechaza precio_unitario fraccionario', () => {
+  const r = schemas.fichaTecnica.safeParse({
+    ficha: {
+      metadata: {}, geography: {},
+      technical_core: { bill_of_materials: [{ cantidad: 2, precio_unitario: 999.99 }] },
+    },
+  });
+  assert.equal(r.success, false);
+});
+
+test('schemas.fichaTecnica: acepta enteros, y preserva campos descriptivos extra por passthrough', () => {
+  const r = schemas.fichaTecnica.safeParse({
+    ficha: {
+      metadata: {}, geography: {},
+      technical_core: {
+        bill_of_materials: [{ cantidad: 3, precio_unitario: 15000, nombre: 'Cemento', unidad: 'bulto' }],
+        problem_statement: 'texto libre que debe seguir pasando',
+      },
+    },
+  });
+  assert.equal(r.success, true);
+  assert.equal(r.data.ficha.technical_core.bill_of_materials[0].nombre, 'Cemento');
+  assert.equal(r.data.ficha.technical_core.problem_statement, 'texto libre que debe seguir pasando');
+});
+
+test('schemas.fichaTecnica: bill_of_materials sigue siendo opcional (no rompe fichas sin ese campo)', () => {
+  const r = schemas.fichaTecnica.safeParse({
+    ficha: { metadata: {}, geography: {}, technical_core: {} },
+  });
+  assert.equal(r.success, true);
+});

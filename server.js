@@ -81,10 +81,26 @@ app.set('trust proxy', 1);
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5000,http://localhost:5173')
   .split(',').map(s => s.trim()).filter(Boolean);
 
+// Rechazo explícito de origen no permitido ANTES del middleware `cors` —
+// corregido 2026-08-15 (PROTOCOLO OMEGA-TITÁN, hallazgo #3): antes, el
+// callback de origin() pasaba un Error al middleware `cors`, que lo
+// propagaba al error-handler genérico de Express -> 500 sin clasificar,
+// en vez de un 403 explícito con log distinguible. Funcionalmente ya
+// bloqueaba (el origen rechazado nunca recibía headers CORS), pero era un
+// fallo silencioso mal clasificado.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+    console.warn(`[CORS] Origen rechazado: ${origin}`);
+    return res.status(403).json({ error: `Origen no permitido: ${origin}` });
+  }
+  next();
+});
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    return callback(new Error(`CORS: origen no permitido (${origin})`));
+    // El rechazo real ya ocurrió arriba — esto solo decide si `cors` agrega
+    // los headers Access-Control-Allow-* (nunca lanza error ya).
+    callback(null, !origin || ALLOWED_ORIGINS.includes(origin));
   },
   methods: ['GET','POST','PUT','DELETE'],
   allowedHeaders: ['Content-Type','Authorization'],

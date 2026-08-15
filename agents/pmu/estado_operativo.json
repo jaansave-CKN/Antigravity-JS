@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-15T11:06:58.311Z",
+  "generado": "2026-08-15T13:56:13.300Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -38,16 +38,18 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "cd94701b03d8b7708a4576dff563ae394ce0b40f01f3a7f6d97afd74762bb52d",
-        "timestamp": "2026-08-15T11:06:42.803Z",
+        "firma": "d0a5f984989f36e5b9430673b24dcdabec80e1019143256818847b1551bda624",
+        "timestamp": "2026-08-15T13:55:36.022Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "Cambio en architecture-gate.cjs es aditivo y quirúrgico: agrega dos regex al array patrones de 005_INGENIERO_BACKEND sin modificar ningún otro campo ni subgate",
-          "Los patrones /^server\\.js$/ y /^src\\/orchestrator-engine\\.js$/ son sintácticamente correctos y no colisionan con patrones declarados de otros subgates visibles en el diff",
-          "Test de regresión nuevo valida exactamente la cobertura agregada (server.js, src/orchestrator-engine.js incluidos; public/src/App.jsx excluido correctamente); assert usa .sort() en ambos lados — correcto",
-          "Sección §0-AD en el doc de arquitectura es trazabilidad pura: documenta causa raíz de la brecha, la excepción operativa por límite de API, y el compromiso hacia adelante — no introduce nuevas decisiones de diseño",
-          "estado_operativo.json y telemetria.jsonl son artefactos de estado consistentes con el flujo normal del PMU",
-          "Las alertas alerta_pmu son comportamiento esperado del mecanismo de vigilancia ante actualización del doc maestro — no son bloqueantes de este diff"
+          "checkQuota migrado a cacheGet/cacheSet con async correcto — resetAt explícito en valor cacheado preserva semántica de ventana fija, no deslizante; TTL físico calculado con Math.max(1,...) para evitar TTL=0",
+          "Propagación de async verificada en todos los call-sites del diff: m1Pipeline.js ×2 (/search y /stream) y server.js /api/chat — ningún call-site queda sin await",
+          "schemas.chat nuevo en validation.js cierra vector FinOps: max_tokens acotado a 8192 (consistente con architecture-gate.cjs), messages[] acotado a 20 elementos × 50.000 chars; validateBody(schemas.chat) wireado como middleware antes del handler en server.js",
+          "Eliminación de validación manual en /api/chat no genera regresión: Zod cubre con mayor rigor el caso messages[] vacío o no-array",
+          "Segundo try/catch en DELETE /api/session/:sessionId es quirúrgico — no altera semántica del 401 del primer bloque; cierra la ventana de request colgada sin log/respuesta que Express 4.x no captura automáticamente en handlers async",
+          "Tests nuevos: quota_persistence.test.mjs cubre agotamiento, ventana fija (regresión directa del bug), independencia entre uids; 4 tests nuevos en validation.test.mjs cubren límites del schema.chat; integración en test:gate via package.json verificada",
+          "Sin DDL — regla BEGIN/COMMIT no aplica a este diff",
+          "Sin módulos nuevos, sin cambios de autenticación estructural, sin abstracciones no solicitadas — alcance ajustado a los 3 hallazgos documentados en §0-AE"
         ]
       }
     },
@@ -90,17 +92,17 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "2d327968d4a5ea1896aa2f16fcb4ca60f8e55e25b17caa9bf46510d1eaa17c15",
-        "timestamp": "2026-08-14T04:04:25.753Z",
+        "firma": "874fb18f676ece8dd0ea84c242a2c5e0d4ef57d64e7785c58f7e733e6338af31",
+        "timestamp": "2026-08-15T13:55:56.073Z",
         "firmado_por": "005_INGENIERO_BACKEND (.claude\\agents\\005-ingeniero-backend.md, vía API Anthropic)",
         "veredictoCompleto": {
           "estado_backend": "aislado_y_seguro",
           "brechas_rls": 0,
           "anomalias": [
             {
-              "archivo": "src/modules/formulador/FormuladorPgController.js",
+              "archivo": "src/shared/infrastructure/session-manager.js",
               "tipo": "otro",
-              "evidencia": "setServerAuthToken eliminado y userJwt pasado como parámetro explícito — corrección válida de race condition multi-tenant. No verificable en este diff: que orchestrator-engine.js no reinserte el estado global internamente con el parámetro recibido."
+              "evidencia": "checkQuota migrado a Redis no es atómico — dos requests concurrentes del mismo uid pueden leer count antes de que el primero persista la escritura, permitiendo sobrepasar la cuota en ráfagas. Riesgo aceptable al volumen actual (50/día, Render free), pero documentar como deuda técnica para cuando el volumen crezca."
             }
           ]
         }
@@ -121,15 +123,15 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "890ae9cf9703d3a500d16b18aeae7d257cacfea140f8e7c6b89c421953f29dd8",
-        "timestamp": "2026-08-14T04:04:23.860Z",
+        "firma": "fd0637455e102c4e126a2965306404b0183cb86d4b0562e6f3570229e02b557d",
+        "timestamp": "2026-08-15T13:55:48.233Z",
         "firmado_por": "006_DEVSECOPS_INFRAESTRUCTURA (.claude\\agents\\006-devsecops-infraestructura.md, vía API Anthropic)",
         "veredictoCompleto": {
           "infraestructura_segura": true,
           "hallazgos": [
             {
               "categoria": "ci_cd",
-              "evidencia": "package.json: scripts.test:gate añade scripts/orchestrator_race.test.mjs al suite de gate. Sin cambios en dependencies/devDependencies. Sin secretos ni credenciales en el diff.",
+              "evidencia": "package.json línea test:gate: adición de scripts/quota_persistence.test.mjs al runner de tests del gate. Cambio aditivo, sin modificación de dependencias, sin secretos, sin archivos .env en el diff.",
               "criticidad": "baja"
             }
           ]
