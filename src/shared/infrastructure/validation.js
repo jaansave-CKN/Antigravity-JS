@@ -71,6 +71,22 @@ export const schemas = {
     message: 'Payload de fase1 excede el tamaño máximo permitido (300KB).',
   }),
 
+  // POST /api/chat — hallazgo real PROTOCOLO OMEGA-TITÁN 2026-08-15: era el
+  // único endpoint que consume Claude/Anthropic (costo real por token) SIN
+  // validateBody(). max_tokens venía directo de req.body sin tope (un cliente
+  // podía pedir cualquier valor), y messages[] no tenía límite de tamaño ni
+  // de cantidad de elementos — cada una de las 50 llamadas/día que permite
+  // checkQuota podía costar arbitrariamente más de lo esperado. 8192 es el
+  // mismo tope que ya usa agents/architecture-gate.cjs para llamadas propias
+  // al mismo modelo (pedirVeredictoSubagente).
+  chat: z.object({
+    messages: z.array(z.object({
+      role:    z.enum(['system', 'user', 'assistant']),
+      content: z.string().max(50_000),
+    })).min(1, 'messages no puede estar vacío').max(20, 'máximo 20 mensajes por llamada'),
+    max_tokens: z.number().int().min(1).max(8192).optional(),
+  }),
+
   fichaTecnica: z.object({
     ficha: z.object({
       metadata:       z.record(z.any()),

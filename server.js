@@ -115,13 +115,10 @@ app.get('/api/convocatorias', (_req, res) => {
 });
 
 // IA Central — Claude proxy (formato OpenAI-compatible)
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', validateBody(schemas.chat), async (req, res) => {
   try {
     const { messages, max_tokens = 4096 } = req.body;
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: 'Se requiere messages[] con al menos un elemento.' });
-    }
-    const quota = checkQuota(req.user?.uid ?? 'anonymous');
+    const quota = await checkQuota(req.user?.uid ?? 'anonymous');
     if (!quota.allowed) {
       return res.status(429).json({ error: 'Cuota diaria de consultas a IA agotada.', resetAt: quota.resetAt });
     }
@@ -209,18 +206,30 @@ app.delete('/api/session/:sessionId', async (req, res) => {
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Token de sesión requerido para revocar' });
   }
+  // try/catch extendido a todo el handler 2026-08-15 (PROTOCOLO OMEGA-TITÁN):
+  // antes solo envolvía verifyToken() — revokeSession() (I/O real contra
+  // Redis/Upstash vía cacheGet/cacheDel) quedaba sin protección. Express 4.x
+  // no captura rechazos de promesas no manejados en handlers async (no hay
+  // express-async-errors ni handler global de unhandledRejection en este
+  // proyecto) — un throw ahí habría dejado la request colgada, sin log ni
+  // respuesta, en vez de un 500 explícito.
   let requester;
   try {
     requester = await verifyToken(authHeader.split('Bearer ')[1]);
   } catch (err) {
     return res.status(401).json({ error: 'Token de sesión inválido o expirado', detail: err.message });
   }
-  const result = await revokeSession(req.params.sessionId, requester);
-  if (!result.revoked) {
-    const status = result.reason === 'NOT_FOUND' ? 404 : 403;
-    return res.status(status).json({ revoked: false, reason: result.reason, sessionId: req.params.sessionId });
+  try {
+    const result = await revokeSession(req.params.sessionId, requester);
+    if (!result.revoked) {
+      const status = result.reason === 'NOT_FOUND' ? 404 : 403;
+      return res.status(status).json({ revoked: false, reason: result.reason, sessionId: req.params.sessionId });
+    }
+    res.json({ revoked: true, sessionId: req.params.sessionId });
+  } catch (err) {
+    console.error('[Session] revokeSession falló:', err.message);
+    res.status(500).json({ error: 'No se pudo revocar la sesión.' });
   }
-  res.json({ revoked: true, sessionId: req.params.sessionId });
 });
 
 // Ping real a Claude, cacheado — GET /api/health es público (sin auth, ver

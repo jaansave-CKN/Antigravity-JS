@@ -1389,3 +1389,71 @@ usuario en el momento (como ya ocurrió esta sesión con "solución grado milita
 hallazgos más críticos), que sigue siendo una excepción legítima, no la norma. La brecha de cobertura (`server.js`/
 `orchestrator-engine.js`) ya no existe como excusa — la brecha de disciplina sigue siendo responsabilidad de criterio
 del orquestador en cada caso futuro.
+
+---
+
+## §0-AE. PROTOCOLO OMEGA-TITÁN ∞ — hallazgos FinOps + Vector 2/3 (2026-08-15)
+
+Cuarta ronda de auditoría forense de la sesión, ejecutada directamente por el orquestador (subagentes `007`/`008`
+seguían bloqueados por el límite semanal de API, resetea 9pm hora Bogotá). Enfocada en terreno genuinamente nuevo —
+no repite lo ya verificado en `51c7ddc`/`73159b7`/`4c81141`.
+
+### Correcciones de premisa antes de auditar
+- El repositorio es **JavaScript plano** (`.js`/`.jsx`/`.cjs`/`.mjs`), sin un solo `.ts`/`.tsx` — la regla de
+  "tipado estricto, prohibido `any`" del prompt original no aplica a este codebase.
+- No existe sistema de trial/paywall en el frontend (confirmado, mismo hallazgo que rondas anteriores) — el
+  sub-vector "Gatekeeper y Trial Bypass" es N/A para esta app, no un hallazgo evadido.
+
+### Hallazgos nuevos (no cubiertos por rondas 1-3)
+
+**1. `/api/chat` sin `validateBody()` — único endpoint que consume Claude/Anthropic sin tope de costo.**
+`server.js` (antes de esta ronda): `max_tokens` venía directo de `req.body` sin límite superior; `messages[]` no
+tenía tope de cantidad ni de tamaño por mensaje. Cada una de las 50 llamadas/día que permite `checkQuota` podía
+costar arbitrariamente más de lo esperado. **Corregido:** `schemas.chat` (Zod) nuevo en
+`src/shared/infrastructure/validation.js` — `max_tokens` acotado a 8192 (mismo tope que ya usa
+`agents/architecture-gate.cjs` para sus propias llamadas al modelo), `messages[]` acotado a 20 elementos de máx.
+50.000 caracteres cada uno. Wireado en `server.js` con `validateBody(schemas.chat)`.
+
+**2. `checkQuota` en `Map` en memoria — no sobrevivía al cold-start del plan `free` de Render.**
+`render.yaml` declara `plan: free` — Render hace spin-down por inactividad (confirmado en el propio dashboard del
+usuario, captura de pantalla de esta sesión: *"Your free instance will spin down with inactivity"*). El contador de
+cuota diaria (`quotaCounters`, `Map` puro) se vaciaba en cada reinicio del proceso — la cuota de 50/día NO se
+cumplía en la práctica bajo tráfico intermitente, cada cold-start regalaba una cuota nueva. **Corregido:**
+`checkQuota()` migrado a `cache.js`/Redis (mismo patrón ya usado por el ban de login), con `resetAt` explícito en
+el valor cacheado para preservar la semántica de ventana fija (no deslizante). **Verificado en vivo, no solo
+leído:** se consumió la cuota completa, se simuló un cold-start (`clearMemCache()`), y la cuota siguió bloqueando
+correctamente — prueba de que el estado real ya vive en Redis, no en memoria.
+
+**3. `DELETE /api/session/:sessionId` — `try/catch` parcial, dejaba `revokeSession()` sin protección.**
+El handler es `async` pero solo envolvía `verifyToken()`; `revokeSession()` (I/O real contra Redis) podía lanzar
+sin que nada lo capturara. Este proyecto no usa `express-async-errors` ni tiene handler global de
+`unhandledRejection` — un throw ahí habría dejado la request colgada (sin log, sin respuesta), no un 500 explícito.
+**Corregido:** segundo `try/catch` específico para `revokeSession()`, con `500` explícito y log, sin cambiar la
+semántica del `401` que ya devolvía el primer bloque para tokens inválidos.
+
+### Validado, sin hallazgo (evidencia citada, no solo inspección visual)
+- **Inyección SQL/JSON:** todas las llamadas a Supabase desde `src/modules/formulador/` pasan por `sb.rpc(nombre,
+  {params})` (`FormuladorPgController.js`, `occGuard.js`) — parámetros siempre como objeto JSON-encodeado por el
+  cliente REST de PostgREST, nunca concatenación de strings. Sin superficie de inyección por este camino.
+- **BEGIN/COMMIT/ROLLBACK:** presentes en `008_occ_atomic_guardar_modulo10.sql`, `009_idempotencia_fase1.sql`,
+  `_deploy_atomico_migracion_a.sql` — las migraciones críticas ya usan transacciones explícitas.
+- **AIU 25% / IVA 19%:** no es "hardcoding" indebido — son constantes regulatorias colombianas documentadas
+  (mismo criterio ya validado por `financiero.test.mjs`), no valores mágicos que debieran ser configurables.
+- **`FormuladorPgController.js`:** 6 handlers exportados, 6 bloques `try` — cobertura completa.
+
+### Impacto FinOps estimado (COP), supuestos explícitos, sin disparar tráfico real pagado
+No se ejecutó un ataque real de 1000 requests contra Claude (habría gastado saldo real de la cuenta del usuario sin
+autorización para ese gasto específico) — cálculo analítico con los límites reales del código:
+- Costo máximo por llamada individual post-fix: ~25.000 tokens de entrada (tope de 100KB de `express.json()`,
+  backstop que ya existía sin que el código de aplicación lo supiera) + 8.192 tokens de salida (tope nuevo) ≈
+  **US$0,20/llamada** (referencia pública aproximada: ~US$3/M tokens entrada, ~US$15/M tokens salida para modelos
+  clase Sonnet).
+- Ciclo de cuota completo (50 llamadas): **~US$10/ciclo**.
+- **Exposición real pre-fix**, si el cold-start de Render reiniciaba la cuota entre 3 y 10 veces/día bajo tráfico
+  intermitente (rango plausible, no medido con precisión): **~US$30–100/día**, equivalente a **~120.000–420.000
+  COP/día** (referencia ~4.000–4.200 COP/USD) de gasto evitable en IA que el propio código no habría podido
+  frenar, sostenido indefinidamente hasta que alguien lo notara en la facturación de Anthropic.
+
+### Tests nuevos, 112/112 en total tras esta ronda
+`scripts/quota_persistence.test.mjs` (3 tests: persistencia lógica de cuota, ventana fija no deslizante,
+independencia entre `uid`s) + 4 tests nuevos de `schemas.chat` en `scripts/validation.test.mjs`.

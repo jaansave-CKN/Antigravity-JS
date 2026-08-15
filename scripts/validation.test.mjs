@@ -98,3 +98,24 @@ test('validateBody: middleware llama next() y normaliza req.body cuando el schem
   assert.equal(nextLlamado, true);
   assert.equal(req.body.email, 'a@b.com', 'zod .trim() debe normalizar espacios');
 });
+
+test('schemas.chat: rechaza max_tokens fuera de rango (regresión FinOps 2026-08-15 — antes /api/chat no tenía tope)', () => {
+  const r = schemas.chat.safeParse({ messages: [{ role: 'user', content: 'hola' }], max_tokens: 999999 });
+  assert.equal(r.success, false);
+});
+
+test('schemas.chat: rechaza más de 20 mensajes por llamada', () => {
+  const messages = Array.from({ length: 21 }, () => ({ role: 'user', content: 'x' }));
+  const r = schemas.chat.safeParse({ messages });
+  assert.equal(r.success, false);
+});
+
+test('schemas.chat: rechaza messages vacío', () => {
+  const r = schemas.chat.safeParse({ messages: [] });
+  assert.equal(r.success, false);
+});
+
+test('schemas.chat: acepta un payload válido dentro de los límites', () => {
+  const r = schemas.chat.safeParse({ messages: [{ role: 'system', content: 'x' }, { role: 'user', content: 'y' }], max_tokens: 2000 });
+  assert.equal(r.success, true);
+});

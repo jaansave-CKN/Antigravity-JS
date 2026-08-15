@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-14T04:12:12.431Z",
+  "generado": "2026-08-15T11:06:58.311Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -38,18 +38,16 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "3793adf163083e50ca2ac92ddb1d4c017ddc472066f41ad50d10eed3fb616736",
-        "timestamp": "2026-08-14T04:04:14.431Z",
+        "firma": "cd94701b03d8b7708a4576dff563ae394ce0b40f01f3a7f6d97afd74762bb52d",
+        "timestamp": "2026-08-15T11:06:42.803Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "orchestrator-engine.js: eliminación de _serverAuthToken (estado global mutable) verificada — token viaja como parámetro explícito en toda la cadena run→process→callAI, sin estado compartido entre requests concurrentes; firma de callAI es no-breaking (authToken=null por defecto)",
-          "server.js app.set('trust proxy',1): cierra la anomalía req.ip=IP-de-proxy reportada en veredicto_005 anterior; valor 1 correcto para topología PaaS de un hop; burstLimiter y loginBanGuard recuperan granularidad real por cliente",
-          "server.js await recordLoginFailure: ventana de microtask documentada y cerrada; comportamiento de respuesta 401 no cambia porque try/catch interno no lanza hacia afuera",
-          "server.js audit logging: uid verificado (req.user?.uid??null) en CLAUDE_CHAT_SUCCESS, CLAUDE_CHAT_ERROR y FORMAL_ORDER; separación uid/user_claimed en /api/execute elimina vector de suplantación en ledger de auditoría",
-          "orchestrator_race.test.mjs: diseño de regresión correcto — fakeServer con jitter real, 30 requests concurrentes, verificación de echo de Authorization por usuario; integrado en test:gate vía package.json",
-          "veredicto_005 actualizado coherente: anomalias[] vacío porque trust proxy y recordLoginFailure están corregidos en este mismo diff",
-          "artefactos de trazabilidad (firmas, timestamps, telemetria.jsonl, estado_antigravity.json): rotación de ciclo de gate anterior — comportamiento normal del pipeline",
-          "sin DDL, sin módulos nuevos, sin cambios de autenticación estructural, alcance ajustado a hallazgos PROTOCOLO TITÁN ∞ segunda ronda confirmados en producción"
+          "Cambio en architecture-gate.cjs es aditivo y quirúrgico: agrega dos regex al array patrones de 005_INGENIERO_BACKEND sin modificar ningún otro campo ni subgate",
+          "Los patrones /^server\\.js$/ y /^src\\/orchestrator-engine\\.js$/ son sintácticamente correctos y no colisionan con patrones declarados de otros subgates visibles en el diff",
+          "Test de regresión nuevo valida exactamente la cobertura agregada (server.js, src/orchestrator-engine.js incluidos; public/src/App.jsx excluido correctamente); assert usa .sort() en ambos lados — correcto",
+          "Sección §0-AD en el doc de arquitectura es trazabilidad pura: documenta causa raíz de la brecha, la excepción operativa por límite de API, y el compromiso hacia adelante — no introduce nuevas decisiones de diseño",
+          "estado_operativo.json y telemetria.jsonl son artefactos de estado consistentes con el flujo normal del PMU",
+          "Las alertas alerta_pmu son comportamiento esperado del mecanismo de vigilancia ante actualización del doc maestro — no son bloqueantes de este diff"
         ]
       }
     },

@@ -68,24 +68,33 @@ export async function jwtMiddleware(req, res, next) {
 }
 
 // ── Cuota diaria por uid — guard barato contra gasto ilimitado en APIs de pago ──
-// Deliberadamente en memoria (igual que activeQueries): un contador aproximado que
-// se resetea si el proceso reinicia es aceptable para este propósito (evitar abuso,
-// no facturación exacta). Si el volumen real lo justifica, migrar a cache.js/Redis
-// sin tocar las llamadas — es la única función que conoce el detalle de almacenamiento.
+// MIGRADO a cache.js/Redis 2026-08-15 (PROTOCOLO OMEGA-TITÁN, hallazgo FinOps
+// real): esta función ya documentaba desde su creación que debía migrarse "si
+// el volumen real lo justifica" — el plan de Render es `free` (render.yaml),
+// que hace spin-down por inactividad (confirmado en el propio dashboard del
+// usuario) y reinicia el proceso en cada cold-start. quotaCounters (Map en
+// memoria) se vaciaba en cada reinicio, así que la cuota de 50/día NO se
+// cumplía en la práctica: cualquier usuario podía obtener una cuota nueva
+// cada vez que el servicio hiciera cold-start, potencialmente muchas veces
+// al día bajo tráfico intermitente. resetAt se preserva explícito en el
+// valor cacheado (no se delega al TTL físico de Redis) para no cambiar la
+// semántica de "ventana fija desde el primer uso" por una ventana deslizante.
 const QUOTA_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h
-const quotaCounters = new Map(); // uid → { count, resetAt }
+const quotaKey = (uid) => `quota:${uid}`;
 
-export function checkQuota(uid, max = 50) {
+export async function checkQuota(uid, max = 50) {
+  const key = quotaKey(uid);
   const now = Date.now();
-  let entry = quotaCounters.get(uid);
+  let entry = await cacheGet(key);
   if (!entry || now >= entry.resetAt) {
     entry = { count: 0, resetAt: now + QUOTA_WINDOW_MS };
-    quotaCounters.set(uid, entry);
   }
   if (entry.count >= max) {
     return { allowed: false, remaining: 0, resetAt: entry.resetAt };
   }
   entry.count++;
+  const ttlSec = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
+  await cacheSet(key, entry, ttlSec);
   return { allowed: true, remaining: max - entry.count, resetAt: entry.resetAt };
 }
 

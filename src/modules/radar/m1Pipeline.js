@@ -268,7 +268,7 @@ router.post('/search', async (req, res) => {
   try {
     const { query, filters, bypassCache } = req.body;
     if (!query) return res.status(400).json({ error: 'Campo "query" requerido.' });
-    const quota = checkQuota(req.user?.uid ?? 'anonymous');
+    const quota = await checkQuota(req.user?.uid ?? 'anonymous');
     if (!quota.allowed) return res.status(429).json({ error: 'Cuota diaria de búsquedas agotada.', resetAt: quota.resetAt });
     const result = await runM1Pipeline({ query, filters: filters || {}, bypassCache });
     res.json(result);
@@ -288,7 +288,7 @@ router.post('/stream', async (req, res) => {
   const uid     = req.user?.uid ?? 'anonymous';
   const queryId = `${uid}:${query}`;
 
-  const quota = checkQuota(uid);
+  const quota = await checkQuota(uid);
   if (!quota.allowed) return sse.error('Cuota diaria de búsquedas agotada.');
 
   if (!acquireQuery(uid, queryId)) {
