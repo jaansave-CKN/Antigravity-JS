@@ -141,10 +141,13 @@ export default function BibliotecaCalcoView() {
   const actualizarLocal = (id: string, patch: Partial<Documento>) =>
     setDocumentos(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
 
-  const guardarEnServidor = async (id: string) => {
-    if (!proyectoId) return;
+  // Devuelve si la fila quedó realmente persistida — guardar() lo usa para no
+  // mostrar "✓ GUARDADO" cuando en realidad falló (antes el botón confirmaba
+  // éxito sin importar el resultado real de cada fila).
+  const guardarEnServidor = async (id: string): Promise<boolean> => {
+    if (!proyectoId) return true;
     const row = documentos.find(s => s.id === id);
-    if (!row) return;
+    if (!row) return true;
     try {
       if (row.persistido) {
         await http.patch(`/api/proyectos/${proyectoId}/biblioteca/${id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, categoria: categoriaDe(row) });
@@ -158,8 +161,10 @@ export default function BibliotecaCalcoView() {
         if (resp.data?.id) actualizarLocal(id, { id: resp.data.id, persistido: true });
       }
       setErrorSync(null);
+      return true;
     } catch {
       setErrorSync('No se pudo guardar un documento — revisa tu conexión.');
+      return false;
     }
   };
 
@@ -191,9 +196,13 @@ export default function BibliotecaCalcoView() {
   };
 
   const guardar = async () => {
-    await Promise.all(documentos.map(s => guardarEnServidor(s.id)));
-    setGuardado(true);
-    setTimeout(() => setGuardado(false), 2200);
+    const resultados = await Promise.all(documentos.map(s => guardarEnServidor(s.id)));
+    if (resultados.every(Boolean)) {
+      setGuardado(true);
+      setTimeout(() => setGuardado(false), 2200);
+    }
+    // Si alguna fila falló, no se muestra "✓ GUARDADO" — el banner de
+    // errorSync (arriba del encabezado) ya explica qué pasó.
   };
 
   const limpiar = () => {
@@ -284,6 +293,9 @@ export default function BibliotecaCalcoView() {
               </button>
             </div>
           </header>
+          {errorSync && (
+            <div className="bib__statusmsg bib__statusmsg--error" role="alert">{errorSync}</div>
+          )}
           <div className="bib__theadrow bib__grid">
             <span className="bib__th bib__th--num" />
             <span className="bib__th">DESCRIPCION</span>

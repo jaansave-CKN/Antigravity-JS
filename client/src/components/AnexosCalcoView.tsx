@@ -167,10 +167,13 @@ export default function AnexosCalcoView() {
 
   // Guarda en el servidor al perder foco (onBlur) — crea la fila si aún no
   // existe (POST) o actualiza los campos narrativos si ya existe (PATCH).
-  const guardarEnServidor = async (id: string) => {
-    if (!proyectoId) return;
+  // Devuelve si la fila quedó realmente persistida — guardar() lo usa para no
+  // mostrar "✓ GUARDADO" cuando en realidad falló (antes el botón confirmaba
+  // éxito sin importar el resultado real de cada fila).
+  const guardarEnServidor = async (id: string): Promise<boolean> => {
+    if (!proyectoId) return true;
     const row = soportes.find(s => s.id === id);
-    if (!row) return;
+    if (!row) return true;
     try {
       if (row.persistido) {
         await http.patch(`/api/proyectos/${proyectoId}/anexos/${id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, categoria: categoriaDe(row) });
@@ -184,8 +187,10 @@ export default function AnexosCalcoView() {
         if (resp.data?.id) actualizarLocal(id, { id: resp.data.id, persistido: true });
       }
       setErrorSync(null);
+      return true;
     } catch {
       setErrorSync('No se pudo guardar un anexo — revisa tu conexión.');
+      return false;
     }
   };
 
@@ -226,9 +231,13 @@ export default function AnexosCalcoView() {
   // campo ya autoguarda con onBlur; este botón es una confirmación explícita
   // por si el usuario navega sin disparar blur, p. ej. en móvil).
   const guardar = async () => {
-    await Promise.all(soportes.map(s => guardarEnServidor(s.id)));
-    setGuardado(true);
-    setTimeout(() => setGuardado(false), 2200);
+    const resultados = await Promise.all(soportes.map(s => guardarEnServidor(s.id)));
+    if (resultados.every(Boolean)) {
+      setGuardado(true);
+      setTimeout(() => setGuardado(false), 2200);
+    }
+    // Si alguna fila falló, no se muestra "✓ GUARDADO" — el banner de
+    // errorSync (arriba del encabezado) ya explica qué pasó.
   };
 
   // LIMPIAR — resetea el borrador visible a una sola fila en blanco. No borra
@@ -328,6 +337,9 @@ export default function AnexosCalcoView() {
               </button>
             </div>
           </header>
+          {errorSync && (
+            <div className="anx__statusmsg anx__statusmsg--error" role="alert">{errorSync}</div>
+          )}
           <div className="anx__theadrow anx__grid">
             <span className="anx__th anx__th--num" />
             <span className="anx__th">DESCRIPCION</span>

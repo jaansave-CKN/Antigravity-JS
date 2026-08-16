@@ -69,6 +69,7 @@
   vertical-align: middle;
 }
 .anx__statusmsg { padding: 8px 24px; font-size: 12px; font-weight: 600; background: #f7f9fb; }
+.anx__statusmsg--error { background: #fef2f2; color: #ba1a1a; border-bottom: 1px solid #fca5a5; }
 /* Padding SOLO vertical: el horizontal ya lo aporta .anx__theadrow/.anx__tr
    (24px cada uno) — si .anx__content también lo pusiera, las filas quedarían
    48px más angostas que el encabezado (que vive fuera de .anx__content, en
