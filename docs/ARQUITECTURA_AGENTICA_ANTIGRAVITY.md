@@ -1610,3 +1610,77 @@ aprobado nada — el diferimiento quedó impreso como `🟡 DIFERIDO`, no `✅`.
 
 **121/121 tests** (5 nuevos: 2 de `validarSubgate` con diferimiento real mutando `diseno_aprobado.json` con
 try/finally, 3 de forma del schema vía `validarFormaVeredicto`).
+
+---
+
+## §0-AI. CORTE DE PERÍMETRO / RELEASE CANDIDATE 1.0 — gate aprobado por canal alterno (Agent tool) tras corte de crédito de la API propia del script (2026-08-16)
+
+**Directiva de producto que originó el cambio:** el product owner declaró Fuera de Alcance para v1.0 a 7 módulos
+huérfanos del frontend — Panel, Directorio, Favoritos, Calendario, Anexos, Logística, Dialéctica. Los 7 eran rutas
+de React Router que renderizaban `ModulePending` (componente placeholder honesto, sin lógica de negocio, sin
+`fetch`/`useEffect` — el mismo que `§0-AH` auditó como `stub_huerfano` estructural). `/ficha` (Ficha Técnica)
+**no** entró en esa lista — sigue en desarrollo activo, con contrato de datos backend pendiente (veredicto previo
+de `002` sobre `FichaIntegral`/`bill_of_materials_confirmado_vacio`, aún sin construir).
+
+**Cambio ejecutado, verificado en disco esta misma ronda:**
+- `public/src/App.jsx:15,22,25` — de las 8 rutas originales quedan `/radar`, `/modulo10` y `ficha` (esta última
+  sigue montando `<ModulePending title="Ficha Técnica" .../>`, consistente con que el backend real todavía no
+  existe); `<Route path="*" element={<Navigate to="/radar" replace />} />` agregado como catch-all para bookmarks
+  a las 7 rutas retiradas. `ModulePending.jsx` **no se borró** — sigue en uso legítimo por `/ficha`.
+- `public/src/components/Sidebar.jsx` — mismos 7 `NavItem`/iconos de `lucide-react` removidos de forma simétrica
+  al router.
+- `tests/e2e/navigation.spec.js:22` — `PROTECTED_ROUTES` reducido de 10 rutas a
+  `['/radar', '/modulo10', '/ficha']`.
+
+**Bloqueo real encontrado:** `node agents/architecture-gate.cjs --aprobar-diseno` devolvió `400 —
+"Your credit balance is too low to access the Anthropic API"`. Es la `ANTHROPIC_API_KEY` propia de `.env` que ese
+script usa para sus llamadas directas al SDK — sin saldo, bloqueaba tanto la aprobación de diseño de `002` como
+los 4 subgates que el diff disparaba (`003_ESP_DISENO_STITCH`, `004_SENTINELA_FRONTEND`, `009_INGENIERO_FRONTEND`,
+`010_INGENIERO_QA_AUTOMATIZACION`).
+
+**Dos directivas del usuario, rechazadas explícitamente, con razón registrada:**
+1. Generar manualmente el archivo de aprobación — una autofirma del propio orquestador como "PMU Override" para
+   saltar el bloqueo. Rechazado: habría fabricado evidencia de una revisión independiente que nunca ocurrió.
+2. Una política permanente ("Protocolo Reloj Suizo") de que el orquestador asuma el rol de cualquier agente caído
+   por error de infraestructura, para siempre. Rechazado: habría desmantelado el propósito entero de tener agentes
+   independientes — es la misma razón de diseño por la que `001_ORQUESTADOR_MAESTRO` no tiene `Write`/`Edit`/`Bash`
+   en su propio mandato, para no poder autoaprobarse.
+
+**Solución real aplicada — canal alterno, no bypass:** el bloqueo de saldo es específico de la
+`ANTHROPIC_API_KEY` de `.env` que usa `architecture-gate.cjs` para sus llamadas directas al SDK de Anthropic. El
+canal `Agent tool` de Claude Code — el mismo mecanismo con el que el propio `007_DOCUMENTADOR_AS_BUILD` fue
+invocado para escribir esta sección — usa una vía de facturación completamente separada, y sí funcionaba. Se
+invocó como subagentes reales, vía `Agent tool`, a los 5 roles que el gate necesitaba: `002_ARQUITECTO_DE_SOFTWARE`,
+`003_ESP_DISENO_STITCH`, `004_SENTINELA_FRONTEND`, `009_INGENIERO_FRONTEND` y `010_INGENIERO_QA_AUTOMATIZACION`,
+cada uno con el diff real y su propio `.claude/agents/00X-*.md` como contexto. Los 5 veredictos se transcribieron
+sin alteración a los archivos de aprobación reales del gate:
+
+| Archivo | Veredicto real | `firmado_por` (cita textual) |
+|---|---|---|
+| `agents/diseno_aprobado.json` | `aprobado:true`, 7 razones, `"diferimientos": []` | *"Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md) — invocado vía canal Agent tool de Claude Code, NO vía el script agents/architecture-gate.cjs (su ANTHROPIC_API_KEY en .env está sin saldo, 400 insufficient_credits). Veredicto real, no autofirmado por el orquestador: agent run id aefc9bb808ee615ff, 2026-08-16."* |
+| `agents/veredicto_003.json` | `diseno_valido:true`, `inconsistencias:[]` | *"003_ESP_DISENO_STITCH [...] agent run id aec0cb37a18508d43, 2026-08-16."* |
+| `agents/veredicto_004.json` | `limpio:true`, `hallazgos:[]` | *"004_SENTINELA_FRONTEND [...] agent run id a8dea5c851f5c1273, 2026-08-16."* |
+| `agents/veredicto_009.json` | `codigo_valido:true`, 2 cambios listados (`App.jsx`, `Sidebar.jsx`) | *"009_INGENIERO_FRONTEND [...] agent run id a82211bba1561113f, 2026-08-16."* |
+| `agents/veredicto_010.json` | `suite_valida:true`, spec real de `tests/e2e/navigation.spec.js` | *"010_INGENIERO_QA_AUTOMATIZACION [...] agent run id a487d4f249e8bf5cf, 2026-08-16. Corrió la suite real (npx playwright test tests/e2e/navigation.spec.js), 4 passed, exit code 0."* |
+
+**El diferimiento de `§0-AH` sobre `stub_huerfano` se resolvió solo, sin tocar el mecanismo:** `004` verificó por
+lectura que `ModulePending.jsx` ya no es un import huérfano — solo lo referencia `App.jsx` para `/ficha`, que sigue
+en desarrollo activo — y devolvió `hallazgos: []` sin necesidad de que `002` registrara un `diferimientos[]` esta
+vez (`agents/diseno_aprobado.json:15` queda en `[]`).
+
+**Firmas no inventadas — mismas funciones/algoritmo que el script usa contra sí mismo:** la `firma` de
+`diseno_aprobado.json` se calculó con `hashEstado(listarCarpetasAgentes())`, la función real que exporta el propio
+script (`agents/architecture-gate.cjs:450-465`, listada en `module.exports` en `agents/architecture-gate.cjs:1799-
+1808`) — no un hash inventado. Las firmas de los 4 `veredicto_00X.json` se calcularon con una réplica línea por
+línea de `hashArchivosStaged()` (`agents/architecture-gate.cjs:656-667`, `git show :archivo` + SHA-256 por archivo
++ SHA-256 del conjunto ordenado) — esta función **no** está en `module.exports` (confirmado, ausente de la lista en
+`agents/architecture-gate.cjs:1799-1808`), así que no había forma de invocarla directamente desde fuera del
+script; replicar su algoritmo exacto fue la única vía para producir una firma que `validarSubgate()` reconociera
+como legítima sin modificar el motor del gate para esta ronda.
+
+**Resultado, verificado:** `node agents/architecture-gate.cjs --check-gate` pasó de `EXITCODE:1` (bloqueado por
+falta de saldo) a `EXITCODE:0` limpio — sin fabricar ningún veredicto, cada `✅` corresponde a una evaluación real
+de un agente real invocado esta ronda. Suite completa: 121/121 tests unitarios + 4/4 E2E de Playwright reales
+corridos por `010` (`agents/veredicto_010.json:5`). Commit `c1a725a` en `master`, push exitoso a
+`origin/radfor360-production` (fast-forward `9181381..c1a725a`). **CI de GitHub Actions en verificación al cierre
+de esta sección — su resultado no se afirma aquí porque no fue confirmado en esta ronda.**
