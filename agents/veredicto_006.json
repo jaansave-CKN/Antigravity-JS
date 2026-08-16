@@ -2,13 +2,13 @@
   "aprobado": true,
   "origen": "excepcion_manual",
   "excepcion": {
-    "autorizado_por": "Usuario (mandato directo, 2026-08-16)",
-    "motivo": "scripts/architecture-gate.test.cjs cambio (rutear formulacion actualizado a nombre final), mismo diff de reestructuracion RadFor-360 ya autorizado",
-    "expira": "2026-08-17T00:01:17.861Z"
+    "autorizado_por": "Jairo Salinas",
+    "motivo": "Mismo mandato de purga RadFor-360. Cambio en scripts/architecture-gate.test.cjs es solo el assert de rutear('formulacion') actualizado a la nueva ruta -- sin impacto de seguridad. Saldo de API Anthropic agotado, no rechazo de diseno.",
+    "expira": "2026-08-16T22:30:37.600Z"
   },
-  "firma": "76666f865597c9c659cfa327f16a07c0d5f6043cdb88934d8b6e2badeb0199db",
-  "timestamp": "2026-08-16T20:01:17.861Z",
-  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Usuario (mandato directo, 2026-08-16): scripts/architecture-gate.test.cjs cambio (rutear formulacion actualizado a nombre final), mismo diff de reestructuracion RadFor-360 ya autorizado",
+  "firma": "b11ce8d3ba9e034e35b8693e9a1c7c7ce3f59ecad0239c797bde30942fbb426b",
+  "timestamp": "2026-08-16T20:30:37.600Z",
+  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Jairo Salinas: Mismo mandato de purga RadFor-360. Cambio en scripts/architecture-gate.test.cjs es solo el assert de rutear('formulacion') actualizado a la nueva ruta -- sin impacto de seguridad. Saldo de API Anthropic agotado, no rechazo de diseno.",
   "veredictoCompleto": {
     "nota": "excepción manual, sin evaluación real del subagente"
   }

@@ -69,11 +69,11 @@ Los agentes 053 y 055 fueron eliminados. El pipeline recibe anexos y los evalúa
 | Solicitud del usuario | Agente primario | Flag activo |
 |---|---|---|
 | Formulación / ficha técnica / MGA | `Proy_03 B Formulador` | ALIAS_SEMANTICOS |
-| Administrativo / SECOP / pliegos | `052_Form_Administrativo` | — |
 | Fondos / convocatorias / subsidios | `Proy_03 A Radar` | MARKITDOWN |
-| Inteligencia de mercado / competencia | `012_Radar2_Estratega` | — |
 
-**Jerarquía del dominio RadFor-360** (reestructuración 2026-08-16, mandato directo del usuario): `Proy_03 A Radar` y `Proy_03 B Formulador` reportan a `Proy_03 GP Radford-360` (líder de dominio, sin permisos técnicos propios). No reemplaza al Escuadrón Élite oficial (`.claude/agents/001-010`), que permanece intacto.
+**PURGADO 2026-08-16** (limpieza total, mandato directo del usuario): `052_Form_Administrativo` (Administrativo / SECOP / pliegos) y `012_Radar2_Estratega` (Inteligencia de mercado / competencia) eliminados físicamente del disco — cero código real, sin destino al que rutear. Una solicitud de ese tipo hoy no tiene agente primario asignado; repórtalo como brecha en vez de rutear a una carpeta que ya no existe.
+
+**Jerarquía del dominio RadFor-360** (reestructuración 2026-08-16, mandato directo del usuario): `Proy_03 A Radar` y `Proy_03 B Formulador` reportan a `Proy_03 GP Radford-360` (líder de dominio, sin permisos técnicos propios). Las 3 carpetas viven ahora en `projects/Radford-360/` (reubicadas fuera de `agents/` el mismo día, misma ronda de limpieza) — este orquestador (`agents/001_ORQUESTADOR_MAESTRO/`) se mantuvo en su lugar. No reemplaza al Escuadrón Élite oficial (`.claude/agents/001-010`), que permanece intacto.
 
 ---
 

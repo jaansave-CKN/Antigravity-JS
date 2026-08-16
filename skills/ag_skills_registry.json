@@ -1,7 +1,7 @@
 {
   "project": "Antigravity OS - agents/ (jerarquía canónica)",
-  "version": "4.0.0",
-  "last_migration": "2026-08-13",
+  "version": "4.1.0",
+  "last_migration": "2026-08-16",
   "canonical_hierarchy_note": "CORREGIDO 2026-08-13 (auditoría forense §0-Z, docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md): la afirmación anterior de esta nota ('agents/ es la jerarquía OPERATIVA real, ejecutada de verdad') era FALSA, verificado por evidencia directa — 0 imports desde src/ o server.js de cualquier carpeta listada en agent_mappings, y el único agente con log de actividad real (011_Radar1_minero/radar_log.txt) no se actualiza desde 2026-05-16 (3+ meses dormido a la fecha de esta corrección). agents/architecture-gate.cjs SÍ ejecuta código de este directorio (ejecutarTodosLosAgentes(), el batch executor legado), pero solo genera actas de entrega (docs/as-build/) sobre estas carpetas — no corre lógica de negocio de ninguna de ellas, y ese batch tampoco se dispara automáticamente (no está en package.json, render.yaml, ni ningún cron). La jerarquía que SÍ es operativa real hoy es el Sistema C (.claude/agents/001-008, con enforcement técnico vía .git/hooks/pre-commit + .github/workflows/gate.yml) — ver docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md. Historia previa preservada: renombrado 2026-08-08 desde agents/000_Orquestador.cjs (colisión de nombres); renumeración 2026-08-08 movió 000_ORQUESTADOR→001_ORQUESTADOR_MAESTRO, 001_gestor_datos→009_gestor_datos, 002_redactor_tecnico→010_redactor_tecnico, 005_Radar1_minero→011_Radar1_minero, 006_Radar2_Estratega→012_Radar2_Estratega. 4 sistemas de agentes coexisten (A=agents/, B=.agent/ [ya no existe en disco, purgado 2026-08-11], C=.claude/agents/, E=opencode.json).",
   "sync_method": "Glob ampliado: agents/**/skills/**/*.{cjs,js,py} + skills/**/*.{cjs,js,py} (antes solo *.cjs). Punto ciego de extensiones cerrado en Fase 1; poda de entradas huérfanas añadida en Fase 3, 2026-08-04.",
   "agent_mappings": {
@@ -63,36 +63,22 @@
       "skills": [
         {
           "id": "Skill_050_Formulador_Proyecto",
-          "file": "agents/Proy_03 B Formulador/skills/Skill_050_Formulador_Proyecto.cjs"
+          "file": "projects/Radford-360/Proy_03 B Formulador/skills/Skill_050_Formulador_Proyecto.cjs"
         }
       ],
-      "location": "./agents/Proy_03 B Formulador/skills/",
-      "sync_note": "Renombrado 2026-08-16 desde '050_Formulador_proy' (mandato directo del usuario, reestructuración del dominio RadFor-360 bajo 'Proy_03 GP Radford-360'). Mismo estado real: sin conexión a src/ ni server.js, solo cambia el nombre."
-    },
-    "052_Form_Administrativo": {
-      "skills": [
-        {
-          "id": "Skill_052_Metodologia_Maestra",
-          "file": "agents/052_Form_Administrativo/skills/Skill_052_Metodologia_Maestra.cjs"
-        }
-      ],
-      "location": "./agents/052_Form_Administrativo/skills/"
+      "location": "./projects/Radford-360/Proy_03 B Formulador/skills/",
+      "sync_note": "Renombrado 2026-08-16 desde '050_Formulador_proy', luego reubicado el mismo día fuera de agents/ a projects/Radford-360/ (limpieza total y reestructuración, mandato directo del usuario). Mismo estado real: sin conexión a src/ ni server.js, solo cambia la ubicación."
     },
     "Proy_03 A Radar": {
       "skills": [],
-      "location": "./agents/Proy_03 A Radar/",
-      "sync_note": "Renombrado 2026-08-16 desde '011_Radar1_minero' (mandato directo del usuario, reestructuración del dominio RadFor-360 bajo 'Proy_03 GP Radford-360'). Sin cambio de estado real: PURGADO de código desde 2026-08-13 (duplicaba la capacidad del Radar real en producción, src/modules/radar/m1Pipeline.js, dormido desde 2026-05-16). Solo se preservó repositorio_convocatorias.json (datos históricos). Carpeta sigue sin código ejecutable.",
+      "location": "./projects/Radford-360/Proy_03 A Radar/",
+      "sync_note": "Renombrado 2026-08-16 desde '011_Radar1_minero', luego reubicado el mismo día fuera de agents/ a projects/Radford-360/ (limpieza total y reestructuración, mandato directo del usuario). Sin cambio de estado real: PURGADO de código desde 2026-08-13 (duplicaba la capacidad del Radar real en producción, src/modules/radar/m1Pipeline.js, dormido desde 2026-05-16). Solo se preservó repositorio_convocatorias.json (datos históricos). Carpeta sigue sin código ejecutable.",
       "raw_scripts": []
     },
-    "012_Radar2_Estratega": {
+    "Proy_03 GP Radford-360": {
       "skills": [],
-      "location": "./agents/012_Radar2_Estratega/",
-      "sync_note": "Solo tiene IDENTITY.md — agente definido pero sin ninguna implementación (skills, scripts) todavía. No estaba registrado antes de 2026-08-04."
-    },
-    "015_intelligence_core": {
-      "skills": [],
-      "location": "./agents/015_intelligence-core/skills/",
-      "sync_note": "Renombrado de 'intelligence-core' a '015_intelligence-core' 2026-08-05 — el nombre anterior no llevaba prefijo numérico y era invisible para el regex de descubrimiento del orquestador (^\\d{2,3}[_-]). Lógica real vive en *.ps1 en la raíz (gatekeeper.ps1, maestro_forense.ps1, processor.ps1, project_manager.ps1, war_room.ps1), no en skills/."
+      "location": "./projects/Radford-360/Proy_03 GP Radford-360/",
+      "sync_note": "Agregado 2026-08-16 — líder de dominio de 'Proy_03 A Radar' y 'Proy_03 B Formulador', sin permisos técnicos propios (ver agents/001_ORQUESTADOR_MAESTRO/IDENTITY.md). Reubicado a projects/Radford-360/ en la misma ronda de limpieza total."
     }
   },
   "transversal_skills_cjs": {

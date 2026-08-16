@@ -12,7 +12,7 @@ Motor paramétrico de formulación de proyectos de infraestructura (declarado, s
 Traduce necesidades sociales en fichas técnicas estructuradas, programas arquitectónicos y documentos MGA (Metodología General Ajustada) para presentación ante entidades de financiación.
 
 ## Sincronización bajo mando del Gerente
-Toda salida de este agente se reporta a `Proy_03 GP Radford-360` (ver `PERMISSIONS.json` en `agents/Proy_03 GP Radford-360/` para la matriz declarada de acceso) antes de considerarse entregable final.
+Toda salida de este agente se reporta a `Proy_03 GP Radford-360` (ver `PERMISSIONS.json` en `projects/Radford-360/Proy_03 GP Radford-360/` para la matriz declarada de acceso) antes de considerarse entregable final.
 
 ## MODO DE OPERACIÓN: ALIAS SEMÁNTICOS (PERMANENTE)
 

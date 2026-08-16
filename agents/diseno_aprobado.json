@@ -2,15 +2,15 @@
   "aprobado": true,
   "origen": "excepcion_manual",
   "excepcion": {
-    "autorizado_por": "Usuario (mandato directo, sin consulta a 002, 2026-08-16)",
-    "motivo": "Nombres finales del dominio RadFor-360: Proy_03 GP Radford-360 / Proy_03 A Radar / Proy_03 B Formulador + PERMISSIONS.json declarativo. Mismo alcance ya autorizado, solo cambia el nombre por tercera vez en la jornada.",
-    "expira": "2026-08-17T00:00:24.618Z"
+    "autorizado_por": "Jairo Salinas",
+    "motivo": "Purga y reestructuracion RadFor-360 (mandato directo, confirmado explicitamente por el usuario via AskUserQuestion). Bloqueo de --aprobar-diseno por saldo de API Anthropic agotado, no por rechazo de diseno. Suite test:gate 135/135 verde antes de esta excepcion.",
+    "expira": "2026-08-16T22:30:04.682Z"
   },
-  "firma": "afcbfa770e64e4c42b09a3ccc251fd0090bf3fe52a5792bed24c1b4f2cc7d5f3",
-  "timestamp": "2026-08-16T20:00:24.618Z",
-  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por Usuario (mandato directo, sin consulta a 002, 2026-08-16): Nombres finales del dominio RadFor-360: Proy_03 GP Radford-360 / Proy_03 A Radar / Proy_03 B Formulador + PERMISSIONS.json declarativo. Mismo alcance ya autorizado, solo cambia el nombre por tercera vez en la jornada.",
+  "firma": "787839735b636eef7b0f0eae0d31f544cd809ff8aaa1a3130d32920d98396e5b",
+  "timestamp": "2026-08-16T20:30:04.682Z",
+  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por Jairo Salinas: Purga y reestructuracion RadFor-360 (mandato directo, confirmado explicitamente por el usuario via AskUserQuestion). Bloqueo de --aprobar-diseno por saldo de API Anthropic agotado, no por rechazo de diseno. Suite test:gate 135/135 verde antes de esta excepcion.",
   "razones": [
-    "EXCEPCIÓN MANUAL, no veredicto de 002: Nombres finales del dominio RadFor-360: Proy_03 GP Radford-360 / Proy_03 A Radar / Proy_03 B Formulador + PERMISSIONS.json declarativo. Mismo alcance ya autorizado, solo cambia el nombre por tercera vez en la jornada."
+    "EXCEPCIÓN MANUAL, no veredicto de 002: Purga y reestructuracion RadFor-360 (mandato directo, confirmado explicitamente por el usuario via AskUserQuestion). Bloqueo de --aprobar-diseno por saldo de API Anthropic agotado, no por rechazo de diseno. Suite test:gate 135/135 verde antes de esta excepcion."
   ],
   "diferimientos": []
 }

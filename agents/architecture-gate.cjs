@@ -57,13 +57,22 @@ const ESCUADRON_ELITE = {
         // real en producción (src/modules/radar/m1Pipeline.js), inactivo desde
         // 2026-05-16 — orden explícita del usuario ("no admito sistemas o
         // agentes paralelos con las mismas habilidades"). Renombrada a
-        // 'Proy_03 A Radar' 2026-08-16 (mandato directo del usuario, reestructuración
-        // del dominio RadFor-360 bajo 'Proy_03 GP Radford-360') — sigue sin código.
-        // '050_Formulador_proy' renombrada a 'Proy_03 B Formulador' en la misma ronda —
-        // mismo estado real (sin conexión a src/ ni server.js), solo cambia el nombre.
+        // 'Proy_03 A Radar' 2026-08-16, luego reubicada el mismo día fuera de
+        // agents/ (ver nota de purga abajo) — sigue sin código.
+        //
+        // PURGA 2026-08-16 (mandato directo del usuario, "limpieza total y
+        // reestructuración"): '012_Radar2_Estratega', '052_Form_Administrativo'
+        // y '015_intelligence-core' eliminados físicamente del disco (sin
+        // consumidores reales en src/ ni server.js, confirmado antes de
+        // borrar). 'Proy_03 A Radar', 'Proy_03 B Formulador' y
+        // 'Proy_03 GP Radford-360' NO se purgaron — se reubicaron a
+        // projects/Radford-360/ (dominio de proyecto, fuera de agents/, que
+        // ahora contiene solo al Escuadrón Élite legacy 001/009/010). Ya no
+        // son subordinados de esta carpeta a efectos de listarCarpetasAgentes()
+        // (que solo escanea agents/) — la relación jerárquica GP→A/B sigue
+        // viva, documentada en agents/001_ORQUESTADOR_MAESTRO/IDENTITY.md.
         subordinados: [
-            '009_gestor_datos', '012_Radar2_Estratega',
-            'Proy_03 B Formulador', '052_Form_Administrativo', '015_intelligence-core',
+            '009_gestor_datos',
         ],
     },
     // Limpieza 2026-08-12 (orden explícita del usuario, aplazada hasta que el
@@ -116,13 +125,17 @@ function comandanteDe(carpetaAgente) {
 // server.js) — sin código ejecutable, no hay destino válido al que rutear.
 // (esa carpeta fue renombrada a 'Proy_03 A Radar' 2026-08-16, sigue igual
 // de inactiva — no reintroduce la clave 'convocatorias').
-// 'formulacion' actualizado 2026-08-16: '050_Formulador_proy' renombrado a
-// 'Proy_03 B Formulador' (mandato directo del usuario, dominio RadFor-360 bajo
-// 'Proy_03 GP Radford-360') — mismo destino real, solo cambia el nombre.
+// 'formulacion' actualizado 2026-08-16 (dos veces en la misma fecha): primero
+// renombrado de '050_Formulador_proy' a 'Proy_03 B Formulador', luego
+// reubicado fuera de agents/ a projects/Radford-360/Proy_03 B Formulador/
+// (mandato directo del usuario, "limpieza total y reestructuración") — el
+// valor ahora es ruta relativa a la raíz del repo, no solo nombre de carpeta.
+// 'administrativo' e 'inteligencia_mercado' removidas en la misma ronda:
+// apuntaban a '052_Form_Administrativo' y '012_Radar2_Estratega', ambas
+// purgadas del disco (0 código real, mismo criterio que 'convocatorias'
+// arriba) — sin destino válido al que rutear.
 const ENRUTADOR_ESTATICO = {
-    formulacion: 'Proy_03 B Formulador',
-    administrativo: '052_Form_Administrativo',
-    inteligencia_mercado: '012_Radar2_Estratega',
+    formulacion: 'projects/Radford-360/Proy_03 B Formulador',
 };
 
 function rutear(clave) {

@@ -134,7 +134,11 @@ test('validarDisenoAprobado: rechaza si diseno_aprobado.json no existe', () => {
 });
 
 test('rutear: clave válida devuelve el destino esperado', () => {
-  assert.equal(rutear('formulacion'), 'Proy_03 B Formulador');
+  // Actualizado 2026-08-16: 'formulacion' ahora apunta a projects/Radford-360/
+  // (reubicado fuera de agents/ en la limpieza total). 'administrativo' e
+  // 'inteligencia_mercado' se removieron del enrutador — sus destinos
+  // (052_Form_Administrativo, 012_Radar2_Estratega) fueron purgados del disco.
+  assert.equal(rutear('formulacion'), 'projects/Radford-360/Proy_03 B Formulador');
 });
 
 test('rutear: clave inválida lanza RUTEO_FALLIDO, nunca aprueba por defecto', () => {

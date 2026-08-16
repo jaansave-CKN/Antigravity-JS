@@ -17,7 +17,7 @@ Segunda renombrada del mismo día de esta carpeta (`011_Radar1_minero` → `Proy
 - Sin analizar viabilidad económica — entrega datos crudos, no juicio de valor.
 
 ## Reporte obligatorio al Gerente de Proyecto
-Toda salida de este agente se reporta a `Proy_03 GP Radford-360` (ver `PERMISSIONS.json` en `agents/Proy_03 GP Radford-360/` para la matriz declarada de acceso) — no entrega directamente al usuario ni a otro agente sin pasar por el GP.
+Toda salida de este agente se reporta a `Proy_03 GP Radford-360` (ver `PERMISSIONS.json` en `projects/Radford-360/Proy_03 GP Radford-360/` para la matriz declarada de acceso) — no entrega directamente al usuario ni a otro agente sin pasar por el GP.
 
 ## Advertencia honesta
 Sin código ejecutable desde 2026-08-13. Este `IDENTITY.md` describe una competencia declarada, no una capacidad en ejecución. El `IDENTITY.md` anterior de esta carpeta decía `Status: ACTIVE` pese a no tener código — ese error no se repite: el estado real sigue siendo `INACTIVE`.

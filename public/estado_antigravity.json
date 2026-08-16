@@ -2,9 +2,9 @@
   "titulo": "REPORTE INTEGRAL ANTIGRAVITY OS",
   "disenador": "Jairo Salinas",
   "fecha": "16/8/2026, 10:42:54 a. m.",
-  "nota": "Inventario de carpetas de agentes (definiciones de prompt/skill para uso interactivo). NO implica un proceso en ejecución — ver docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4.",
-  "agentes_definidos": 4,
-  "agentes_incompletos": 5,
+  "nota": "Inventario de carpetas de agentes (definiciones de prompt/skill para uso interactivo). NO implica un proceso en ejecución — ver docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4. Actualizado 2026-08-16 tras limpieza total: 012_Radar2_Estratega, 015_intelligence-core y 052_Form_Administrativo purgados del disco; 011_Radar1_minero/050_Formulador_proy (ya renombrados a Proy_03 A Radar / Proy_03 B Formulador) reubicados junto con Proy_03 GP Radford-360 a projects/Radford-360/, fuera del inventario de agents/.",
+  "agentes_definidos": 2,
+  "agentes_incompletos": 1,
   "detalles": [
     {
       "id": "001_ORQUESTADOR_MAESTRO",
@@ -23,36 +23,6 @@
       "definido": true,
       "tiene_identity": true,
       "skills_no_vacios": 2
-    },
-    {
-      "id": "011_Radar1_minero",
-      "definido": false,
-      "tiene_identity": true,
-      "skills_no_vacios": 0
-    },
-    {
-      "id": "012_Radar2_Estratega",
-      "definido": false,
-      "tiene_identity": true,
-      "skills_no_vacios": 0
-    },
-    {
-      "id": "015_intelligence-core",
-      "definido": false,
-      "tiene_identity": true,
-      "skills_no_vacios": 0
-    },
-    {
-      "id": "050_Formulador_proy",
-      "definido": true,
-      "tiene_identity": true,
-      "skills_no_vacios": 2
-    },
-    {
-      "id": "052_Form_Administrativo",
-      "definido": true,
-      "tiene_identity": true,
-      "skills_no_vacios": 1
     },
     {
       "id": "pmu",
