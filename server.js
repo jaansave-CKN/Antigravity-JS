@@ -159,6 +159,15 @@ app.post('/api/chat', validateBody(schemas.chat), async (req, res) => {
     // poblado en el mismo scope (ver checkQuota 2 líneas arriba) — sin esto,
     // el ledger de auditoría no permitía atribuir consumo de IA a un usuario.
     AuditLogger.log('CLAUDE_CHAT_ERROR', { uid: req.user?.uid ?? null, error: err.message });
+    // Detección de "sin saldo" agregada 2026-08-16 (mismo patrón que pingClaude(),
+    // ver línea ~276): sin esto, el mensaje crudo de facturación de Anthropic
+    // ("Your credit balance is too low...") llegaba tal cual al usuario final —
+    // interno, críptico y filtra detalle de la cuenta. El log de auditoría de
+    // arriba conserva err.message completo; solo la respuesta HTTP se limpia.
+    const sinSaldo = err?.status === 400 && /credit balance/i.test(err?.message || '');
+    if (sinSaldo) {
+      return res.status(503).json({ error: 'Módulo de IA temporalmente en mantenimiento por actualización de cuota. Intenta de nuevo más tarde.' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
