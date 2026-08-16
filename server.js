@@ -1252,13 +1252,31 @@ async function start() {
   }));
 
   // ── Healthcheck ──────────────────────────────────────────────────────────
-  app.get('/api/health', async (_req, res) => {
-    let production_ready = false;
+  // FIX (auditoría "ROOT OFFLINE" 2026-08-16): antes esta ruta hacía un
+  // getRow() a la BD en cada chequeo — TopNavBar.tsx la sondea cada 30s con
+  // un timeout de 3s (AbortSignal.timeout(3000)) para pintar el indicador
+  // ROOT ONLINE/OFFLINE. Verificado en vivo con curl: la BD/capa REST de
+  // Supabase puede demorar varios segundos bajo carga de los rastreos en
+  // background (Rastreo1/Sectores/Montos corriendo en el mismo proceso Node),
+  // lo que hacía abortar el healthcheck y mostrar "OFFLINE" con el backend
+  // realmente arriba. Además, `production_ready` no tiene NINGÚN consumidor
+  // real (grep confirmado: ni frontend ni otro backend lo leen de esta ruta;
+  // solo smokeTest.js lo ESCRIBE vía POST /api/system/production-ready) — no
+  // había ninguna razón para pagar una consulta a BD en el endpoint que debe
+  // ser el más rápido de toda la app. Se cachea en memoria, refrescada en
+  // background sin bloquear la respuesta.
+  let productionReadyCache = false;
+  const refreshProductionReadyCache = async () => {
     try {
       const cfg = await getRow("SELECT value FROM system_config WHERE key = 'production_ready'");
-      production_ready = cfg?.value === 'true';
-    } catch { /* DB temporalmente inaccesible — no interrumpe el health check */ }
-    res.json({ status: 'ok', timestamp: new Date().toISOString(), production_ready, version: '8.0' });
+      productionReadyCache = cfg?.value === 'true';
+    } catch { /* se conserva el último valor conocido */ }
+  };
+  refreshProductionReadyCache();
+  setInterval(refreshProductionReadyCache, 5 * 60_000);
+
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString(), production_ready: productionReadyCache, version: '8.0' });
   });
 
   // POST /api/system/production-ready — llamado por smokeTest.js tras checks exitosos
