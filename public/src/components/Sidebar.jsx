@@ -1,8 +1,6 @@
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import {
-  LogOut, Radio, BarChart3, BookOpen, Star, Calendar,
-  Zap, Layers, Paperclip, Truck, MessageSquare, FileText,
-  Snowflake
+  LogOut, Radio, Zap, Layers, FileText, Snowflake
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { signOut } from '../lib/firebase';
@@ -122,10 +120,6 @@ export default function Sidebar() {
       <div style={S.section}>
         <span style={S.secLabel}>Módulo A · Monitoreo</span>
         <NavItem to="/radar"      label="Radar"                   Icon={Radio}    badge="LIVE" />
-        <NavItem to="/panel"      label="Panel"                   Icon={BarChart3} frozen />
-        <NavItem to="/directorio" label="Directorio"              Icon={BookOpen}  frozen />
-        <NavItem to="/favoritos"  label="Favoritos"               Icon={Star}      frozen />
-        <NavItem to="/calendario" label="Calendario de Favoritos" Icon={Calendar}  frozen />
       </div>
 
       <div style={S.divider} />
@@ -135,9 +129,6 @@ export default function Sidebar() {
         <span style={S.secLabel}>Módulo B · Formulación AI 7.0</span>
         <NavItem to="/fase1-entrada.html" label="Entrada (1–9)"    Icon={Zap}           external badge="ACTIVO" />
         <NavItem to="/modulo10"           label="Módulo 10"        Icon={Layers}        badge="ACTIVO" />
-        <NavItem to="/anexos"             label="Anexos"           Icon={Paperclip}     frozen />
-        <NavItem to="/logistica"          label="Logística"        Icon={Truck}         frozen />
-        <NavItem to="/dialetica"          label="Dialéctica"       Icon={MessageSquare} frozen />
         <NavItem to="/ficha"              label="Ficha Técnica"    Icon={FileText}      frozen />
       </div>
 

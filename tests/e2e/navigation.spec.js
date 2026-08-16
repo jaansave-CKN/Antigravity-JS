@@ -2,8 +2,7 @@
 // 010_INGENIERO_QA_AUTOMATIZACION — navegación real entre pantallas.
 //
 // Rutas verificadas leyendo el router real (public/src/App.jsx): TODA ruta
-// bajo "/" (radar, panel, directorio, favoritos, calendario, modulo10,
-// anexos, logistica, dialetica, ficha) vive dentro de
+// bajo "/" (radar, modulo10, ficha) vive dentro de
 // <Route path="/" element={<RequireAuth><Layout/></RequireAuth>}>, o sea
 // exige sesión Firebase real. Sin credenciales de prueba inyectadas (fuera
 // de alcance de este agente generar/exponer secretos), el flujo de
@@ -11,16 +10,16 @@
 // redirigiendo de forma consistente — y la navegación real entre las DOS
 // pantallas públicas que sí existen fuera del guard: /inicio (SPA React) y
 // /fase1-entrada.html (página estática real, module_b_formulador).
+//
+// 2026-08-16 — Directiva Corte de Perímetro (Release Candidate 1.0): panel,
+// directorio, favoritos, calendario, anexos, logistica y dialetica quedaron
+// fuera de alcance de v1.0 y sus rutas fueron eliminadas de App.jsx (ahora
+// caen en el catch-all "*" → /radar). /ficha se conserva: es la única ruta
+// ModulePending real que sigue en desarrollo activo (contrato de datos
+// Ficha Técnica, en curso).
 import { test, expect } from '@playwright/test';
 
-// De estas, /radar y /modulo10 son pantallas reales (no ModulePending); las
-// otras 8 son las rutas stub reales de App.jsx — todas quedan cubiertas
-// aquí 2026-08-15 (antes solo /panel y /anexos, 2/8 de los stubs reales).
-const PROTECTED_ROUTES = [
-  '/radar', '/modulo10',
-  '/panel', '/directorio', '/favoritos', '/calendario',
-  '/anexos', '/logistica', '/dialetica', '/ficha',
-];
+const PROTECTED_ROUTES = ['/radar', '/modulo10', '/ficha'];
 
 test.describe('Navegación real entre pantallas', () => {
   for (const route of PROTECTED_ROUTES) {

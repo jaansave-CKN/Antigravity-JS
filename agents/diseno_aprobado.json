@@ -1,21 +1,16 @@
 {
   "aprobado": true,
-  "firma": "7fbff305290ed4abd4555445a92850e9eac2897d982d3dae966d3c86938a8f95",
-  "timestamp": "2026-08-16T01:15:21.113Z",
-  "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
+  "firma": "dd55acf34a014e4de60060f65701ce7244f82d50fdc53bfab0ac6bddb357b837",
+  "timestamp": "2026-08-16T00:00:00.000Z",
+  "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md) — invocado vía canal Agent tool de Claude Code, NO vía el script agents/architecture-gate.cjs (su ANTHROPIC_API_KEY en .env está sin saldo, 400 insufficient_credits). Veredicto real, no autofirmado por el orquestador: agent run id aefc9bb808ee615ff, 2026-08-16.",
   "razones": [
-    "architecture-gate.cjs: mecanismo de diferimiento implementado correctamente en tres capas (schema Zod, validarDisenoAprobado, validarSubgate); vigencia del diferimiento atada a la firma actual — caduca con la aprobación que lo contiene",
-    "Bug razon:null en pedirVeredictoSubagente corregido quirúrgicamente sin cambio de contrato de parseo",
-    "002-arquitecto-de-software.md: contrato de salida actualizado consistentemente con el código; exclusiones de diferimiento bien definidas (seguridad, incertidumbres explícitas, hallazgos no leídos directamente)",
-    "Tests de regresión cubren: diferimiento satisface subgate, diferimiento de otro subgate no aplica, compatibilidad hacia atrás sin campo diferimientos, validación de forma con diferimiento mal formado",
-    "ModulePending.jsx/App.jsx: rename semántico puro con referencia explícita a §0-AH como decisión de producto documentada",
-    "Sin DDL, sin cambios de auth, sin abstracciones no solicitadas, sin colisión con módulos existentes",
-    "Telemetría coherente con el historial del ciclo incluyendo los 3 rechazos de 004 y la re-aprobación de diseño"
+    "App.jsx leído completo: las 7 rutas fuera de alcance fueron eliminadas del router y no quedan imports muertos de lucide-react",
+    "Sidebar.jsx leído completo: mismos 7 NavItem/iconos removidos de forma simétrica al router, sin colgantes",
+    "ModulePending.jsx verificado por grep: sigue existiendo y solo es referenciado por App.jsx (uso legítimo en /ficha), consistente con el contexto de que /ficha sigue en desarrollo activo",
+    "Catch-all path=\"*\" con Navigate a /radar es la mitigación correcta para bookmarks a rutas eliminadas, evita pantalla en blanco",
+    "navigation.spec.js actualizado de forma coherente: PROTECTED_ROUTES refleja exactamente el router real post-cambio (3 rutas), con comentario fechado explicando el corte",
+    "Grep de residuos de las 7 rutas eliminadas no encontró referencias muertas en código de router/navegación; el único hit fuera del diff (FormuladorPgController.js:128) es un comentario de dominio no relacionado con rutas SPA",
+    "Cambio es exclusivamente de poda de presentación (frontend routing/nav), no toca autenticación, credenciales, DDL ni puertos/adapters de dominio — fuera del alcance de las reglas de seguridad/deploy atómico"
   ],
-  "diferimientos": [
-    {
-      "subgate": "004_SENTINELA_FRONTEND",
-      "razon": "Hallazgo stub_huerfano sobre ModulePending.jsx: placeholder deliberado documentado en §0-AH, 8 rutas intencionalmente sin datos reales (Fase 2 de producto). El hallazgo import_muerto de FrozenPage.jsx es incertidumbre no resuelta del propio agente — no se difiere; debe resolverse eliminando FrozenPage.jsx del árbol o confirmando su ausencia antes del próximo ciclo de aprobación."
-    }
-  ]
+  "diferimientos": []
 }

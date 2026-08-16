@@ -5,10 +5,7 @@ import InicioPage from './pages/InicioPage';
 import RadarApp from './RadarApp';
 import Modulo10Page from './pages/Modulo10Page';
 import RequireAuth from './components/RequireAuth';
-import {
-  BarChart3, BookOpen, Star, Calendar,
-  Layers, Paperclip, Truck, MessageSquare, FileText
-} from 'lucide-react';
+import { FileText } from 'lucide-react';
 
 export default function App() {
   return (
@@ -19,17 +16,13 @@ export default function App() {
 
         {/* MÓDULO A — Bloque de Monitoreo y Datos */}
         <Route path="radar" element={<RadarApp />} />
-        <Route path="panel"       element={<ModulePending title="Panel"                  module="A" Icon={BarChart3}    />} />
-        <Route path="directorio"  element={<ModulePending title="Directorio"             module="A" Icon={BookOpen}     />} />
-        <Route path="favoritos"   element={<ModulePending title="Favoritos"              module="A" Icon={Star}         />} />
-        <Route path="calendario"  element={<ModulePending title="Calendario de Favoritos" module="A" Icon={Calendar}   />} />
 
         {/* MÓDULO B — Formulación AI 7.0 */}
         <Route path="modulo10"    element={<Modulo10Page />} />
-        <Route path="anexos"      element={<ModulePending title="Anexos"                 module="B" Icon={Paperclip}   />} />
-        <Route path="logistica"   element={<ModulePending title="Logística"              module="B" Icon={Truck}       />} />
-        <Route path="dialetica"   element={<ModulePending title="Dialéctica"             module="B" Icon={MessageSquare}/>} />
         <Route path="ficha"       element={<ModulePending title="Ficha Técnica"          module="B" Icon={FileText}    />} />
+
+        {/* Fuera de alcance v1.0 (Directiva Corte de Perímetro): panel, directorio, favoritos, calendario, anexos, logistica, dialetica */}
+        <Route path="*" element={<Navigate to="/radar" replace />} />
       </Route>
     </Routes>
   );

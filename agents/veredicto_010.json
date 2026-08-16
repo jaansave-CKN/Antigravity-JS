@@ -1,14 +1,14 @@
 {
   "aprobado": true,
-  "firma": "25e21726c1286e4c271fe969c0d8516bb7c6fc56367b54ecfcaf0f244cb51e60",
-  "timestamp": "2026-08-16T01:01:01.936Z",
-  "firmado_por": "010_INGENIERO_QA_AUTOMATIZACION (.claude\\agents\\010-ingeniero-qa-automatizacion.md, vía API Anthropic)",
+  "firma": "e97b24ea7cf18ba2d906768bf4c28978178581503fd742d04281613edbe29fc5",
+  "timestamp": "2026-08-16T00:00:00.000Z",
+  "firmado_por": "010_INGENIERO_QA_AUTOMATIZACION (.claude/agents/010-ingeniero-qa-automatizacion.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id a487d4f249e8bf5cf, 2026-08-16. Corrió la suite real (npx playwright test tests/e2e/navigation.spec.js), 4 passed, exit code 0.",
   "veredictoCompleto": {
     "suite_valida": true,
     "specs": [
       {
         "archivo": "tests/e2e/navigation.spec.js",
-        "flujo": "Actualización de comentario interno (FrozenPage → ModulePending); sin cambio lógico ni funcional",
+        "flujo": "Navegación real: 3 rutas protegidas (/radar, /modulo10, /ficha) redirigen a /inicio vía RequireAuth real sin sesión (router App.jsx post-Corte de Perímetro), más navegación real /inicio (SPA React) → /fase1-entrada.html (página estática del Formulador)",
         "resultado": "pass"
       }
     ]

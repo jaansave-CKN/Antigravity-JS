@@ -1,0 +1,10 @@
+{
+  "aprobado": true,
+  "firma": "1afe16779865e2d070a69cf43af297814fe6265d236f54ddaa5798813cd072d6",
+  "timestamp": "2026-08-16T00:00:00.000Z",
+  "firmado_por": "004_SENTINELA_FRONTEND (.claude/agents/004-sentinela-frontend.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id a8dea5c851f5c1273, 2026-08-16.",
+  "veredictoCompleto": {
+    "limpio": true,
+    "hallazgos": []
+  }
+}

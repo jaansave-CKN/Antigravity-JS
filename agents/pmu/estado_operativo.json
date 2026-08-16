@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-16T01:15:40.664Z",
+  "generado": "2026-08-16T11:47:02.712Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -38,24 +38,19 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "7fbff305290ed4abd4555445a92850e9eac2897d982d3dae966d3c86938a8f95",
-        "timestamp": "2026-08-16T01:15:21.113Z",
-        "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
+        "firma": "dd55acf34a014e4de60060f65701ce7244f82d50fdc53bfab0ac6bddb357b837",
+        "timestamp": "2026-08-16T00:00:00.000Z",
+        "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md) — invocado vía canal Agent tool de Claude Code, NO vía el script agents/architecture-gate.cjs (su ANTHROPIC_API_KEY en .env está sin saldo, 400 insufficient_credits). Veredicto real, no autofirmado por el orquestador: agent run id aefc9bb808ee615ff, 2026-08-16.",
         "razones": [
-          "architecture-gate.cjs: mecanismo de diferimiento implementado correctamente en tres capas (schema Zod, validarDisenoAprobado, validarSubgate); vigencia del diferimiento atada a la firma actual — caduca con la aprobación que lo contiene",
-          "Bug razon:null en pedirVeredictoSubagente corregido quirúrgicamente sin cambio de contrato de parseo",
-          "002-arquitecto-de-software.md: contrato de salida actualizado consistentemente con el código; exclusiones de diferimiento bien definidas (seguridad, incertidumbres explícitas, hallazgos no leídos directamente)",
-          "Tests de regresión cubren: diferimiento satisface subgate, diferimiento de otro subgate no aplica, compatibilidad hacia atrás sin campo diferimientos, validación de forma con diferimiento mal formado",
-          "ModulePending.jsx/App.jsx: rename semántico puro con referencia explícita a §0-AH como decisión de producto documentada",
-          "Sin DDL, sin cambios de auth, sin abstracciones no solicitadas, sin colisión con módulos existentes",
-          "Telemetría coherente con el historial del ciclo incluyendo los 3 rechazos de 004 y la re-aprobación de diseño"
+          "App.jsx leído completo: las 7 rutas fuera de alcance fueron eliminadas del router y no quedan imports muertos de lucide-react",
+          "Sidebar.jsx leído completo: mismos 7 NavItem/iconos removidos de forma simétrica al router, sin colgantes",
+          "ModulePending.jsx verificado por grep: sigue existiendo y solo es referenciado por App.jsx (uso legítimo en /ficha), consistente con el contexto de que /ficha sigue en desarrollo activo",
+          "Catch-all path=\"*\" con Navigate a /radar es la mitigación correcta para bookmarks a rutas eliminadas, evita pantalla en blanco",
+          "navigation.spec.js actualizado de forma coherente: PROTECTED_ROUTES refleja exactamente el router real post-cambio (3 rutas), con comentario fechado explicando el corte",
+          "Grep de residuos de las 7 rutas eliminadas no encontró referencias muertas en código de router/navegación; el único hit fuera del diff (FormuladorPgController.js:128) es un comentario de dominio no relacionado con rutas SPA",
+          "Cambio es exclusivamente de poda de presentación (frontend routing/nav), no toca autenticación, credenciales, DDL ni puertos/adapters de dominio — fuera del alcance de las reglas de seguridad/deploy atómico"
         ],
-        "diferimientos": [
-          {
-            "subgate": "004_SENTINELA_FRONTEND",
-            "razon": "Hallazgo stub_huerfano sobre ModulePending.jsx: placeholder deliberado documentado en §0-AH, 8 rutas intencionalmente sin datos reales (Fase 2 de producto). El hallazgo import_muerto de FrozenPage.jsx es incertidumbre no resuelta del propio agente — no se difiere; debe resolverse eliminando FrozenPage.jsx del árbol o confirmando su ausencia antes del próximo ciclo de aprobación."
-          }
-        ]
+        "diferimientos": []
       }
     },
     {
@@ -70,9 +65,9 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "9a466c33cc5f8646a885801d0576aa0f4d6cc1dc1e9722a6ff6ddda8b81b10d8",
-        "timestamp": "2026-08-16T01:01:06.180Z",
-        "firmado_por": "003_ESP_DISENO_STITCH (.claude\\agents\\003-esp-diseno-stitch.md, vía API Anthropic)",
+        "firma": "1afe16779865e2d070a69cf43af297814fe6265d236f54ddaa5798813cd072d6",
+        "timestamp": "2026-08-16T00:00:00.000Z",
+        "firmado_por": "003_ESP_DISENO_STITCH (.claude/agents/003-esp-diseno-stitch.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id aec0cb37a18508d43, 2026-08-16.",
         "veredictoCompleto": {
           "diseno_valido": true,
           "inconsistencias": []
@@ -89,7 +84,16 @@
       ],
       "permiso_escritura": false,
       "gate": "subgate",
-      "ultimo_veredicto": null
+      "ultimo_veredicto": {
+        "aprobado": true,
+        "firma": "1afe16779865e2d070a69cf43af297814fe6265d236f54ddaa5798813cd072d6",
+        "timestamp": "2026-08-16T00:00:00.000Z",
+        "firmado_por": "004_SENTINELA_FRONTEND (.claude/agents/004-sentinela-frontend.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id a8dea5c851f5c1273, 2026-08-16.",
+        "veredictoCompleto": {
+          "limpio": true,
+          "hallazgos": []
+        }
+      }
     },
     {
       "archivo": ".claude/agents/005-ingeniero-backend.md",
@@ -193,23 +197,23 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "9a466c33cc5f8646a885801d0576aa0f4d6cc1dc1e9722a6ff6ddda8b81b10d8",
-        "timestamp": "2026-08-16T01:01:05.289Z",
-        "firmado_por": "009_INGENIERO_FRONTEND (.claude\\agents\\009-ingeniero-frontend.md, vía API Anthropic)",
+        "firma": "1afe16779865e2d070a69cf43af297814fe6265d236f54ddaa5798813cd072d6",
+        "timestamp": "2026-08-16T00:00:00.000Z",
+        "firmado_por": "009_INGENIERO_FRONTEND (.claude/agents/009-ingeniero-frontend.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id a82211bba1561113f, 2026-08-16.",
         "veredictoCompleto": {
           "codigo_valido": true,
           "cambios": [
             {
-              "archivo": "public/src/pages/ModulePending.jsx",
-              "tipo": "nuevo_componente",
-              "origen_hallazgo": "rename deliberado documentado en el propio componente (2026-08-15), equivalente funcional de FrozenPage.jsx con mensaje de UI actualizado a 'Fase 2 de Desarrollo'",
-              "resumen": "Reemplaza FrozenPage con ModulePending: mismo layout placeholder, mensaje actualizado, 100% Tailwind, sin riesgos de seguridad"
-            },
-            {
               "archivo": "public/src/App.jsx",
               "tipo": "correccion",
-              "origen_hallazgo": "mismo rename: actualiza import y 8 usos de FrozenPage a ModulePending sin cambio de props ni comportamiento",
-              "resumen": "Actualiza import y routes para consumir ModulePending en lugar de FrozenPage"
+              "origen_hallazgo": "Directiva Corte de Perímetro del product owner ('Fuera de Alcance v1.0') + diseño aprobado por 002_ARQUITECTO_DE_SOFTWARE",
+              "resumen": "Elimina 7 rutas huérfanas (panel, directorio, favoritos, calendario, anexos, logistica, dialetica) y agrega catch-all a /radar; imports de lucide-react depurados sin dejar residuos no usados"
+            },
+            {
+              "archivo": "public/src/components/Sidebar.jsx",
+              "tipo": "correccion",
+              "origen_hallazgo": "Directiva Corte de Perímetro del product owner ('Fuera de Alcance v1.0') + diseño aprobado por 002_ARQUITECTO_DE_SOFTWARE",
+              "resumen": "Elimina los 7 NavItem congelados correspondientes y depura imports de íconos sin dejar ninguno huérfano; Snowflake se conserva porque sigue en uso por el NavItem 'Ficha Técnica'"
             }
           ]
         }
@@ -230,15 +234,15 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "25e21726c1286e4c271fe969c0d8516bb7c6fc56367b54ecfcaf0f244cb51e60",
-        "timestamp": "2026-08-16T01:01:01.936Z",
-        "firmado_por": "010_INGENIERO_QA_AUTOMATIZACION (.claude\\agents\\010-ingeniero-qa-automatizacion.md, vía API Anthropic)",
+        "firma": "e97b24ea7cf18ba2d906768bf4c28978178581503fd742d04281613edbe29fc5",
+        "timestamp": "2026-08-16T00:00:00.000Z",
+        "firmado_por": "010_INGENIERO_QA_AUTOMATIZACION (.claude/agents/010-ingeniero-qa-automatizacion.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id a487d4f249e8bf5cf, 2026-08-16. Corrió la suite real (npx playwright test tests/e2e/navigation.spec.js), 4 passed, exit code 0.",
         "veredictoCompleto": {
           "suite_valida": true,
           "specs": [
             {
               "archivo": "tests/e2e/navigation.spec.js",
-              "flujo": "Actualización de comentario interno (FrozenPage → ModulePending); sin cambio lógico ni funcional",
+              "flujo": "Navegación real: 3 rutas protegidas (/radar, /modulo10, /ficha) redirigen a /inicio vía RequireAuth real sin sesión (router App.jsx post-Corte de Perímetro), más navegación real /inicio (SPA React) → /fase1-entrada.html (página estática del Formulador)",
               "resultado": "pass"
             }
           ]

@@ -1,8 +1,8 @@
 {
   "aprobado": true,
-  "firma": "9a466c33cc5f8646a885801d0576aa0f4d6cc1dc1e9722a6ff6ddda8b81b10d8",
-  "timestamp": "2026-08-16T01:01:06.180Z",
-  "firmado_por": "003_ESP_DISENO_STITCH (.claude\\agents\\003-esp-diseno-stitch.md, vía API Anthropic)",
+  "firma": "1afe16779865e2d070a69cf43af297814fe6265d236f54ddaa5798813cd072d6",
+  "timestamp": "2026-08-16T00:00:00.000Z",
+  "firmado_por": "003_ESP_DISENO_STITCH (.claude/agents/003-esp-diseno-stitch.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id aec0cb37a18508d43, 2026-08-16.",
   "veredictoCompleto": {
     "diseno_valido": true,
     "inconsistencias": []

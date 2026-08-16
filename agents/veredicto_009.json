@@ -1,22 +1,22 @@
 {
   "aprobado": true,
-  "firma": "9a466c33cc5f8646a885801d0576aa0f4d6cc1dc1e9722a6ff6ddda8b81b10d8",
-  "timestamp": "2026-08-16T01:01:05.289Z",
-  "firmado_por": "009_INGENIERO_FRONTEND (.claude\\agents\\009-ingeniero-frontend.md, vía API Anthropic)",
+  "firma": "1afe16779865e2d070a69cf43af297814fe6265d236f54ddaa5798813cd072d6",
+  "timestamp": "2026-08-16T00:00:00.000Z",
+  "firmado_por": "009_INGENIERO_FRONTEND (.claude/agents/009-ingeniero-frontend.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id a82211bba1561113f, 2026-08-16.",
   "veredictoCompleto": {
     "codigo_valido": true,
     "cambios": [
       {
-        "archivo": "public/src/pages/ModulePending.jsx",
-        "tipo": "nuevo_componente",
-        "origen_hallazgo": "rename deliberado documentado en el propio componente (2026-08-15), equivalente funcional de FrozenPage.jsx con mensaje de UI actualizado a 'Fase 2 de Desarrollo'",
-        "resumen": "Reemplaza FrozenPage con ModulePending: mismo layout placeholder, mensaje actualizado, 100% Tailwind, sin riesgos de seguridad"
-      },
-      {
         "archivo": "public/src/App.jsx",
         "tipo": "correccion",
-        "origen_hallazgo": "mismo rename: actualiza import y 8 usos de FrozenPage a ModulePending sin cambio de props ni comportamiento",
-        "resumen": "Actualiza import y routes para consumir ModulePending en lugar de FrozenPage"
+        "origen_hallazgo": "Directiva Corte de Perímetro del product owner ('Fuera de Alcance v1.0') + diseño aprobado por 002_ARQUITECTO_DE_SOFTWARE",
+        "resumen": "Elimina 7 rutas huérfanas (panel, directorio, favoritos, calendario, anexos, logistica, dialetica) y agrega catch-all a /radar; imports de lucide-react depurados sin dejar residuos no usados"
+      },
+      {
+        "archivo": "public/src/components/Sidebar.jsx",
+        "tipo": "correccion",
+        "origen_hallazgo": "Directiva Corte de Perímetro del product owner ('Fuera de Alcance v1.0') + diseño aprobado por 002_ARQUITECTO_DE_SOFTWARE",
+        "resumen": "Elimina los 7 NavItem congelados correspondientes y depura imports de íconos sin dejar ninguno huérfano; Snowflake se conserva porque sigue en uso por el NavItem 'Ficha Técnica'"
       }
     ]
   }
