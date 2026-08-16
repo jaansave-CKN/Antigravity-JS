@@ -72,6 +72,7 @@
   vertical-align: middle;
 }
 .bib__statusmsg { padding: 8px 24px; font-size: 12px; font-weight: 600; background: #f7f9fb; }
+.bib__statusmsg--error { background: #fef2f2; color: #ba1a1a; border-bottom: 1px solid #fca5a5; }
 .bib__content { padding: 24px 0; flex: 1; }
 
 .bib__save {
