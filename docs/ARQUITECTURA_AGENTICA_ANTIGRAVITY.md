@@ -1564,3 +1564,49 @@ considerarse cerrada — ninguna se declaró resuelta solo por instrucción, tod
 o, donde el alcance técnico no llegaba, con distinción explícita de qué se confía al usuario y por qué.
 
 **Auditoría ejecutada con pruebas reproducibles, validación adversarial y evidencia verificable. Misión Cumplida.**
+
+---
+
+## §0-AH. MECANISMO REAL DE DIFERIMIENTO DE 002 SOBRE SUBGATES (2026-08-16)
+
+**El hallazgo que originó esto:** al renombrar `FrozenPage.jsx` → `ModulePending.jsx` (mensaje actualizado a "Fase 2
+de Desarrollo"), `004_SENTINELA_FRONTEND` — correctamente, sin dejarse engañar por el nombre — siguió clasificando
+el componente como `stub_huerfano`: estructuralmente lo es (sin `fetch`/`useEffect`, 8 rutas con contenido idéntico
+hardcodeado), sin importar cuánta intención de diseño se documente. Yo había estado usando la frase "diferido por
+arquitectura" varias rondas seguidas sin que existiera **ninguna conexión de código** entre el veredicto de `002` y
+el resultado de un subgate — auditado línea por línea a pedido explícito del usuario, la fractura exacta era
+`agents/architecture-gate.cjs:658` (`fs.existsSync(cfg.veredictoPath)`) contra un archivo que, por diseño (línea
+1341, el `return` de rechazo antes del `writeFileSync`), nunca se crea cuando un subgate legítimamente rechaza.
+
+**Mecanismo construido, en 3 capas, no un flag manual:**
+
+1. **`VEREDICTO_SCHEMAS['002_ARQUITECTO_DE_SOFTWARE']`** (Zod) — nuevo campo opcional `diferimientos: [{subgate,
+   razon}]`, default `[]`. `002` lo declara como parte de su propio veredicto real de API — no hay ruta para que un
+   humano o un script lo inyecte sin pasar por una invocación real de `002`.
+2. **`.claude/agents/002-arquitecto-de-software.md`** — contrato de salida actualizado con guardrails explícitos de
+   cuándo NO califica un diferimiento: hallazgos de seguridad real, incertidumbres explícitas del propio subgate
+   (esas se verifican, no se difieren), o hallazgos que `002` no leyó con la misma profundidad que el subgate.
+3. **`validarSubgate()`** — antes de rechazar por "sin veredicto", re-verifica en fresco (no confía en el caller)
+   que `diseno_aprobado.json` sigue vigente para el estado actual del repo, y si contiene un `diferimientos[]` con
+   entrada para ese `agentId`, lo marca `{aprobado: true, diferido: true}` — un flag que `--check-gate` imprime como
+   `🟡 DIFERIDO`, nunca como `✅ Aprobación vigente`, y registra en telemetría como `resultado: 'diferido'` (distinto
+   de `'aprobado'` y de `'rechazado'` — no rompe el contador de rechazos consecutivos del PMU, ver
+   `analizarTelemetriaPMU()`). El diferimiento caduca en el mismo instante que la aprobación de diseño que lo
+   contiene — no es una excepción permanente.
+
+**Bug adicional encontrado y corregido en el camino:** `pedirVeredictoSubagente()` devolvía `razon: undefined`
+cuando un subgate parseaba bien y legítimamente decía "no apruebo" (`{"limpio":false,"hallazgos":[...]}`) — el
+`aprobarUnSubgate()` que consume ese resultado solo sabe mostrar `veredicto.razon`, así que los hallazgos reales
+quedaban invisibles en consola y en telemetría (`razon: null`). Mismo patrón de "hallazgo real silenciado" que esta
+sesión ya cazó varias veces en código de aplicación, esta vez en el propio motor del gate. Corregido: ese camino
+ahora arma un `razon` real citando el `veredicto` completo.
+
+**Validado en vivo, no solo por tests:** se invocó a `002` de verdad sobre el diff real de este cambio. Difirió
+*únicamente* el hallazgo `stub_huerfano` de `004` con razonamiento citando este mismo `§0-AH`, y **rechazó
+explícitamente diferir** el segundo hallazgo de `004` (`import_muerto` sobre `FrozenPage.jsx`, marcado como
+incertidumbre por el propio `004`) — exigiendo en su lugar que se verificara el hecho, que ya se hizo (`ls` directo
+confirmó que el archivo no existe en disco). `--check-gate` pasó de `EXITCODE:1` a `EXITCODE:0` sin que `004` haya
+aprobado nada — el diferimiento quedó impreso como `🟡 DIFERIDO`, no `✅`.
+
+**121/121 tests** (5 nuevos: 2 de `validarSubgate` con diferimiento real mutando `diseno_aprobado.json` con
+try/finally, 3 de forma del schema vía `validarFormaVeredicto`).

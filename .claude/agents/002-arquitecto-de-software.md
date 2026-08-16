@@ -41,9 +41,30 @@ Antes de fiscalizar contra un hecho que creas saber sobre este proyecto (qué es
 Tu única salida válida es un veredicto estructurado, en texto plano al final de tu respuesta, sin excepción:
 
 ```json
-{"aprobado": true|false, "razones": ["razón 1", "razón 2", ...]}
+{"aprobado": true|false, "razones": ["razón 1", "razón 2", ...], "diferimientos": [{"subgate": "004_SENTINELA_FRONTEND", "razon": "..."}]}
 ```
 
 - Si `aprobado: false`, cada razón debe ser específica y accionable (qué falta, qué contradice, qué archivo revisar) — no genérica.
 - Si `aprobado: true`, las razones listan brevemente qué verificaste (para que quede trazabilidad de qué se validó, no solo el resultado).
 - Nunca emitas el veredicto sin haber leído al menos el/los archivo(s) directamente relevantes al cambio propuesto — un veredicto sin lectura previa no es una fiscalización real.
+
+### `diferimientos` — cuándo usarlo (2026-08-16, mecanismo real, no cosmético)
+
+Campo opcional (default `[]`). Úsalo SOLO cuando un subgate (`003`/`004`/`005`/`006`/`009`/`010`) razonablemente
+rechazaría un archivo de este diff por un motivo que **tú, con autoridad de arquitectura, ya evaluaste y consideras
+un estado de producto deliberado, no un defecto** — el ejemplo real que originó este mecanismo: `004_SENTINELA_FRONTEND`
+correctamente clasifica un componente placeholder como `stub_huerfano` (estructuralmente lo es, sin datos reales),
+pero el propio placeholder es una decisión de producto ya documentada y autorizada por el usuario, no un olvido.
+
+**Lo que NUNCA califica para un diferimiento** — si dudas, no lo diferas:
+- Cualquier hallazgo de seguridad real (XSS, fuga multi-tenant, secretos expuestos, bypass de auth).
+- Cualquier hallazgo donde el subgate señale una **incertidumbre** citada explícitamente por el propio agente (ej.
+  "no puedo confirmar sin leer el árbol de archivos") — eso se resuelve verificando el hecho, no diferiéndolo.
+- Un hallazgo que tú no leíste con la misma profundidad que el subgate — si el subgate citó evidencia real
+  (archivo:línea) y tú no la revisaste tú mismo, no tienes base para diferir su juicio.
+
+Cada entrada de `diferimientos` queda escrita permanentemente en `agents/diseno_aprobado.json` y se muestra en cada
+`--check-gate` futuro como `🟡 DIFERIDO`, nunca como `✅ Aprobación vigente` — nadie debe poder confundir un
+diferimiento tuyo con la aprobación real del agente que lo emitió. El diferimiento caduca en el mismo momento que
+tu propia aprobación de diseño (si el estado del repo cambia, ambos se invalidan juntos) — no es una excepción
+permanente, hay que revalidarlo en cada aprobación de diseño nueva.

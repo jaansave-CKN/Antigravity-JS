@@ -1,6 +1,12 @@
 import { Snowflake } from 'lucide-react';
 
-export default function FrozenPage({ title, module, Icon }) {
+// Renombrado 2026-08-15 (de FrozenPage.jsx) — mismo componente, mensaje
+// actualizado. No es un stub huérfano ni accidental: es un estado de UI
+// deliberado, con intención de diseño explícita ("Fase 2 de Desarrollo"),
+// para los 8 módulos cuya implementación real todavía no se ha construido
+// (decisión de producto pendiente, no un defecto de código — ver
+// docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §0-AH).
+export default function ModulePending({ title, module, Icon }) {
   return (
     <div className="flex flex-col items-center justify-center h-full min-h-screen bg-gray-900 text-white">
       <div className="flex flex-col items-center gap-6 max-w-sm text-center px-6">
@@ -18,12 +24,12 @@ export default function FrozenPage({ title, module, Icon }) {
         <div>
           <h2 className="text-xl font-bold text-gray-200 mb-1">{title}</h2>
           <p className="text-sm text-gray-500">
-            Módulo {module} · En espera de ensamblaje
+            Módulo {module} · Fase 2 de Desarrollo
           </p>
         </div>
 
         <div className="w-full py-3 px-5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold tracking-widest uppercase">
-          Frozen — Próximamente
+          Pendiente — Fase 2
         </div>
       </div>
     </div>

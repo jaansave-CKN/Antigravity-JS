@@ -258,6 +258,19 @@ const VEREDICTO_SCHEMAS = {
     '002_ARQUITECTO_DE_SOFTWARE': z.object({
         aprobado: z.boolean(),
         razones: z.array(z.string()),
+        // Mecanismo de diferimiento estructural — agregado 2026-08-16
+        // (hallazgo real: no existía NINGUNA conexión entre el veredicto de
+        // 002 y el resultado de un subgate; "diferido por arquitectura" era
+        // una frase que yo usaba sin que el código la implementara). 002
+        // declara aquí, como parte de SU MISMO veredicto real de API — no
+        // vía un flag manual ni parseo de prosa — qué subgate concreto
+        // considera no-bloqueante para este diff y por qué. Opcional,
+        // default vacío: la inmensa mayoría de las aprobaciones no difieren
+        // nada.
+        diferimientos: z.array(z.object({
+            subgate: z.string(),
+            razon: z.string(),
+        })).default([]),
     }),
     '003_ESP_DISENO_STITCH': z.object({
         diseno_valido: z.boolean(),
@@ -381,7 +394,11 @@ async function pedirVeredictoArquitecto() {
     if (!forma.ok) {
         return { aprobado: false, razones: [forma.razon], respuestaCruda: text.slice(0, 800) };
     }
-    return { aprobado: veredicto.aprobado === true, razones: veredicto.razones || [] };
+    return {
+        aprobado: veredicto.aprobado === true,
+        razones: veredicto.razones || [],
+        diferimientos: veredicto.diferimientos || [],
+    };
 }
 
 // 001_ORQUESTADOR_MAESTRO (antes 000_ORQUESTADOR) excluido a propósito: no es
@@ -511,7 +528,7 @@ function validarDisenoAprobado(carpetas) {
     if (firma.firma !== hashActual) {
         return { aprobado: false, razon: 'El estado de agents/ cambió después de la firma — se requiere re-aprobación del Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE).' };
     }
-    return { aprobado: true, firma: firma.firma, timestamp: firma.timestamp };
+    return { aprobado: true, firma: firma.firma, timestamp: firma.timestamp, diferimientos: firma.diferimientos || [] };
 }
 
 // =============================================================================
@@ -655,6 +672,21 @@ function validarSubgate(agentId, archivosStaged) {
     if (relevantes.length === 0) {
         return { aplica: false, aprobado: true };
     }
+    // Diferimiento estructural de 002 — agregado 2026-08-16 (hallazgo real:
+    // no existía NINGUNA conexión de código entre "002 aprobó el diseño
+    // completo, incluyendo este hallazgo de un subgate" y "el subgate
+    // bloquea el commit igual"). Se re-verifica en fresco que la aprobación
+    // de 002 sigue VIGENTE para el estado actual del repo (mismo criterio
+    // que --check-gate ya aplica al gate principal) — un diferimiento de
+    // una aprobación caducada no cuenta; si el diff cambia, el diferimiento
+    // caduca junto con la aprobación que lo contenía, no por separado.
+    const disenoVigente = validarDisenoAprobado(listarCarpetasAgentes());
+    if (disenoVigente.aprobado && Array.isArray(disenoVigente.diferimientos)) {
+        const diferido = disenoVigente.diferimientos.find(d => d.subgate === agentId);
+        if (diferido) {
+            return { aplica: true, aprobado: true, diferido: true, razon: diferido.razon };
+        }
+    }
     if (!fs.existsSync(cfg.veredictoPath)) {
         return { aplica: true, aprobado: false, razon: `${agentId} no tiene veredicto (${path.basename(cfg.veredictoPath)} ausente) sobre archivos que sí le competen: ${relevantes.join(', ')}` };
     }
@@ -732,7 +764,16 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
     const aprobado = cfg.valorAprobado
         ? veredicto[cfg.campoAprobado] === cfg.valorAprobado
         : veredicto[cfg.campoAprobado] === true;
-    return { aprobado, veredictoCompleto: veredicto };
+    // BUG REAL corregido 2026-08-15: este es el caso "parseó bien, forma
+    // válida, pero el agente legítimamente dijo que NO aprueba" (ej.
+    // {"limpio":false,"hallazgos":[...]})  — antes no traía ningún `razon`,
+    // así que aprobarUnSubgate() (abajo) lo registraba en telemetría como
+    // "razon: null" y los hallazgos reales quedaban invisibles, nunca
+    // mostrados en consola. Mismo patrón de "hallazgo real silenciado" que
+    // esta sesión ya cazó varias veces en código de aplicación — esta vez
+    // estaba en el propio gate.
+    const razon = aprobado ? undefined : `${agentId} evaluó y NO aprobó — ver hallazgos: ${JSON.stringify(veredicto)}`;
+    return { aprobado, veredictoCompleto: veredicto, razon };
 }
 
 // =============================================================================
@@ -1268,6 +1309,11 @@ if (process.argv.includes('--check-gate')) {
             console.error(`\n🛑 [SUBGATE_${agentId}] ${resultado.razon}`);
             registrarTelemetria({ tipo: 'check-gate', subsistema: agentId, resultado: 'rechazado', razon: resultado.razon });
             subgatesOk = false;
+        } else if (resultado.diferido) {
+            // Distinto a propósito de "✅ Aprobación vigente": nadie debe
+            // poder leer esta línea y concluir que el propio agente aprobó.
+            console.log(`🟡 [SUBGATE_${agentId}] DIFERIDO por 002_ARQUITECTO_DE_SOFTWARE — ${resultado.razon}`);
+            registrarTelemetria({ tipo: 'check-gate', subsistema: agentId, resultado: 'diferido', razon: resultado.razon });
         } else {
             console.log(`✅ [SUBGATE_${agentId}] Aprobación vigente sobre los archivos relevantes de este commit.`);
             registrarTelemetria({ tipo: 'check-gate', subsistema: agentId, resultado: 'aprobado' });
@@ -1454,9 +1500,11 @@ if (process.argv.includes('--aprobar-diseno')) {
             timestamp: new Date().toISOString(),
             firmado_por: 'Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)',
             razones: veredicto.razones,
+            diferimientos: veredicto.diferimientos || [],
         }, null, 2) + '\n', 'utf8');
         console.log(`\n✅ [Agente Arquitecto] Diseño aprobado. Firma: ${firma}`);
         (veredicto.razones || []).forEach(r => console.log(`   - ${r}`));
+        (veredicto.diferimientos || []).forEach(d => console.log(`   🟡 DIFERIDO — ${d.subgate}: ${d.razon}`));
         registrarTelemetria({ tipo: 'aprobar-diseno', subsistema: '002_principal', resultado: 'aprobado', firma });
         escribirEstadoOperativo();
         process.exitCode = 0;

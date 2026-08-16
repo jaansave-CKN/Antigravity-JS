@@ -1,29 +1,14 @@
 {
   "aprobado": true,
-  "firma": "2b514adc6cdc61ca7e968b60127e89ab7e4efdb4386f5e00c2ebc2527f35adbb",
-  "timestamp": "2026-08-14T00:09:11.000Z",
+  "firma": "25e21726c1286e4c271fe969c0d8516bb7c6fc56367b54ecfcaf0f244cb51e60",
+  "timestamp": "2026-08-16T01:01:01.936Z",
   "firmado_por": "010_INGENIERO_QA_AUTOMATIZACION (.claude\\agents\\010-ingeniero-qa-automatizacion.md, vía API Anthropic)",
   "veredictoCompleto": {
     "suite_valida": true,
     "specs": [
       {
-        "archivo": "tests/e2e/health.spec.js",
-        "flujo": "GET /api/health verifica backend real; '/' carga SPA y redirige a /inicio por RequireAuth sin sesión Firebase",
-        "resultado": "pass"
-      },
-      {
         "archivo": "tests/e2e/navigation.spec.js",
-        "flujo": "Rutas protegidas (/radar, /panel, /modulo10, /anexos) redirigen a /inicio; navegación real /inicio → /fase1-entrada.html con verificación de DOM y banner de auth",
-        "resultado": "pass"
-      },
-      {
-        "archivo": "tests/e2e/formulario-fase1.spec.js",
-        "flujo": "Fase 1 del Formulador: carga página, llena campos reales, click en #btn-generar-ficha sin sesión, espera #blocking-overlay con 'Debes iniciar sesión'",
-        "resultado": "fail_hallazgo_real — vite.config.js copyStaticPlugin no copia app.js ni firebase-config.js a dist/; el servidor responde text/html para esos módulos; el navegador rechaza el MIME type; el listener de #btn-generar-ficha nunca se registra; #blocking-overlay nunca aparece. Bug en producción, no en el spec. Corrección fuera del alcance de 010 (requiere intervención en vite.config.js por 009_INGENIERO_FRONTEND o 005_BACKEND)."
-      },
-      {
-        "archivo": "playwright.config.js",
-        "flujo": "Configuración E2E: testDir=./tests/e2e, baseURL=http://localhost:5000, webServer arranca node server.js, señal de arranque en '/' (no /api/health)",
+        "flujo": "Actualización de comentario interno (FrozenPage → ModulePending); sin cambio lógico ni funcional",
         "resultado": "pass"
       }
     ]

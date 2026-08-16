@@ -1,13 +1,21 @@
 {
   "aprobado": true,
-  "firma": "5ea1a659c24e2ffcb07648e866e5b10739c0d8759cdef733ade98e94bdddb4a3",
-  "timestamp": "2026-08-15T15:08:40.515Z",
+  "firma": "7fbff305290ed4abd4555445a92850e9eac2897d982d3dae966d3c86938a8f95",
+  "timestamp": "2026-08-16T01:15:21.113Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
   "razones": [
-    "Diff exclusivamente documental y artefactos PMU — sin código de producción, sin DDL, sin módulos nuevos",
-    "Corrección factual en 010: actualiza estado de extensión de permisos de 'pendiente' a 'ejecutada 2026-08-14' — elimina estado caducado, no cambia comportamiento",
-    "Firma 9423b77 coherente entre diseno_aprobado.json y estado_operativo.json (002); razones actualizadas describen correctamente el ciclo actual",
-    "Telemetría: 14 líneas JSONL con timestamps secuencialmente coherentes y tipos de evento consistentes con el formato preexistente de 533 líneas",
-    "Sin colisión con módulos existentes, sin abstracciones no solicitadas, sin cambios de autenticación estructural"
+    "architecture-gate.cjs: mecanismo de diferimiento implementado correctamente en tres capas (schema Zod, validarDisenoAprobado, validarSubgate); vigencia del diferimiento atada a la firma actual — caduca con la aprobación que lo contiene",
+    "Bug razon:null en pedirVeredictoSubagente corregido quirúrgicamente sin cambio de contrato de parseo",
+    "002-arquitecto-de-software.md: contrato de salida actualizado consistentemente con el código; exclusiones de diferimiento bien definidas (seguridad, incertidumbres explícitas, hallazgos no leídos directamente)",
+    "Tests de regresión cubren: diferimiento satisface subgate, diferimiento de otro subgate no aplica, compatibilidad hacia atrás sin campo diferimientos, validación de forma con diferimiento mal formado",
+    "ModulePending.jsx/App.jsx: rename semántico puro con referencia explícita a §0-AH como decisión de producto documentada",
+    "Sin DDL, sin cambios de auth, sin abstracciones no solicitadas, sin colisión con módulos existentes",
+    "Telemetría coherente con el historial del ciclo incluyendo los 3 rechazos de 004 y la re-aprobación de diseño"
+  ],
+  "diferimientos": [
+    {
+      "subgate": "004_SENTINELA_FRONTEND",
+      "razon": "Hallazgo stub_huerfano sobre ModulePending.jsx: placeholder deliberado documentado en §0-AH, 8 rutas intencionalmente sin datos reales (Fase 2 de producto). El hallazgo import_muerto de FrozenPage.jsx es incertidumbre no resuelta del propio agente — no se difiere; debe resolverse eliminando FrozenPage.jsx del árbol o confirmando su ausencia antes del próximo ciclo de aprobación."
+    }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-15T15:08:49.967Z",
+  "generado": "2026-08-16T01:15:40.664Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -38,15 +38,23 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "5ea1a659c24e2ffcb07648e866e5b10739c0d8759cdef733ade98e94bdddb4a3",
-        "timestamp": "2026-08-15T15:08:40.515Z",
+        "firma": "7fbff305290ed4abd4555445a92850e9eac2897d982d3dae966d3c86938a8f95",
+        "timestamp": "2026-08-16T01:15:21.113Z",
         "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)",
         "razones": [
-          "Diff exclusivamente documental y artefactos PMU — sin código de producción, sin DDL, sin módulos nuevos",
-          "Corrección factual en 010: actualiza estado de extensión de permisos de 'pendiente' a 'ejecutada 2026-08-14' — elimina estado caducado, no cambia comportamiento",
-          "Firma 9423b77 coherente entre diseno_aprobado.json y estado_operativo.json (002); razones actualizadas describen correctamente el ciclo actual",
-          "Telemetría: 14 líneas JSONL con timestamps secuencialmente coherentes y tipos de evento consistentes con el formato preexistente de 533 líneas",
-          "Sin colisión con módulos existentes, sin abstracciones no solicitadas, sin cambios de autenticación estructural"
+          "architecture-gate.cjs: mecanismo de diferimiento implementado correctamente en tres capas (schema Zod, validarDisenoAprobado, validarSubgate); vigencia del diferimiento atada a la firma actual — caduca con la aprobación que lo contiene",
+          "Bug razon:null en pedirVeredictoSubagente corregido quirúrgicamente sin cambio de contrato de parseo",
+          "002-arquitecto-de-software.md: contrato de salida actualizado consistentemente con el código; exclusiones de diferimiento bien definidas (seguridad, incertidumbres explícitas, hallazgos no leídos directamente)",
+          "Tests de regresión cubren: diferimiento satisface subgate, diferimiento de otro subgate no aplica, compatibilidad hacia atrás sin campo diferimientos, validación de forma con diferimiento mal formado",
+          "ModulePending.jsx/App.jsx: rename semántico puro con referencia explícita a §0-AH como decisión de producto documentada",
+          "Sin DDL, sin cambios de auth, sin abstracciones no solicitadas, sin colisión con módulos existentes",
+          "Telemetría coherente con el historial del ciclo incluyendo los 3 rechazos de 004 y la re-aprobación de diseño"
+        ],
+        "diferimientos": [
+          {
+            "subgate": "004_SENTINELA_FRONTEND",
+            "razon": "Hallazgo stub_huerfano sobre ModulePending.jsx: placeholder deliberado documentado en §0-AH, 8 rutas intencionalmente sin datos reales (Fase 2 de producto). El hallazgo import_muerto de FrozenPage.jsx es incertidumbre no resuelta del propio agente — no se difiere; debe resolverse eliminando FrozenPage.jsx del árbol o confirmando su ausencia antes del próximo ciclo de aprobación."
+          }
         ]
       }
     },
@@ -60,7 +68,16 @@
       ],
       "permiso_escritura": false,
       "gate": "subgate",
-      "ultimo_veredicto": null
+      "ultimo_veredicto": {
+        "aprobado": true,
+        "firma": "9a466c33cc5f8646a885801d0576aa0f4d6cc1dc1e9722a6ff6ddda8b81b10d8",
+        "timestamp": "2026-08-16T01:01:06.180Z",
+        "firmado_por": "003_ESP_DISENO_STITCH (.claude\\agents\\003-esp-diseno-stitch.md, vía API Anthropic)",
+        "veredictoCompleto": {
+          "diseno_valido": true,
+          "inconsistencias": []
+        }
+      }
     },
     {
       "archivo": ".claude/agents/004-sentinela-frontend.md",
@@ -176,17 +193,23 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "9b8a388a98bb4babe9609ab9237ee43c6692cf592a6377ef15741142e903d845",
-        "timestamp": "2026-08-14T03:27:30.065Z",
+        "firma": "9a466c33cc5f8646a885801d0576aa0f4d6cc1dc1e9722a6ff6ddda8b81b10d8",
+        "timestamp": "2026-08-16T01:01:05.289Z",
         "firmado_por": "009_INGENIERO_FRONTEND (.claude\\agents\\009-ingeniero-frontend.md, vía API Anthropic)",
         "veredictoCompleto": {
           "codigo_valido": true,
           "cambios": [
             {
-              "archivo": "public/fase1-entrada.html",
+              "archivo": "public/src/pages/ModulePending.jsx",
+              "tipo": "nuevo_componente",
+              "origen_hallazgo": "rename deliberado documentado en el propio componente (2026-08-15), equivalente funcional de FrozenPage.jsx con mensaje de UI actualizado a 'Fase 2 de Desarrollo'",
+              "resumen": "Reemplaza FrozenPage con ModulePending: mismo layout placeholder, mensaje actualizado, 100% Tailwind, sin riesgos de seguridad"
+            },
+            {
+              "archivo": "public/src/App.jsx",
               "tipo": "correccion",
-              "origen_hallazgo": "XSS confirmado 2026-08-13 PROTOCOLO TITÁN — f.nombre interpolado sin sanitizar en innerHTML de renderGantt()",
-              "resumen": "Introduce escapeHtmlGantt() local y aplica escape en los tres puntos de interpolación del Gantt (title, label, bar text)"
+              "origen_hallazgo": "mismo rename: actualiza import y 8 usos de FrozenPage a ModulePending sin cambio de props ni comportamiento",
+              "resumen": "Actualiza import y routes para consumir ModulePending en lugar de FrozenPage"
             }
           ]
         }
@@ -207,30 +230,15 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "2b514adc6cdc61ca7e968b60127e89ab7e4efdb4386f5e00c2ebc2527f35adbb",
-        "timestamp": "2026-08-14T00:09:11.000Z",
+        "firma": "25e21726c1286e4c271fe969c0d8516bb7c6fc56367b54ecfcaf0f244cb51e60",
+        "timestamp": "2026-08-16T01:01:01.936Z",
         "firmado_por": "010_INGENIERO_QA_AUTOMATIZACION (.claude\\agents\\010-ingeniero-qa-automatizacion.md, vía API Anthropic)",
         "veredictoCompleto": {
           "suite_valida": true,
           "specs": [
             {
-              "archivo": "tests/e2e/health.spec.js",
-              "flujo": "GET /api/health verifica backend real; '/' carga SPA y redirige a /inicio por RequireAuth sin sesión Firebase",
-              "resultado": "pass"
-            },
-            {
               "archivo": "tests/e2e/navigation.spec.js",
-              "flujo": "Rutas protegidas (/radar, /panel, /modulo10, /anexos) redirigen a /inicio; navegación real /inicio → /fase1-entrada.html con verificación de DOM y banner de auth",
-              "resultado": "pass"
-            },
-            {
-              "archivo": "tests/e2e/formulario-fase1.spec.js",
-              "flujo": "Fase 1 del Formulador: carga página, llena campos reales, click en #btn-generar-ficha sin sesión, espera #blocking-overlay con 'Debes iniciar sesión'",
-              "resultado": "fail_hallazgo_real — vite.config.js copyStaticPlugin no copia app.js ni firebase-config.js a dist/; el servidor responde text/html para esos módulos; el navegador rechaza el MIME type; el listener de #btn-generar-ficha nunca se registra; #blocking-overlay nunca aparece. Bug en producción, no en el spec. Corrección fuera del alcance de 010 (requiere intervención en vite.config.js por 009_INGENIERO_FRONTEND o 005_BACKEND)."
-            },
-            {
-              "archivo": "playwright.config.js",
-              "flujo": "Configuración E2E: testDir=./tests/e2e, baseURL=http://localhost:5000, webServer arranca node server.js, señal de arranque en '/' (no /api/health)",
+              "flujo": "Actualización de comentario interno (FrozenPage → ModulePending); sin cambio lógico ni funcional",
               "resultado": "pass"
             }
           ]

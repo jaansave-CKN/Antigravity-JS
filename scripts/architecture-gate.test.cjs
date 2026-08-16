@@ -15,7 +15,7 @@ const os = require('os');
 const path = require('path');
 
 const {
-  hashArchivo, hashEstado, validarDisenoAprobado, rutear,
+  hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear,
   SUBGATES, archivosRelevantesPara, validarSubgate,
   descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
   escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe,
@@ -198,6 +198,67 @@ test('validarSubgate: no aplica (aprobado=true) si el commit no toca nada releva
   const resultado = validarSubgate('004_SENTINELA_FRONTEND', ['server.js', 'package.json']);
   assert.equal(resultado.aplica, false);
   assert.equal(resultado.aprobado, true);
+});
+
+// Mecanismo de diferimiento de 002 sobre un subgate — agregado 2026-08-16
+// (hallazgo real: no existía NINGUNA conexión de código entre "002 aprobó
+// el diseño, incluso sabiendo que un subgate lo rechazaría" y el resultado
+// real de --check-gate). Muta el diseno_aprobado.json REAL (mismo patrón ya
+// usado en este archivo para hashEstado — try/finally garantiza restauración
+// exacta incluso si el assert falla) porque validarDisenoAprobado() no
+// acepta una ruta inyectable.
+// Ambos tests calculan su propia firma vigente con hashEstado() real —
+// NO confían en que agents/diseno_aprobado.json en disco esté al día (no
+// lo está necesariamente: cualquier edición a architecture-gate.cjs
+// hecha DESPUÉS de la última --aprobar-diseno real lo vuelve stale, y
+// justamente este mecanismo se implementó editando ese archivo).
+test('validarSubgate: un diferimiento real de 002 (diseno_aprobado.json vigente + diferimientos[]) satisface el subgate sin que el propio agente lo haya aprobado', () => {
+  const path = require('path');
+  const aprobacionPath = path.join(__dirname, '..', 'agents', 'diseno_aprobado.json');
+  const original = fs.readFileSync(aprobacionPath, 'utf8');
+  try {
+    const firmaVigente = hashEstado(listarCarpetasAgentes());
+    const conDiferimiento = {
+      aprobado: true,
+      firma: firmaVigente,
+      timestamp: new Date().toISOString(),
+      firmado_por: 'test de regresión',
+      razones: ['fixture de test'],
+      diferimientos: [{ subgate: '004_SENTINELA_FRONTEND', razon: 'prueba de regresión — no es un diferimiento real' }],
+    };
+    fs.writeFileSync(aprobacionPath, JSON.stringify(conDiferimiento, null, 2) + '\n', 'utf8');
+
+    const resultado = validarSubgate('004_SENTINELA_FRONTEND', ['public/src/App.jsx']);
+    assert.equal(resultado.aplica, true);
+    assert.equal(resultado.aprobado, true, 'el diferimiento debe satisfacer el subgate aunque veredicto_004.json no exista');
+    assert.equal(resultado.diferido, true, 'debe quedar marcado explícitamente como diferido, no como aprobación real del agente');
+    assert.match(resultado.razon, /prueba de regresión/);
+  } finally {
+    fs.writeFileSync(aprobacionPath, original, 'utf8');
+  }
+});
+
+test('validarSubgate: un diferimiento para OTRO subgate distinto no satisface este', () => {
+  const path = require('path');
+  const aprobacionPath = path.join(__dirname, '..', 'agents', 'diseno_aprobado.json');
+  const original = fs.readFileSync(aprobacionPath, 'utf8');
+  try {
+    const firmaVigente = hashEstado(listarCarpetasAgentes());
+    const conDiferimiento = {
+      aprobado: true,
+      firma: firmaVigente,
+      timestamp: new Date().toISOString(),
+      firmado_por: 'test de regresión',
+      razones: ['fixture de test'],
+      diferimientos: [{ subgate: '003_ESP_DISENO_STITCH', razon: 'diferimiento de otro subgate, no de 004' }],
+    };
+    fs.writeFileSync(aprobacionPath, JSON.stringify(conDiferimiento, null, 2) + '\n', 'utf8');
+
+    const resultado = validarSubgate('004_SENTINELA_FRONTEND', ['public/src/App.jsx']);
+    assert.equal(resultado.diferido, undefined, '004 no debe leerse como diferido por un diferimiento que corresponde a 003');
+  } finally {
+    fs.writeFileSync(aprobacionPath, original, 'utf8');
+  }
 });
 
 test('leerFrontmatterAgente: parsea name y tools de un .md real (002)', () => {
@@ -502,4 +563,25 @@ test('VEREDICTO_SCHEMAS: cubre exactamente los agentes con veredicto JSON real h
     '002_ARQUITECTO_DE_SOFTWARE', '003_ESP_DISENO_STITCH', '004_SENTINELA_FRONTEND',
     '005_INGENIERO_BACKEND', '006_DEVSECOPS_INFRAESTRUCTURA', '009_INGENIERO_FRONTEND',
   ].sort());
+});
+
+test('validarFormaVeredicto: 002 sin diferimientos es válido (default vacío, compatibilidad con veredictos previos)', () => {
+  const r = validarFormaVeredicto('002_ARQUITECTO_DE_SOFTWARE', { aprobado: true, razones: ['ok'] });
+  assert.equal(r.ok, true);
+});
+
+test('validarFormaVeredicto: 002 con diferimientos bien formados es válido', () => {
+  const r = validarFormaVeredicto('002_ARQUITECTO_DE_SOFTWARE', {
+    aprobado: true, razones: ['ok'],
+    diferimientos: [{ subgate: '004_SENTINELA_FRONTEND', razon: 'placeholder deliberado, ver §0-AH' }],
+  });
+  assert.equal(r.ok, true);
+});
+
+test('validarFormaVeredicto: 002 con un diferimiento sin campo "razon" es RECHAZADO', () => {
+  const r = validarFormaVeredicto('002_ARQUITECTO_DE_SOFTWARE', {
+    aprobado: true, razones: ['ok'],
+    diferimientos: [{ subgate: '004_SENTINELA_FRONTEND' }],
+  });
+  assert.equal(r.ok, false);
 });
