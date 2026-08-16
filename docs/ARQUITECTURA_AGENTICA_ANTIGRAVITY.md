@@ -1,5 +1,5 @@
 # ARQUITECTURA AGÉNTICA ANTIGRAVITY — Auditoría Forense 360° Multiagente + Sistema Completo
-**Fecha:** 2026-08-08, re-verificado y ampliado 2026-08-10 (§0-D), 2026-08-11/12 (§0-E…§0-K en el camino, §0-L Migración A confirmada en Supabase con evidencia), y 2026-08-13 (§0-M…§0-AC, cierre: hallazgo de gobernanza sobre el mandato exclusivo de `007` para este documento)
+**Fecha:** 2026-08-08, re-verificado y ampliado 2026-08-10 (§0-D), 2026-08-11/12 (§0-E…§0-K en el camino, §0-L Migración A confirmada en Supabase con evidencia), 2026-08-13 (§0-M…§0-AC, cierre: hallazgo de gobernanza sobre el mandato exclusivo de `007` para este documento), 2026-08-16 (§0-AD…§0-AI, corte de perímetro / RC 1.0), y 2026-08-16 mismo día, ronda separada (§0-AJ, auditoría forense 360° del ecosistema completo — gate en vivo bloqueado, brecha de integridad del veredicto, subgate fantasma de `006`, remote de git compartido con `Proy_03_RadarFondos`)
 **Auditor:** Chief AI Architect / Auditor Forense de Sistemas Multiagente / DevSecOps Lead / Chief Software Auditor / System Architect
 **Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS`, **ambas ramas remotas** (`origin/master` y `origin/main`, ver §0-D). `proyectos/` queda fuera del árbol de trabajo local (repos git independientes, `.gitignore:19-24`) — pero ver §0-D sobre su relación real con `origin/main`.
 **Regla de evidencia:** cero suposiciones — cada hallazgo cita archivo real. Donde el volumen hizo impracticable la lectura línea-por-línea de decenas de archivos (los skills de `agents/001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/`, o los 171 commits de `origin/main`), se declara el muestreo usado.
@@ -1684,3 +1684,300 @@ de un agente real invocado esta ronda. Suite completa: 121/121 tests unitarios +
 corridos por `010` (`agents/veredicto_010.json:5`). Commit `c1a725a` en `master`, push exitoso a
 `origin/radfor360-production` (fast-forward `9181381..c1a725a`). **CI de GitHub Actions en verificación al cierre
 de esta sección — su resultado no se afirma aquí porque no fue confirmado en esta ronda.**
+
+---
+
+## §0-AJ. AUDITORÍA FORENSE 360° — ESCUADRÓN ÉLITE + ECOSISTEMA COMPLETO (2026-08-16)
+
+**Encargo:** auditoría forense completa del ecosistema multiagente de Antigravity JS y proyectos hermanos, en 5
+dimensiones (inventario/organigrama, auditoría anatómica de skills, mapa de integraciones, límites/gaps, plan de
+remediación). Ejecutada con 5 subagentes de investigación en paralelo (uno por área) más lectura directa del motor
+del gate (`agents/architecture-gate.cjs`) y de `agents/pmu/`. Esta sección re-verifica contra disco, antes de
+escribir, los hallazgos más estructuralmente complejos (A, B, C, F, G, I) citados abajo; el resto (D, E, H, J) se
+transcribe con la misma exigencia de cita de archivo real que ya trae de los investigadores, sin re-teclear
+prosa que no aporta evidencia nueva. Ningún hallazgo de esta ronda es financiero ni de idempotencia de escritura
+(el checklist del punto 5 de mi propio mandato no encontró materia nueva que reportar en esta pasada — los
+endpoints de mutación y cálculos en COP ya fueron cubiertos en rondas anteriores de este documento).
+
+### 0-AJ.1 El gate está bloqueado en rojo ahora mismo — contradice lo que muestran los JSON de aprobación a primera vista
+
+Re-verificado directamente contra `agents/pmu/telemetria.jsonl` (líneas finales, 732 en total):
+
+```
+:728  2026-08-16T12:12:54.195Z  aprobar-diseno → rechazado
+      "Fallo de la API de Anthropic: 400 ... Your credit balance is too low ..."
+:730  2026-08-16T12:55:50.953Z  aprobar-diseno → rechazado (mismo 400, segundo intento)
+:731  2026-08-16T13:01:51.698Z  check-gate → rechazado
+      "El estado de agents/ cambió después de la firma — se requiere re-aprobación
+       del Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE)."
+```
+
+Mientras tanto, `agents/diseno_aprobado.json` y `agents/veredicto_003.json`/`veredicto_004.json` en disco siguen
+mostrando `"aprobado":true`/`"diseno_valido":true`/`"limpio":true` con la firma de la ronda `§0-AI` de hoy mismo.
+No hay contradicción real: es autoinvalidación por diseño — `validarDisenoAprobado()`
+(`agents/architecture-gate.cjs:527-529`) recalcula `hashEstado(carpetas)` en cada corrida y compara contra la
+`firma` guardada; cualquier cambio posterior al estado de `agents/` (incluida esta misma edición de `007`, que
+toca `docs/` pero cuyo hash de estado depende de `agents/`, `src/`, `public/src` y `.claude/agents/`, no de
+`docs/`) invalida la firma vieja. Lo que sí es un hecho operativo real: **ahora mismo, cualquier commit requeriría
+re-aprobación, y la vía normal (`--aprobar-diseno` vía API propia) no tiene saldo** — el mismo bloqueo que `§0-AI`
+ya resolvió una vez por canal alterno sigue sin resolverse de raíz (no hay saldo nuevo en `ANTHROPIC_API_KEY` de
+`.env`).
+
+### 0-AJ.2 Brecha de integridad del gate — el veredicto vigente de `§0-AI` no pasó por evaluación real de la API, y el mecanismo no puede distinguir eso
+
+Confirmado en `agents/architecture-gate.cjs:514-532` (`validarDisenoAprobado`): la función solo verifica
+`firma.aprobado === true` (línea 524) y que `firma.firma === hashEstado(carpetas)` (línea 528) — **no hay ningún
+campo ni verificación sobre el origen del veredicto**. `hashEstado()` (línea ~450) es una función pública y
+determinista: cualquier proceso capaz de leerla en el código fuente del repo y escribir un JSON con la forma
+correcta produce una "aprobación" indistinguible de una emitida por `pedirVeredictoArquitecto()` (la función que sí
+llama a la API de Anthropic).
+
+Confirmado leyendo `agents/diseno_aprobado.json:5` (firma `dd55acf3...`, vigente hoy):
+
+> *"Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md) — invocado vía canal Agent tool de Claude
+> Code, NO vía el script agents/architecture-gate.cjs (su ANTHROPIC_API_KEY en .env está sin saldo, 400
+> insufficient_credits). Veredicto real, no autofirmado por el orquestador: agent run id aefc9bb808ee615ff,
+> 2026-08-16."*
+
+Mismo patrón confirmado en `agents/veredicto_003.json` y `agents/veredicto_004.json` (campo `firmado_por`, cada uno
+con su propio agent run id). Esto fue de buena fe y quedó documentado con transparencia total (agent run ids
+citables, razones reales listadas) — pero expone la brecha estructural real con precisión: **el gate valida forma
+y hash, no procedencia.** No hay diferencia técnica entre esta aprobación (evaluación real de un modelo, solo que
+por un canal de facturación distinto al que el script espera) y una futura donde alguien escriba el JSON a mano
+sin que ningún modelo evalúe nada — `validarDisenoAprobado()` aceptaría ambas por igual.
+
+### 0-AJ.3 `006_DEVSECOPS_INFRAESTRUCTURA` tiene un gate fantasma exactamente sobre el área donde tiene permiso de escritura
+
+Confirmado en `.claude/agents/006-devsecops-infraestructura.md:5` (frontmatter):
+
+```
+gate: {"campo":"infraestructura_segura","patrones":["^\\.github/workflows/.*\\.ya?ml$","^scripts/.*(gate|veto).*\\.cjs$"]}
+```
+
+Confirmado en `agents/architecture-gate.cjs:569-574` — `SUBGATES['006_DEVSECOPS_INFRAESTRUCTURA']` ya existe
+**hardcodeado**, con patrones distintos: `render.yaml`, `.env.example`, `package.json`, `package-lock.json`. Nada
+en esa entrada cubre `.github/workflows/**` ni `scripts/*gate*/*veto*.cjs`.
+
+Confirmado en `agents/architecture-gate.cjs:611-618` (`asegurarSubgatesAutoDescubiertos`) — el auto-registro de
+subgates declarados en frontmatter salta explícitamente cualquier `agentId` que ya tenga entrada hardcodeada
+(línea 618: `if (SUBGATES[agentId]) continue;`). El comentario de la propia función (línea 608-609) documenta la
+intención: *"Nunca pisa un subgate ya definido a mano arriba — esos siguen siendo la fuente de verdad si hay
+conflicto de nombre."* — diseño correcto para evitar colisiones, pero con un efecto secundario real no anticipado:
+el gate que `006` declara en su propio frontmatter **nunca se registra ni se ejecuta**, porque la entrada manual
+más antigua (2026-08-13, motivada por `render.yaml`/`.env.example`/dependencias) ya ocupa ese `agentId`.
+
+```mermaid
+flowchart TD
+    A["Commit toca .github/workflows/gate.yml\no scripts/check_veto_008.cjs"] --> B{"asegurarSubgatesAutoDescubiertos()\narchitecture-gate.cjs:611"}
+    B --> C{"SUBGATES['006_DEVSECOPS_INFRAESTRUCTURA']\n¿ya existe? (línea 618)"}
+    C -->|"Sí — entrada hardcodeada\nlínea 569-574 (render.yaml,\n.env.example, package*.json)"| D["continue — el frontmatter de\n006-devsecops-infraestructura.md:5\n(.github/workflows, scripts/*gate*)\nNUNCA se registra"]
+    D --> E["--check-gate no evalúa\nese diff contra 006\nEXITCODE puede ser 0\nsin que nadie con juicio\nrevisó el cambio"]
+    C -->|"No (agente sin entrada\nhardcodeada previa)"| F["Se registra el gate declarado\nen el frontmatter — funciona\ncomo se espera (caso 009/010)"]
+```
+
+Consecuencia real, no hipotética: un commit que modifique `.github/workflows/gate.yml` o
+`scripts/check_veto_008.cjs`/`scripts/auditor_008_advisory_gate.cjs` pasa el gate sin que ningún subgate lo
+evalúe — exactamente el área para la que `006` recibió permiso de escritura el 2026-08-13 (ver `§0-AH`/ronda
+correspondiente). Este documento no corrige el código (no es mi mandato); queda señalado para que `002`/`006`
+decidan si renombran la entrada hardcodeada, la fusionan con los patrones del frontmatter, o retiran uno de los
+dos.
+
+### 0-AJ.4 `008_AUDITOR_DE_CODIGO` — injerto de formato nunca normalizado + skills huérfanos
+
+`.claude/agents/008-auditor-de-codigo.md:6` declara `skills: lint-and-validate, systematic-debugging,
+testing-patterns` — ninguno de los 3 existe (ni en `.claude/skills/` local ni en el catálogo global de skills
+disponible en esta sesión). Es el único de los 10 agentes del roster cuyos skills declarados no resuelven a nada
+real.
+
+Confirmado por lectura directa (`.claude/agents/008-auditor-de-codigo.md:1-9`): es el único de los 10 sin bloque
+`## Salida obligatoria` en JSON — usa tablas markdown y el "Protocolo Titán" (título literal `⚡ PROTOCOLO TITÁN ∞
+— AUDITORÍA TOTAL 100/100`, emojis densos) en vez del patrón uniforme `Qué buscas`/`Qué NO haces`/`Vigencia del
+estado`/JSON que comparten `001`-`007` y `009`-`010`. Es el injerto documental más antiguo del roster (el nombre
+"Protocolo Titán" ya se documentó como término huérfano desde `§0-C`, 2026-08-08) — se le agregó "Vigencia del
+estado" el 2026-08-13 por ser señalado como "el único de los 9 sin esa sección", pero el resto del formato nunca
+se normalizó.
+
+### 0-AJ.5 `004_SENTINELA_FRONTEND` con ejemplo obsoleto en su propio cuerpo — no solo desactualización pasiva
+
+Confirmado en `.claude/agents/004-sentinela-frontend.md:14`, cita textual vigente hoy:
+
+> *"Patrón ya confirmado en este proyecto: `FrozenPage.jsx` (usado por `/panel`, `/directorio`, `/favoritos`,
+> `/calendario`, `/anexos`, `/logistica`, `/dialetica` — ver `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §5`)."*
+
+`§0-AI` de este mismo documento (hoy, más arriba) ya registró que `FrozenPage.jsx` fue renombrado a
+`ModulePending.jsx` y que esas 7 rutas fueron retiradas de `public/src/App.jsx` y `public/src/Sidebar.jsx`. El
+cuerpo de `004` no se ha vuelto a tocar desde el 2026-08-13 — solo la cláusula genérica "Vigencia del estado"
+(común a los 10 agentes desde esa fecha) cubre indirectamente el desfase; el ejemplo textual de la línea 14 sigue
+citando un nombre de archivo y 7 rutas que ya no existen en `public/src/App.jsx`. Señalado, no corregido por mí —
+`004` es dueño de su propio archivo.
+
+### 0-AJ.6 `AGENTS.md` (raíz) desactualizado frente al roster real
+
+`AGENTS.md:39` — cabecera de sección: *"## IV. TOPOLOGÍA DEL ESCUADRÓN ÉLITE (Actualizada 2026-08-11 — fuente
+única `.claude/agents/`)"*. El cuerpo (líneas 40-47) lista únicamente `001`-`008` — no menciona
+`009_INGENIERO_FRONTEND` ni `010_INGENIERO_QA_AUTOMATIZACION`, ambos creados 2026-08-13/16, con subagente real
+(`.claude/agents/009-ingeniero-frontend.md`, `.claude/agents/010-ingeniero-qa-automatizacion.md`) y gate propio ya
+operativo (confirmado en `agents/pmu/telemetria.jsonl:715-716`, ambos con `resultado:"aprobado"` hoy). `AGENTS.md`
+sigue siendo la puerta de entrada declarada del proyecto y describe una topología de 8 roles cuando el roster real
+tiene 10.
+
+### 0-AJ.7 Este mismo documento maestro tiene una sección propia desactualizada, y nadie la audita con un gate
+
+Confirmado en `§1.2` de este mismo documento (`### 1.2 Organigrama actualizado — Sistema A`, líneas 751-807): el
+árbol ASCII todavía lista `07-ing-concreto_GFRC`, `08-estratega-neuromarketing` (líneas 766, 796) y
+`03-analista-secop`, `14-analista-comportamiento` (líneas 771-772, 790, 797) como subordinados existentes de
+`005`/`006`. Verificado contra disco en esta misma ronda: esas 4 carpetas **no existen** — la purga está
+documentada por el propio `§0-...` de este archivo, línea 441: *"Purgados (`git rm`, vacíos, cero código...):
+`agents/03-analista-secop`, `agents/14-analista-comportamiento`"*, y confirmado también en
+`.claude/agents/006-devsecops-infraestructura.md:12`: *"Resuelto 2026-08-12 ... `03-analista-secop` y
+`14-analista-comportamiento` se purgaron (vacíos, sin código); `052_Form_Administrativo` y `015_intelligence-core`
+se reasignaron a `005_INGENIERO_BACKEND`."* — es decir, este documento se corrigió a sí mismo en prosa (línea 441,
+`§0-M` en adelante) pero el diagrama ASCII de `§1.2`, escrito antes, nunca se volvió a tocar. No lo reescribo aquí
+(no reescribo secciones anteriores a `§0-AI` — instrucción explícita de esta ronda); queda señalado como pendiente
+para quien edite `§1.2` directamente.
+
+Gap estructural de fondo: `007_DOCUMENTADOR_AS_BUILD` no tiene `gate` propio ni aparece en `SUBGATES`
+(`agents/architecture-gate.cjs` no tiene ninguna entrada `007_DOCUMENTADOR_AS_BUILD`) — nada bloquea técnicamente
+un commit que deje este mismo documento desactualizado tras un cambio estructural. Coherente con que `007` no
+tiene `Bash` ni mecanismo de bloqueo (declarado explícitamente en mi propio archivo,
+`.claude/agents/007-documentador-as-build.md`), pero es un punto ciego real: el documento que audita a todos los
+demás es el único sin auditoría automática de vigencia sobre sí mismo. Consistente con `agents/pmu/telemetria.jsonl`,
+que registra en cada `check-gate` una `alerta_pmu` de tipo *"docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó
+después que este agente"* para cada `.claude/agents/00X-*.md` — esa alerta es informativa (empuja al agente a
+revisar si le compete), no bloqueante, y no existe una alerta simétrica que le avise a `007` cuándo un `.claude/agents/00X-*.md`
+cambió y el propio documento maestro quedó atrás.
+
+### 0-AJ.8 Sistema legacy `agents/` (Sistema A) — confirmación de 0% ejecución + contradicciones internas
+
+Las 8 carpetas numeradas legacy (`009_gestor_datos`, `010_redactor_tecnico`, `011_Radar1_minero`,
+`012_Radar2_Estratega`, `015_intelligence-core`, `050_Formulador_proy`, `052_Form_Administrativo`,
+`001_ORQUESTADOR_MAESTRO`) tienen 0 imports reales desde `src/` o `server.js` — catalogadas en
+`skills/ag_skills_registry.json`, nunca ejecutadas en producción.
+
+- `agents/001_ORQUESTADOR_MAESTRO/IDENTITY.md` describe una "Matriz de Ruteo" que sigue enrutando a
+  `011_Radar1_minero`, purgado de código el 2026-08-13 y explícitamente removido de `ENRUTADOR_ESTATICO` por "sin
+  código ejecutable, no hay destino válido al que rutear" — el propio `IDENTITY.md` del orquestador legacy describe
+  un sistema que el código real ya desmontó.
+- `agents/011_Radar1_minero/IDENTITY.md` declara `Status: ACTIVE` mientras el código fue purgado por decisión
+  explícita del usuario ("no admito sistemas o agentes paralelos con las mismas habilidades") — contradicción
+  directa metadata-vs-disco.
+- `agents/015_intelligence-core/brain_context.md` tiene mojibake de encoding ("DISE�ADOR") y tokens de plantilla
+  sin resolver (`$PI_Protect`, `$Fisica_Rules`, `$Universal_Protocol`) — carpeta sin tocar desde 2026-08-06, la más
+  antigua del árbol legacy.
+- Excepción honesta: `agents/052_Form_Administrativo/IDENTITY.md` documenta explícitamente su propia brecha (76
+  líneas de spec vs. implementación real de un párrafo de 120 palabras con fallback a plantilla fija en
+  `src/orchestrator-engine.js`, clase `AgentAdministrativo`) — el mejor caso de divergencia
+  especificación-vs-código documentada honestamente en todo el árbol legacy.
+
+**Importante para no generar alarma falsa:** `agents/architecture-gate.cjs`, que vive dentro de esta misma carpeta
+legacy, **no es un fósil** — es el motor real y activo del gate del sistema nuevo (1800+ líneas, comentarios
+fechados hasta hoy). Los `veredicto_003/004/005/006/009/010.json` y `diseno_aprobado.json` tampoco son artefactos
+de una fase cerrada — son el estado corriente del gate, reescritos en cada ronda (ver `§0-AJ.1`/`§0-AJ.2` arriba,
+ambos de hoy). La carpeta `agents/` cumple hoy doble función: contenedor de agentes legacy 100% muertos + almacén
+de artefactos de gate del sistema nuevo, vivo. Riesgo de confusión real para cualquier auditor futuro que no
+conozca esta convención, no un injerto en sí.
+
+No existe `scripts/architecture-gate.cjs` — solo `scripts/architecture-gate.test.cjs` (test que importa las
+funciones puras del único archivo canónico) y `scripts/pre-commit.sh` (que invoca `agents/architecture-gate.cjs`
+por ruta completa). No hay duplicación entre `agents/` y `scripts/`.
+
+### 0-AJ.9 Riesgo de infraestructura más severo detectado — remote de git compartido entre el repo raíz y `Proy_03_RadarFondos`
+
+Re-verificado directamente:
+
+```
+proyectos/Proy_03_RadarFondos/.git/config:20   url = https://github.com/jaansave-CKN/Antigravity-JS.git
+.git/config (repo raíz):12                     url = https://github.com/jaansave-CKN/Antigravity-JS.git
+```
+
+**La misma URL de remote `origin` en dos repos git físicamente independientes.** `Proy_03_RadarFondos` escribe a
+`origin/main` (rama `main` local mapeada a `origin/main` en su `.git/config:9-12`), el repo raíz escribe a
+`origin/master` (`.git/config:14-17`) — historiales sin ancestro común (ya documentado en `§0-D`, `git merge-base
+origin/master origin/main` sin salida).
+
+El propio `.gitignore` del repo raíz documenta en comentario (líneas 28-29) que esto ya causó una colisión real:
+
+> *"Sub-proyectos hermanos con su propio repo git — NUNCA deben entrar al repo raíz (esto es lo que causó que
+> RadarFondos terminara pisando este repo en GitHub)"*
+
+```mermaid
+flowchart LR
+    subgraph GH["GitHub — un solo remote"]
+        R["github.com/jaansave-CKN/Antigravity-JS.git"]
+    end
+    subgraph Raiz["Repo raíz (c:/2026 AI EGIOC5/Antigravity JS)"]
+        M["rama master\nHEAD d9e520a\n.git/config:11-17"]
+    end
+    subgraph P3[".gitignore excluye /proyectos/\ndel árbol de trabajo del padre,\npero NO del remote"]
+        Main["Proy_03_RadarFondos/.git\nrama main\nHEAD 29cbc00\n.git/config:9-21 (remote propio)"]
+    end
+    M -->|push a origin/master| R
+    Main -->|push a origin/main| R
+    R -.->|"riesgo latente:\nforce-push cruzado,\nremotes/origin/HEAD ambiguo\n(ya pasó una vez, §0-D)"| M
+    R -.-> Main
+```
+
+El aislamiento hoy es solo parcial: separados en disco y excluidos del árbol de trabajo del padre vía
+`.gitignore:30` (`/proyectos/`), pero **no en el remote de GitHub**, que sigue siendo compartido — el riesgo de
+force-push cruzado o colisión de ramas documentado en `§0-D` sigue latente estructuralmente, no fue removido, solo
+mitigado por convención (nadie hace push desde el repo equivocado).
+
+Hallazgos secundarios de la misma dimensión (no re-verificados línea por línea en esta ronda, transcritos de los
+investigadores con su cita ya provista):
+- `proyectos/Proy_03_RadarFondos/.claude/agents/architect.md:10` cita textualmente
+  `Antigravity JS/.claude/agents/architect.md (proyecto raíz)` como patrón de origen — ese archivo ya no existe en
+  el roster raíz (renombrado a `002-arquitecto-de-software.md` en la renumeración 001-008, `§0-B`). Es solo prosa
+  documental (no hay mecanismo real de importación cross-repo), pero es una referencia a un archivo fantasma.
+- `proyectos/Proy_05_SIG/app/` tiene un `.git` anidado independiente con remote de nombre no relacionado
+  (`hostinger-antigravity-asfaltica`) — posible reutilización de repo de otro proyecto sin renombrar, sin relación
+  aparente con HSEQ.
+- `proyectos/api-usuarios/.agent/` usa un kit de terceros de 20 agentes ("Antigravity Kit", diseñado originalmente
+  para Gemini según sus propios archivos `GEMINI.md`) sin acoplamiento textual ni de código con el sistema raíz —
+  coincidencia de branding ("Antigravity"), no de arquitectura.
+
+### 0-AJ.10 Auditoría de skills — registro vs. disco
+
+- No hay entradas huérfanas en `skills/ag_skills_registry.json` — los ~40 paths listados existen en disco.
+- 4 skills "fantasma" existen en disco pero no están registradas, por límites estructurales del propio
+  sincronizador (`skills/sync_registry.cjs` solo indexa directorios llamados literalmente `skills` y solo
+  extensiones `.cjs/.js/.py`): `agents/050_Formulador_proy/050_Formulador_proy.cjs` (vive en la raíz del agente,
+  no dentro de una carpeta `skills/`), `skills/CONECTOR_DATOS_EXTERNOS/*` (.md/.txt),
+  `skills/CONECTOR_GITHUB/instruccion_maestra.txt` (.txt), `skills/universal_logic.json` (.json).
+- **Duplicación funcional real:** existen dos "skills de GitHub" — `skills/CONECTOR_GITHUB/instruccion_maestra.txt`
+  es 100% prosa sin código, mientras `skills/ingenieria/GitHubProvider.js` + `GitHubRouter.js` es la implementación
+  real, montada en `server.js:15,336` (`/api/github`). Confuso para cualquiera que busque "la skill de GitHub" y
+  encuentre primero la versión sin código.
+- `skills/sync_registry.cjs` nunca corre automáticamente — no está en ningún hook de git, script npm ni workflow de
+  CI. Solo manual.
+- De 10 scripts `.cjs`/`.js` de skills inspeccionados, solo 2 tienen manejo de errores real
+  (`Skill_Bitacora_Sistema.cjs`, `skills/ingenieria/GitHubRouter.js`). Los otros 8 no tienen try/catch en
+  operaciones de riesgo (`fs.writeFileSync`, `fetch`, `Packer.toBuffer`) ni validan tipos de entrada.
+- **Bug funcional real, re-verificado en esta ronda, en la única skill que sí corre en producción:**
+  `skills/seguridad/Skill_Protocolo_Fuente_Unica.cjs` (importado de verdad por `src/modules/radar/m1Pipeline.js:11`).
+  `extraerDatosCompletos()` define el campo en singular:
+  ```
+  :82-86   resultado.completitud = { encontrado: encontrados, total: total, porcentaje: ... }
+  ```
+  pero `generarReporte()` lo lee en plural:
+  ```
+  :113     console.log(`... Completitud: ${extraccion.completitud.encontrados}/${extraccion.completitud.total} ...`)
+  ```
+  `extraccion.completitud.encontrados` es `undefined` en cada corrida — el log imprime `undefined/N (X%)` sin
+  romper el flujo, pero sin dar la métrica real de completitud.
+- Cuarentena (`skills/_quarantine/`) confirmada como ejemplo correcto de contención:
+  `Skill_integracion_formato_ascii.cjs.disabled` mutaba archivos `.html` en sitio sin backup/dry-run/logging,
+  neutralizado el 2026-08-04 tras hallazgo de auditoría — sigue sin reactivar (checklist de requisitos pendiente
+  documentado en su propio README).
+- Solapamiento de propósito (no de nombre exacto) entre `agents/skills/` (proyecto) y skills globales de la
+  sesión: `docker-expert`, `nodejs-best-practices`, `browser-automation` vs `agent-browser` — mismo tema definido
+  dos veces en scopes distintos.
+
+### 0-AJ.11 Qué no se tocó en esta ronda
+
+No se modificó ningún archivo fuera de `docs/` — ni `agents/architecture-gate.cjs`, ni ningún `.claude/agents/*.md`,
+ni `AGENTS.md`, ni `§1.2` de este mismo documento (todos señalados arriba como pendientes de corrección por sus
+respectivos dueños: `002`/`006` para el subgate fantasma de `006`, `004` para su propio ejemplo obsoleto, quien
+edite `AGENTS.md` y `§1.2` para la topología de 10 roles). No se resolvió el corte de saldo de
+`ANTHROPIC_API_KEY` (fuera de mi alcance — no tengo `Bash` ni acceso a facturación). No se auditó el riesgo de
+remote compartido más allá de documentarlo — decidir si separar el remote de `Proy_03_RadarFondos` es una decisión
+de infraestructura que le compete a `006`/al usuario, no a este documento.
