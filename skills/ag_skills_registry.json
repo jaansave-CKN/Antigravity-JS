@@ -59,14 +59,15 @@
       ],
       "location": "./agents/010_redactor_tecnico/skills/"
     },
-    "050_Formulador_proy": {
+    "Proy_03_Minero_B": {
       "skills": [
         {
           "id": "Skill_050_Formulador_Proyecto",
-          "file": "agents/050_Formulador_proy/skills/Skill_050_Formulador_Proyecto.cjs"
+          "file": "agents/Proy_03_Minero_B/skills/Skill_050_Formulador_Proyecto.cjs"
         }
       ],
-      "location": "./agents/050_Formulador_proy/skills/"
+      "location": "./agents/Proy_03_Minero_B/skills/",
+      "sync_note": "Renombrado 2026-08-16 desde '050_Formulador_proy' (mandato directo del usuario, reestructuración del dominio RadFor-360 bajo 'Proy 03 GP_Radford-360'). Mismo estado real: sin conexión a src/ ni server.js, solo cambia el nombre."
     },
     "052_Form_Administrativo": {
       "skills": [
@@ -77,10 +78,10 @@
       ],
       "location": "./agents/052_Form_Administrativo/skills/"
     },
-    "011_Radar1_minero": {
+    "Proy_03_Minero_A": {
       "skills": [],
-      "location": "./agents/011_Radar1_minero/",
-      "sync_note": "PURGADO 2026-08-13: código Python (miner_deep_scan.py, radar_oficial.py, test_fuentes.py, radar_log.txt) eliminado — duplicaba la misma capacidad que el Radar real en producción (src/modules/radar/m1Pipeline.js), dormido desde 2026-05-16, sin ninguna referencia en runtime real. Se preservaron IDENTITY.md y repositorio_convocatorias.json (datos históricos). Carpeta ya no tiene código ejecutable.",
+      "location": "./agents/Proy_03_Minero_A/",
+      "sync_note": "Renombrado 2026-08-16 desde '011_Radar1_minero' (mandato directo del usuario, reestructuración del dominio RadFor-360 bajo 'Proy 03 GP_Radford-360'). Sin cambio de estado real: PURGADO de código desde 2026-08-13 (duplicaba la capacidad del Radar real en producción, src/modules/radar/m1Pipeline.js, dormido desde 2026-05-16). Solo se preservó repositorio_convocatorias.json (datos históricos). Carpeta sigue sin código ejecutable.",
       "raw_scripts": []
     },
     "012_Radar2_Estratega": {

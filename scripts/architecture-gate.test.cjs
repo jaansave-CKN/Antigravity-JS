@@ -134,7 +134,7 @@ test('validarDisenoAprobado: rechaza si diseno_aprobado.json no existe', () => {
 });
 
 test('rutear: clave válida devuelve el destino esperado', () => {
-  assert.equal(rutear('formulacion'), '050_Formulador_proy');
+  assert.equal(rutear('formulacion'), 'Proy_03_Minero_B');
 });
 
 test('rutear: clave inválida lanza RUTEO_FALLIDO, nunca aprueba por defecto', () => {

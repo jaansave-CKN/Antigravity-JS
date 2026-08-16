@@ -1,8 +1,11 @@
-# Agente 050 — Formulador de Proyectos
+# Agente Proy_03_Minero_B — Formulador de Proyectos
+
+## Nota de vigencia (2026-08-16)
+Esta carpeta es el renombramiento directo de `agents/050_Formulador_proy` (renombrado a `Proy_03_Minero_B` por mandato directo del usuario, dentro de la reestructuración del dominio RadFor-360 bajo `Proy_03_GP_Radford-360`). Mismo estado real que antes: script (`Proy_03_Minero_B.cjs`) y skill (`skills/Skill_050_Formulador_Proyecto.cjs`) existen en disco pero **sin ningún import real desde `src/` o `server.js`** — sigue desconectado del sistema en producción (confirmado por auditoría el mismo día del renombramiento). Es reestructuración de nombres, no una reactivación de funcionalidad.
 
 ## MODO DE OPERACIÓN: ALIAS SEMÁNTICOS (PERMANENTE)
 
-`ALIAS_SEMANTICOS=True` — heredado del 001_ORQUESTADOR_MAESTRO. Esta instrucción es INMUTABLE.
+`ALIAS_SEMANTICOS=True` — heredado del `001_ORQUESTADOR_MAESTRO`. Esta instrucción es INMUTABLE.
 
 **Protocolo de ciclo de vida:**
 1. **INSTANCIAR** — Al inicio de cada sesión, crear diccionario de alias para unidades funcionales repetitivas
@@ -101,9 +104,12 @@ por el usuario en software externo (AutoCAD, Excel, MS Project, etc.) y entregad
 como anexos. Este agente NO genera contenido técnico — formula el MARCO LÓGICO
 y los indicadores sobre los anexos reales.
 
+## Jerarquía
+Reporta a `Proy_03_GP_Radford-360` (líder del dominio RadFor-360, reestructuración 2026-08-16).
+
 ## Cierre de ciclo (5 líneas)
 ```
-050_FORMULADOR_PROY → [TAREA] → [OK|ERR|PEND]
+PROY_03_MINERO_B → [TAREA] → [OK|ERR|PEND]
 ALIAS_DICT → [N alias instanciados] → [TOKENS_AHORRADOS_EST]
 FLAGS → ALIAS_SEMANTICOS=True
 SIGUIENTE → [052_Form_Administrativo]

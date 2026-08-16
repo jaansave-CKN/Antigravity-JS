@@ -2,13 +2,13 @@
   "aprobado": true,
   "origen": "excepcion_manual",
   "excepcion": {
-    "autorizado_por": "002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a54e4d69319228898, 2026-08-16)",
-    "motivo": "scripts/architecture-gate.test.cjs cambio (test nuevo de alertas_activas), mismo diff ya cubierto por el veredicto principal de 002 sobre el circuit breaker de alcance reducido",
-    "expira": "2026-08-16T20:17:00.063Z"
+    "autorizado_por": "Usuario (mandato directo, sin consulta a 006, 2026-08-16)",
+    "motivo": "scripts/architecture-gate.test.cjs cambio (rutear('formulacion') actualizado), mismo diff de la reestructuracion RadFor-360 ya autorizada por mandato directo",
+    "expira": "2026-08-16T23:26:43.186Z"
   },
-  "firma": "87c0c8f9c29235d4c863033674a8f82ee5863d07d552c817527df9fc3a3f8c79",
-  "timestamp": "2026-08-16T18:17:00.063Z",
-  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por 002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a54e4d69319228898, 2026-08-16): scripts/architecture-gate.test.cjs cambio (test nuevo de alertas_activas), mismo diff ya cubierto por el veredicto principal de 002 sobre el circuit breaker de alcance reducido",
+  "firma": "aa5a1ba42ad9116e4e8004a0a6c5bde7f5640075424080c32e5a00624556bb8e",
+  "timestamp": "2026-08-16T19:26:43.186Z",
+  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Usuario (mandato directo, sin consulta a 006, 2026-08-16): scripts/architecture-gate.test.cjs cambio (rutear('formulacion') actualizado), mismo diff de la reestructuracion RadFor-360 ya autorizada por mandato directo",
   "veredictoCompleto": {
     "nota": "excepción manual, sin evaluación real del subagente"
   }

@@ -1983,3 +1983,45 @@ edite `AGENTS.md` y `§1.2` para la topología de 10 roles). No se resolvió el 
 `ANTHROPIC_API_KEY` (fuera de mi alcance — no tengo `Bash` ni acceso a facturación). No se auditó el riesgo de
 remote compartido más allá de documentarlo — decidir si separar el remote de `Proy_03_RadarFondos` es una decisión
 de infraestructura que le compete a `006`/al usuario, no a este documento.
+
+---
+
+## Nota breve (2026-08-16, posterior a `§0-AJ`) — renombramiento de jerarquía legacy del dominio RadFor-360
+
+No es una ronda `§0-X` (no hay hallazgo nuevo de arquitectura ni de seguridad — es un cambio mecánico de nombres,
+por mandato directo del usuario, fuera del flujo normal de "diseño antes de código" — excepción explícita
+solicitada y otorgada, no veredicto de `002`). Re-verificado contra disco antes de escribir esta nota:
+
+- `agents/011_Radar1_minero/` → **`agents/Proy_03_Minero_A/`** (`git mv` equivalente, mismo contenido:
+  `repositorio_convocatorias.json`). `IDENTITY.md:2` corrige `Status: ACTIVE` (que era falso, ver `§0-AJ.8`) a
+  `Status: INACTIVE` — sigue sin código ejecutable desde su purga del 2026-08-13.
+- `agents/050_Formulador_proy/` → **`agents/Proy_03_Minero_B/`** (mismo contenido: `Proy_03_Minero_B.cjs` +
+  `skills/Skill_050_Formulador_Proyecto.cjs`, con 1 referencia interna de ruta corregida —
+  `skills/Skill_050_Formulador_Proyecto.cjs:44`, `path.join('./agents', args[1] || 'Proy_03_Minero_B', ...)`).
+  Sigue sin ningún import real desde `src/`/`server.js` — mismo estado que antes del renombramiento.
+- **`agents/Proy_03_GP_Radford-360/`** — carpeta nueva, agente "Gerente de Proyecto" coordinador de los dos
+  anteriores (`IDENTITY.md`). Sin código ejecutable, sin permisos técnicos (`Write`/`Edit`/`Bash`), no está en
+  `.claude/agents/` — el Escuadrón Élite oficial 001-010 no se tocó, por restricción explícita del usuario
+  (`agents/Proy_03_GP_Radford-360/IDENTITY.md:10-11`).
+
+Referencias reales confirmadas actualizadas y consistentes (Read/Grep directo, no transcripción):
+`agents/architecture-gate.cjs:66` (`ESCUADRON_ELITE['005_INGENIERO_BACKEND'].subordinados` incluye
+`'Proy_03_Minero_B'`) y `:123` (`ENRUTADOR_ESTATICO.formulacion: 'Proy_03_Minero_B'`, comentario de contexto en
+`:113-120`); `scripts/architecture-gate.test.cjs:137` (`assert.equal(rutear('formulacion'), 'Proy_03_Minero_B')`);
+`agents/001_ORQUESTADOR_MAESTRO/IDENTITY.md:56,59,71,73,76` (LEY 2/LEY 3, tabla de ruteo, jerarquía del dominio
+RadFor-360); `agents/052_Form_Administrativo/IDENTITY.md:120` (línea `SIGUIENTE → [Proy_03_Minero_B]`);
+`skills/ag_skills_registry.json:62-90` (entradas `Proy_03_Minero_A`/`Proy_03_Minero_B` con `sync_note` explicando
+el renombramiento y el estado real sin cambios).
+
+Confirmado también lo que **no** se tocó, tal como debía quedar: las menciones históricas a
+`011_Radar1_minero`/`050_Formulador_proy` dentro de rondas fechadas anteriores de este mismo documento (`§0-B`
+línea 40, `§0-C` línea 56, `§0-AJ.8` líneas 1854-1865, entre otras) siguen sin editar — registro de lo que existía
+en ese momento, mismo criterio que `§0-AJ.7`/`§1.2`. `.claude/agents/005-ingeniero-backend.md:11` (línea de origen
+histórico, "7 carpetas preexistentes... `011_Radar1_minero`... `050_Formulador_proy`") y
+`skills/_archivo_historico/REVISION_SKILLS.md` (2 ocurrencias, archivo ya marcado `[ARCHIVADO]`) tampoco se
+tocaron.
+
+No se generó diagrama Mermaid nuevo para esta nota — no hay subsistema ni ruta de ejecución nueva que documentar
+(los 3 agentes de `Proy_03_*` siguen en 0% de código ejecutable conectado a `src/`/`server.js`, sin cambio de flujo
+real que graficar). No se detectó violación de divisa/idempotencia — no hay endpoint de mutación ni cálculo
+financiero involucrado, solo carpetas de agentes legacy sin conexión a producción.

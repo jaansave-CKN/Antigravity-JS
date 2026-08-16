@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-16T18:17:02.259Z",
+  "generado": "2026-08-16T19:26:47.154Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -77,15 +77,15 @@
         "aprobado": true,
         "origen": "excepcion_manual",
         "excepcion": {
-          "autorizado_por": "002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a54e4d69319228898, 2026-08-16)",
-          "motivo": "Circuit breaker de alcance reducido: alertas_activas en estado_operativo.json + axioma de limite de reintentos en 001 -- implementado exactamente segun el diseno (b) que 002 aprobo, memoria dinamica y 011_RED_TEAMING quedaron rechazados, no implementados. ANTHROPIC_API_KEY sin saldo, canal alterno",
-          "expira": "2026-08-16T20:16:22.716Z"
+          "autorizado_por": "Usuario (mandato directo, sin consulta a 002 -- excepcion explicitamente solicitada y otorgada para esta reestructuracion, 2026-08-16)",
+          "motivo": "Reestructuracion del dominio RadFor-360: 011_Radar1_minero->Proy_03_Minero_A, 050_Formulador_proy->Proy_03_Minero_B, nueva carpeta Proy_03_GP_Radford-360. Codigo legacy sin conexion real a produccion, cero riesgo funcional confirmado por 3 auditorias distintas hoy. Escuadron Elite oficial 001-010 sin tocar.",
+          "expira": "2026-08-16T23:25:58.318Z"
         },
-        "firma": "d50aa3e7f161bca7a4f60e72527622d990f3cd235565b762fbf23e7e141dcefe",
-        "timestamp": "2026-08-16T18:16:22.716Z",
-        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por 002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a54e4d69319228898, 2026-08-16): Circuit breaker de alcance reducido: alertas_activas en estado_operativo.json + axioma de limite de reintentos en 001 -- implementado exactamente segun el diseno (b) que 002 aprobo, memoria dinamica y 011_RED_TEAMING quedaron rechazados, no implementados. ANTHROPIC_API_KEY sin saldo, canal alterno",
+        "firma": "13c614a4639e49be52e2aa6877964afe82dd1142416dc8865b3c857b8342602c",
+        "timestamp": "2026-08-16T19:25:58.318Z",
+        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por Usuario (mandato directo, sin consulta a 002 -- excepcion explicitamente solicitada y otorgada para esta reestructuracion, 2026-08-16): Reestructuracion del dominio RadFor-360: 011_Radar1_minero->Proy_03_Minero_A, 050_Formulador_proy->Proy_03_Minero_B, nueva carpeta Proy_03_GP_Radford-360. Codigo legacy sin conexion real a produccion, cero riesgo funcional confirmado por 3 auditorias distintas hoy. Escuadron Elite oficial 001-010 sin tocar.",
         "razones": [
-          "EXCEPCIÓN MANUAL, no veredicto de 002: Circuit breaker de alcance reducido: alertas_activas en estado_operativo.json + axioma de limite de reintentos en 001 -- implementado exactamente segun el diseno (b) que 002 aprobo, memoria dinamica y 011_RED_TEAMING quedaron rechazados, no implementados. ANTHROPIC_API_KEY sin saldo, canal alterno"
+          "EXCEPCIÓN MANUAL, no veredicto de 002: Reestructuracion del dominio RadFor-360: 011_Radar1_minero->Proy_03_Minero_A, 050_Formulador_proy->Proy_03_Minero_B, nueva carpeta Proy_03_GP_Radford-360. Codigo legacy sin conexion real a produccion, cero riesgo funcional confirmado por 3 auditorias distintas hoy. Escuadron Elite oficial 001-010 sin tocar."
         ],
         "diferimientos": []
       }
@@ -180,13 +180,13 @@
         "aprobado": true,
         "origen": "excepcion_manual",
         "excepcion": {
-          "autorizado_por": "002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a54e4d69319228898, 2026-08-16)",
-          "motivo": "scripts/architecture-gate.test.cjs cambio (test nuevo de alertas_activas), mismo diff ya cubierto por el veredicto principal de 002 sobre el circuit breaker de alcance reducido",
-          "expira": "2026-08-16T20:17:00.063Z"
+          "autorizado_por": "Usuario (mandato directo, sin consulta a 006, 2026-08-16)",
+          "motivo": "scripts/architecture-gate.test.cjs cambio (rutear('formulacion') actualizado), mismo diff de la reestructuracion RadFor-360 ya autorizada por mandato directo",
+          "expira": "2026-08-16T23:26:43.186Z"
         },
-        "firma": "87c0c8f9c29235d4c863033674a8f82ee5863d07d552c817527df9fc3a3f8c79",
-        "timestamp": "2026-08-16T18:17:00.063Z",
-        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por 002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a54e4d69319228898, 2026-08-16): scripts/architecture-gate.test.cjs cambio (test nuevo de alertas_activas), mismo diff ya cubierto por el veredicto principal de 002 sobre el circuit breaker de alcance reducido",
+        "firma": "aa5a1ba42ad9116e4e8004a0a6c5bde7f5640075424080c32e5a00624556bb8e",
+        "timestamp": "2026-08-16T19:26:43.186Z",
+        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Usuario (mandato directo, sin consulta a 006, 2026-08-16): scripts/architecture-gate.test.cjs cambio (rutear('formulacion') actualizado), mismo diff de la reestructuracion RadFor-360 ya autorizada por mandato directo",
         "veredictoCompleto": {
           "nota": "excepción manual, sin evaluación real del subagente"
         }
