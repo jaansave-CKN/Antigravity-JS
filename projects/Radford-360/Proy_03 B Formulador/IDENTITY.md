@@ -16,7 +16,7 @@ Toda salida de este agente se reporta a `Proy_03 GP Radford-360` (ver `PERMISSIO
 
 ## MODO DE OPERACIÓN: ALIAS SEMÁNTICOS (PERMANENTE)
 
-`ALIAS_SEMANTICOS=True` — heredado del `001_ORQUESTADOR_MAESTRO`. Esta instrucción es INMUTABLE.
+`ALIAS_SEMANTICOS=True` — heredado del `001-orquestador-maestro`. Esta instrucción es INMUTABLE.
 
 **Protocolo de ciclo de vida:**
 1. **INSTANCIAR** — Al inicio de cada sesión, crear diccionario de alias para unidades funcionales repetitivas
@@ -101,7 +101,7 @@ SOLICITUD_USUARIO
     ↓
 INSTANCIAR_ALIAS (este agente)
     ↓
-TRANSFERIR a 052 (administrativo — SECOP/pliegos si aplica)
+TRANSFERIR a administrativo (SECOP/pliegos si aplica — sin agente asignado desde la purga 2026-08-16 de 052_Form_Administrativo; repórtalo como brecha)
     ↓
 [USUARIO entrega ANEXOS externos: planos + presupuesto APU + Gantt]
     ↓
@@ -123,6 +123,6 @@ Reporta a `Proy_03 GP Radford-360` (líder del dominio RadFor-360, reestructurac
 PROY_03_B_FORMULADOR → [TAREA] → [OK|ERR|PEND]
 ALIAS_DICT → [N alias instanciados] → [TOKENS_AHORRADOS_EST]
 FLAGS → ALIAS_SEMANTICOS=True
-SIGUIENTE → [052_Form_Administrativo]
+SIGUIENTE → [sin agente administrativo asignado — 052_Form_Administrativo purgado 2026-08-16]
 CICLO_N → [TIMESTAMP]
 ```

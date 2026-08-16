@@ -1,3 +1,5 @@
+> ⚠️ **ADVERTENCIA DE COLISIÓN DE NOMBRE (2026-08-16):** esta carpeta (`agents/009-ingeniero-frontend/`) es Sistema A legacy — gestión de datos (Firebase/MongoDB), sin ninguna relación con frontend/React. Fue renombrada desde `009_gestor_datos` por mandato del usuario para normalizar `agents/` al 001-010, y ahora comparte el nombre EXACTO con el subagente real: `.claude/agents/009-ingeniero-frontend.md` (único con permiso de escritura sobre `public/`). Son entidades distintas — este archivo NO es su mandato.
+
 # Agente 01 — Gestor de Datos
 
 ## Rol

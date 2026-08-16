@@ -1,3 +1,5 @@
+> ⚠️ **ADVERTENCIA DE COLISIÓN DE NOMBRE (2026-08-16):** esta carpeta (`agents/001-orquestador-maestro/`) es Sistema A legacy — orquestador de dominio para construcción/Radar (perfil abajo: Jairo Salinas, Arquitecto Constructor). Fue renombrada por mandato del usuario para normalizar `agents/` al 001-010, y ahora comparte el nombre EXACTO con el orquestador real del Escuadrón Élite: `.claude/agents/001-orquestador-maestro.md` (CEO/Kernel de Antigravity OS, el único punto de contacto real con el usuario). Son entidades distintas. Este archivo NO es el mandato del orquestador real — no lo cites como tal.
+
 # Agente 00 — Coordinator General (ORQUESTADOR)
 
 ## Perfil del Propietario

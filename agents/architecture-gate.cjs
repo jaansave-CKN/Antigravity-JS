@@ -23,10 +23,24 @@ const dirRoot = path.join(dirAgents, '..');
 // ESCUADRÓN ÉLITE — Mando Central (Renumerado 2026-08-08, ver AGENTS.md §IV)
 // 8 roles (001-008). 001 es este mismo orquestador (no es una clave del objeto,
 // es quien lo ejecuta — mismo patrón que el 000_ORQUESTADOR_MAESTRO anterior).
-// 002 (Arquitecto) y 003 (Esp. Diseño Stitch) no tienen carpeta en agents/ —
-// 002 vive en .claude/agents/002-arquitecto-de-software.md (gate real); 003 nunca tuvo carpeta
-// propia (heredado sin cambios del esquema anterior). 004 y 008 son roles
-// declarados sin ningún subordinado implementado todavía — honesto, no relleno.
+// ESTE OBJETO ES PURAMENTE INFORMATIVO (usado solo por comandanteDe(), para el
+// batch executor legado) — la fuente real de mandato/tools/skills de cada
+// agente SIEMPRE es .claude/agents/00X-*.md, nunca este objeto ni las carpetas
+// de agents/.
+//
+// NOMENCLATURA FÍSICA 2026-08-16 (mandato del usuario, normalización 001-010):
+// agents/ ahora lista físicamente 001 a 010 por convención de nombre. 002-008
+// son carpetas PUNTERO (solo README.md, sin contenido real — ver
+// agents/00X-*/README.md) porque nunca tuvieron implementación en el sistema
+// de carpetas legacy. 001, 009 y 010 SÍ tienen contenido real, pero es
+// contenido de un sistema DISTINTO (Sistema A, dominio construcción/Radar,
+// nada que ver con Antigravity OS) que ahora comparte nombre EXACTO con el
+// agente real homónimo en .claude/agents/ — ver advertencia de colisión en
+// cada IDENTITY.md renombrado y en .claude/agents/009-ingeniero-frontend.md /
+// 010-ingeniero-qa-automatizacion.md. Las claves de ESCUADRON_ELITE abajo
+// (ej. '003_ESP_DISENO_STITCH') deliberadamente NO coinciden con los nombres
+// de carpeta nuevos (ej. '003-esp-diseno-stitch') — evita que comandanteDe()
+// asocie por accidente una carpeta-puntero vacía con un mandato real.
 // =============================================================================
 const ESCUADRON_ELITE = {
     '003_ESP_DISENO_STITCH': {
@@ -70,9 +84,16 @@ const ESCUADRON_ELITE = {
         // ahora contiene solo al Escuadrón Élite legacy 001/009/010). Ya no
         // son subordinados de esta carpeta a efectos de listarCarpetasAgentes()
         // (que solo escanea agents/) — la relación jerárquica GP→A/B sigue
-        // viva, documentada en agents/001_ORQUESTADOR_MAESTRO/IDENTITY.md.
+        // viva, documentada en agents/001-orquestador-maestro/IDENTITY.md.
+        //
+        // RENOMBRADA 2026-08-16 (mismo mandato de normalización de
+        // nomenclatura): '009_gestor_datos' -> '009-ingeniero-frontend'. Pese
+        // al nombre, sigue siendo el agente legacy de gestión de datos/OCR —
+        // NO tiene relación con el subagente real homónimo de frontend
+        // (.claude/agents/009-ingeniero-frontend.md). Ver advertencia de
+        // colisión en agents/009-ingeniero-frontend/IDENTITY.md.
         subordinados: [
-            '009_gestor_datos',
+            '009-ingeniero-frontend',
         ],
     },
     // Limpieza 2026-08-12 (orden explícita del usuario, aplazada hasta que el
@@ -431,7 +452,9 @@ async function pedirVeredictoArquitecto() {
 // "ejecutable" de esa carpeta y siempre agotaba el timeout de 30s reportándolo
 // como fallo — arquitectura incompatible, no un bug del daemon (hallazgo
 // 2026-08-08, docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §3.2).
-const CARPETAS_EXCLUIDAS_DEL_BATCH = new Set(['001_ORQUESTADOR_MAESTRO']);
+// Renombrada 2026-08-16 de '001_ORQUESTADOR_MAESTRO' a '001-orquestador-maestro'
+// (mandato del usuario, normalización de nomenclatura 001-010 en agents/).
+const CARPETAS_EXCLUIDAS_DEL_BATCH = new Set(['001-orquestador-maestro']);
 
 function listarCarpetasAgentes() {
     return fs.readdirSync(dirAgents).filter(item => {
@@ -1848,7 +1871,7 @@ async function ejecutarConResiliencia(carpeta, comando) {
 }
 
 // OPERACIÓN 4 — Contrato de Salida (Audit Trail): artefacto obligatorio en disco al finalizar.
-const AUDIT_TRAIL_PATH = path.join(dirAgents, '001_ORQUESTADOR_MAESTRO', 'orquestacion_log.jsonl');
+const AUDIT_TRAIL_PATH = path.join(dirAgents, '001-orquestador-maestro', 'orquestacion_log.jsonl');
 
 function escribirAuditTrail(registro) {
     fs.mkdirSync(path.dirname(AUDIT_TRAIL_PATH), { recursive: true });

@@ -1,3 +1,5 @@
+> ⚠️ **ADVERTENCIA DE COLISIÓN DE NOMBRE (2026-08-16):** esta carpeta (`agents/010-ingeniero-qa-automatizacion/`) es Sistema A legacy — redacción de documentos técnicos (fichas MGA, DOCX), sin ninguna relación con QA/Playwright. Fue renombrada desde `010_redactor_tecnico` por mandato del usuario para normalizar `agents/` al 001-010, y ahora comparte el nombre EXACTO con el subagente real: `.claude/agents/010-ingeniero-qa-automatizacion.md` (suite E2E Playwright). Son entidades distintas — este archivo NO es su mandato.
+
 # Agente 02 — Redactor Técnico
 
 ## Rol

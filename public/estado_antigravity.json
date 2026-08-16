@@ -2,27 +2,36 @@
   "titulo": "REPORTE INTEGRAL ANTIGRAVITY OS",
   "disenador": "Jairo Salinas",
   "fecha": "16/8/2026, 10:42:54 a. m.",
-  "nota": "Inventario de carpetas de agentes (definiciones de prompt/skill para uso interactivo). NO implica un proceso en ejecución — ver docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4. Actualizado 2026-08-16 tras limpieza total: 012_Radar2_Estratega, 015_intelligence-core y 052_Form_Administrativo purgados del disco; 011_Radar1_minero/050_Formulador_proy (ya renombrados a Proy_03 A Radar / Proy_03 B Formulador) reubicados junto con Proy_03 GP Radford-360 a projects/Radford-360/, fuera del inventario de agents/.",
+  "nota": "Inventario de carpetas de agentes (definiciones de prompt/skill para uso interactivo). NO implica un proceso en ejecución — ver docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4. Actualizado 2026-08-16 (2a ronda) tras normalización de nomenclatura: 001_ORQUESTADOR_MAESTRO/009_gestor_datos/010_redactor_tecnico renombrados a 001-orquestador-maestro/009-ingeniero-frontend/010-ingeniero-qa-automatizacion (mandato del usuario). Estas 3 carpetas ahora comparten nombre EXACTO con subagentes reales del Escuadrón Élite en .claude/agents/ pero son entidades legacy distintas — ver advertencia de colisión en cada IDENTITY.md. 002-008 son carpetas puntero (solo README.md) agregadas para que agents/ liste físicamente el 001-010; no tienen contenido real.",
   "agentes_definidos": 2,
   "agentes_incompletos": 1,
   "detalles": [
     {
-      "id": "001_ORQUESTADOR_MAESTRO",
+      "id": "001-orquestador-maestro",
       "definido": false,
       "tiene_identity": true,
       "skills_no_vacios": 0
     },
     {
-      "id": "009_gestor_datos",
+      "id": "009-ingeniero-frontend",
       "definido": true,
       "tiene_identity": true,
-      "skills_no_vacios": 4
+      "skills_no_vacios": 4,
+      "nota": "Legacy Sistema A (gestión de datos/OCR) — NO es el subagente real de frontend, solo comparte nombre tras la normalización de nomenclatura."
     },
     {
-      "id": "010_redactor_tecnico",
+      "id": "010-ingeniero-qa-automatizacion",
       "definido": true,
       "tiene_identity": true,
-      "skills_no_vacios": 2
+      "skills_no_vacios": 2,
+      "nota": "Legacy Sistema A (redactor técnico) — NO es el subagente real de QA/Playwright, solo comparte nombre tras la normalización de nomenclatura."
+    },
+    {
+      "id": "002-arquitecto-de-software..008-auditor-de-codigo",
+      "definido": false,
+      "tiene_identity": false,
+      "skills_no_vacios": 0,
+      "nota": "7 carpetas puntero (README.md únicamente) — la definición real vive en .claude/agents/."
     },
     {
       "id": "pmu",

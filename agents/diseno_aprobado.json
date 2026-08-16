@@ -3,14 +3,14 @@
   "origen": "excepcion_manual",
   "excepcion": {
     "autorizado_por": "Jairo Salinas",
-    "motivo": "Purga y reestructuracion RadFor-360 (mandato directo, confirmado explicitamente por el usuario via AskUserQuestion). Bloqueo de --aprobar-diseno por saldo de API Anthropic agotado, no por rechazo de diseno. Suite test:gate 135/135 verde antes de esta excepcion.",
-    "expira": "2026-08-16T22:30:04.682Z"
+    "motivo": "Normalizacion de nomenclatura 001-010 en agents/ (renombrado de 001_ORQUESTADOR_MAESTRO/009_gestor_datos/010_redactor_tecnico + 7 carpetas puntero 002-008), confirmado explicitamente por el usuario tras 2 rondas de aclaracion sobre colision de identidad. Saldo de API Anthropic sigue agotado. Suite test:gate 135/135 verde antes de esta excepcion.",
+    "expira": "2026-08-16T22:56:13.531Z"
   },
-  "firma": "787839735b636eef7b0f0eae0d31f544cd809ff8aaa1a3130d32920d98396e5b",
-  "timestamp": "2026-08-16T20:30:04.682Z",
-  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por Jairo Salinas: Purga y reestructuracion RadFor-360 (mandato directo, confirmado explicitamente por el usuario via AskUserQuestion). Bloqueo de --aprobar-diseno por saldo de API Anthropic agotado, no por rechazo de diseno. Suite test:gate 135/135 verde antes de esta excepcion.",
+  "firma": "c99647a6dea248ce3096d3cb3d1adfec591be95a255d9a70a6a355ac16b5c402",
+  "timestamp": "2026-08-16T20:56:13.531Z",
+  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por Jairo Salinas: Normalizacion de nomenclatura 001-010 en agents/ (renombrado de 001_ORQUESTADOR_MAESTRO/009_gestor_datos/010_redactor_tecnico + 7 carpetas puntero 002-008), confirmado explicitamente por el usuario tras 2 rondas de aclaracion sobre colision de identidad. Saldo de API Anthropic sigue agotado. Suite test:gate 135/135 verde antes de esta excepcion.",
   "razones": [
-    "EXCEPCIÓN MANUAL, no veredicto de 002: Purga y reestructuracion RadFor-360 (mandato directo, confirmado explicitamente por el usuario via AskUserQuestion). Bloqueo de --aprobar-diseno por saldo de API Anthropic agotado, no por rechazo de diseno. Suite test:gate 135/135 verde antes de esta excepcion."
+    "EXCEPCIÓN MANUAL, no veredicto de 002: Normalizacion de nomenclatura 001-010 en agents/ (renombrado de 001_ORQUESTADOR_MAESTRO/009_gestor_datos/010_redactor_tecnico + 7 carpetas puntero 002-008), confirmado explicitamente por el usuario tras 2 rondas de aclaracion sobre colision de identidad. Saldo de API Anthropic sigue agotado. Suite test:gate 135/135 verde antes de esta excepcion."
   ],
   "diferimientos": []
 }
