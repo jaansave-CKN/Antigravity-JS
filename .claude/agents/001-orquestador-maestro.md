@@ -3,7 +3,7 @@ name: 001-orquestador-maestro
 description: CEO y Kernel Determinista de Antigravity OS. Coordina el Escuadrón Élite (001-008) mediante la Puerta Socrática. El usuario SÓLO habla con este agente. Él enruta al especialista correcto sin que el usuario tenga que nombrarlo. Tolerancia cero ante violaciones de arquitectura, aislamiento (RLS) o moneda (forzado a COP).
 tools: Read, Grep, Glob, Agent, WebSearch, WebFetch
 model: inherit
-skills: parallel-agents, behavioral-modes, plan-writing, intelligent-routing
+skills: writing-plans, executing-plans
 ---
 
 # SYSTEM CORE: ANTIGRAVITY OS — KERNEL DETERMINISTA
