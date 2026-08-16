@@ -119,11 +119,64 @@
    quepa sin scroll horizontal; DESCRIPCION toma el espacio restante. */
 .anx__grid {
   display: grid;
-  grid-template-columns: 20px minmax(110px, 1fr) 70px 92px 92px 36px;
+  grid-template-columns: 20px minmax(110px, 1fr) 70px 92px 92px 56px 36px;
   column-gap: 8px;
   align-items: center;
 }
-.anx__rownum { font-size: 12px; font-weight: 600; color: #9199a3; text-align: right; }
+.anx__rownum { font-size: 12px; font-weight: 600; color: #9199a3; text-align: right; display: flex; justify-content: flex-end; align-items: center; }
+
+/* ── Bloques (Documentos Técnicos / Anexos Generales) ──────────────────────
+   Reutiliza los mismos tokens ya calcados (primary #0041a3, outline-variant
+   #c4c5d7, Public Sans) — sin fuente Stitch propia para este agrupamiento,
+   autorizado explícitamente para extenderse en código sobre el sistema ya
+   verificado en vez de bloquear la entrega por falta de un screen nuevo. */
+.anx__bloque + .anx__bloque { margin-top: 8px; }
+.anx__bloquehead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  background: #eef1f5;
+  border-top: 1px solid #c4c5d7;
+  border-bottom: 1px solid #c4c5d7;
+}
+.anx__bloquehead-icon { font-size: 14px; line-height: 1; }
+.anx__bloquehead-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #191c1e;
+}
+.anx__bloque-empty {
+  padding: 16px 24px;
+  font-size: 13px;
+  color: #747686;
+  font-style: italic;
+}
+
+/* ── Toggle "Documento Técnico" ── */
+.anx__toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 9999px;
+  border: 1px solid #c4c5d7;
+  background: #ffffff;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.anx__toggle-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #9199a3;
+  transition: transform 0.15s, background 0.15s;
+}
+.anx__toggle--on { background: #0041a3; border-color: #0041a3; }
+.anx__toggle--on .anx__toggle-thumb { background: #ffffff; transform: translateX(16px); }
 
 /* Encabezado de columnas — vive dentro de .anx__fixedzone, así que se pega
    junto con el topbar sin cálculo de offset. */

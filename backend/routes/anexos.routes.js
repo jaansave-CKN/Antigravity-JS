@@ -330,8 +330,12 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
   }));
 
   /**
-   * PATCH /api/proyectos/:id/anexos/:anexoId — edita solo los campos narrativos
-   * (descripcion/texto/link), sin tocar el archivo ya adjunto.
+   * PATCH /api/proyectos/:id/anexos/:anexoId — edita los campos narrativos
+   * (descripcion/texto/link) y, opcionalmente, la categoria (usada por el
+   * toggle "Documento Técnico" del frontend para reclasificar un anexo ya
+   * subido). Solo cambia la etiqueta — no vuelve a disparar ExtractorService/
+   * AuditorForenseService aunque la nueva categoria sea 'presupuesto_apu';
+   * ese pipeline solo corre una vez, en el POST original de subida.
    */
   app.patch('/api/proyectos/:id/anexos/:anexoId', authenticateToken, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
@@ -341,10 +345,19 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const texto        = sanitizeTechnicalText(String(req.body?.texto ?? ''), 500);
     const link         = sanitizeUrl(String(req.body?.link ?? ''), 500);
 
-    await runSql(
-      'UPDATE project_anexos SET descripcion = ?, texto = ?, link = ? WHERE id = ? AND project_id = ?',
-      [descripcion, texto, link, req.params.anexoId, req.params.id]
-    );
+    if (req.body?.categoria !== undefined) {
+      const categoriaRaw = String(req.body.categoria || 'otro').toLowerCase();
+      const categoria = CATEGORIAS_VALIDAS.has(categoriaRaw) ? categoriaRaw : 'otro';
+      await runSql(
+        'UPDATE project_anexos SET descripcion = ?, texto = ?, link = ?, categoria = ? WHERE id = ? AND project_id = ?',
+        [descripcion, texto, link, categoria, req.params.anexoId, req.params.id]
+      );
+    } else {
+      await runSql(
+        'UPDATE project_anexos SET descripcion = ?, texto = ?, link = ? WHERE id = ? AND project_id = ?',
+        [descripcion, texto, link, req.params.anexoId, req.params.id]
+      );
+    }
     res.json({ success: true, message: 'Anexo actualizado' });
   }));
 

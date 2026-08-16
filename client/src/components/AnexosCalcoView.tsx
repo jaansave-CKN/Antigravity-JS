@@ -8,6 +8,13 @@
  *   on-surface-variant #434655 · outline-variant #c4c5d7 · outline #747686
  *   error #ba1a1a · Public Sans
  *   Columnas: DESCRIPCION 70% · TEXTO 10% · ANEXO 10% · LINK 10% · acción 48px
+ *
+ * EXTENSIÓN 2026-08-16 (mandato rediseño Anexos): listado dividido en dos
+ * bloques (Documentos Técnicos / Anexos Generales) según el toggle por fila
+ * "Documento Técnico", que mapea a la categoria ya existente en el backend
+ * (anexos.routes.js) — no se creó ninguna columna/campo nuevo. Sin screen
+ * Stitch propio para el toggle/bloques: extendido sobre los tokens ya
+ * calcados arriba, autorizado explícitamente en vez de bloquear la entrega.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './AnexosCalcoView.css';
@@ -22,15 +29,29 @@ interface Soporte {
   texto: string;
   anexo: string;
   link: string;
+  esTecnico: boolean; // toggle "Documento Técnico" — determina el bloque (Técnicos / Generales) y la categoria enviada al backend
   persistido: boolean; // true si ya existe como fila real en project_anexos
   subiendo?: boolean;
 }
 interface AnexoApi {
-  id: string; nombre_archivo: string; descripcion: string | null; texto: string | null; link: string | null;
+  id: string; nombre_archivo: string; descripcion: string | null; texto: string | null; link: string | null; categoria: string | null;
 }
 interface AnexosApiResponse { success: boolean; data?: AnexoApi[]; message?: string }
 
-const nuevoSoporte = (): Soporte => ({ id: `s${Date.now()}${Math.random().toString(36).slice(2, 6)}`, descripcion: '', texto: '', anexo: '', link: '', persistido: false });
+const CATEGORIAS_TECNICAS = new Set(['tecnico', 'presupuesto_apu']);
+const esCategoriaTecnica = (categoria: string | null | undefined) => !!categoria && CATEGORIAS_TECNICAS.has(categoria);
+
+// Deriva la categoria del backend a partir del toggle "Documento Técnico" y la
+// extensión del archivo adjunto — un Excel marcado como técnico se etiqueta
+// 'presupuesto_apu' (dispara ExtractorService/AuditorForenseService en el POST
+// de subida); cualquier otro formato técnico usa 'tecnico' (solo clasificación,
+// sin pipeline financiero).
+const categoriaDe = (s: Pick<Soporte, 'esTecnico' | 'anexo'>): string => {
+  if (!s.esTecnico) return 'otro';
+  return /\.(xlsx|xls)$/i.test(s.anexo) ? 'presupuesto_apu' : 'tecnico';
+};
+
+const nuevoSoporte = (): Soporte => ({ id: `s${Date.now()}${Math.random().toString(36).slice(2, 6)}`, descripcion: '', texto: '', anexo: '', link: '', esTecnico: false, persistido: false });
 
 export default function AnexosCalcoView() {
   const proyectoId = useMemo(() => localStorage.getItem(ACTIVE_PROJECT_KEY), []);
@@ -56,7 +77,7 @@ export default function AnexosCalcoView() {
         if (cancelled) return;
         const rows = (body.data || []).map(a => ({
           id: a.id, descripcion: a.descripcion || '', texto: a.texto || '', link: a.link || '',
-          anexo: a.nombre_archivo || '', persistido: true,
+          anexo: a.nombre_archivo || '', esTecnico: esCategoriaTecnica(a.categoria), persistido: true,
         }));
         if (rows.length) { setSoportes(rows); return; }
 
@@ -83,7 +104,7 @@ export default function AnexosCalcoView() {
             fd.append('descripcion', s.descripcion || '');
             fd.append('texto', s.texto || '');
             fd.append('link', s.link || '');
-            fd.append('categoria', 'otro');
+            fd.append('categoria', categoriaDe(s)); // s.esTecnico es undefined en borradores viejos (localStorage previo al toggle) -> categoriaDe trata undefined como falsy -> 'otro'
             const resp = await http.upload<{ success: boolean; data?: { id: string; nombre_archivo?: string } }>(`/api/proyectos/${proyectoId}/anexos`, fd);
             migradas.push({ ...s, id: resp.data?.id || s.id, anexo: resp.data?.nombre_archivo || s.anexo, persistido: !!resp.data?.id });
           } catch {
@@ -152,13 +173,13 @@ export default function AnexosCalcoView() {
     if (!row) return;
     try {
       if (row.persistido) {
-        await http.patch(`/api/proyectos/${proyectoId}/anexos/${id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link });
+        await http.patch(`/api/proyectos/${proyectoId}/anexos/${id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, categoria: categoriaDe(row) });
       } else if (row.descripcion.trim() || row.texto.trim() || row.link.trim()) {
         const fd = new FormData();
         fd.append('descripcion', row.descripcion);
         fd.append('texto', row.texto);
         fd.append('link', row.link);
-        fd.append('categoria', 'otro');
+        fd.append('categoria', categoriaDe(row));
         const resp = await http.upload<{ success: boolean; data?: { id: string } }>(`/api/proyectos/${proyectoId}/anexos`, fd);
         if (resp.data?.id) actualizarLocal(id, { id: resp.data.id, persistido: true });
       }
@@ -166,6 +187,21 @@ export default function AnexosCalcoView() {
     } catch {
       setErrorSync('No se pudo guardar un anexo — revisa tu conexión.');
     }
+  };
+
+  // Toggle "Documento Técnico" — reclasifica de inmediato (cambia de bloque en
+  // la UI) y, si la fila ya existe en el servidor, persiste la nueva categoria
+  // ya mismo (no espera a un blur en otro campo).
+  const toggleTecnico = (id: string) => {
+    setSoportes(prev => {
+      const next = prev.map(s => s.id === id ? { ...s, esTecnico: !s.esTecnico } : s);
+      const row = next.find(s => s.id === id);
+      if (row?.persistido && proyectoId) {
+        http.patch(`/api/proyectos/${proyectoId}/anexos/${id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, categoria: categoriaDe(row) })
+          .catch(() => setErrorSync('No se pudo guardar la reclasificación — revisa tu conexión.'));
+      }
+      return next;
+    });
   };
 
   const actualizar = (id: string, patch: Partial<Soporte>) => actualizarLocal(id, patch);
@@ -253,7 +289,7 @@ export default function AnexosCalcoView() {
     try {
       const fd = new FormData();
       fd.append('file', f);
-      fd.append('categoria', 'otro');
+      fd.append('categoria', categoriaDe({ esTecnico: !!row?.esTecnico, anexo: f.name }));
       fd.append('descripcion', row?.descripcion || '');
       fd.append('texto', row?.texto || '');
       fd.append('link', row?.link || '');
@@ -298,6 +334,7 @@ export default function AnexosCalcoView() {
             <span className="anx__th anx__th--center">TEXTO</span>
             <span className="anx__th anx__th--center">ANEXO.</span>
             <span className="anx__th anx__th--center">LINK</span>
+            <span className="anx__th anx__th--center">TÉCNICO</span>
             <span className="anx__th" />
           </div>
         </div>
@@ -305,9 +342,26 @@ export default function AnexosCalcoView() {
         <div className="anx__content">
         <div className="anx__table-scroll">
           <div className="anx__table">
-              {soportes.map((s, idx) => (
+            {[
+              { key: 'tecnico', icono: '📁', titulo: 'Documentos Técnicos', items: soportes.filter(s => s.esTecnico) },
+              { key: 'general', icono: '📁', titulo: 'Anexos Generales', items: soportes.filter(s => !s.esTecnico) },
+            ].map(bloque => (
+              <div key={bloque.key} className="anx__bloque">
+                <div className="anx__bloquehead">
+                  <span className="anx__bloquehead-icon">{bloque.icono}</span>
+                  <span className="anx__bloquehead-title">{bloque.titulo}</span>
+                  <span className="anx__count">{bloque.items.length}</span>
+                </div>
+                {bloque.items.length === 0 && (
+                  <div className="anx__bloque-empty">Sin soportes en esta categoría todavía.</div>
+                )}
+                {bloque.items.map((s, idx) => (
                 <div key={s.id} className="anx__tr anx__grid">
-                  <span className="anx__rownum">{idx + 1}</span>
+                  <span className="anx__rownum" title={s.esTecnico ? 'Documento técnico' : 'Anexo general'}>
+                    {s.esTecnico
+                      ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0041a3" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                      : idx + 1}
+                  </span>
                   <div className="anx__td anx__td--desc">
                     <input className="anx__input" placeholder="Descripcion del soporte" value={s.descripcion}
                       onChange={e => actualizar(s.id, { descripcion: e.target.value })}
@@ -340,12 +394,25 @@ export default function AnexosCalcoView() {
                       onBlur={() => guardarEnServidor(s.id)} />
                   </div>
                   <div className="anx__td anx__td--action">
+                    <button
+                      className={`anx__toggle${s.esTecnico ? ' anx__toggle--on' : ''}`}
+                      role="switch"
+                      aria-checked={s.esTecnico}
+                      title="Marcar como Documento Técnico"
+                      onClick={() => toggleTecnico(s.id)}
+                    >
+                      <span className="anx__toggle-thumb" />
+                    </button>
+                  </div>
+                  <div className="anx__td anx__td--action">
                     <button className="anx__delete" title="Eliminar soporte" onClick={() => eliminar(s.id)}>
                       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                     </button>
                   </div>
                 </div>
-              ))}
+                ))}
+              </div>
+            ))}
           </div>
         </div>
         {/* Footer Action */}

@@ -1,0 +1,32 @@
+-- 038_fix_anexos_categoria_presupuesto_apu.sql
+--
+-- Bug real verificado en vivo (2026-08-16): el CHECK constraint de
+-- project_anexos.categoria en la tabla que realmente está en producción
+-- (definida en 016_formulador_tablas_reales.sql:67, no en 013 — ese archivo
+-- trae su propio aviso de "no ejecutar contra producción tal cual") es
+-- ('legal','financiero','tecnico','institucional','otro'). NO incluye
+-- 'presupuesto_apu'.
+--
+-- backend/routes/anexos.routes.js sí acepta y depende de ese valor:
+-- CATEGORIAS_VALIDAS lo incluye (línea 57) y el disparo del pipeline
+-- financiero (ExtractorService/AuditorForenseService, líneas 227+) se activa
+-- exclusivamente con categoria === 'presupuesto_apu'. Cualquier INSERT con
+-- ese valor viola el CHECK constraint real y falla con 500 (capturado por el
+-- try/catch de la ruta, que revierte el archivo ya subido a Storage) — el
+-- pipeline financiero está roto en la capa de BD independientemente de que
+-- el frontend llegue a enviarlo.
+--
+-- CORRECCIÓN (2026-08-16, verificado en vivo con pg_get_constraintdef antes de
+-- aplicar): el constraint real en producción YA incluía 'presupuesto_apu' —
+-- el hallazgo que motivó este archivo se basó solo en leer 013/016 en el repo,
+-- nunca en consultar la BD viva. Mismo patrón de drift que 035_fix_categoria_
+-- hseq_encoding.sql (un ALTER fuera de control de versiones corrigió esto en
+-- producción sin que el archivo de migración correspondiente se actualizara).
+-- Esta migración corrió como no-op real (ANTES y DESPUÉS idénticos, confirmado
+-- con pg_get_constraintdef). Se deja en el repo por ser inocua y para que el
+-- DDL del repo quede alineado con el estado real — no por haber corregido algo.
+--
+-- Idempotente: seguro de correr aunque el constraint ya esté correcto.
+ALTER TABLE project_anexos DROP CONSTRAINT IF EXISTS project_anexos_categoria_check;
+ALTER TABLE project_anexos ADD CONSTRAINT project_anexos_categoria_check
+  CHECK (categoria IN ('legal','financiero','tecnico','institucional','presupuesto_apu','otro'));
