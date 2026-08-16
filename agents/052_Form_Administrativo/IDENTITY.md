@@ -117,6 +117,6 @@ GARANTIAS:
 052_FORM_ADMINISTRATIVO → [TAREA] → [OK|ERR|PEND]
 CHECKS → [N/7 OK] | DOCS → [lista generada]
 FLAGS → —
-SIGUIENTE → [Proy_03_Minero_B]
+SIGUIENTE → [Proy_03 B Formulador]
 CICLO_N → [TIMESTAMP]
 ```

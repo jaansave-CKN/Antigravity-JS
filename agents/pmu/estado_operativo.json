@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-16T19:26:47.154Z",
+  "generado": "2026-08-16T20:01:21.826Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -13,7 +13,22 @@
   "alertas_activas": [
     {
       "tipo": "agente_desactualizado",
+      "agente": "001-orquestador-maestro.md",
+      "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
+    },
+    {
+      "tipo": "agente_desactualizado",
       "agente": "002-arquitecto-de-software.md",
+      "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
+    },
+    {
+      "tipo": "agente_desactualizado",
+      "agente": "003-esp-diseno-stitch.md",
+      "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
+    },
+    {
+      "tipo": "agente_desactualizado",
+      "agente": "004-sentinela-frontend.md",
       "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
     },
     {
@@ -77,15 +92,15 @@
         "aprobado": true,
         "origen": "excepcion_manual",
         "excepcion": {
-          "autorizado_por": "Usuario (mandato directo, sin consulta a 002 -- excepcion explicitamente solicitada y otorgada para esta reestructuracion, 2026-08-16)",
-          "motivo": "Reestructuracion del dominio RadFor-360: 011_Radar1_minero->Proy_03_Minero_A, 050_Formulador_proy->Proy_03_Minero_B, nueva carpeta Proy_03_GP_Radford-360. Codigo legacy sin conexion real a produccion, cero riesgo funcional confirmado por 3 auditorias distintas hoy. Escuadron Elite oficial 001-010 sin tocar.",
-          "expira": "2026-08-16T23:25:58.318Z"
+          "autorizado_por": "Usuario (mandato directo, sin consulta a 002, 2026-08-16)",
+          "motivo": "Nombres finales del dominio RadFor-360: Proy_03 GP Radford-360 / Proy_03 A Radar / Proy_03 B Formulador + PERMISSIONS.json declarativo. Mismo alcance ya autorizado, solo cambia el nombre por tercera vez en la jornada.",
+          "expira": "2026-08-17T00:00:24.618Z"
         },
-        "firma": "13c614a4639e49be52e2aa6877964afe82dd1142416dc8865b3c857b8342602c",
-        "timestamp": "2026-08-16T19:25:58.318Z",
-        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por Usuario (mandato directo, sin consulta a 002 -- excepcion explicitamente solicitada y otorgada para esta reestructuracion, 2026-08-16): Reestructuracion del dominio RadFor-360: 011_Radar1_minero->Proy_03_Minero_A, 050_Formulador_proy->Proy_03_Minero_B, nueva carpeta Proy_03_GP_Radford-360. Codigo legacy sin conexion real a produccion, cero riesgo funcional confirmado por 3 auditorias distintas hoy. Escuadron Elite oficial 001-010 sin tocar.",
+        "firma": "afcbfa770e64e4c42b09a3ccc251fd0090bf3fe52a5792bed24c1b4f2cc7d5f3",
+        "timestamp": "2026-08-16T20:00:24.618Z",
+        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por Usuario (mandato directo, sin consulta a 002, 2026-08-16): Nombres finales del dominio RadFor-360: Proy_03 GP Radford-360 / Proy_03 A Radar / Proy_03 B Formulador + PERMISSIONS.json declarativo. Mismo alcance ya autorizado, solo cambia el nombre por tercera vez en la jornada.",
         "razones": [
-          "EXCEPCIÓN MANUAL, no veredicto de 002: Reestructuracion del dominio RadFor-360: 011_Radar1_minero->Proy_03_Minero_A, 050_Formulador_proy->Proy_03_Minero_B, nueva carpeta Proy_03_GP_Radford-360. Codigo legacy sin conexion real a produccion, cero riesgo funcional confirmado por 3 auditorias distintas hoy. Escuadron Elite oficial 001-010 sin tocar."
+          "EXCEPCIÓN MANUAL, no veredicto de 002: Nombres finales del dominio RadFor-360: Proy_03 GP Radford-360 / Proy_03 A Radar / Proy_03 B Formulador + PERMISSIONS.json declarativo. Mismo alcance ya autorizado, solo cambia el nombre por tercera vez en la jornada."
         ],
         "diferimientos": []
       }
@@ -180,13 +195,13 @@
         "aprobado": true,
         "origen": "excepcion_manual",
         "excepcion": {
-          "autorizado_por": "Usuario (mandato directo, sin consulta a 006, 2026-08-16)",
-          "motivo": "scripts/architecture-gate.test.cjs cambio (rutear('formulacion') actualizado), mismo diff de la reestructuracion RadFor-360 ya autorizada por mandato directo",
-          "expira": "2026-08-16T23:26:43.186Z"
+          "autorizado_por": "Usuario (mandato directo, 2026-08-16)",
+          "motivo": "scripts/architecture-gate.test.cjs cambio (rutear formulacion actualizado a nombre final), mismo diff de reestructuracion RadFor-360 ya autorizado",
+          "expira": "2026-08-17T00:01:17.861Z"
         },
-        "firma": "aa5a1ba42ad9116e4e8004a0a6c5bde7f5640075424080c32e5a00624556bb8e",
-        "timestamp": "2026-08-16T19:26:43.186Z",
-        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Usuario (mandato directo, sin consulta a 006, 2026-08-16): scripts/architecture-gate.test.cjs cambio (rutear('formulacion') actualizado), mismo diff de la reestructuracion RadFor-360 ya autorizada por mandato directo",
+        "firma": "76666f865597c9c659cfa327f16a07c0d5f6043cdb88934d8b6e2badeb0199db",
+        "timestamp": "2026-08-16T20:01:17.861Z",
+        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Usuario (mandato directo, 2026-08-16): scripts/architecture-gate.test.cjs cambio (rutear formulacion actualizado a nombre final), mismo diff de reestructuracion RadFor-360 ya autorizado",
         "veredictoCompleto": {
           "nota": "excepción manual, sin evaluación real del subagente"
         }

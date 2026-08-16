@@ -41,7 +41,7 @@ if (accion === 'list') {
 } else if (accion === 'create') {
     skillsPendientes.forEach(s => {
         const contenido = inicializarSkill(s.skill, s.desc);
-        const ruta = path.join('./agents', args[1] || 'Proy_03_Minero_B', 'skills', s.skill + '.cjs');
+        const ruta = path.join('./agents', args[1] || 'Proy_03 B Formulador', 'skills', s.skill + '.cjs');
         if (!fs.existsSync(ruta)) {
             fs.writeFileSync(ruta, contenido);
             console.log(\`✅ Creado: \${ruta}\`);

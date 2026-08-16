@@ -2,13 +2,13 @@
   "aprobado": true,
   "origen": "excepcion_manual",
   "excepcion": {
-    "autorizado_por": "Usuario (mandato directo, sin consulta a 006, 2026-08-16)",
-    "motivo": "scripts/architecture-gate.test.cjs cambio (rutear('formulacion') actualizado), mismo diff de la reestructuracion RadFor-360 ya autorizada por mandato directo",
-    "expira": "2026-08-16T23:26:43.186Z"
+    "autorizado_por": "Usuario (mandato directo, 2026-08-16)",
+    "motivo": "scripts/architecture-gate.test.cjs cambio (rutear formulacion actualizado a nombre final), mismo diff de reestructuracion RadFor-360 ya autorizado",
+    "expira": "2026-08-17T00:01:17.861Z"
   },
-  "firma": "aa5a1ba42ad9116e4e8004a0a6c5bde7f5640075424080c32e5a00624556bb8e",
-  "timestamp": "2026-08-16T19:26:43.186Z",
-  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Usuario (mandato directo, sin consulta a 006, 2026-08-16): scripts/architecture-gate.test.cjs cambio (rutear('formulacion') actualizado), mismo diff de la reestructuracion RadFor-360 ya autorizada por mandato directo",
+  "firma": "76666f865597c9c659cfa327f16a07c0d5f6043cdb88934d8b6e2badeb0199db",
+  "timestamp": "2026-08-16T20:01:17.861Z",
+  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Usuario (mandato directo, 2026-08-16): scripts/architecture-gate.test.cjs cambio (rutear formulacion actualizado a nombre final), mismo diff de reestructuracion RadFor-360 ya autorizado",
   "veredictoCompleto": {
     "nota": "excepción manual, sin evaluación real del subagente"
   }

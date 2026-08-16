@@ -1986,32 +1986,54 @@ de infraestructura que le compete a `006`/al usuario, no a este documento.
 
 ---
 
-## Nota breve (2026-08-16, posterior a `§0-AJ`) — renombramiento de jerarquía legacy del dominio RadFor-360
+## Nota breve (2026-08-16, posterior a `§0-AJ`, editada el mismo día — nombres finales) — renombramiento de jerarquía legacy del dominio RadFor-360
 
 No es una ronda `§0-X` (no hay hallazgo nuevo de arquitectura ni de seguridad — es un cambio mecánico de nombres,
 por mandato directo del usuario, fuera del flujo normal de "diseño antes de código" — excepción explícita
-solicitada y otorgada, no veredicto de `002`). Re-verificado contra disco antes de escribir esta nota:
+solicitada y otorgada, no veredicto de `002`). **Los nombres cambiaron dos veces en la misma jornada** — esta nota
+fue editada in-place (no se agregó una tercera nota separada) para reflejar los nombres finales, re-verificados
+contra disco antes de esta edición:
 
-- `agents/011_Radar1_minero/` → **`agents/Proy_03_Minero_A/`** (`git mv` equivalente, mismo contenido:
-  `repositorio_convocatorias.json`). `IDENTITY.md:2` corrige `Status: ACTIVE` (que era falso, ver `§0-AJ.8`) a
-  `Status: INACTIVE` — sigue sin código ejecutable desde su purga del 2026-08-13.
-- `agents/050_Formulador_proy/` → **`agents/Proy_03_Minero_B/`** (mismo contenido: `Proy_03_Minero_B.cjs` +
-  `skills/Skill_050_Formulador_Proyecto.cjs`, con 1 referencia interna de ruta corregida —
-  `skills/Skill_050_Formulador_Proyecto.cjs:44`, `path.join('./agents', args[1] || 'Proy_03_Minero_B', ...)`).
-  Sigue sin ningún import real desde `src/`/`server.js` — mismo estado que antes del renombramiento.
-- **`agents/Proy_03_GP_Radford-360/`** — carpeta nueva, agente "Gerente de Proyecto" coordinador de los dos
-  anteriores (`IDENTITY.md`). Sin código ejecutable, sin permisos técnicos (`Write`/`Edit`/`Bash`), no está en
-  `.claude/agents/` — el Escuadrón Élite oficial 001-010 no se tocó, por restricción explícita del usuario
-  (`agents/Proy_03_GP_Radford-360/IDENTITY.md:10-11`).
+- `agents/011_Radar1_minero/` → `agents/Proy_03_Minero_A/` (primera pasada) → **`agents/Proy_03 A Radar/`**
+  (nombre final, con espacio literal, no guion bajo). Mismo contenido: `repositorio_convocatorias.json`.
+  `IDENTITY.md:2` mantiene `Status: INACTIVE` (corregido de un `ACTIVE` falso preexistente, ver `§0-AJ.8`) —
+  sigue sin código ejecutable desde su purga del 2026-08-13. `IDENTITY.md:7` documenta explícitamente ser "segunda
+  renombrada del mismo día de esta carpeta".
+- `agents/050_Formulador_proy/` → `agents/Proy_03_Minero_B/` (primera pasada) → **`agents/Proy_03 B Formulador/`**
+  (nombre final). El script interno también se renombró: `Proy_03_Minero_B.cjs` → **`Proy_03_B_Formulador.cjs`**.
+  Referencia interna de ruta actualizada al nombre final —
+  `agents/Proy_03 B Formulador/skills/Skill_050_Formulador_Proyecto.cjs:44`,
+  `path.join('./agents', args[1] || 'Proy_03 B Formulador', 'skills', s.skill + '.cjs')`. Sigue sin ningún import
+  real desde `src/`/`server.js` — mismo estado que antes de ambos renombramientos.
+- `agents/Proy_03_GP_Radford-360/` (primera pasada) → **`agents/Proy_03 GP Radford-360/`** (nombre final, con
+  espacios). Agente "Gerente de Proyecto" coordinador de los dos anteriores (`IDENTITY.md`). `IDENTITY.md:7`
+  documenta explícitamente ser la "tercera y última iteración de nombre de esta misma carpeta en el mismo día".
+  Sin código ejecutable, sin permisos técnicos (`Write`/`Edit`/`Bash`), no está en `.claude/agents/` — el Escuadrón
+  Élite oficial 001-010 no se tocó, por restricción explícita del usuario
+  (`agents/Proy_03 GP Radford-360/IDENTITY.md:32`).
 
-Referencias reales confirmadas actualizadas y consistentes (Read/Grep directo, no transcripción):
-`agents/architecture-gate.cjs:66` (`ESCUADRON_ELITE['005_INGENIERO_BACKEND'].subordinados` incluye
-`'Proy_03_Minero_B'`) y `:123` (`ENRUTADOR_ESTATICO.formulacion: 'Proy_03_Minero_B'`, comentario de contexto en
-`:113-120`); `scripts/architecture-gate.test.cjs:137` (`assert.equal(rutear('formulacion'), 'Proy_03_Minero_B')`);
-`agents/001_ORQUESTADOR_MAESTRO/IDENTITY.md:56,59,71,73,76` (LEY 2/LEY 3, tabla de ruteo, jerarquía del dominio
-RadFor-360); `agents/052_Form_Administrativo/IDENTITY.md:120` (línea `SIGUIENTE → [Proy_03_Minero_B]`);
-`skills/ag_skills_registry.json:62-90` (entradas `Proy_03_Minero_A`/`Proy_03_Minero_B` con `sync_note` explicando
-el renombramiento y el estado real sin cambios).
+**Nuevo en esta pasada:** `agents/Proy_03 GP Radford-360/PERMISSIONS.json` — matriz de permisos declarativa de la
+jerarquía (líder `Proy_03 GP Radford-360` con privilegios declarados `read/write/execute` sobre outputs, no sobre
+código fuente ni sobre la plataforma real; subalternos `Proy_03 A Radar` y `Proy_03 B Formulador` con `read`,
+reportando al líder por un "canal" explícitamente sin transporte real). El propio archivo se autodenuncia en su
+campo `_nota_honestidad` (línea 2): *"Esta matriz es DECLARATIVA — describe la jerarquía de acceso pretendida, no
+un mecanismo enforced por código real. Ninguno de los 3 agentes de este dominio (...) tiene tools reales de Claude
+Code (no están en .claude/agents/), no ejecutan como subagentes invocables, y no hay ningún script que lea este
+archivo para bloquear o permitir una acción. El enforcement técnico real de este proyecto vive en
+agents/architecture-gate.cjs (SUBGATES, validarOrigenVeredicto) y en los permisos tools: de .claude/agents/*.md —
+ninguno de los 2 mecanismos reales gobierna este dominio."* Confirmado por lectura directa del archivo — no hay
+divergencia entre lo que dice de sí mismo y lo que hay en disco.
+
+Referencias reales confirmadas actualizadas y consistentes con los nombres finales (Read/Grep directo, no
+transcripción): `agents/architecture-gate.cjs:60-66` (comentario documentando la segunda renombrada;
+`ESCUADRON_ELITE['005_INGENIERO_BACKEND'].subordinados` incluye `'Proy_03 B Formulador'`) y `:117-123`
+(`ENRUTADOR_ESTATICO.formulacion: 'Proy_03 B Formulador'`, comentario de contexto sobre `Proy_03 A Radar`);
+`scripts/architecture-gate.test.cjs:137` (`assert.equal(rutear('formulacion'), 'Proy_03 B Formulador')`);
+`agents/001_ORQUESTADOR_MAESTRO/IDENTITY.md:56,59,71,73,76` (LEY 2/LEY 3 con los nombres finales, tabla de ruteo,
+jerarquía del dominio RadFor-360 bajo `Proy_03 GP Radford-360`); `agents/052_Form_Administrativo/IDENTITY.md:120`
+(línea `SIGUIENTE → [Proy_03 B Formulador]`); `skills/ag_skills_registry.json:62,66,69-70,81,83-84` (entradas
+`Proy_03 B Formulador`/`Proy_03 A Radar` con `sync_note` documentando ambas pasadas de renombramiento y el estado
+real sin cambios).
 
 Confirmado también lo que **no** se tocó, tal como debía quedar: las menciones históricas a
 `011_Radar1_minero`/`050_Formulador_proy` dentro de rondas fechadas anteriores de este mismo documento (`§0-B`
@@ -2019,9 +2041,12 @@ línea 40, `§0-C` línea 56, `§0-AJ.8` líneas 1854-1865, entre otras) siguen 
 en ese momento, mismo criterio que `§0-AJ.7`/`§1.2`. `.claude/agents/005-ingeniero-backend.md:11` (línea de origen
 histórico, "7 carpetas preexistentes... `011_Radar1_minero`... `050_Formulador_proy`") y
 `skills/_archivo_historico/REVISION_SKILLS.md` (2 ocurrencias, archivo ya marcado `[ARCHIVADO]`) tampoco se
-tocaron.
+tocaron. Los nombres intermedios `Proy_03_Minero_A`/`Proy_03_Minero_B`/`Proy_03_GP_Radford-360` (primera pasada,
+ya sin correspondencia en disco) quedan preservados tal cual en el párrafo anterior de esta misma nota — registro
+de lo que existió momentáneamente ese día, no un error a corregir retroactivamente.
 
 No se generó diagrama Mermaid nuevo para esta nota — no hay subsistema ni ruta de ejecución nueva que documentar
-(los 3 agentes de `Proy_03_*` siguen en 0% de código ejecutable conectado a `src/`/`server.js`, sin cambio de flujo
+(los 3 agentes de `Proy_03 *` siguen en 0% de código ejecutable conectado a `src/`/`server.js`, sin cambio de flujo
 real que graficar). No se detectó violación de divisa/idempotencia — no hay endpoint de mutación ni cálculo
-financiero involucrado, solo carpetas de agentes legacy sin conexión a producción.
+financiero involucrado, solo carpetas de agentes legacy sin conexión a producción, y `PERMISSIONS.json` es un
+archivo declarativo sin ningún endpoint ni mecanismo de escritura real detrás.

@@ -1,7 +1,18 @@
-# Agente Proy_03_Minero_B — Formulador de Proyectos
+# Agente Proy_03 B Formulador
+Status: DEFINIDO — sin conexión real a producción (heredado de `050_Formulador_proy` vía `Proy_03_Minero_B`, renombrado 2026-08-16 por mandato directo del usuario)
+Rol: Subalterno operativo B, bajo mando de `Proy_03 GP Radford-360`
 
 ## Nota de vigencia (2026-08-16)
-Esta carpeta es el renombramiento directo de `agents/050_Formulador_proy` (renombrado a `Proy_03_Minero_B` por mandato directo del usuario, dentro de la reestructuración del dominio RadFor-360 bajo `Proy_03_GP_Radford-360`). Mismo estado real que antes: script (`Proy_03_Minero_B.cjs`) y skill (`skills/Skill_050_Formulador_Proyecto.cjs`) existen en disco pero **sin ningún import real desde `src/` o `server.js`** — sigue desconectado del sistema en producción (confirmado por auditoría el mismo día del renombramiento). Es reestructuración de nombres, no una reactivación de funcionalidad.
+Segunda renombrada del mismo día de esta carpeta (`050_Formulador_proy` → `Proy_03_Minero_B` → `Proy_03 B Formulador`), por mandato directo del usuario. Mismo estado real que antes: script (`Proy_03_B_Formulador.cjs`) y skill (`skills/Skill_050_Formulador_Proyecto.cjs`) existen en disco pero **sin ningún import real desde `src/` o `server.js`** — sigue desconectado del sistema en producción (confirmado por auditoría el mismo día del renombramiento). Es reestructuración de nombres, no una reactivación de funcionalidad.
+
+## Competencia en formulación de proyectos
+Motor paramétrico de formulación de proyectos de infraestructura (declarado, sin ejecución real en producción) — ver diccionario de alias y estructura de entregables abajo, heredados sin cambio del agente predecesor.
+
+## Estructuración analítica de datos
+Traduce necesidades sociales en fichas técnicas estructuradas, programas arquitectónicos y documentos MGA (Metodología General Ajustada) para presentación ante entidades de financiación.
+
+## Sincronización bajo mando del Gerente
+Toda salida de este agente se reporta a `Proy_03 GP Radford-360` (ver `PERMISSIONS.json` en `agents/Proy_03 GP Radford-360/` para la matriz declarada de acceso) antes de considerarse entregable final.
 
 ## MODO DE OPERACIÓN: ALIAS SEMÁNTICOS (PERMANENTE)
 
@@ -105,11 +116,11 @@ como anexos. Este agente NO genera contenido técnico — formula el MARCO LÓGI
 y los indicadores sobre los anexos reales.
 
 ## Jerarquía
-Reporta a `Proy_03_GP_Radford-360` (líder del dominio RadFor-360, reestructuración 2026-08-16).
+Reporta a `Proy_03 GP Radford-360` (líder del dominio RadFor-360, reestructuración 2026-08-16).
 
 ## Cierre de ciclo (5 líneas)
 ```
-PROY_03_MINERO_B → [TAREA] → [OK|ERR|PEND]
+PROY_03_B_FORMULADOR → [TAREA] → [OK|ERR|PEND]
 ALIAS_DICT → [N alias instanciados] → [TOKENS_AHORRADOS_EST]
 FLAGS → ALIAS_SEMANTICOS=True
 SIGUIENTE → [052_Form_Administrativo]

@@ -53,10 +53,10 @@ Al finalizar cada ciclo de vida o iteración entre agentes, emitir OBLIGATORIAME
 No se permite texto de transición, saludos ni cortesías en el bloque de cierre.
 
 ### LEY 2 — ALIAS SEMÁNTICOS (Flag heredado)
-El agente `Proy_03_Minero_B` (renombrado 2026-08-16 desde `050_Formulador_proy`, mandato directo del usuario) hereda `ALIAS_SEMANTICOS=True`. Al inicio de cada sesión de formulación debe instanciar el diccionario de alias para unidades funcionales repetitivas y usarlos durante todo el procesamiento interno. Expansión solo en entregable final.
+El agente `Proy_03 B Formulador` (renombrado 2026-08-16 desde `050_Formulador_proy`, mandato directo del usuario) hereda `ALIAS_SEMANTICOS=True`. Al inicio de cada sesión de formulación debe instanciar el diccionario de alias para unidades funcionales repetitivas y usarlos durante todo el procesamiento interno. Expansión solo en entregable final.
 
 ### LEY 3 — PIPELINE MARKITDOWN
-El agente `Proy_03_Minero_A` (renombrado 2026-08-16 desde `011_Radar1_minero`, sigue sin código ejecutable) aplica el pipeline: `markitdown → indexación regex → extractor LLM solo sobre objetivo validado`. Prohibido pasar documentos completos al LLM.
+El agente `Proy_03 A Radar` (renombrado 2026-08-16 desde `011_Radar1_minero`, sigue sin código ejecutable) aplica el pipeline: `markitdown → indexación regex → extractor LLM solo sobre objetivo validado`. Prohibido pasar documentos completos al LLM.
 
 ---
 
@@ -68,12 +68,12 @@ Los agentes 053 y 055 fueron eliminados. El pipeline recibe anexos y los evalúa
 
 | Solicitud del usuario | Agente primario | Flag activo |
 |---|---|---|
-| Formulación / ficha técnica / MGA | `Proy_03_Minero_B` | ALIAS_SEMANTICOS |
+| Formulación / ficha técnica / MGA | `Proy_03 B Formulador` | ALIAS_SEMANTICOS |
 | Administrativo / SECOP / pliegos | `052_Form_Administrativo` | — |
-| Fondos / convocatorias / subsidios | `Proy_03_Minero_A` | MARKITDOWN |
+| Fondos / convocatorias / subsidios | `Proy_03 A Radar` | MARKITDOWN |
 | Inteligencia de mercado / competencia | `012_Radar2_Estratega` | — |
 
-**Jerarquía del dominio RadFor-360** (reestructuración 2026-08-16, mandato directo del usuario): `Proy_03_Minero_A` y `Proy_03_Minero_B` reportan a `Proy 03 GP_Radford-360` (líder de dominio, sin permisos técnicos propios). No reemplaza al Escuadrón Élite oficial (`.claude/agents/001-010`), que permanece intacto.
+**Jerarquía del dominio RadFor-360** (reestructuración 2026-08-16, mandato directo del usuario): `Proy_03 A Radar` y `Proy_03 B Formulador` reportan a `Proy_03 GP Radford-360` (líder de dominio, sin permisos técnicos propios). No reemplaza al Escuadrón Élite oficial (`.claude/agents/001-010`), que permanece intacto.
 
 ---
 

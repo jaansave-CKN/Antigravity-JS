@@ -57,13 +57,13 @@ const ESCUADRON_ELITE = {
         // real en producción (src/modules/radar/m1Pipeline.js), inactivo desde
         // 2026-05-16 — orden explícita del usuario ("no admito sistemas o
         // agentes paralelos con las mismas habilidades"). Renombrada a
-        // 'Proy_03_Minero_A' 2026-08-16 (mandato directo del usuario, reestructuración
-        // del dominio RadFor-360 bajo 'Proy 03 GP_Radford-360') — sigue sin código.
-        // '050_Formulador_proy' renombrada a 'Proy_03_Minero_B' en la misma ronda —
+        // 'Proy_03 A Radar' 2026-08-16 (mandato directo del usuario, reestructuración
+        // del dominio RadFor-360 bajo 'Proy_03 GP Radford-360') — sigue sin código.
+        // '050_Formulador_proy' renombrada a 'Proy_03 B Formulador' en la misma ronda —
         // mismo estado real (sin conexión a src/ ni server.js), solo cambia el nombre.
         subordinados: [
             '009_gestor_datos', '012_Radar2_Estratega',
-            'Proy_03_Minero_B', '052_Form_Administrativo', '015_intelligence-core',
+            'Proy_03 B Formulador', '052_Form_Administrativo', '015_intelligence-core',
         ],
     },
     // Limpieza 2026-08-12 (orden explícita del usuario, aplazada hasta que el
@@ -114,13 +114,13 @@ function comandanteDe(carpetaAgente) {
 // purgado por duplicar la capacidad real del Radar en producción
 // (src/modules/radar/m1Pipeline.js + endpoint /api/convocatorias en
 // server.js) — sin código ejecutable, no hay destino válido al que rutear.
-// (esa carpeta fue renombrada a 'Proy_03_Minero_A' 2026-08-16, sigue igual
+// (esa carpeta fue renombrada a 'Proy_03 A Radar' 2026-08-16, sigue igual
 // de inactiva — no reintroduce la clave 'convocatorias').
 // 'formulacion' actualizado 2026-08-16: '050_Formulador_proy' renombrado a
-// 'Proy_03_Minero_B' (mandato directo del usuario, dominio RadFor-360 bajo
-// 'Proy 03 GP_Radford-360') — mismo destino real, solo cambia el nombre.
+// 'Proy_03 B Formulador' (mandato directo del usuario, dominio RadFor-360 bajo
+// 'Proy_03 GP Radford-360') — mismo destino real, solo cambia el nombre.
 const ENRUTADOR_ESTATICO = {
-    formulacion: 'Proy_03_Minero_B',
+    formulacion: 'Proy_03 B Formulador',
     administrativo: '052_Form_Administrativo',
     inteligencia_mercado: '012_Radar2_Estratega',
 };

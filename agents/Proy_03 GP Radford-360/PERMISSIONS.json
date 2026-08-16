@@ -1,0 +1,34 @@
+{
+  "_nota_honestidad": "Esta matriz es DECLARATIVA — describe la jerarquía de acceso pretendida, no un mecanismo enforced por código real. Ninguno de los 3 agentes de este dominio (Proy_03 GP Radford-360, Proy_03 A Radar, Proy_03 B Formulador) tiene tools reales de Claude Code (no están en .claude/agents/), no ejecutan como subagentes invocables, y no hay ningún script que lea este archivo para bloquear o permitir una acción. El enforcement técnico real de este proyecto vive en agents/architecture-gate.cjs (SUBGATES, validarOrigenVeredicto) y en los permisos tools: de .claude/agents/*.md — ninguno de los 2 mecanismos reales gobierna este dominio. Si se requiere enforcement real en el futuro, eso es infraestructura nueva que pasa por diseño de 002, no una promesa implícita de este archivo.",
+  "generado": "2026-08-16",
+  "dominio": "RadFor-360 (subdominio Radar + Formulador legacy)",
+  "creado_por": "Mandato directo del usuario, sin veredicto de diseño de 002 (excepción explícita solicitada y otorgada)",
+  "jerarquia": {
+    "lider": {
+      "agente": "Proy_03 GP Radford-360",
+      "ruta": "agents/Proy_03 GP Radford-360/",
+      "privilegios_declarados": ["read", "write", "execute"],
+      "alcance": "Outputs de Proy_03 A Radar y Proy_03 B Formulador — no el código fuente de esos agentes, no la plataforma real RadFor-360 (src/, public/src/, server.js)."
+    },
+    "subalternos": [
+      {
+        "agente": "Proy_03 A Radar",
+        "ruta": "agents/Proy_03 A Radar/",
+        "privilegios_declarados": ["read"],
+        "reporta_a": "Proy_03 GP Radford-360",
+        "canal": "Salida en formato IDENTITY.md-declarado — sin transporte real (no hay cola de mensajes, no hay archivo de intercambio en tiempo de ejecución; ver agents/pmu/ para el único mecanismo de estado compartido real que existe en este proyecto, y no aplica a este dominio)."
+      },
+      {
+        "agente": "Proy_03 B Formulador",
+        "ruta": "agents/Proy_03 B Formulador/",
+        "privilegios_declarados": ["read"],
+        "reporta_a": "Proy_03 GP Radford-360",
+        "canal": "Mismo criterio que Proy_03 A Radar — declarativo, sin transporte real."
+      }
+    ]
+  },
+  "aislamiento": {
+    "declaracion": "Este dominio queda estrictamente separado del Escuadrón Élite oficial (.claude/agents/001-010).",
+    "verificado": "Ninguno de los 3 archivos IDENTITY.md de este dominio está referenciado desde .claude/agents/*.md, ni aparece en SUBGATES de agents/architecture-gate.cjs. Sí aparece como 'subordinado' declarativo de 005_INGENIERO_BACKEND en ESCUADRON_ELITE (agents/architecture-gate.cjs) — ese objeto es puramente informativo (comandanteDe()), no un mecanismo de permisos ni de ejecución."
+  }
+}
