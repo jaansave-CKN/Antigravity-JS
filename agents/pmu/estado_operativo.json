@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-16T16:53:44.885Z",
+  "generado": "2026-08-16T17:13:36.815Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -40,18 +40,15 @@
         "aprobado": true,
         "origen": "excepcion_manual",
         "excepcion": {
-          "autorizado_por": "002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id acb801cb8e23c2d81, 2026-08-16)",
-          "motivo": "Veredicto real de 002 sobre blindaje estructural: origen obligatorio del gate, fusion de patrones SUBGATES 006, normalizacion de 008 -- ANTHROPIC_API_KEY de architecture-gate.cjs sin saldo, mismo canal alterno de S0-AI",
-          "expira": "2026-08-16T18:49:53.193Z"
+          "autorizado_por": "002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a6d843bd701a8e9c3 + confirmacion ab30fcd28ba86f5a4, 2026-08-16)",
+          "motivo": "Purga de deuda tecnica: AGENTS.md topologia real 10 agentes + fix de contradiccion S IV-B, ejemplo obsoleto de 004 corregido -- ANTHROPIC_API_KEY sin saldo, canal alterno",
+          "expira": "2026-08-16T19:13:35.908Z"
         },
-        "firma": "ce0baf271b48365f90a60857210d51b54974c83241a87160ff45b1c0cf02575d",
-        "timestamp": "2026-08-16T16:49:53.193Z",
-        "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md) — invocado vía canal Agent tool de Claude Code, NO vía el script agents/architecture-gate.cjs (su ANTHROPIC_API_KEY en .env está sin saldo, 400 insufficient_credits). Veredicto real, no autofirmado por el orquestador: agent run id acb801cb8e23c2d81, 2026-08-16. Categorizado origen:excepcion_manual (no api_directa) porque no pasó por pedirVeredictoArquitecto() — es un veredicto real de 002, evaluado con Read completo del diff + agents/architecture-gate.cjs + scripts/auditor_008_advisory_gate.cjs, solo que por infraestructura de facturación distinta.",
+        "firma": "950703286fe3cf56652177ab9c9646220ce9fb03d4b498ec353984e94aef26a2",
+        "timestamp": "2026-08-16T17:13:35.908Z",
+        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por 002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a6d843bd701a8e9c3 + confirmacion ab30fcd28ba86f5a4, 2026-08-16): Purga de deuda tecnica: AGENTS.md topologia real 10 agentes + fix de contradiccion S IV-B, ejemplo obsoleto de 004 corregido -- ANTHROPIC_API_KEY sin saldo, canal alterno",
         "razones": [
-          "validarOrigenVeredicto(): las 3 rutas de escritura reales (--aprobar-diseno, aprobarUnSubgate, --aprobar-excepcion-manual) fijan 'origen' consistentemente; no hay forma de obtener origen:'api_directa' sin una llamada real a la API (verificado leyendo agents/architecture-gate.cjs líneas 787-825 y los 3 sitios de escritura).",
-          "Fusión de patrones en SUBGATES['006_DEVSECOPS_INFRAESTRUCTURA'] cubre correctamente .github/workflows/**/*.y(a)ml y scripts/*gate*|*veto*.cjs sin remover los patrones originales (render.yaml/.env.example/package*.json) ni introducir falsos positivos nuevos sobre archivos existentes — confirmado con los 3 tests nuevos y con que este mismo commit activa correctamente el subgate 006 sobre scripts/architecture-gate.test.cjs.",
-          "El bloque JSON agregado a .claude/agents/008-auditor-de-codigo.md coincide exactamente con SCHEMA_008_CI (scripts/auditor_008_advisory_gate.cjs:17-21) y con el texto ya inyectado al prompt de CI; los 2 skills de reemplazo (api-security-best-practices, playwright-best-practices) existen y ya los usan otros agentes del roster.",
-          "Alcance corregido antes de este veredicto: verificarVigenciaDocumentoMaestro() (cierre de §0-AJ.7, no ordenado explícitamente por el usuario en este encargo de 3 puntos) fue identificado como fuera de alcance por este mismo veredicto y retirado del diff antes de comitear — no forma parte de este commit."
+          "EXCEPCIÓN MANUAL, no veredicto de 002: Purga de deuda tecnica: AGENTS.md topologia real 10 agentes + fix de contradiccion S IV-B, ejemplo obsoleto de 004 corregido -- ANTHROPIC_API_KEY sin saldo, canal alterno"
         ],
         "diferimientos": []
       }

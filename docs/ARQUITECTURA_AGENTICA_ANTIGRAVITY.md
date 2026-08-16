@@ -763,14 +763,17 @@ Pedido explícito del usuario: repetir la auditoría de los 5 bloques del protoc
 │   │                                subagente real: .claude/agents/004-sentinela-frontend.md)
 │   ├── 005_INGENIERO_BACKEND      — 009_gestor_datos, 011_Radar1_minero,
 │   │                                012_Radar2_Estratega, 050_Formulador_proy,
-│   │                                07-ing-concreto_GFRC, 08-estratega-neuromarketing
-│   │                                (051_Form_Lluvia_de_ideas eliminado 2026-08-11, stub)
+│   │                                052_Form_Administrativo, 015_intelligence-core
+│   │                                (051_Form_Lluvia_de_ideas eliminado 2026-08-11, stub;
+│   │                                052/015 reasignados desde 006 el 2026-08-12)
 │   │                                — subagente real desde 2026-08-11:
 │   │                                .claude/agents/005-ingeniero-backend.md (único con
 │   │                                permiso de escritura: Read/Write/Edit/Grep/Glob/Bash)
-│   ├── 006_DEVSECOPS_INFRAESTRUCTURA — 03-analista-secop, 052_Form_Administrativo,
-│   │                                14-analista-comportamiento, 015_intelligence-core
-│   │                                (054/056 eliminados 2026-08-11, stubs — commit a349dcb)
+│   ├── 006_DEVSECOPS_INFRAESTRUCTURA — subordinados: [] (03-analista-secop y
+│   │                                14-analista-comportamiento purgados 2026-08-12, vacíos,
+│   │                                sin código; 052_Form_Administrativo y 015_intelligence-core
+│   │                                reasignados a 005 ese mismo día — 054/056 eliminados
+│   │                                2026-08-11, stubs — commit a349dcb)
 │   ├── 007_DOCUMENTADOR_AS_BUILD  — 010_redactor_tecnico
 │   └── 008_AUDITOR_DE_CODIGO      — subordinados: [] (rol nuevo, sin implementación;
 │                                     architect.md redirige aquí las auditorías de
@@ -782,19 +785,16 @@ Pedido explícito del usuario: repetir la auditoría de los 5 bloques del protoc
 │   └── [huérfano en 001_ORQUESTADOR_MAESTRO/_archivo_historico/skills_radar_legacy/:
 │        25 skills de un Radar legacy Firebase-based, archivadas — ver §2.1]
 │
-├── Formulador 360 (bajo 005_INGENIERO_BACKEND / 006_DEVSECOPS_INFRAESTRUCTURA / 007_DOCUMENTADOR_AS_BUILD)
+├── Formulador 360 (bajo 005_INGENIERO_BACKEND / 007_DOCUMENTADOR_AS_BUILD)
 │   ├── 050_Formulador_proy, 052_Form_Administrativo, 010_redactor_tecnico
 │   │   (1-3 skills reales c/u; 051/054/056 eliminados 2026-08-11 por ser stubs sin
 │   │    lógica real — la brecha IDENTITY.md-vs-código que tenía 056, §10, ya no aplica)
 │
-├── Soporte: 009_gestor_datos, 015_intelligence-core, 03-analista-secop
+├── Soporte: 009_gestor_datos, 015_intelligence-core
 │
 ├── Fantasmas en IDENTITY.md, ausentes en disco (sin cambios)
 │   ├── 100_reparador_codigo     — IDENTITY.md:30, carpeta NO existe
 │   └── 09-legal-licitaciones    — IDENTITY.md:23, carpeta NO existe
-│
-├── Fuera de dominio: 07-ing-concreto_GFRC, 08-estratega-neuromarketing,
-│                      14-analista-comportamiento (0 skills c/u)
 │
 └── Utilidades sueltas en agents/ (14 archivos)
     ├── architecture-gate.cjs   — REAL: gate de arquitectura + batch executor
@@ -807,6 +807,8 @@ Pedido explícito del usuario: repetir la auditoría de los 5 bloques del protoc
 ```
 
 **Desalineaciones de rol (sin cambios respecto a la versión anterior):** persisten 3 entidades llamadas "000/orquestador" (el `.cjs` real, la carpeta con el daemon `puente_ejecutor.py`, y `.agent/agents/000_orquestador.md` del Sistema B). El nodo orquestador central existe pero está fragmentado, no faltante.
+
+**Nota 2026-08-16 (corrección puntual, no ronda `§0-X` nueva):** el árbol ASCII de arriba tenía 4 carpetas purgadas (`agents/03-analista-secop`, `agents/14-analista-comportamiento`, `agents/07-ing-concreto_GFRC`, `agents/08-estratega-neuromarketing`) que `§0-AJ.7` ya había señalado como desactualizadas sin corregirlas. Verificado por `Glob` contra disco en esta ronda: ninguna de las 4 existe hoy en `agents/`; las carpetas numeradas que sí existen son `001_ORQUESTADOR_MAESTRO`, `009_gestor_datos`, `010_redactor_tecnico`, `011_Radar1_minero`, `012_Radar2_Estratega`, `015_intelligence-core`, `050_Formulador_proy`, `052_Form_Administrativo`. Corregido para reflejar `052_Form_Administrativo`/`015_intelligence-core` bajo `005_INGENIERO_BACKEND` (no `006`), consistente con `.claude/agents/006-devsecops-infraestructura.md:12` y con la prosa de `§0-T` (línea ~441-443) de este mismo documento.
 
 ### 1.3 Clasificación transversal vs. específico (sin cambios)
 
