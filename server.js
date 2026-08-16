@@ -48,6 +48,7 @@ import { registerProyectosRoutes } from './backend/routes/proyectos.routes.js';
 import { registerReporteRoutes } from './backend/routes/reporte.routes.js';
 import { registerPresupuestoRoutes } from './backend/routes/presupuesto.routes.js';
 import { registerAnexosRoutes } from './backend/routes/anexos.routes.js';
+import { registerBibliotecaRoutes } from './backend/routes/biblioteca.routes.js';
 import { registerEstresFinancieroRoutes } from './backend/routes/estresFinanciero.routes.js';
 import { registerValorExponencialRoutes } from './backend/routes/valorExponencial.routes.js';
 import { registerCopilotoRoutes } from './backend/routes/copiloto.routes.js';
@@ -4763,6 +4764,9 @@ Reglas:
 
   // Anexos: CRUD real contra project_anexos (migración 013) — reemplaza localStorage de AnexosView.tsx
   await registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows, financialPipelineLimiter });
+  // Biblioteca Gubernamental: clon aislado de Anexos (migración 039) — bucket
+  // de Storage propio, sin pipeline financiero (ExtractorService/AuditorForenseService)
+  await registerBibliotecaRoutes(app, { authenticateToken, runSql, getRow, getRows });
   await registerEstresFinancieroRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
   await registerValorExponencialRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
   await registerCopilotoRoutes(app, { authenticateToken, getRow, aiLimiter });

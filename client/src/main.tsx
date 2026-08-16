@@ -34,6 +34,7 @@ const FichaTecnicaPage       = lazy(() => import('./pages/FichaTecnicaPage'));
 const PlanesPage             = lazy(() => import('./pages/PlanesPage'));
 const FavoritosPage          = lazy(() => import('./pages/FavoritosPage'));
 const AnexosPage             = lazy(() => import('./pages/AnexosPage'));
+const BibliotecaPage         = lazy(() => import('./pages/BibliotecaPage'));
 const PanelPage              = lazy(() => import('./pages/PanelPage'));
 const AdminUsuariosPendientesPage = lazy(() => import('./pages/AdminUsuariosPendientesPage'));
 const AdminPermisosPage           = lazy(() => import('./pages/AdminPermisosPage'));
@@ -357,6 +358,9 @@ function AppRoutes() {
           <Route path="/anexos"     element={
             <PlanGate require="formulador"><AnexosPage /></PlanGate>
           } />
+          <Route path="/biblioteca" element={
+            <PlanGate require="formulador"><BibliotecaPage /></PlanGate>
+          } />
           <Route path="/logistica"  element={
             <PlanGate require="formulador"><LogisticaPage /></PlanGate>
           } />
@@ -419,6 +423,7 @@ function AppRoutes() {
           <Route path="/dev/entrada"    element={<EntradaPage />} />
           <Route path="/dev/dialectica" element={<DialecticaPage />} />
           <Route path="/dev/anexos"     element={<AnexosPage />} />
+          <Route path="/dev/biblioteca" element={<BibliotecaPage />} />
           <Route path="/dev/poblacion"  element={
             <div style={{ padding: 0 }}>
               <PopulationObjectiveWizard
