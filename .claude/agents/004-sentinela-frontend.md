@@ -1,6 +1,6 @@
 ---
 name: 004-sentinela-frontend
-description: Audita componentes/rutas de la SPA para detectar stubs huérfanos (pantallas sin datos reales, ej. patrón FrozenPage.jsx) y contratos de build rotos (imports muertos, rutas registradas sin componente real detrás). Úsalo antes de dar por cerrado un módulo de frontend, o cuando se sospeche que una pantalla "existe" pero no está realmente conectada al backend. No escribe ni corrige código — solo detecta y reporta; la corrección la hace `009_INGENIERO_FRONTEND`.
+description: Audita componentes/rutas de la SPA para detectar stubs huérfanos (pantallas sin datos reales, ej. patrón `ModulePending.jsx` — antes `FrozenPage.jsx`, renombrado 2026-08-16) y contratos de build rotos (imports muertos, rutas registradas sin componente real detrás). Úsalo antes de dar por cerrado un módulo de frontend, o cuando se sospeche que una pantalla "existe" pero no está realmente conectada al backend. No escribe ni corrige código — solo detecta y reporta; la corrección la hace `009_INGENIERO_FRONTEND`.
 tools: Read, Grep, Glob
 model: inherit
 ---

@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-16T17:14:01.783Z",
+  "generado": "2026-08-16T17:38:05.011Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -40,15 +40,15 @@
         "aprobado": true,
         "origen": "excepcion_manual",
         "excepcion": {
-          "autorizado_por": "002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a6d843bd701a8e9c3 + confirmacion ab30fcd28ba86f5a4, 2026-08-16)",
-          "motivo": "Purga de deuda tecnica: AGENTS.md topologia real 10 agentes + fix de contradiccion S IV-B, ejemplo obsoleto de 004 corregido -- ANTHROPIC_API_KEY sin saldo, canal alterno",
-          "expira": "2026-08-16T19:13:35.908Z"
+          "autorizado_por": "002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a06b7bf230e9d704a, 2026-08-16)",
+          "motivo": "Cierre de brecha real de ruteo 001 hacia 010, fix de description obsoleta en 004; 002 tambien corrigio en esta misma ronda un falso positivo propio sobre S1.2 -- ANTHROPIC_API_KEY sin saldo, canal alterno",
+          "expira": "2026-08-16T19:38:04.056Z"
         },
-        "firma": "950703286fe3cf56652177ab9c9646220ce9fb03d4b498ec353984e94aef26a2",
-        "timestamp": "2026-08-16T17:13:35.908Z",
-        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por 002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a6d843bd701a8e9c3 + confirmacion ab30fcd28ba86f5a4, 2026-08-16): Purga de deuda tecnica: AGENTS.md topologia real 10 agentes + fix de contradiccion S IV-B, ejemplo obsoleto de 004 corregido -- ANTHROPIC_API_KEY sin saldo, canal alterno",
+        "firma": "1f6fbc72b311eee8ac74728c1ec3782e26b768635808f865e81d29a3ce287a76",
+        "timestamp": "2026-08-16T17:38:04.056Z",
+        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por 002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a06b7bf230e9d704a, 2026-08-16): Cierre de brecha real de ruteo 001 hacia 010, fix de description obsoleta en 004; 002 tambien corrigio en esta misma ronda un falso positivo propio sobre S1.2 -- ANTHROPIC_API_KEY sin saldo, canal alterno",
         "razones": [
-          "EXCEPCIÓN MANUAL, no veredicto de 002: Purga de deuda tecnica: AGENTS.md topologia real 10 agentes + fix de contradiccion S IV-B, ejemplo obsoleto de 004 corregido -- ANTHROPIC_API_KEY sin saldo, canal alterno"
+          "EXCEPCIÓN MANUAL, no veredicto de 002: Cierre de brecha real de ruteo 001 hacia 010, fix de description obsoleta en 004; 002 tambien corrigio en esta misma ronda un falso positivo propio sobre S1.2 -- ANTHROPIC_API_KEY sin saldo, canal alterno"
         ],
         "diferimientos": []
       }
