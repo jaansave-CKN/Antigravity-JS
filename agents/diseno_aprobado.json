@@ -2,15 +2,15 @@
   "aprobado": true,
   "origen": "excepcion_manual",
   "excepcion": {
-    "autorizado_por": "002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a06b7bf230e9d704a, 2026-08-16)",
-    "motivo": "Cierre de brecha real de ruteo 001 hacia 010, fix de description obsoleta en 004; 002 tambien corrigio en esta misma ronda un falso positivo propio sobre S1.2 -- ANTHROPIC_API_KEY sin saldo, canal alterno",
-    "expira": "2026-08-16T19:38:04.056Z"
+    "autorizado_por": "002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a929aa5f1c7ac5fff, 2026-08-16)",
+    "motivo": "Cierre del ultimo residual FrozenPage.jsx en 003-esp-diseno-stitch.md, coherencia cruzada con 004 verificada -- ANTHROPIC_API_KEY sin saldo, canal alterno",
+    "expira": "2026-08-16T19:42:55.473Z"
   },
-  "firma": "1f6fbc72b311eee8ac74728c1ec3782e26b768635808f865e81d29a3ce287a76",
-  "timestamp": "2026-08-16T17:38:04.056Z",
-  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por 002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a06b7bf230e9d704a, 2026-08-16): Cierre de brecha real de ruteo 001 hacia 010, fix de description obsoleta en 004; 002 tambien corrigio en esta misma ronda un falso positivo propio sobre S1.2 -- ANTHROPIC_API_KEY sin saldo, canal alterno",
+  "firma": "07eafd97071f28968b4e9c8055f282f36b00ebf4615f4d3230080bf1e7f6860b",
+  "timestamp": "2026-08-16T17:42:55.473Z",
+  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por 002_ARQUITECTO_DE_SOFTWARE (Agent tool, agent run id a929aa5f1c7ac5fff, 2026-08-16): Cierre del ultimo residual FrozenPage.jsx en 003-esp-diseno-stitch.md, coherencia cruzada con 004 verificada -- ANTHROPIC_API_KEY sin saldo, canal alterno",
   "razones": [
-    "EXCEPCIÓN MANUAL, no veredicto de 002: Cierre de brecha real de ruteo 001 hacia 010, fix de description obsoleta en 004; 002 tambien corrigio en esta misma ronda un falso positivo propio sobre S1.2 -- ANTHROPIC_API_KEY sin saldo, canal alterno"
+    "EXCEPCIÓN MANUAL, no veredicto de 002: Cierre del ultimo residual FrozenPage.jsx en 003-esp-diseno-stitch.md, coherencia cruzada con 004 verificada -- ANTHROPIC_API_KEY sin saldo, canal alterno"
   ],
   "diferimientos": []
 }
