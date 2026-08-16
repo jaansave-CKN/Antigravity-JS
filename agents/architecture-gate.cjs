@@ -511,6 +511,53 @@ function hashEstado(carpetas) {
     ).digest('hex');
 }
 
+// Brecha de procedencia cerrada (2026-08-16, hallazgo §0-AJ.2 de
+// docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md): validarDisenoAprobado() y
+// validarSubgate() nunca verificaban NADA sobre el origen del veredicto —
+// solo forma y hash. La aprobación vigente de esa misma fecha fue escrita a
+// mano (canal Agent tool, ANTHROPIC_API_KEY sin saldo) usando el mismo
+// hashEstado()/hashArchivosStaged() públicos en este archivo, e
+// indistinguible para el gate de un veredicto real de la API. No existe una
+// forma criptográficamente infalsificable de cerrar esto del todo en un
+// entorno local donde el propio algoritmo de verificación es público y quien
+// escribe el JSON tiene acceso de escritura al filesystem (mismo límite que
+// ya reconoce hashEstado() sobre sí mismo) — lo que SÍ se cierra es la
+// brecha real: el gate ya no acepta silenciosamente un origen no declarado,
+// y una excepción manual caduca sola y queda marcada de forma visible en
+// consola/PMU — nunca se ve igual que una aprobación evaluada por la API.
+const ORIGENES_VALIDOS = ['api_directa', 'excepcion_manual'];
+const HORAS_MAX_EXCEPCION_MANUAL = 6;
+
+function validarOrigenVeredicto(firma) {
+    if (!firma.origen || !ORIGENES_VALIDOS.includes(firma.origen)) {
+        return { ok: false, razon: `Veredicto sin campo "origen" válido (uno de: ${ORIGENES_VALIDOS.join(', ')}) — rechazado por defecto (cierre de brecha de procedencia, §0-AJ.2).` };
+    }
+    if (firma.origen === 'api_directa') {
+        return { ok: true };
+    }
+    // origen === 'excepcion_manual' — requiere metadata completa y una
+    // ventana de vigencia corta, no una excepción que se pueda reutilizar
+    // indefinidamente.
+    const exc = firma.excepcion;
+    if (!exc || typeof exc.autorizado_por !== 'string' || !exc.autorizado_por.trim()
+        || typeof exc.motivo !== 'string' || !exc.motivo.trim()
+        || typeof exc.expira !== 'string') {
+        return { ok: false, razon: 'origen:"excepcion_manual" requiere excepcion:{autorizado_por, motivo, expira} completos — no hay excepción manual válida sin los 3 campos.' };
+    }
+    const expiraMs = Date.parse(exc.expira);
+    if (Number.isNaN(expiraMs)) {
+        return { ok: false, razon: `excepcion.expira no es una fecha ISO válida: "${exc.expira}".` };
+    }
+    if (Date.now() > expiraMs) {
+        return { ok: false, razon: `Excepción manual caducada (expiró ${exc.expira}) — requiere una nueva, no se opera indefinidamente bajo una excepción vencida.` };
+    }
+    const timestampFirma = Date.parse(firma.timestamp);
+    if (!Number.isNaN(timestampFirma) && (expiraMs - timestampFirma) > HORAS_MAX_EXCEPCION_MANUAL * 3600 * 1000) {
+        return { ok: false, razon: `excepcion.expira excede el máximo permitido de ${HORAS_MAX_EXCEPCION_MANUAL}h desde la firma — una excepción manual no puede auto-extenderse indefinidamente.` };
+    }
+    return { ok: true, excepcionManual: exc };
+}
+
 function validarDisenoAprobado(carpetas) {
     if (!fs.existsSync(APROBACION_PATH)) {
         return { aprobado: false, razon: 'No existe firma del Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE — diseno_aprobado.json ausente).' };
@@ -524,11 +571,19 @@ function validarDisenoAprobado(carpetas) {
     if (firma.aprobado !== true) {
         return { aprobado: false, razon: 'El Agente Arquitecto marcó el diseño como NO aprobado.' };
     }
+    const origenCheck = validarOrigenVeredicto(firma);
+    if (!origenCheck.ok) {
+        return { aprobado: false, razon: origenCheck.razon };
+    }
     const hashActual = hashEstado(carpetas);
     if (firma.firma !== hashActual) {
         return { aprobado: false, razon: 'El estado de agents/ cambió después de la firma — se requiere re-aprobación del Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE).' };
     }
-    return { aprobado: true, firma: firma.firma, timestamp: firma.timestamp, diferimientos: firma.diferimientos || [] };
+    return {
+        aprobado: true, firma: firma.firma, timestamp: firma.timestamp,
+        diferimientos: firma.diferimientos || [], origen: firma.origen,
+        excepcionManual: origenCheck.excepcionManual || null,
+    };
 }
 
 // =============================================================================
@@ -566,9 +621,24 @@ const SUBGATES = {
     // sin ningún gate automático — un commit podía tocar render.yaml, .env.example
     // o dependencias sin que nadie con juicio (no solo los chequeos deterministas
     // de secretos/env/npm audit) lo revisara. Mismo patrón que 003/004.
+    // Patrones fusionados 2026-08-16 (cierre de §0-AJ.3, "gate fantasma de
+    // 006"): esta entrada hardcodeada ya existía desde 2026-08-13
+    // (render.yaml/.env.example/package*.json) y bloqueaba, por diseño de
+    // asegurarSubgatesAutoDescubiertos() (nunca pisa una entrada manual), el
+    // auto-registro del gate que 006 declara en su propio frontmatter
+    // (.claude/agents/006-devsecops-infraestructura.md:5 —
+    // .github/workflows/**, scripts/*gate*.cjs/*veto*.cjs). Resultado real
+    // hasta hoy: un commit que tocara el propio motor del gate o los
+    // workflows de CI no pasaba por ningún subgate. Se fusionan los patrones
+    // aquí — esta entrada sigue siendo la única fuente de verdad para
+    // '006_DEVSECOPS_INFRAESTRUCTURA', ahora con cobertura real de las 2
+    // áreas (infraestructura de despliegue + infraestructura del propio gate).
     '006_DEVSECOPS_INFRAESTRUCTURA': {
         promptPath: path.join(dirRoot, '.claude', 'agents', '006-devsecops-infraestructura.md'),
-        patrones: [/^render\.yaml$/, /^\.env\.example$/, /^package\.json$/, /^package-lock\.json$/],
+        patrones: [
+            /^render\.yaml$/, /^\.env\.example$/, /^package\.json$/, /^package-lock\.json$/,
+            /^\.github\/workflows\/.*\.ya?ml$/, /^scripts\/.*(gate|veto).*\.cjs$/,
+        ],
         campoAprobado: 'infraestructura_segura',
         veredictoPath: path.join(dirAgents, 'veredicto_006.json'),
     },
@@ -699,11 +769,17 @@ function validarSubgate(agentId, archivosStaged) {
     if (veredicto.aprobado !== true) {
         return { aplica: true, aprobado: false, razon: `${agentId} marcó el último veredicto como NO aprobado.` };
     }
+    // Mismo cierre de brecha de procedencia que el gate principal (§0-AJ.2) —
+    // un subgate no verificaba origen tampoco.
+    const origenCheck = validarOrigenVeredicto(veredicto);
+    if (!origenCheck.ok) {
+        return { aplica: true, aprobado: false, razon: origenCheck.razon };
+    }
     const hashActual = hashArchivosStaged(relevantes);
     if (veredicto.firma !== hashActual) {
         return { aplica: true, aprobado: false, razon: `Los archivos relevantes para ${agentId} cambiaron desde el último veredicto — se requiere re-aprobación (node agents/architecture-gate.cjs --aprobar-subgate ${agentId}).` };
     }
-    return { aplica: true, aprobado: true };
+    return { aplica: true, aprobado: true, origen: veredicto.origen, excepcionManual: origenCheck.excepcionManual || null };
 }
 
 async function pedirVeredictoSubagente(agentId, relevantes) {
@@ -1295,7 +1371,10 @@ if (process.argv.includes('--check-gate')) {
         return;
     }
     console.log(`✅ [GATE_ARQUITECTURA] Aprobación vigente (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
-    registrarTelemetria({ tipo: 'check-gate', subsistema: '002_principal', resultado: 'aprobado', firma: veredicto.firma });
+    if (veredicto.origen === 'excepcion_manual') {
+        console.warn(`   🟡 EXCEPCIÓN MANUAL, no veredicto de la API de 002 — ${JSON.stringify(veredicto.excepcionManual)}`);
+    }
+    registrarTelemetria({ tipo: 'check-gate', subsistema: '002_principal', resultado: 'aprobado', firma: veredicto.firma, origen: veredicto.origen });
 
     // Subgates elite (003/004/006) — solo bloquean si el commit toca algo que
     // les compete (003/004: src/**/*.jsx|tsx; 006: render.yaml/.env.example/
@@ -1316,7 +1395,10 @@ if (process.argv.includes('--check-gate')) {
             registrarTelemetria({ tipo: 'check-gate', subsistema: agentId, resultado: 'diferido', razon: resultado.razon });
         } else {
             console.log(`✅ [SUBGATE_${agentId}] Aprobación vigente sobre los archivos relevantes de este commit.`);
-            registrarTelemetria({ tipo: 'check-gate', subsistema: agentId, resultado: 'aprobado' });
+            if (resultado.origen === 'excepcion_manual') {
+                console.warn(`   🟡 EXCEPCIÓN MANUAL, no veredicto de ${agentId} vía API — ${JSON.stringify(resultado.excepcionManual)}`);
+            }
+            registrarTelemetria({ tipo: 'check-gate', subsistema: agentId, resultado: 'aprobado', origen: resultado.origen });
         }
     }
     // Chequeos estáticos de 006_DEVSECOPS_INFRAESTRUCTURA — secretos, .env,
@@ -1389,6 +1471,7 @@ async function aprobarUnSubgate(agentId, archivosStaged) {
     const firma = hashArchivosStaged(relevantes);
     fs.writeFileSync(cfg.veredictoPath, JSON.stringify({
         aprobado: true,
+        origen: 'api_directa',
         firma,
         timestamp: new Date().toISOString(),
         firmado_por: `${agentId} (${path.relative(dirRoot, cfg.promptPath)}, vía API Anthropic)`,
@@ -1496,6 +1579,7 @@ if (process.argv.includes('--aprobar-diseno')) {
         const firma = hashEstado(carpetas);
         fs.writeFileSync(APROBACION_PATH, JSON.stringify({
             aprobado: true,
+            origen: 'api_directa',
             firma,
             timestamp: new Date().toISOString(),
             firmado_por: 'Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)',
@@ -1509,6 +1593,95 @@ if (process.argv.includes('--aprobar-diseno')) {
         escribirEstadoOperativo();
         process.exitCode = 0;
     })();
+    return;
+}
+
+// Modo excepción manual: `node agents/architecture-gate.cjs
+// --aprobar-excepcion-manual <principal|agentId> --autorizado-por "nombre"
+// --motivo "texto" [--horas N]` — 2026-08-16, cierre de §0-AJ.2. Antes de
+// esto, la única forma de destrabar el gate sin saldo de API era escribir
+// diseno_aprobado.json/veredicto_00X.json a mano, calculando la firma con el
+// mismo algoritmo público del script — indistinguible de un veredicto real
+// para validarDisenoAprobado()/validarSubgate(). Este modo no lo hace
+// infalsificable (sigue siendo local, con el mismo límite que hashEstado()
+// ya reconoce sobre sí mismo), pero cierra la brecha real: fuerza que la
+// excepción declare quién la autoriza y por qué, caduque sola dentro de
+// HORAS_MAX_EXCEPCION_MANUAL, y quede marcada en consola/PMU de forma
+// visiblemente distinta a una aprobación evaluada por la API — nunca
+// indistinguible, que era el hallazgo real.
+if (process.argv.includes('--aprobar-excepcion-manual')) {
+    asegurarSubgatesAutoDescubiertos();
+    const objetivo = process.argv[process.argv.indexOf('--aprobar-excepcion-manual') + 1];
+    const leerFlag = (nombre) => {
+        const idx = process.argv.indexOf(nombre);
+        return idx !== -1 ? process.argv[idx + 1] : undefined;
+    };
+    const autorizadoPor = leerFlag('--autorizado-por');
+    const motivo = leerFlag('--motivo');
+    const horasFlag = leerFlag('--horas');
+    const horas = Math.min(horasFlag ? Number(horasFlag) : 2, HORAS_MAX_EXCEPCION_MANUAL);
+
+    if (!objetivo || !autorizadoPor || !motivo) {
+        console.error('🛑 [EXCEPCION_MANUAL] Uso: --aprobar-excepcion-manual <principal|agentId> --autorizado-por "nombre" --motivo "texto" [--horas N]');
+        process.exitCode = 1;
+        return;
+    }
+    if (!Number.isFinite(horas) || horas <= 0) {
+        console.error(`🛑 [EXCEPCION_MANUAL] --horas debe ser un número positivo (máximo ${HORAS_MAX_EXCEPCION_MANUAL}).`);
+        process.exitCode = 1;
+        return;
+    }
+
+    const timestamp = new Date();
+    const expira = new Date(timestamp.getTime() + horas * 3600 * 1000).toISOString();
+    const excepcion = { autorizado_por: autorizadoPor, motivo, expira };
+
+    if (objetivo === 'principal') {
+        const carpetas = listarCarpetasAgentes();
+        const firma = hashEstado(carpetas);
+        fs.writeFileSync(APROBACION_PATH, JSON.stringify({
+            aprobado: true,
+            origen: 'excepcion_manual',
+            excepcion,
+            firma,
+            timestamp: timestamp.toISOString(),
+            firmado_por: `Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por ${autorizadoPor}: ${motivo}`,
+            razones: [`EXCEPCIÓN MANUAL, no veredicto de 002: ${motivo}`],
+            diferimientos: [],
+        }, null, 2) + '\n', 'utf8');
+        console.warn(`\n🟡 [EXCEPCION_MANUAL] Aprobación PRINCIPAL bajo excepción manual — expira ${expira} (${horas}h). Autorizada por: ${autorizadoPor}. Esto NO es un veredicto de la API de 002.`);
+        registrarTelemetria({ tipo: 'aprobar-excepcion-manual', subsistema: '002_principal', resultado: 'aprobado', razon: `excepcion_manual, expira ${expira}` });
+        escribirEstadoOperativo();
+        process.exitCode = 0;
+        return;
+    }
+
+    if (!SUBGATES[objetivo]) {
+        console.error(`🛑 [EXCEPCION_MANUAL] '${objetivo}' no es 'principal' ni un subgate configurado. Válidos: principal, ${Object.keys(SUBGATES).join(', ')}`);
+        process.exitCode = 1;
+        return;
+    }
+    const cfg = SUBGATES[objetivo];
+    const relevantes = archivosRelevantesPara(objetivo, obtenerArchivosStaged());
+    if (relevantes.length === 0) {
+        console.error(`🛑 [EXCEPCION_MANUAL] Ningún archivo staged le compete a ${objetivo} — nada que aprobar bajo excepción.`);
+        process.exitCode = 1;
+        return;
+    }
+    const firma = hashArchivosStaged(relevantes);
+    fs.writeFileSync(cfg.veredictoPath, JSON.stringify({
+        aprobado: true,
+        origen: 'excepcion_manual',
+        excepcion,
+        firma,
+        timestamp: timestamp.toISOString(),
+        firmado_por: `Excepción manual (canal alterno, sin evaluación de ${objetivo} vía API) — autorizada por ${autorizadoPor}: ${motivo}`,
+        veredictoCompleto: { nota: 'excepción manual, sin evaluación real del subagente' },
+    }, null, 2) + '\n', 'utf8');
+    console.warn(`\n🟡 [EXCEPCION_MANUAL] Subgate ${objetivo} bajo excepción manual — expira ${expira} (${horas}h). Autorizada por: ${autorizadoPor}. Esto NO es un veredicto de ${objetivo} vía API.`);
+    registrarTelemetria({ tipo: 'aprobar-excepcion-manual', subsistema: objetivo, resultado: 'aprobado', razon: `excepcion_manual, expira ${expira}` });
+    escribirEstadoOperativo();
+    process.exitCode = 0;
     return;
 }
 
@@ -1805,4 +1978,5 @@ module.exports = {
     analizarTelemetriaPMU, verificarVigenciaAgentes, leerTelemetria,
     extraerJSONConCampo, asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
     validarFormaVeredicto, VEREDICTO_SCHEMAS,
+    validarOrigenVeredicto, ORIGENES_VALIDOS, HORAS_MAX_EXCEPCION_MANUAL,
 };

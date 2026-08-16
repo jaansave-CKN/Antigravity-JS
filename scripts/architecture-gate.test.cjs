@@ -22,6 +22,7 @@ const {
   analizarTelemetriaPMU, verificarVigenciaAgentes, extraerJSONConCampo,
   asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
   validarFormaVeredicto, VEREDICTO_SCHEMAS,
+  validarOrigenVeredicto, ORIGENES_VALIDOS, HORAS_MAX_EXCEPCION_MANUAL,
 } = require('../agents/architecture-gate.cjs');
 
 const TELEMETRIA_PATH_REAL = path.join(__dirname, '..', 'agents', 'pmu', 'telemetria.jsonl');
@@ -220,6 +221,7 @@ test('validarSubgate: un diferimiento real de 002 (diseno_aprobado.json vigente 
     const firmaVigente = hashEstado(listarCarpetasAgentes());
     const conDiferimiento = {
       aprobado: true,
+      origen: 'api_directa',
       firma: firmaVigente,
       timestamp: new Date().toISOString(),
       firmado_por: 'test de regresión',
@@ -246,6 +248,7 @@ test('validarSubgate: un diferimiento para OTRO subgate distinto no satisface es
     const firmaVigente = hashEstado(listarCarpetasAgentes());
     const conDiferimiento = {
       aprobado: true,
+      origen: 'api_directa',
       firma: firmaVigente,
       timestamp: new Date().toISOString(),
       firmado_por: 'test de regresión',
@@ -584,4 +587,151 @@ test('validarFormaVeredicto: 002 con un diferimiento sin campo "razon" es RECHAZ
     diferimientos: [{ subgate: '004_SENTINELA_FRONTEND' }],
   });
   assert.equal(r.ok, false);
+});
+
+// =============================================================================
+// validarOrigenVeredicto — cierre de la brecha de procedencia (2026-08-16,
+// §0-AJ.2): antes, un veredicto con la firma/hash correctos era aceptado sin
+// verificar NADA sobre su origen. Regresión directa del hallazgo real: el
+// veredicto vigente de esa fecha fue escrito a mano (canal Agent tool, sin
+// saldo de API) e indistinguible para el gate de uno evaluado por la API.
+// =============================================================================
+test('validarOrigenVeredicto: sin campo "origen" es RECHAZADO por defecto (cierre de la brecha real)', () => {
+  const r = validarOrigenVeredicto({ aprobado: true, firma: 'x' });
+  assert.equal(r.ok, false);
+  assert.match(r.razon, /origen/);
+});
+
+test('validarOrigenVeredicto: origen "manual" (valor no reconocido) es RECHAZADO', () => {
+  const r = validarOrigenVeredicto({ aprobado: true, firma: 'x', origen: 'manual' });
+  assert.equal(r.ok, false);
+});
+
+test('validarOrigenVeredicto: origen "api_directa" es aceptado sin requerir excepcion', () => {
+  const r = validarOrigenVeredicto({ aprobado: true, firma: 'x', origen: 'api_directa' });
+  assert.equal(r.ok, true);
+});
+
+test('validarOrigenVeredicto: "excepcion_manual" sin objeto excepcion es RECHAZADO', () => {
+  const r = validarOrigenVeredicto({ aprobado: true, firma: 'x', origen: 'excepcion_manual' });
+  assert.equal(r.ok, false);
+  assert.match(r.razon, /autorizado_por|excepcion/);
+});
+
+test('validarOrigenVeredicto: "excepcion_manual" con excepcion completa y vigente es aceptado', () => {
+  const timestamp = new Date().toISOString();
+  const expira = new Date(Date.now() + 2 * 3600 * 1000).toISOString();
+  const r = validarOrigenVeredicto({
+    aprobado: true, firma: 'x', origen: 'excepcion_manual', timestamp,
+    excepcion: { autorizado_por: 'usuario de prueba', motivo: 'fixture de test', expira },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.excepcionManual.autorizado_por, 'usuario de prueba');
+});
+
+test('validarOrigenVeredicto: "excepcion_manual" CADUCADA es RECHAZADA', () => {
+  const timestamp = new Date(Date.now() - 10 * 3600 * 1000).toISOString();
+  const expiraEnElPasado = new Date(Date.now() - 1 * 3600 * 1000).toISOString();
+  const r = validarOrigenVeredicto({
+    aprobado: true, firma: 'x', origen: 'excepcion_manual', timestamp,
+    excepcion: { autorizado_por: 'x', motivo: 'y', expira: expiraEnElPasado },
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.razon, /caducad/);
+});
+
+test(`validarOrigenVeredicto: "excepcion_manual" que excede ${HORAS_MAX_EXCEPCION_MANUAL}h desde la firma es RECHAZADA (no se auto-extiende indefinidamente)`, () => {
+  const timestamp = new Date().toISOString();
+  const expiraDemasiadoLejos = new Date(Date.now() + (HORAS_MAX_EXCEPCION_MANUAL + 1) * 3600 * 1000).toISOString();
+  const r = validarOrigenVeredicto({
+    aprobado: true, firma: 'x', origen: 'excepcion_manual', timestamp,
+    excepcion: { autorizado_por: 'x', motivo: 'y', expira: expiraDemasiadoLejos },
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.razon, /máximo permitido/);
+});
+
+test('ORIGENES_VALIDOS: expone exactamente api_directa y excepcion_manual', () => {
+  assert.deepEqual([...ORIGENES_VALIDOS].sort(), ['api_directa', 'excepcion_manual']);
+});
+
+// Integración: validarDisenoAprobado()/validarSubgate() de verdad rechazan un
+// veredicto sin origen, aunque forma y hash sean correctos — mismo patrón de
+// mutación del archivo real con try/finally que el resto de este archivo.
+test('validarDisenoAprobado: veredicto con firma/hash correctos pero SIN "origen" es RECHAZADO (regresión de la brecha real)', () => {
+  const path = require('path');
+  const aprobacionPath = path.join(__dirname, '..', 'agents', 'diseno_aprobado.json');
+  const original = fs.readFileSync(aprobacionPath, 'utf8');
+  try {
+    const firmaVigente = hashEstado(listarCarpetasAgentes());
+    fs.writeFileSync(aprobacionPath, JSON.stringify({
+      aprobado: true, firma: firmaVigente, timestamp: new Date().toISOString(),
+      firmado_por: 'test de regresión', razones: ['fixture sin origen'],
+    }, null, 2) + '\n', 'utf8');
+
+    const resultado = validarDisenoAprobado(listarCarpetasAgentes());
+    assert.equal(resultado.aprobado, false, 'un veredicto sin "origen" no debe aprobar, aunque la firma coincida con el hash real');
+    assert.match(resultado.razon, /origen/);
+  } finally {
+    fs.writeFileSync(aprobacionPath, original, 'utf8');
+  }
+});
+
+test('validarSubgate: veredicto de subgate con firma correcta pero SIN "origen" es RECHAZADO', () => {
+  const path = require('path');
+  const veredictoPath = SUBGATES['004_SENTINELA_FRONTEND'].veredictoPath;
+  const existiaAntes = fs.existsSync(veredictoPath);
+  const original = existiaAntes ? fs.readFileSync(veredictoPath, 'utf8') : null;
+  try {
+    const relevantes = ['public/src/App.jsx'];
+    // hashArchivosStaged() lee 'git show :archivo' — no depende de que el
+    // archivo exista en disco de la misma forma que el resto de la prueba;
+    // se calcula la firma real para que el único motivo de rechazo posible
+    // sea la ausencia de "origen", no un hash desalineado.
+    const { execFileSync } = require('child_process');
+    const crypto = require('crypto');
+    let contenido;
+    try {
+      contenido = execFileSync('git', ['show', ':public/src/App.jsx'], { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
+    } catch (e) {
+      contenido = '';
+    }
+    const firma = crypto.createHash('sha256').update(`public/src/App.jsx:${crypto.createHash('sha256').update(contenido).digest('hex')}`).digest('hex');
+    fs.writeFileSync(veredictoPath, JSON.stringify({
+      aprobado: true, firma, timestamp: new Date().toISOString(),
+      firmado_por: 'test de regresión', veredictoCompleto: {},
+    }, null, 2) + '\n', 'utf8');
+
+    const resultado = validarSubgate('004_SENTINELA_FRONTEND', relevantes);
+    assert.equal(resultado.aplica, true);
+    assert.equal(resultado.aprobado, false, 'un veredicto de subgate sin "origen" no debe aprobar');
+    assert.match(resultado.razon, /origen/);
+  } finally {
+    if (existiaAntes) fs.writeFileSync(veredictoPath, original, 'utf8');
+    else fs.rmSync(veredictoPath, { force: true });
+  }
+});
+
+// =============================================================================
+// SUBGATES['006_DEVSECOPS_INFRAESTRUCTURA'] — cierre del "gate fantasma"
+// (§0-AJ.3): el frontmatter de 006 declaraba gate sobre .github/workflows/**
+// y scripts/*gate*/*veto*.cjs, pero la entrada hardcodeada previa nunca
+// cubría esos patrones — asegurarSubgatesAutoDescubiertos() nunca pisa una
+// entrada ya definida a mano, así que ese gate declarado NUNCA se registraba.
+// =============================================================================
+test('SUBGATES 006: ahora SÍ cubre .github/workflows/*.yml (antes del fix, 0 patrones lo cubrían)', () => {
+  const relevantes = archivosRelevantesPara('006_DEVSECOPS_INFRAESTRUCTURA', ['.github/workflows/gate.yml', 'README.md']);
+  assert.deepEqual(relevantes, ['.github/workflows/gate.yml']);
+});
+
+test('SUBGATES 006: ahora SÍ cubre scripts/*gate*.cjs y scripts/*veto*.cjs', () => {
+  const relevantes = archivosRelevantesPara('006_DEVSECOPS_INFRAESTRUCTURA', [
+    'scripts/check_veto_008.cjs', 'scripts/auditor_008_advisory_gate.cjs', 'scripts/db-check.js',
+  ]);
+  assert.deepEqual(relevantes.sort(), ['scripts/auditor_008_advisory_gate.cjs', 'scripts/check_veto_008.cjs']);
+});
+
+test('SUBGATES 006: sigue cubriendo render.yaml/.env.example/package*.json (patrones originales, no removidos por el fix)', () => {
+  const relevantes = archivosRelevantesPara('006_DEVSECOPS_INFRAESTRUCTURA', ['render.yaml', '.env.example', 'package.json', 'package-lock.json']);
+  assert.equal(relevantes.length, 4);
 });

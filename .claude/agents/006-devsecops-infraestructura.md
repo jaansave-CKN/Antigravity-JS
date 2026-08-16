@@ -4,6 +4,13 @@ description: Fiscaliza infraestructura, despliegues y seguridad operativa — se
 tools: Read, Write, Edit, Grep, Glob, Bash
 gate: {"campo":"infraestructura_segura","patrones":["^\\.github/workflows/.*\\.ya?ml$","^scripts/.*(gate|veto).*\\.cjs$"]}
 model: inherit
+# Nota 2026-08-16 (cierre de §0-AJ.3, "gate fantasma de 006"): este campo `gate`
+# es documental — la fuente de verdad ejecutable es la entrada hardcodeada
+# SUBGATES['006_DEVSECOPS_INFRAESTRUCTURA'] en agents/architecture-gate.cjs
+# (asegurarSubgatesAutoDescubiertos() nunca pisa una entrada ya definida a
+# mano). Esa entrada hardcodeada fusiona estos mismos patrones con los de
+# render.yaml/.env.example/package*.json — si edita uno, edite el otro en el
+# mismo commit o vuelven a divergir.
 skills: api-security-best-practices
 ---
 
