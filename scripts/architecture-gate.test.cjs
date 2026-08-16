@@ -294,6 +294,21 @@ test('generarEstadoOperativo: PMU — el tablero completo se genera sin error y 
   assert.equal(cero01.permiso_escritura, false, '001 no debe tener Write/Edit/Bash (fix de la ronda anterior)');
 });
 
+// "Circuit breaker" de alcance reducido (2026-08-16, diseño aprobado por 002):
+// las 2 vigilancias existentes (rechazos consecutivos, agente desactualizado)
+// ahora quedan escritas en el propio snapshot del PMU, no solo en un
+// console.warn de terminal que se pierde.
+test('generarEstadoOperativo: expone "alertas_activas" como arreglo, combinando analizarTelemetriaPMU() y verificarVigenciaAgentes()', () => {
+  const estado = generarEstadoOperativo();
+  assert.ok(Array.isArray(estado.alertas_activas), 'alertas_activas debe existir siempre, aunque esté vacío');
+  for (const alerta of estado.alertas_activas) {
+    assert.ok(
+      alerta.tipo === 'rechazos_consecutivos' || alerta.tipo === 'agente_desactualizado',
+      `tipo de alerta inesperado: ${alerta.tipo}`
+    );
+  }
+});
+
 test('generarEstadoOperativo: se autoasegura (llama asegurarSubgatesAutoDescubiertos internamente) — 009 siempre reporta "subgate", nunca "sin_gate_propio" (regresión 2026-08-13)', () => {
   // Antes dependía de que el caller invocara asegurarSubgatesAutoDescubiertos()
   // primero — un contrato implícito no forzado, reproducido en vivo: llamar

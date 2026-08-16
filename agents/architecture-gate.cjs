@@ -1061,11 +1061,27 @@ function generarEstadoOperativo() {
         };
     });
 
+    // alertas_activas (2026-08-16, "circuit breaker" — diseño aprobado por
+    // 002 con alcance reducido frente a la propuesta original del usuario:
+    // no existe proceso persistente que "aislar/cortar" en este sistema, así
+    // que esto no aísla nada en ejecución — lo que sí hace es dejar de perder
+    // las 2 vigilancias que ya existían (analizarTelemetriaPMU,
+    // verificarVigenciaAgentes) en un console.warn de una terminal que nadie
+    // vuelve a ver. Quedan escritas en el propio snapshot que este archivo ya
+    // regenera en cada --check-gate/--aprobar-*/--pmu-status, verificables en
+    // disco la próxima vez que alguien (humano o 001 vía su propia
+    // herramienta Read) lea el PMU, no solo en el instante en que ocurrieron.
+    const alertasActivas = [
+        ...analizarTelemetriaPMU().map(a => ({ tipo: 'rechazos_consecutivos', ...a })),
+        ...verificarVigenciaAgentes().map(a => ({ tipo: 'agente_desactualizado', ...a })),
+    ];
+
     return {
         generado: new Date().toISOString(),
         total_agentes: tablero.length,
         agentes_con_gate: tablero.filter(a => a.gate !== 'sin_gate_propio').length,
         agentes_con_permiso_escritura: tablero.filter(a => a.permiso_escritura).map(a => a.nombre || a.archivo),
+        alertas_activas: alertasActivas,
         agentes: tablero,
     };
 }
