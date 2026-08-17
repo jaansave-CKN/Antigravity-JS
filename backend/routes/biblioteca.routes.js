@@ -109,7 +109,9 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
     const documentos = await getRows(
-      'SELECT id, project_id, carpeta_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at FROM project_biblioteca WHERE project_id = ? ORDER BY created_at DESC',
+      // FIX (reportado por el usuario 2026-08-17): mismo fix que anexos.routes.js
+      // — ORDER BY created_at DESC invertía el orden de ingreso en cada recarga.
+      'SELECT id, project_id, carpeta_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at FROM project_biblioteca WHERE project_id = ? ORDER BY created_at ASC',
       [req.params.id]
     );
     res.json({ success: true, data: documentos });

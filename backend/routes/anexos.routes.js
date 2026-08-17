@@ -128,7 +128,11 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
     const anexos = await getRows(
-      'SELECT id, project_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at FROM project_anexos WHERE project_id = ? ORDER BY created_at DESC',
+      // FIX (reportado por el usuario 2026-08-17): ORDER BY created_at DESC
+      // (más nuevo primero) invertía el orden de ingreso cada vez que la
+      // lista se recargaba — el usuario numera sus filas mentalmente en el
+      // orden en que las escribe, no al revés. ASC = orden de ingreso real.
+      'SELECT id, project_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at FROM project_anexos WHERE project_id = ? ORDER BY created_at ASC',
       [req.params.id]
     );
     res.json({ success: true, data: anexos });
