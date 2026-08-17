@@ -129,6 +129,15 @@
   border-top: 1px solid #c4c5d7;
   border-bottom: 1px solid #c4c5d7;
 }
+.bib__bloquehead--clickable { cursor: pointer; user-select: none; }
+.bib__bloquehead--clickable:hover { background: #e4e9f0; }
+.bib__bloquehead-chevron {
+  flex-shrink: 0;
+  color: #747686;
+  transition: transform 0.15s;
+  transform: rotate(0deg);
+}
+.bib__bloquehead-chevron--open { transform: rotate(90deg); }
 .bib__bloquehead-icon { font-size: 14px; line-height: 1; }
 .bib__bloquehead-title {
   font-size: 12px;
