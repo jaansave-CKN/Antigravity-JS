@@ -518,7 +518,7 @@ export default function LoginPage() {
                   disabled={loading}
                   className="lp-btn-primary w-full bg-[#131b2e] text-[#38bdf8] border border-[rgba(56,189,248,0.35)] py-2.5 rounded-lg font-mono font-bold text-xs uppercase tracking-widest hover:bg-[#1a2a40] hover:border-[rgba(56,189,248,0.65)] disabled:opacity-40 mt-2"
                 >
-                  {loading ? 'AUTENTICANDO...' : 'EJECUTAR AUTENTICACIÓN'}
+                  {loading ? 'INICIANDO SESIÓN...' : 'INICIAR SESIÓN'}
                 </button>
               </form>
             )}
