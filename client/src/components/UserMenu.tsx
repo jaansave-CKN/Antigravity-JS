@@ -43,7 +43,7 @@ export default function UserMenu() {
         ref={btnRef}
         onClick={toggle}
         style={{
-          display: 'flex', alignItems: 'center', gap: 6, minWidth: 0,
+          display: 'flex', alignItems: 'center', gap: 4, minWidth: 0,
           background: 'none', border: 'none', cursor: 'pointer', padding: 0,
         }}
         title={user.email}
@@ -58,9 +58,9 @@ export default function UserMenu() {
           </svg>
         </div>
         <span style={{
-          fontSize: 10, color: '#c8d8e8', fontWeight: 500,
+          fontSize: 12, color: '#c8d8e8', fontWeight: 500,
           fontFamily: "'JetBrains Mono', monospace",
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130,
         }}>
           {user.email}
         </span>
@@ -79,10 +79,10 @@ export default function UserMenu() {
             boxShadow: '0 8px 24px rgba(0,0,0,0.4)', overflow: 'hidden',
           }}>
             <div style={{ padding: '10px 12px', borderBottom: '1px solid #1a3a50' }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: '#e0e0ff', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: '#e0e0ff', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {user.nombre || 'Operador'}
               </p>
-              <p style={{ fontSize: 10, color: '#557997', margin: '2px 0 0', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <p style={{ fontSize: 12, color: '#557997', margin: '2px 0 0', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {user.email}
               </p>
             </div>
@@ -93,12 +93,12 @@ export default function UserMenu() {
                   width: '100%', textAlign: 'left', padding: '9px 12px',
                   background: 'none', border: 'none', borderBottom: '1px solid #1a3a50', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', gap: 8,
-                  fontSize: 11, color: '#38bdf8', fontWeight: 600,
+                  fontSize: 13, color: '#38bdf8', fontWeight: 600,
                 }}
               >
                 🛡️ Panel Admin
                 {!isAdmin && (
-                  <span style={{ fontSize: 8.5, color: '#94a3b8', fontWeight: 500, marginLeft: 'auto' }}>DEV</span>
+                  <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 500, marginLeft: 'auto' }}>DEV</span>
                 )}
               </button>
             )}
@@ -108,7 +108,7 @@ export default function UserMenu() {
                 width: '100%', textAlign: 'left', padding: '9px 12px',
                 background: 'none', border: 'none', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: 8,
-                fontSize: 11, color: '#f87171', fontWeight: 500,
+                fontSize: 13, color: '#f87171', fontWeight: 500,
               }}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
