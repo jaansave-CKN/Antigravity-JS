@@ -248,7 +248,7 @@
 .bib__th--center { text-align: center; }
 
 .bib__tr {
-  padding: 10px 24px;
+  padding: 5px 24px;
   transition: background-color 0.15s;
 }
 .bib__tr:hover { background: rgba(0, 65, 163, 0.05); }
