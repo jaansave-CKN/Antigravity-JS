@@ -56,6 +56,32 @@ export async function convertUrlToMarkdown(url, timeoutMs = 30_000) {
   }
 }
 
+/**
+ * Convierte un archivo ya en memoria (buffer subido por el usuario, ej.
+ * multer memoryStorage) a Markdown — mismo motor que convertUrlToMarkdown,
+ * sin el paso de descarga. Usado por anexos.routes.js para extraer texto de
+ * PDFs/DOCX/XLSX subidos y alimentar el embedding semántico (ver
+ * embeddingsService.js) — se reusa este servicio en vez de instalar un
+ * segundo motor de extracción de texto.
+ * @param {Buffer} buffer
+ * @param {string} ext — extensión sin punto (pdf, docx, xlsx, ...)
+ * @param {number} [timeoutMs=30000]
+ * @returns {Promise<string>} Markdown resultante
+ */
+export async function convertBufferToMarkdown(buffer, ext, timeoutMs = 30_000) {
+  const tmpFile = join(tmpdir(), `radar_mid_${crypto.randomUUID()}.${ext}`);
+  try {
+    await writeFile(tmpFile, buffer);
+    const { stdout } = await execFileAsync('python', ['-m', 'markitdown', tmpFile], {
+      timeout: timeoutMs,
+      maxBuffer: 5 * 1024 * 1024,
+    });
+    return stdout.trim();
+  } finally {
+    unlink(tmpFile).catch(() => {});
+  }
+}
+
 // ── Gemini extractor ─────────────────────────────────────────────────────────
 
 let _genAI = null;

@@ -4,6 +4,7 @@
  *
  * GET    /api/proyectos/:id/anexos                    — lista los anexos reales del proyecto
  * POST   /api/proyectos/:id/anexos                    — sube un archivo real (multipart/form-data, campo "file")
+ * GET    /api/proyectos/:id/anexos/buscar?q=...       — búsqueda semántica (pgvector) sobre el contenido
  * GET    /api/proyectos/:id/anexos/:anexoId/download  — URL firmada temporal para descargar el archivo
  * DELETE /api/proyectos/:id/anexos/:anexoId           — elimina el anexo (fila en BD + objeto en Supabase Storage)
  *
@@ -13,6 +14,23 @@
  * por completo la dependencia de disco: los archivos ahora viven en Supabase
  * Storage (bucket privado "anexos"), subidos/leídos/borrados vía el cliente
  * admin (service_role key, bypasea RLS — igual que el resto de la app).
+ *
+ * BÚSQUEDA SEMÁNTICA (migración 041, 2026-08-17): mandato original del
+ * usuario pedía un pipeline nuevo con pdf-parse/cheerio/worker_threads y un
+ * JSONB "compatible con el Motor Dialéctico (RAG del proyecto)" — objetado
+ * por el agente architect tras leer el código real: motor_dialectico es
+ * configuración de tono narrativo (TEXT plano), no un RAG; el RAG real de
+ * este repo es embeddingsService.js + columnas vector(768) (mismo patrón que
+ * proyectos.embedding/convocatorias.embedding). pdf-parse/cheerio habrían
+ * duplicado markitdownService.js/EntityScraper.js, ya en producción.
+ * Alcance corregido y confirmado por el usuario: solo Anexos (no Biblioteca,
+ * que se diseñó el mismo día para NO tener pipeline de extracción — ver
+ * migración 040), conectado al RAG real, sin worker_threads/SSE (no
+ * justificados — extracción+embedding corre fire-and-forget tras responder,
+ * mismo patrón ya usado para el pipeline de presupuesto_apu más abajo).
+ * El embedding se genera solo en el POST (subida) — editar descripcion/texto
+ * después no lo regenera (evita releer el archivo en cada blur; limitación
+ * documentada, no un descuido).
  */
 import crypto from 'crypto';
 import pLimit from 'p-limit';
@@ -20,6 +38,8 @@ import { supabaseAdmin } from '../config/supabase.config.js';
 import { sanitizeTechnicalText, sanitizeUrl } from '../middlewares/SecurityMiddleware.js';
 import { parseAndSanitizeExcel } from '../services/ExtractorService.js';
 import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js';
+import { convertBufferToMarkdown } from '../services/markitdownService.js';
+import { textToEmbedding, serializeEmbedding } from '../services/embeddingsService.js';
 
 function safeParseJson(val) {
   if (!val) return null;
@@ -55,6 +75,34 @@ const ALLOWED_ANEXO_TYPES = {
 };
 
 const CATEGORIAS_VALIDAS = new Set(['legal', 'financiero', 'tecnico', 'institucional', 'presupuesto_apu', 'otro']);
+
+// Extensiones de ALLOWED_ANEXO_TYPES que MarkItDown puede convertir a texto —
+// jpg/png quedan fuera (no son documentos de texto, no aportan al embedding).
+const EXTENSIONES_CON_TEXTO = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx']);
+
+// Columna vector(768) nativa (migración 041) solo existe/se puebla vía pg
+// directo — igual que matchScore.js (stage2GetEmbedding): en Capa 2 (REST) el
+// cast "::vector" se omite en silencio (restUpdate solo acepta placeholders
+// bare), así que ahí solo se escribe la columna TEXT de respaldo.
+const USE_PG = !!process.env.DATABASE_URL;
+
+// Genera el embedding semántico de un anexo y lo persiste — fire-and-forget
+// (se llama sin await desde el POST, después de responder al cliente; nunca
+// debe bloquear ni hacer fallar la subida si Gemini/MarkItDown fallan).
+async function generarEmbeddingAsync(runSql, { anexoId, projectId, texto }) {
+  try {
+    if (!texto || !texto.trim()) return;
+    const vector = await textToEmbedding(texto);
+    const embStr = serializeEmbedding(vector);
+    if (USE_PG) {
+      await runSql('UPDATE project_anexos SET embedding = ?, embedding_vec = ?::vector WHERE id = ? AND project_id = ?', [embStr, embStr, anexoId, projectId]);
+    } else {
+      await runSql('UPDATE project_anexos SET embedding = ? WHERE id = ? AND project_id = ?', [embStr, anexoId, projectId]);
+    }
+  } catch (e) {
+    console.warn('[anexos] No se pudo generar el embedding semántico (no bloqueante):', e.message);
+  }
+}
 
 function safeExt(filename) {
   return (filename || '').split('.').pop().toLowerCase();
@@ -320,6 +368,23 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
       }
     }
 
+    // Búsqueda semántica (migración 041) — fire-and-forget, corre DESPUÉS de
+    // responder (sin await aquí) y nunca puede hacer fallar la subida. Combina
+    // el texto extraído del archivo (si el formato lo permite) con los campos
+    // narrativos — ver comentario de cabecera del archivo.
+    (async () => {
+      let textoArchivo = '';
+      if (req.file && EXTENSIONES_CON_TEXTO.has(safeExt(req.file.originalname))) {
+        try {
+          textoArchivo = await convertBufferToMarkdown(req.file.buffer, safeExt(req.file.originalname));
+        } catch (e) {
+          console.warn('[anexos] No se pudo extraer texto del archivo para el embedding (no bloqueante):', e.message);
+        }
+      }
+      const textoCompleto = [descripcion, texto, textoArchivo].filter(Boolean).join('\n\n').slice(0, 8000);
+      await generarEmbeddingAsync(runSql, { anexoId: id, projectId: req.params.id, texto: textoCompleto });
+    })().catch(() => {});
+
     res.status(201).json({
       success: true,
       data: {
@@ -331,6 +396,40 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
       extraccion: extraccion ? { totalLineas: extraccion.totalLineas, sheetUsada: extraccion.sheetUsada } : null,
       auditoria,
     });
+  }));
+
+  /**
+   * GET /api/proyectos/:id/anexos/buscar?q=texto
+   * Búsqueda semántica (pgvector, coseno) sobre descripcion+texto+contenido
+   * extraído del archivo. Requiere Capa 1 (pg directo) — en Capa 2 (REST) la
+   * columna embedding_vec puede no estar poblada (ver USE_PG arriba).
+   */
+  app.get('/api/proyectos/:id/anexos/buscar', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const q = String(req.query?.q || '').trim();
+    if (!q) return res.status(400).json({ success: false, message: 'Parámetro "q" requerido' });
+    if (!USE_PG) return res.status(503).json({ success: false, message: 'Búsqueda semántica no disponible sin conexión directa a la base de datos' });
+
+    let vector;
+    try {
+      vector = await textToEmbedding(q);
+    } catch (e) {
+      return res.status(502).json({ success: false, message: `No se pudo generar el embedding de la búsqueda: ${e.message}` });
+    }
+    const vecStr = serializeEmbedding(vector);
+
+    const resultados = await getRows(
+      `SELECT id, nombre_archivo, categoria, descripcion, texto, link, created_at,
+              (1 - (embedding_vec <=> ?::vector)) AS similitud
+       FROM project_anexos
+       WHERE project_id = ? AND embedding_vec IS NOT NULL
+       ORDER BY embedding_vec <=> ?::vector
+       LIMIT 20`,
+      [vecStr, req.params.id, vecStr]
+    );
+    res.json({ success: true, data: resultados });
   }));
 
   /**
