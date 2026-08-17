@@ -10,9 +10,20 @@
  *
  * GET    /api/proyectos/:id/biblioteca                    — lista los documentos del proyecto
  * POST   /api/proyectos/:id/biblioteca                    — sube un archivo real (multipart/form-data, campo "file")
- * PATCH  /api/proyectos/:id/biblioteca/:docId              — edita campos narrativos + categoria
+ * PATCH  /api/proyectos/:id/biblioteca/:docId              — edita campos narrativos + categoria + carpeta_id
  * GET    /api/proyectos/:id/biblioteca/:docId/download     — URL firmada temporal para descargar el archivo
  * DELETE /api/proyectos/:id/biblioteca/:docId              — elimina el documento (fila en BD + objeto en Supabase Storage)
+ *
+ * Carpetas dinámicas (migración 040 — reemplazan las 2 carpetas fijas):
+ * GET    /api/proyectos/:id/biblioteca/carpetas                        — lista carpetas del proyecto
+ * POST   /api/proyectos/:id/biblioteca/carpetas                        — crea carpeta { nombre }
+ * PUT    /api/proyectos/:id/biblioteca/carpetas/:carpetaId             — renombra { nombre }
+ * DELETE /api/proyectos/:id/biblioteca/carpetas/:carpetaId             — elimina carpeta; sus documentos quedan
+ *                                                                        "sin carpeta" (ON DELETE SET NULL)
+ * DELETE /api/proyectos/:id/biblioteca/carpetas/:carpetaId?eliminarDocumentos=true
+ *                                                                       — además borra los documentos de la carpeta
+ *                                                                        (fila + archivo en Storage) — acción opt-in,
+ *                                                                        nunca el comportamiento implícito
  */
 import crypto from 'crypto';
 import { supabaseAdmin } from '../config/supabase.config.js';
@@ -98,10 +109,101 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
     const documentos = await getRows(
-      'SELECT id, project_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at FROM project_biblioteca WHERE project_id = ? ORDER BY created_at DESC',
+      'SELECT id, project_id, carpeta_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at FROM project_biblioteca WHERE project_id = ? ORDER BY created_at DESC',
       [req.params.id]
     );
     res.json({ success: true, data: documentos });
+  }));
+
+  /**
+   * GET /api/proyectos/:id/biblioteca/carpetas
+   */
+  app.get('/api/proyectos/:id/biblioteca/carpetas', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const carpetas = await getRows(
+      'SELECT id, project_id, nombre, orden, created_at FROM project_biblioteca_carpetas WHERE project_id = ? ORDER BY orden ASC, created_at ASC',
+      [req.params.id]
+    );
+    res.json({ success: true, data: carpetas });
+  }));
+
+  /**
+   * POST /api/proyectos/:id/biblioteca/carpetas — crea una carpeta { nombre }
+   */
+  app.post('/api/proyectos/:id/biblioteca/carpetas', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
+    if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
+
+    const [{ maxOrden } = { maxOrden: -1 }] = await getRows(
+      'SELECT COALESCE(MAX(orden), -1) AS "maxOrden" FROM project_biblioteca_carpetas WHERE project_id = ?',
+      [req.params.id]
+    );
+
+    const id = crypto.randomUUID();
+    await runSql(
+      'INSERT INTO project_biblioteca_carpetas (id, project_id, tenant_id, nombre, orden, created_at) VALUES (?,?,?,?,?,?)',
+      [id, req.params.id, req.userId, nombre, Number(maxOrden) + 1, new Date().toISOString()]
+    );
+    res.status(201).json({ success: true, data: { id, project_id: req.params.id, nombre, orden: Number(maxOrden) + 1 } });
+  }));
+
+  /**
+   * PUT /api/proyectos/:id/biblioteca/carpetas/:carpetaId — renombra { nombre }
+   */
+  app.put('/api/proyectos/:id/biblioteca/carpetas/:carpetaId', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
+    if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
+
+    const carpeta = await getRow(
+      'SELECT id FROM project_biblioteca_carpetas WHERE id = ? AND project_id = ?',
+      [req.params.carpetaId, req.params.id]
+    );
+    if (!carpeta) return res.status(404).json({ success: false, message: 'Carpeta no encontrada' });
+
+    await runSql('UPDATE project_biblioteca_carpetas SET nombre = ? WHERE id = ?', [nombre, req.params.carpetaId]);
+    res.json({ success: true, message: 'Carpeta renombrada' });
+  }));
+
+  /**
+   * DELETE /api/proyectos/:id/biblioteca/carpetas/:carpetaId
+   * Por defecto, los documentos de la carpeta quedan "sin carpeta" (FK
+   * ON DELETE SET NULL) — nunca se borran implícitamente. Solo con
+   * ?eliminarDocumentos=true se borran también los documentos (fila +
+   * archivo en Storage), acción explícita y opt-in desde el frontend.
+   */
+  app.delete('/api/proyectos/:id/biblioteca/carpetas/:carpetaId', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const carpeta = await getRow(
+      'SELECT id FROM project_biblioteca_carpetas WHERE id = ? AND project_id = ?',
+      [req.params.carpetaId, req.params.id]
+    );
+    if (!carpeta) return res.status(404).json({ success: false, message: 'Carpeta no encontrada' });
+
+    const eliminarDocumentos = String(req.query?.eliminarDocumentos || '') === 'true';
+    if (eliminarDocumentos) {
+      const docs = await getRows(
+        'SELECT id, ruta_storage FROM project_biblioteca WHERE carpeta_id = ? AND project_id = ?',
+        [req.params.carpetaId, req.params.id]
+      );
+      await runSql('DELETE FROM project_biblioteca WHERE carpeta_id = ? AND project_id = ?', [req.params.carpetaId, req.params.id]);
+      if (supabaseAdmin) {
+        const rutas = docs.map(d => d.ruta_storage).filter(Boolean);
+        if (rutas.length) supabaseAdmin.storage.from(BIBLIOTECA_BUCKET).remove(rutas).catch(() => {});
+      }
+    }
+
+    await runSql('DELETE FROM project_biblioteca_carpetas WHERE id = ?', [req.params.carpetaId]);
+    res.json({ success: true, message: eliminarDocumentos ? 'Carpeta y sus documentos eliminados' : 'Carpeta eliminada — sus documentos quedaron sin carpeta' });
   }));
 
   /**
@@ -131,6 +233,14 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     const categoriaRaw = String(req.body?.categoria || 'otro').toLowerCase();
     const categoria = CATEGORIAS_VALIDAS.has(categoriaRaw) ? categoriaRaw : 'otro';
 
+    // carpeta_id es opcional (documento "sin carpeta" es válido) — se valida
+    // que exista y pertenezca al mismo proyecto antes de aceptarla.
+    let carpetaId = req.body?.carpeta_id ? String(req.body.carpeta_id) : null;
+    if (carpetaId) {
+      const carpeta = await getRow('SELECT id FROM project_biblioteca_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
+      if (!carpeta) carpetaId = null;
+    }
+
     const id = crypto.randomUUID();
     let nombreArchivo = '', rutaStorage = '', tipoMime = '', tamanoBytes = 0;
 
@@ -155,9 +265,9 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     try {
       await runSql(
         `INSERT INTO project_biblioteca
-         (id, project_id, tenant_id, nombre_archivo, ruta_storage, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [id, req.params.id, req.userId, nombreArchivo, rutaStorage, tipoMime, tamanoBytes, categoria, descripcion, texto, link, new Date().toISOString()]
+         (id, project_id, tenant_id, nombre_archivo, ruta_storage, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, carpeta_id, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [id, req.params.id, req.userId, nombreArchivo, rutaStorage, tipoMime, tamanoBytes, categoria, descripcion, texto, link, carpetaId, new Date().toISOString()]
       );
     } catch (dbError) {
       if (rutaStorage) {
@@ -173,6 +283,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
       data: {
         id, project_id: req.params.id, nombre_archivo: nombreArchivo,
         tipo_mime: tipoMime, tamano_bytes: tamanoBytes, categoria, descripcion, texto, link,
+        carpeta_id: carpetaId,
         created_at: new Date().toISOString(),
       },
     });
@@ -180,8 +291,8 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
 
   /**
    * PATCH /api/proyectos/:id/biblioteca/:docId — edita los campos narrativos
-   * (descripcion/texto/link) y, opcionalmente, la categoria (toggle
-   * "Documento Técnico" del frontend).
+   * (descripcion/texto/link) y, opcionalmente, categoria y/o carpeta_id
+   * (mover el documento a otra carpeta, o a null = sin carpeta).
    */
   app.patch('/api/proyectos/:id/biblioteca/:docId', authenticateToken, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
@@ -191,17 +302,30 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     const texto        = sanitizeTechnicalText(String(req.body?.texto ?? ''), 500);
     const link         = sanitizeUrl(String(req.body?.link ?? ''), 500);
 
+    let carpetaClause = '';
+    const params = [descripcion, texto, link];
+    if (req.body?.carpeta_id !== undefined) {
+      let carpetaId = req.body.carpeta_id ? String(req.body.carpeta_id) : null;
+      if (carpetaId) {
+        const carpeta = await getRow('SELECT id FROM project_biblioteca_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
+        if (!carpeta) carpetaId = null;
+      }
+      carpetaClause = ', carpeta_id = ?';
+      params.push(carpetaId);
+    }
+
     if (req.body?.categoria !== undefined) {
       const categoriaRaw = String(req.body.categoria || 'otro').toLowerCase();
       const categoria = CATEGORIAS_VALIDAS.has(categoriaRaw) ? categoriaRaw : 'otro';
+      params.push(categoria);
       await runSql(
-        'UPDATE project_biblioteca SET descripcion = ?, texto = ?, link = ?, categoria = ? WHERE id = ? AND project_id = ?',
-        [descripcion, texto, link, categoria, req.params.docId, req.params.id]
+        `UPDATE project_biblioteca SET descripcion = ?, texto = ?, link = ?${carpetaClause}, categoria = ? WHERE id = ? AND project_id = ?`,
+        [...params, req.params.docId, req.params.id]
       );
     } else {
       await runSql(
-        'UPDATE project_biblioteca SET descripcion = ?, texto = ?, link = ? WHERE id = ? AND project_id = ?',
-        [descripcion, texto, link, req.params.docId, req.params.id]
+        `UPDATE project_biblioteca SET descripcion = ?, texto = ?, link = ?${carpetaClause} WHERE id = ? AND project_id = ?`,
+        [...params, req.params.docId, req.params.id]
       );
     }
     res.json({ success: true, message: 'Documento actualizado' });
