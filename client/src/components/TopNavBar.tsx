@@ -91,7 +91,7 @@ function ReportErrorButton({ token }: { token: string | null }) {
            style={{
              width: 180, padding: '3px 8px',
              background: '#001c2e', border: '1px solid #254b67',
-             borderRadius: 3, color: '#d1e8ff', fontSize: 10,
+             borderRadius: 3, color: '#d1e8ff', fontSize: 12,
              fontFamily: "'JetBrains Mono', monospace", outline: 'none',
            }}
            maxLength={500}
@@ -99,7 +99,7 @@ function ReportErrorButton({ token }: { token: string | null }) {
          <button onClick={send} disabled={!message.trim()} style={btnStyle('#60c9ff', '#003f58')}>
            OK
          </button>
-        <button onClick={() => setState('idle')} style={{ background: 'none', border: 'none', color: '#557997', cursor: 'pointer', fontSize: 12 }}>✕</button>
+        <button onClick={() => setState('idle')} style={{ background: 'none', border: 'none', color: '#557997', cursor: 'pointer', fontSize: 14 }}>✕</button>
       </div>
     );
   }
@@ -108,10 +108,10 @@ function ReportErrorButton({ token }: { token: string | null }) {
     <button onClick={() => state === 'sent' ? setState('idle') : setState('open')}
       style={{
         background: 'none', border: '1px solid transparent', borderRadius: 3,
-        padding: '3px 8px', flexShrink: 0,
+        padding: '3px 4px', flexShrink: 0,
         color: state === 'sent' ? '#22c55e' : '#557997',
         cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 9, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' as const,
+        fontSize: 11, fontWeight: 600, letterSpacing: '0em', textTransform: 'uppercase' as const,
       }}
     >{state === 'sent' ? '✓' : '⚑'}</button>
   );
@@ -120,7 +120,7 @@ function ReportErrorButton({ token }: { token: string | null }) {
 function btnStyle(bg: string, color: string) {
   return {
     padding: '3px 8px', background: bg, color,
-    border: 'none', borderRadius: 3, fontSize: 9, fontWeight: 700,
+    border: 'none', borderRadius: 3, fontSize: 11, fontWeight: 700,
     fontFamily: "'JetBrains Mono', monospace", cursor: 'pointer',
   } as const;
 }
@@ -135,8 +135,8 @@ function RootIndicator({ status }: { status: RootStatus }) {
 
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 5,
-      padding: '2px 10px', borderRadius: 9999,
+      display: 'flex', alignItems: 'center', gap: 3,
+      padding: '2px 5px', borderRadius: 9999,
       background: 'rgba(0,0,0,0.3)',
       border: `1px solid ${cfg.color}33`,
       flexShrink: 0,
@@ -150,8 +150,8 @@ function RootIndicator({ status }: { status: RootStatus }) {
       }} />
       <span style={{
         fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 8, fontWeight: 700, color: cfg.color,
-        letterSpacing: '0.08em', textTransform: 'uppercase' as const,
+        fontSize: 10, fontWeight: 700, color: cfg.color,
+        letterSpacing: '0.03em', textTransform: 'uppercase' as const,
         whiteSpace: 'nowrap' as const,
       }}>{cfg.label}</span>
     </div>
@@ -174,19 +174,19 @@ function NavItem({
   if (locked) {
     return (
       <span title={lockTitle} style={{
-        padding: '3px 9px',
+        padding: '2px 2px',
         borderRadius: 3,
-        fontSize: 9,
+        fontSize: 11,
         fontFamily: "'JetBrains Mono', monospace",
         fontWeight: 600,
-        letterSpacing: '0.06em',
+        letterSpacing: '0em',
         textTransform: 'uppercase' as const,
         color: planLocked ? '#3a2d4a' : '#2d4a60',
         cursor: 'not-allowed',
         display: 'flex', alignItems: 'center', gap: 4,
         userSelect: 'none' as const,
       }}>
-        <span style={{ fontSize: 8, opacity: 0.5 }}>{planLocked ? '⬡' : '🔒'}</span>
+        <span style={{ fontSize: 10, opacity: 0.5 }}>{planLocked ? '⬡' : '🔒'}</span>
         {label}
       </span>
     );
@@ -196,12 +196,12 @@ function NavItem({
     <NavLink
       to={to}
       style={({ isActive }) => ({
-        padding: '3px 9px',
+        padding: '2px 2px',
         borderRadius: 3,
-        fontSize: 9,
+        fontSize: 11,
         fontFamily: "'JetBrains Mono', monospace",
         fontWeight: 600,
-        letterSpacing: '0.06em',
+        letterSpacing: '0em',
         textTransform: 'uppercase' as const,
         textDecoration: 'none',
         transition: 'all 0.15s',
@@ -268,8 +268,8 @@ export default function TopNavBar() {
         height:               48,
         display:              'flex',
         alignItems:           'center',
-        padding:              '0 1rem',
-        gap:                  8,
+        padding:              '0 0.5rem',
+        gap:                  3,
         flexShrink:           0,
         backdropFilter:       isLanding ? 'blur(16px)' : 'none',
         WebkitBackdropFilter: isLanding ? 'blur(16px)' : 'none',
@@ -278,22 +278,11 @@ export default function TopNavBar() {
         zIndex:               100,
         overflow:             'hidden',
       }}>
-        {/* Wrapper interno relativo: ancla el indicador ROOT al centro real de la barra,
-            independiente del ancho desigual de los pilares A/B a los lados. */}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-          <div style={{
-            position: 'absolute', left: '50%', top: '50%',
-            transform: 'translate(-50%, -50%)', pointerEvents: 'auto',
-          }}>
-            <RootIndicator status={rootStatus} />
-          </div>
-        </div>
-
         {/* ── BRAND ─────────────────────────────────────────────────────────── */}
         <NavLink to="/" style={{ textDecoration: 'none', flexShrink: 0 }}>
           <span style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 12, fontWeight: 700, color: '#60c9ff',
+            fontSize: 14, fontWeight: 700, color: '#60c9ff',
             letterSpacing: '0.04em', whiteSpace: 'nowrap',
           }}>
             INICIO
@@ -305,26 +294,26 @@ export default function TopNavBar() {
         {/* ── PILAR IZQUIERDO: Módulos de Gestión ───────────────────────────── */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 1,
-          borderLeft: '1px solid #0d2a3d', paddingLeft: 6,
+          borderLeft: '1px solid #0d2a3d', paddingLeft: 4,
         }}>
           <span style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 7, fontWeight: 700, color: '#2d4a60',
+            fontSize: 8, fontWeight: 700, color: '#2d4a60',
             letterSpacing: '0.1em', textTransform: 'uppercase',
-            marginRight: 4, whiteSpace: 'nowrap',
+            marginRight: 2, whiteSpace: 'nowrap',
           }}>A</span>
           {LEFT_LINKS.map(link => {
             // Bloqueado a nivel de pilar (usuario en contexto B o solo tiene plan formulador)
             if (pilarALocked) {
               return (
                 <span key={link.to} title="Módulo A · Radar de Fondos — no activo en este contexto" style={{
-                  padding: '3px 9px', borderRadius: 3, fontSize: 9,
+                  padding: '2px 2px', borderRadius: 3, fontSize: 11,
                   fontFamily: "'JetBrains Mono', monospace", fontWeight: 600,
-                  letterSpacing: '0.06em', textTransform: 'uppercase' as const,
+                  letterSpacing: '0em', textTransform: 'uppercase' as const,
                   color: '#1a3a50', cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: 4,
                   userSelect: 'none' as const,
                 }}>
-                  <span style={{ fontSize: 8, opacity: 0.4 }}>⬡</span>{link.label}
+                  <span style={{ fontSize: 10, opacity: 0.4 }}>⬡</span>{link.label}
                 </span>
               );
             }
@@ -337,21 +326,27 @@ export default function TopNavBar() {
 
         <Divider />
 
-        {/* ── CENTRO: espaciador — el indicador ROOT real vive anclado al centro absoluto de la barra ── */}
-        <div style={{ flex: 1 }} />
+        {/* ── CENTRO: el indicador ROOT vive en el flujo real del flexbox, centrado
+             en el espacio libre entre pilares — nunca se solapa con los links,
+             sin importar el ancho desigual del texto a los lados (antes estaba
+             posicionado absoluto al 50% geométrico de toda la barra, que sí
+             podía solaparse cuando un pilar crecía más que el otro). ── */}
+        <div style={{ flex: '1 1 0%', flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
+          <RootIndicator status={rootStatus} />
+        </div>
 
         <Divider />
 
         {/* ── PILAR DERECHO: Ejecución IA 7.0 ──────────────────────────────── */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 1,
-          borderRight: '1px solid #0d2a3d', paddingRight: 6,
+          borderRight: '1px solid #0d2a3d', paddingRight: 4,
         }}>
           <span style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 7, fontWeight: 700, color: '#2d4a60',
+            fontSize: 8, fontWeight: 700, color: '#2d4a60',
             letterSpacing: '0.1em', textTransform: 'uppercase',
-            marginRight: 4, whiteSpace: 'nowrap',
+            marginRight: 2, whiteSpace: 'nowrap',
           }}>B</span>
           {RIGHT_LINKS.map(link => {
             const isMotor = link.to === '/checklist';
@@ -359,13 +354,13 @@ export default function TopNavBar() {
             if (pilarBLocked) {
               return (
                 <span key={link.to} title="Módulo B · Check-List — no activo en este contexto" style={{
-                  padding: '3px 9px', borderRadius: 3, fontSize: 9,
+                  padding: '2px 2px', borderRadius: 3, fontSize: 11,
                   fontFamily: "'JetBrains Mono', monospace", fontWeight: 600,
-                  letterSpacing: '0.06em', textTransform: 'uppercase' as const,
+                  letterSpacing: '0em', textTransform: 'uppercase' as const,
                   color: '#2a1a4a', cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: 4,
                   userSelect: 'none' as const,
                 }}>
-                  <span style={{ fontSize: 8, opacity: 0.4 }}>⬡</span>{link.label}
+                  <span style={{ fontSize: 10, opacity: 0.4 }}>⬡</span>{link.label}
                 </span>
               );
             }
@@ -388,7 +383,7 @@ export default function TopNavBar() {
                 padding: '3px 10px', borderRadius: 3,
                 background: 'rgba(96,201,255,0.08)',
                 border: '1px solid rgba(96,201,255,0.25)',
-                color: '#60c9ff', fontSize: 9, fontWeight: 700,
+                color: '#60c9ff', fontSize: 11, fontWeight: 700,
                 fontFamily: "'JetBrains Mono', monospace",
                 letterSpacing: '0.06em', textTransform: 'uppercase',
                 cursor: 'pointer', whiteSpace: 'nowrap',
@@ -396,7 +391,7 @@ export default function TopNavBar() {
             </NavLink>
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
             {token && <ReportErrorButton token={token} />}
             <UserMenu />
           </div>
