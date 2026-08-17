@@ -144,27 +144,80 @@
   font-style: italic;
 }
 
-.bib__toggle {
-  width: 36px;
-  height: 20px;
-  border-radius: 9999px;
+.bib__select {
+  width: 100%;
   border: 1px solid #c4c5d7;
+  border-radius: 0.5rem;
+  padding: 8px 10px;
   background: #ffffff;
-  padding: 2px;
+  font-family: inherit;
+  font-size: 12px;
+  color: #191c1e;
+  outline: none;
+  cursor: pointer;
+}
+.bib__select:focus { border-color: #0041a3; box-shadow: 0 0 0 2px rgba(0, 65, 163, 0.2); }
+
+/* ── Carpetas: crear / renombrar / eliminar ── */
+.bib__newcarpeta-btn {
   display: flex;
   align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  color: #0041a3;
+  border: 1px solid #0041a3;
+  border-radius: 0.5rem;
+  padding: 10px 16px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s;
+  white-space: nowrap;
 }
-.bib__toggle-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #9199a3;
-  transition: transform 0.15s, background 0.15s;
+.bib__newcarpeta-btn:hover { background: #eef1f5; }
+.bib__newcarpeta-input {
+  border: 1px solid #0041a3;
+  border-radius: 0.5rem;
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  width: 200px;
+  box-shadow: 0 0 0 2px rgba(0, 65, 163, 0.2);
 }
-.bib__toggle--on { background: #0041a3; border-color: #0041a3; }
-.bib__toggle--on .bib__toggle-thumb { background: #ffffff; transform: translateX(16px); }
+
+.bib__bloquehead-input {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #191c1e;
+  border: 1px solid #0041a3;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: inherit;
+  outline: none;
+}
+.bib__bloquehead-actions { display: flex; align-items: center; gap: 4px; margin-left: 4px; }
+.bib__bloquehead-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: none;
+  background: none;
+  color: #747686;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.bib__bloquehead-btn:hover { background: rgba(0, 65, 163, 0.1); color: #0041a3; }
+.bib__bloquehead-btn--danger:hover { background: rgba(186, 26, 26, 0.1); color: #ba1a1a; }
+
+.bib__bloque-footer { padding: 10px 24px 16px; }
+.bib__add--sm { font-size: 13px; }
 
 .bib__theadrow {
   padding: 8px 24px;
