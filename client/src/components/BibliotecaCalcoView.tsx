@@ -53,6 +53,7 @@ export default function BibliotecaCalcoView() {
   const [nombreNuevaCarpeta, setNombreNuevaCarpeta] = useState('');
   const [editandoCarpetaId, setEditandoCarpetaId] = useState<string | null>(null);
   const [nombreEdicion, setNombreEdicion] = useState('');
+  const [carpetasColapsadas, setCarpetasColapsadas] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const targetIdRef = useRef<string | null>(null);
 
@@ -238,11 +239,19 @@ export default function BibliotecaCalcoView() {
     }
   };
 
-  const tieneVacíos = () =>
-    documentos.some(s => !s.descripcion.trim() && !s.texto.trim() && !s.anexo.trim() && !s.link.trim());
+  // FIX (reportado por el usuario 2026-08-17): antes este check era GLOBAL
+  // (documentos.some(...) sobre TODOS los documentos) — una sola fila vacía
+  // en CUALQUIER carpeta desactivaba el botón "+ Agregar documento" de TODAS
+  // las demás carpetas. Con carpetas dinámicas eso es incorrecto: cada
+  // carpeta debe evaluar solo sus propias filas vacías, igual que el filtro
+  // `items` ya usado para renderizarlas (misma clave: carpetaId ?? SIN_CARPETA).
+  const tieneVacíosEnBloque = (bloqueId: string) =>
+    documentos
+      .filter(s => (s.carpetaId ?? SIN_CARPETA) === bloqueId)
+      .some(s => !s.descripcion.trim() && !s.texto.trim() && !s.anexo.trim() && !s.link.trim());
 
   const agregar = (carpetaId: string | null) => {
-    if (tieneVacíos()) return;
+    if (tieneVacíosEnBloque(carpetaId ?? SIN_CARPETA)) return;
     setDocumentos(prev => [...prev, nuevoDocumento(carpetaId)]);
   };
 
@@ -344,6 +353,16 @@ export default function BibliotecaCalcoView() {
     }
   };
 
+  // Colapso/expansión por carpeta — evita que la interfaz se sature cuando
+  // se acumulan muchos documentos. Expandido por defecto (Set vacío).
+  const toggleColapso = (bloqueId: string) => {
+    setCarpetasColapsadas(prev => {
+      const next = new Set(prev);
+      if (next.has(bloqueId)) next.delete(bloqueId); else next.add(bloqueId);
+      return next;
+    });
+  };
+
   const bloques = [
     ...carpetas.map(c => ({ id: c.id, titulo: c.nombre, esCarpetaReal: true as const })),
     { id: SIN_CARPETA, titulo: 'Sin carpeta', esCarpetaReal: false as const },
@@ -409,17 +428,30 @@ export default function BibliotecaCalcoView() {
             {bloques.map(bloque => {
               const items = documentos.filter(d => (d.carpetaId ?? SIN_CARPETA) === bloque.id);
               const enEdicion = editandoCarpetaId === bloque.id;
+              const colapsada = carpetasColapsadas.has(bloque.id);
               return (
                 <div key={bloque.id} className="bib__bloque">
-                  <div className="bib__bloquehead">
+                  <div
+                    className="bib__bloquehead bib__bloquehead--clickable"
+                    onClick={() => toggleColapso(bloque.id)}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={!colapsada}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleColapso(bloque.id); } }}
+                  >
+                    <svg
+                      className={`bib__bloquehead-chevron${colapsada ? '' : ' bib__bloquehead-chevron--open'}`}
+                      width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+                    ><polyline points="9 18 15 12 9 6" /></svg>
                     <span className="bib__bloquehead-icon">📁</span>
                     {enEdicion ? (
                       <input
                         className="bib__bloquehead-input"
                         autoFocus
                         value={nombreEdicion}
+                        onClick={e => e.stopPropagation()}
                         onChange={e => setNombreEdicion(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') guardarEdicionCarpeta(bloque.id); if (e.key === 'Escape') setEditandoCarpetaId(null); }}
+                        onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') guardarEdicionCarpeta(bloque.id); if (e.key === 'Escape') setEditandoCarpetaId(null); }}
                         onBlur={() => guardarEdicionCarpeta(bloque.id)}
                       />
                     ) : (
@@ -427,7 +459,7 @@ export default function BibliotecaCalcoView() {
                     )}
                     <span className="bib__count">{items.length}</span>
                     {bloque.esCarpetaReal && !enEdicion && (
-                      <div className="bib__bloquehead-actions">
+                      <div className="bib__bloquehead-actions" onClick={e => e.stopPropagation()}>
                         <button className="bib__bloquehead-btn" title="Renombrar carpeta" onClick={() => iniciarEdicionCarpeta(carpetas.find(c => c.id === bloque.id)!)}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
                         </button>
@@ -437,10 +469,10 @@ export default function BibliotecaCalcoView() {
                       </div>
                     )}
                   </div>
-                  {items.length === 0 && (
+                  {!colapsada && items.length === 0 && (
                     <div className="bib__bloque-empty">Sin documentos en esta carpeta todavía.</div>
                   )}
-                  {items.map((s, idx) => (
+                  {!colapsada && items.map((s, idx) => (
                     <div key={s.id} className="bib__tr bib__grid">
                       <span className="bib__rownum">{idx + 1}</span>
                       <div className="bib__td bib__td--desc">
@@ -492,18 +524,20 @@ export default function BibliotecaCalcoView() {
                       </div>
                     </div>
                   ))}
-                  <div className="bib__bloque-footer">
-                    <button
-                      className="bib__add bib__add--sm"
-                      onClick={() => agregar(bloque.esCarpetaReal ? bloque.id : null)}
-                      disabled={tieneVacíos()}
-                      title={tieneVacíos() ? 'Completa al menos un campo del documento actual antes de agregar otro' : undefined}
-                      style={{ opacity: tieneVacíos() ? 0.4 : 1, cursor: tieneVacíos() ? 'not-allowed' : 'pointer' }}
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-                      Agregar nuevo documento
-                    </button>
-                  </div>
+                  {!colapsada && (
+                    <div className="bib__bloque-footer">
+                      <button
+                        className="bib__add bib__add--sm"
+                        onClick={() => agregar(bloque.esCarpetaReal ? bloque.id : null)}
+                        disabled={tieneVacíosEnBloque(bloque.id)}
+                        title={tieneVacíosEnBloque(bloque.id) ? 'Completa al menos un campo del documento actual antes de agregar otro' : undefined}
+                        style={{ opacity: tieneVacíosEnBloque(bloque.id) ? 0.4 : 1, cursor: tieneVacíosEnBloque(bloque.id) ? 'not-allowed' : 'pointer' }}
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                        Agregar nuevo documento
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
