@@ -174,7 +174,7 @@ function NavItem({
   if (locked) {
     return (
       <span title={lockTitle} style={{
-        padding: '2px 2px',
+        padding: '3px 5px',
         borderRadius: 3,
         fontSize: 11,
         fontFamily: "'JetBrains Mono', monospace",
@@ -196,7 +196,7 @@ function NavItem({
     <NavLink
       to={to}
       style={({ isActive }) => ({
-        padding: '2px 2px',
+        padding: '3px 5px',
         borderRadius: 3,
         fontSize: 11,
         fontFamily: "'JetBrains Mono', monospace",
@@ -293,7 +293,7 @@ export default function TopNavBar() {
 
         {/* ── PILAR IZQUIERDO: Módulos de Gestión ───────────────────────────── */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 1,
+          display: 'flex', alignItems: 'center', gap: 3,
           borderLeft: '1px solid #0d2a3d', paddingLeft: 4,
         }}>
           <span style={{
@@ -307,7 +307,7 @@ export default function TopNavBar() {
             if (pilarALocked) {
               return (
                 <span key={link.to} title="Módulo A · Radar de Fondos — no activo en este contexto" style={{
-                  padding: '2px 2px', borderRadius: 3, fontSize: 11,
+                  padding: '3px 5px', borderRadius: 3, fontSize: 11,
                   fontFamily: "'JetBrains Mono', monospace", fontWeight: 600,
                   letterSpacing: '0em', textTransform: 'uppercase' as const,
                   color: '#1a3a50', cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: 4,
@@ -339,7 +339,7 @@ export default function TopNavBar() {
 
         {/* ── PILAR DERECHO: Ejecución IA 7.0 ──────────────────────────────── */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 1,
+          display: 'flex', alignItems: 'center', gap: 3,
           borderRight: '1px solid #0d2a3d', paddingRight: 4,
         }}>
           <span style={{
@@ -354,7 +354,7 @@ export default function TopNavBar() {
             if (pilarBLocked) {
               return (
                 <span key={link.to} title="Módulo B · Check-List — no activo en este contexto" style={{
-                  padding: '2px 2px', borderRadius: 3, fontSize: 11,
+                  padding: '3px 5px', borderRadius: 3, fontSize: 11,
                   fontFamily: "'JetBrains Mono', monospace", fontWeight: 600,
                   letterSpacing: '0em', textTransform: 'uppercase' as const,
                   color: '#2a1a4a', cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: 4,
