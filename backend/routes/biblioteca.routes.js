@@ -294,13 +294,29 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
    * (descripcion/texto/link) y, opcionalmente, categoria y/o carpeta_id
    * (mover el documento a otra carpeta, o a null = sin carpeta).
    */
+  // BLINDAJE ANTIPÉRDIDA (2026-08-17): si el payload trae descripcion/texto/
+  // link vacíos pero el valor ya guardado en BD no lo está, se conserva el
+  // valor existente en vez de sobrescribirlo con vacío. No aplica a
+  // carpeta_id/categoria — null es un valor válido e intencional para esos
+  // dos (mover a "sin carpeta" / reclasificar), no un dato accidentalmente
+  // perdido. Consecuencia consciente: ya no se puede vaciar descripcion/
+  // texto/link por edición normal — solo eliminando la fila completa.
   app.patch('/api/proyectos/:id/biblioteca/:docId', authenticateToken, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const descripcion = sanitizeTechnicalText(String(req.body?.descripcion ?? ''), 500);
-    const texto        = sanitizeTechnicalText(String(req.body?.texto ?? ''), 500);
-    const link         = sanitizeUrl(String(req.body?.link ?? ''), 500);
+    const existente = await getRow(
+      'SELECT descripcion, texto, link FROM project_biblioteca WHERE id = ? AND project_id = ?',
+      [req.params.docId, req.params.id]
+    );
+    if (!existente) return res.status(404).json({ success: false, message: 'Documento no encontrado' });
+
+    const descripcionIn = sanitizeTechnicalText(String(req.body?.descripcion ?? ''), 500);
+    const textoIn        = sanitizeTechnicalText(String(req.body?.texto ?? ''), 500);
+    const linkIn          = sanitizeUrl(String(req.body?.link ?? ''), 500);
+    const descripcion = descripcionIn.trim() ? descripcionIn : existente.descripcion;
+    const texto        = textoIn.trim() ? textoIn : existente.texto;
+    const link          = linkIn.trim() ? linkIn : existente.link;
 
     let carpetaClause = '';
     const params = [descripcion, texto, link];

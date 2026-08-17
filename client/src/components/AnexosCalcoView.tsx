@@ -22,6 +22,13 @@ import { http, ApiError, isAuthenticated } from '../lib/apiClient';
 
 const STORAGE_KEY = 'radar360_anexos_calco';
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
+// Caché por proyecto (blindaje antipérdida 2026-08-17): antes solo se
+// escribía en localStorage en modo "sin proyecto activo" — cualquier tecleo
+// sin llegar a onBlur se perdía por completo ante un F5 con proyecto activo.
+// Clave separada por proyecto para no mezclar borradores de proyectos
+// distintos entre sí ni con el borrador legado (STORAGE_KEY sin sufijo, que
+// sigue existiendo solo para la migración de borradores pre-proyecto-activo).
+const cacheKeyDe = (proyectoId: string | null) => proyectoId ? `${STORAGE_KEY}_proj_${proyectoId}` : STORAGE_KEY;
 
 interface Soporte {
   id: string;
@@ -62,6 +69,17 @@ export default function AnexosCalcoView() {
   const [limpiado, setLimpiado] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const targetIdRef = useRef<string | null>(null);
+  // Ids eliminados mientras un guardado (POST) seguía en vuelo — un Set en un
+  // ref se actualiza de forma síncrona e inmediata, sin la ambigüedad de
+  // scheduling que tiene encadenar dos setState (uno disparado desde dentro
+  // de eliminar() tras un window.confirm() que bloquea el hilo principal, y
+  // otro desde la resolución de un fetch que pudo completarse en la red
+  // MIENTRAS ese confirm() bloqueaba — verificado en vivo con logs: un check
+  // basado en setState(prev => prev.some(...)) veía la fila como "todavía
+  // presente" incluso después de que eliminar() ya la había filtrado, por el
+  // orden real de reconciliación de React en ese cruce. Un ref no tiene ese
+  // problema: se lee/escribe al instante, siempre consistente.
+  const eliminadosRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!proyectoId) {
@@ -79,7 +97,37 @@ export default function AnexosCalcoView() {
           id: a.id, descripcion: a.descripcion || '', texto: a.texto || '', link: a.link || '',
           anexo: a.nombre_archivo || '', esTecnico: esCategoriaTecnica(a.categoria), persistido: true,
         }));
-        if (rows.length) { setSoportes(rows); return; }
+
+        // Fusión con el caché local de este proyecto: si un F5 interrumpió una
+        // edición antes de que el onBlur alcanzara a guardarla, el servidor
+        // todavía tiene la versión vieja — se prefiere la versión local (más
+        // reciente) para esas filas. Filas 100% nuevas que nunca llegaron a
+        // persistirse (sin id de servidor) se conservan como borradores.
+        let merged = rows;
+        try {
+          const cachedRaw = localStorage.getItem(cacheKeyDe(proyectoId));
+          if (cachedRaw) {
+            const cached = JSON.parse(cachedRaw) as Soporte[];
+            if (Array.isArray(cached)) {
+              const cachedById = new Map(cached.map(c => [c.id, c]));
+              merged = rows.map(r => {
+                const c = cachedById.get(r.id);
+                if (c && (c.descripcion !== r.descripcion || c.texto !== r.texto || c.link !== r.link || c.anexo !== r.anexo)) {
+                  return { ...r, descripcion: c.descripcion, texto: c.texto, link: c.link, anexo: c.anexo };
+                }
+                return r;
+              });
+              const idsServidor = new Set(rows.map(r => r.id));
+              const soloLocales = cached.filter(c =>
+                !c.persistido && !idsServidor.has(c.id) &&
+                (c.descripcion?.trim() || c.texto?.trim() || c.link?.trim() || c.anexo?.trim())
+              );
+              if (soloLocales.length) merged = [...merged, ...soloLocales];
+            }
+          }
+        } catch { /* caché corrupto — se ignora, no se pierde lo que sí llegó del servidor */ }
+
+        if (merged.length) { setSoportes(merged); return; }
 
         // Primera activación de proyecto sin datos en el servidor: si existe un
         // borrador guardado en modo "sin proyecto activo" (STORAGE_KEY), se migra
@@ -157,9 +205,22 @@ export default function AnexosCalcoView() {
     return () => { cancelled = true; };
   }, [proyectoId]);
 
-  // Cache local instantánea (solo en modo sin proyecto activo — offline/demo).
+  // Cache local instantánea — con o sin proyecto activo. Se escribe en cada
+  // cambio de estado (cada tecla, cada blur) para que un F5 nunca pierda una
+  // edición que todavía no alcanzó a llegar al servidor.
+  //
+  // FIX (bug real encontrado en vivo 2026-08-17): con `cargando` seguía en
+  // true, este efecto igual se dispara en el montaje inicial con
+  // soportes=[] (el useState arranca vacío) — eso BORRABA el borrador real
+  // en localStorage un instante antes de que el efecto de carga asíncrona
+  // (fetch + fusión) alcanzara a leerlo, dejando la fusión sin nada que
+  // fusionar. Verificado con un F5 real: el texto sin guardar desaparecía
+  // pese a que la fusión estaba bien escrita. Se bloquea la escritura
+  // mientras `cargando` es true para que la carga inicial siempre gane la
+  // carrera contra este efecto.
   useEffect(() => {
-    if (!proyectoId) localStorage.setItem(STORAGE_KEY, JSON.stringify(soportes));
+    if (cargando) return;
+    localStorage.setItem(cacheKeyDe(proyectoId), JSON.stringify(soportes));
   }, [soportes, proyectoId]);
 
   const actualizarLocal = (id: string, patch: Partial<Soporte>) =>
@@ -184,7 +245,22 @@ export default function AnexosCalcoView() {
         fd.append('link', row.link);
         fd.append('categoria', categoriaDe(row));
         const resp = await http.upload<{ success: boolean; data?: { id: string } }>(`/api/proyectos/${proyectoId}/anexos`, fd);
-        if (resp.data?.id) actualizarLocal(id, { id: resp.data.id, persistido: true });
+        if (resp.data?.id) {
+          const idServidor = resp.data.id;
+          // FIX (reportado por el usuario 2026-08-17): si la fila se elimina
+          // en el cliente MIENTRAS este POST sigue en vuelo, el servidor
+          // igual la crea — queda un huérfano invisible en esta sesión que
+          // reaparece intacto en el próximo F5/GET, pareciendo una fila
+          // "duplicada" con descripción vacía. eliminadosRef (no un check de
+          // setState) es la fuente de verdad de si esto pasó — ver comentario
+          // en su declaración.
+          if (eliminadosRef.current.has(id)) {
+            eliminadosRef.current.delete(id);
+            http.delete(`/api/proyectos/${proyectoId}/anexos/${idServidor}`).catch(() => {});
+          } else {
+            actualizarLocal(id, { id: idServidor, persistido: true });
+          }
+        }
       }
       setErrorSync(null);
       return true;
@@ -235,6 +311,9 @@ export default function AnexosCalcoView() {
     if (resultados.every(Boolean)) {
       setGuardado(true);
       setTimeout(() => setGuardado(false), 2200);
+      // El caché local solo se limpia cuando el servidor confirmó TODAS las
+      // filas — si algo falló, el borrador se conserva para no perderlo.
+      localStorage.removeItem(cacheKeyDe(proyectoId));
     }
     // Si alguna fila falló, no se muestra "✓ GUARDADO" — el banner de
     // errorSync (arriba del encabezado) ya explica qué pasó.
@@ -265,6 +344,7 @@ export default function AnexosCalcoView() {
     const row = soportes.find(s => s.id === id);
     const tieneContenido = row && (row.descripcion.trim() || row.texto.trim() || row.link.trim() || row.anexo.trim());
     if (tieneContenido && !window.confirm('¿Eliminar este soporte documental? Esta acción no se puede deshacer.')) return;
+    eliminadosRef.current.add(id); // marca ANTES de tocar el estado — ver comentario en la declaración del ref
     setSoportes(prev => prev.filter(s => s.id !== id));
     if (!proyectoId) { localStorage.setItem(STORAGE_KEY, JSON.stringify(soportes.filter(s => s.id !== id))); return; }
     if (row?.persistido) {
@@ -305,7 +385,20 @@ export default function AnexosCalcoView() {
       const resp = await http.upload<{ success: boolean; data?: { id: string; nombre_archivo: string }; message?: string }>(
         `/api/proyectos/${proyectoId}/anexos`, fd
       );
-      if (resp.data) actualizarLocal(id, { id: resp.data.id, anexo: resp.data.nombre_archivo, persistido: true, subiendo: false });
+      if (resp.data) {
+        const idServidor = resp.data.id;
+        const nombreArchivo = resp.data.nombre_archivo;
+        // Misma condición de carrera que en guardarEnServidor: si la fila se
+        // borró mientras esta subida seguía en vuelo, el archivo real ya
+        // quedó guardado en el servidor — eliminadosRef es la fuente de
+        // verdad (ver comentario en su declaración), se limpia el huérfano.
+        if (eliminadosRef.current.has(id)) {
+          eliminadosRef.current.delete(id);
+          http.delete(`/api/proyectos/${proyectoId}/anexos/${idServidor}`).catch(() => {});
+        } else {
+          actualizarLocal(id, { id: idServidor, anexo: nombreArchivo, persistido: true, subiendo: false });
+        }
+      }
       setErrorSync(null);
     } catch {
       actualizarLocal(id, { subiendo: false });

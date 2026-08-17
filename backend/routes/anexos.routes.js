@@ -336,14 +336,30 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
    * subido). Solo cambia la etiqueta — no vuelve a disparar ExtractorService/
    * AuditorForenseService aunque la nueva categoria sea 'presupuesto_apu';
    * ese pipeline solo corre una vez, en el POST original de subida.
+   *
+   * BLINDAJE ANTIPÉRDIDA (2026-08-17): si el payload trae un campo vacío
+   * pero el valor ya guardado en BD no lo está, se conserva el valor
+   * existente en vez de sobrescribirlo con vacío. Consecuencia consciente:
+   * ya no se puede vaciar un campo por edición normal (blur con el campo
+   * borrado) — solo eliminando la fila completa. Es la lectura más segura
+   * del pedido "no perder datos ya guardados" del usuario.
    */
   app.patch('/api/proyectos/:id/anexos/:anexoId', authenticateToken, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const descripcion = sanitizeTechnicalText(String(req.body?.descripcion ?? ''), 500);
-    const texto        = sanitizeTechnicalText(String(req.body?.texto ?? ''), 500);
-    const link         = sanitizeUrl(String(req.body?.link ?? ''), 500);
+    const existente = await getRow(
+      'SELECT descripcion, texto, link FROM project_anexos WHERE id = ? AND project_id = ?',
+      [req.params.anexoId, req.params.id]
+    );
+    if (!existente) return res.status(404).json({ success: false, message: 'Anexo no encontrado' });
+
+    const descripcionIn = sanitizeTechnicalText(String(req.body?.descripcion ?? ''), 500);
+    const textoIn        = sanitizeTechnicalText(String(req.body?.texto ?? ''), 500);
+    const linkIn          = sanitizeUrl(String(req.body?.link ?? ''), 500);
+    const descripcion = descripcionIn.trim() ? descripcionIn : existente.descripcion;
+    const texto        = textoIn.trim() ? textoIn : existente.texto;
+    const link          = linkIn.trim() ? linkIn : existente.link;
 
     if (req.body?.categoria !== undefined) {
       const categoriaRaw = String(req.body.categoria || 'otro').toLowerCase();
