@@ -70,7 +70,7 @@ import { Agent, setGlobalDispatcher } from 'undici';
 import { supabaseStorage } from '../config/supabase.config.js';
 import { convertBufferToMarkdown } from './markitdownService.js';
 import { sanitizeTechnicalText } from '../middlewares/SecurityMiddleware.js';
-import { geminiCB, isQuotaError } from './geminiCircuitBreaker.js';
+import { withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
 
@@ -248,46 +248,49 @@ MATERIAL DE INVESTIGACIÓN REAL DEL PROYECTO:
 ${contenido}`;
 }
 
+// REFACTOR (2026-08-19, pool de llaves): withKeyRotation() prueba cada
+// llave del pool, rotando solo ante 429 — mismo contrato (siempre lanza
+// EntradaIAError con status HTTP claro, nunca deja el formulario a medias).
 async function llamarGemini(systemPrompt, orgId) {
-  const GEMINI_KEY = process.env.GOOGLE_API_KEY;
-  if (!GEMINI_KEY) throw new EntradaIAError('La generación con IA no está configurada en el servidor (falta GOOGLE_API_KEY).', 503);
-  if (!geminiCB.canCall()) throw new EntradaIAError('El límite de uso de IA está agotado por ahora — intenta de nuevo en unos minutos, o llena el formulario manualmente.', 429);
-
   try {
-    const upstream = await fetch(GEMINI_URL, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${GEMINI_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'gemini-3.6-flash',
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: 'Genera el JSON del formulario a partir del material de investigación.' }],
-        temperature: 0.2,
-        max_tokens: 4096,
-      }),
+    const { texto, usage } = await withKeyRotation(async (apiKey) => {
+      const upstream = await fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gemini-3.6-flash',
+          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: 'Genera el JSON del formulario a partir del material de investigación.' }],
+          temperature: 0.2,
+          max_tokens: 4096,
+        }),
+      });
+
+      if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');
+      if (!upstream.ok) {
+        const cuerpo = await upstream.text().catch(() => '');
+        logger.error('[EntradaIA] Fallo Gemini', { status: upstream.status, body: cuerpo.slice(0, 300) });
+        throw new Error(`Gemini HTTP ${upstream.status}`);
+      }
+
+      const data = await upstream.json();
+      const texto = data?.choices?.[0]?.message?.content?.trim();
+      if (!texto) throw new Error('Gemini sin contenido en la respuesta');
+      return { texto, usage: data?.usage ?? {} };
     });
 
-    if (!upstream.ok) {
-      if (upstream.status === 429) geminiCB.recordQuotaError();
-      const cuerpo = await upstream.text().catch(() => '');
-      logger.error('[EntradaIA] Fallo Gemini', { status: upstream.status, body: cuerpo.slice(0, 300) });
-      throw new EntradaIAError('No se pudo generar con IA en este momento — intenta de nuevo o llena el formulario manualmente.', 502);
-    }
-
-    const data = await upstream.json();
-    const texto = data?.choices?.[0]?.message?.content?.trim();
-    if (!texto) throw new EntradaIAError('La IA no devolvió contenido — intenta de nuevo.', 502);
-
-    geminiCB.recordSuccess();
     logTokenUsage({
       userId: orgId, agentName: 'entrada-ia',
-      tokensInput: data?.usage?.prompt_tokens ?? 0,
-      tokensOutput: data?.usage?.completion_tokens ?? 0,
+      tokensInput: usage?.prompt_tokens ?? 0,
+      tokensOutput: usage?.completion_tokens ?? 0,
     }).catch(() => {});
     return texto;
   } catch (err) {
     if (err instanceof EntradaIAError) throw err;
-    if (isQuotaError(err)) { geminiCB.recordQuotaError(); throw new EntradaIAError('Límite de IA agotado — intenta de nuevo en unos minutos.', 429); }
+    if (err instanceof GeminiPoolExhaustedError) throw new EntradaIAError('El límite de uso de IA está agotado por ahora — intenta de nuevo en unos minutos, o llena el formulario manualmente.', 429);
+    if (isQuotaError(err)) throw new EntradaIAError('Límite de IA agotado — intenta de nuevo en unos minutos.', 429);
+    if (err.status === 503) throw new EntradaIAError('La generación con IA no está configurada en el servidor (falta GOOGLE_API_KEY).', 503);
     logger.error('[EntradaIA] Excepción Gemini', { err: err.message });
-    throw new EntradaIAError('No se pudo conectar con el servicio de IA — intenta de nuevo o llena el formulario manualmente.', 502);
+    throw new EntradaIAError('No se pudo generar con IA en este momento — intenta de nuevo o llena el formulario manualmente.', 502);
   }
 }
 

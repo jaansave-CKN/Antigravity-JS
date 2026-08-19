@@ -12,7 +12,7 @@
  * presupuesto/hallazgos ya persistidos — cero cifras inventadas.
  */
 import { supabaseAdmin } from '../config/supabase.config.js';
-import { geminiCB, isQuotaError } from './geminiCircuitBreaker.js';
+import { withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
 import { SMMLV_2026_COP } from './ValorExponencialService.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
@@ -99,47 +99,44 @@ SNAPSHOT REAL DEL PROYECTO (datos financieros/auditoría ya calculados):
 ${snapshotTexto}`;
 }
 
+// REFACTOR (2026-08-19, pool de llaves): antes leía una sola GOOGLE_API_KEY
+// y llamaba a geminiCB directamente; ahora withKeyRotation() prueba cada
+// llave configurada en el pool, rotando solo ante 429 — mismo contrato de
+// retorno (texto o null, nunca lanza) y mismo log de errores no-cuota.
 async function llamarGemini(messages, userId) {
-  const GEMINI_KEY = process.env.GOOGLE_API_KEY;
-  if (!GEMINI_KEY || !geminiCB.canCall()) return null;
-
   try {
-    const upstream = await fetch(GEMINI_URL, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${GEMINI_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'gemini-3.6-flash', messages, temperature: 0.3, max_tokens: 1024 }),
-    });
+    const { texto, usage } = await withKeyRotation(async (apiKey) => {
+      const upstream = await fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'gemini-3.6-flash', messages, temperature: 0.3, max_tokens: 1024 }),
+      });
 
-    if (!upstream.ok) {
-      if (upstream.status === 429) {
-        geminiCB.recordQuotaError();
-      } else {
+      if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');
+      if (!upstream.ok) {
         // FIX (auditoría SRE Red Team 2026-08-10, Capa 4): antes, cualquier
         // fallo no-429 (401 clave inválida, 400 malformado, 500/503 caído)
         // se tragaba en silencio — el usuario siempre veía "cuota agotada"
         // sin importar la causa real, invisible en logs/monitoreo.
         const cuerpo = await upstream.text().catch(() => '');
-        logger.error('[Copiloto] Fallo Gemini no-cuota', { status: upstream.status, body: cuerpo.slice(0, 300) });
+        throw new Error(`Gemini HTTP ${upstream.status}: ${cuerpo.slice(0, 300)}`);
       }
-      return null;
-    }
 
-    const data = await upstream.json();
-    const texto = data?.choices?.[0]?.message?.content?.trim();
-    if (!texto) return null;
+      const data = await upstream.json();
+      const texto = data?.choices?.[0]?.message?.content?.trim();
+      if (!texto) throw new Error('Gemini sin contenido en la respuesta');
+      return { texto, usage: data?.usage ?? {} };
+    });
 
-    geminiCB.recordSuccess();
     // FinOps — fire-and-forget, nunca bloquea ni rompe la respuesta al usuario.
     logTokenUsage({
       userId, agentName: 'copiloto',
-      tokensInput: data?.usage?.prompt_tokens ?? 0,
-      tokensOutput: data?.usage?.completion_tokens ?? 0,
+      tokensInput: usage?.prompt_tokens ?? 0,
+      tokensOutput: usage?.completion_tokens ?? 0,
     }).catch(() => {});
     return texto;
   } catch (err) {
-    if (isQuotaError(err)) {
-      geminiCB.recordQuotaError();
-    } else {
+    if (!(err instanceof GeminiPoolExhaustedError) && !isQuotaError(err)) {
       logger.error('[Copiloto] Excepción Gemini no-cuota', { err: err.message });
     }
     return null;
