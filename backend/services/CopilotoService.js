@@ -90,6 +90,7 @@ REGLAS INQUEBRANTABLES:
 2. Fundamenta tu razonamiento en la normativa pertinente a la pregunta: Ley 80 (contratación pública), POT (uso de suelo), NSR-10 (sismorresistencia), ISO 9001/ISO 45001 (HSEQ), y buenas prácticas de formulación/evaluación de proyectos (marco lógico, cadena de valor, teoría de cambio) cuando aplique.
 3. Usa ÚNICAMENTE los datos reales del snapshot de abajo para cifras del proyecto. Si el snapshot no tiene el dato que te preguntan, dilo explícitamente ("no tengo ese dato cargado en el proyecto") — nunca inventes cifras, escenarios ni hallazgos. Fuera de lo financiero (formulación, metodología, impacto), puedes orientar y razonar libremente, aclarando siempre cuando una cifra específica del proyecto no está disponible.
 4. Sé breve y directo, en tono de asesor técnico senior, no de chatbot genérico.
+5. Motor de Diagramación (2026-08-17): si te piden explícitamente un mapa/flujo de proceso, un organigrama o un cronograma tipo Gantt, responde con un bloque \`\`\`mermaid que contenga sintaxis Mermaid válida (flowchart/graph, gantt, etc.) — el frontend lo detecta y lo dibuja automáticamente. Si te piden un análisis financiero que amerite visualizarse como gráfico (presupuesto, costos APU, flujo de caja), responde con un bloque \`\`\`json con exactamente esta forma: {"tipo_visualizacion":"grafico_financiero","tipo":"barra"|"linea","titulo":"...","claveX":"nombre_del_campo_x","series":[{"clave":"campo_y","nombre":"Etiqueta"}],"data":[{"nombre_del_campo_x":"...", "campo_y": 1234567}]} — usa SIEMPRE valores numéricos en COP sin formatear (el frontend los formatea). Nunca emitas estos bloques si no te lo piden explícitamente — la respuesta normal sigue siendo texto plano.
 
 MÓDULOS DEL FORMULADOR (puedes orientar sobre cualquiera, no solo el activo): Entrada, Checklist, Ficha Técnica, Anexos (presupuesto/APU), Logística, Dialéctica (marco lógico/coherencia), Viabilidad (scoring IA).
 MÓDULO ACTUAL: ${moduloActivo || '(no especificado)'}
@@ -106,7 +107,7 @@ async function llamarGemini(messages, userId) {
     const upstream = await fetch(GEMINI_URL, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${GEMINI_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'gemini-2.0-flash', messages, temperature: 0.3, max_tokens: 1024 }),
+      body: JSON.stringify({ model: 'gemini-3.6-flash', messages, temperature: 0.3, max_tokens: 1024 }),
     });
 
     if (!upstream.ok) {
@@ -171,7 +172,16 @@ export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo 
   ]);
 
   const systemPrompt = buildSystemPrompt(formatearSnapshot(snapshot), moduloActivo);
-  const contexto = historialPrevio.slice(-MAX_HISTORIAL_CONTEXTO).map(h => ({ role: h.role, content: h.content }));
+  // FIX (auditoría 2026-08-17): copiloto_historial guarda los roles en
+  // convención nativa de Gemini ('user'/'model' — ver INSERT más abajo,
+  // mismo naming que usa el SDK genAI y el frontend CoPilotoSidebarChat.tsx),
+  // pero se llama al endpoint OpenAI-compatible de Gemini, que exige
+  // 'user'/'assistant'/'system' — enviar 'model' tal cual causaba
+  // "Invalid role: model" (400 INVALID_ARGUMENT) en CUALQUIER turno con
+  // historial previo, cayendo siempre a Modo Respaldo sin que el usuario
+  // supiera por qué. Se traduce solo al armar el payload; la BD sigue
+  // guardando 'model' sin cambios (no rompe el historial ya persistido).
+  const contexto = historialPrevio.slice(-MAX_HISTORIAL_CONTEXTO).map(h => ({ role: h.role === 'model' ? 'assistant' : h.role, content: h.content }));
   const messages = [
     { role: 'system', content: systemPrompt },
     ...contexto,
@@ -180,7 +190,7 @@ export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo 
 
   const respuestaGemini = await llamarGemini(messages, orgId);
   const respuesta = respuestaGemini || respuestaRespaldo(snapshot);
-  const fuente = respuestaGemini ? 'gemini-2.0-flash' : 'heuristica';
+  const fuente = respuestaGemini ? 'gemini-3.6-flash' : 'heuristica';
 
   const { error: insertError } = await supabaseAdmin.from('project_chat_history').insert([
     { project_id: projectId, org_id: orgId, role: 'user', content: mensaje, modulo_activo: moduloActivo || null },

@@ -17,6 +17,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { http, ApiError } from '../lib/apiClient';
 import ProyectoSelectorModal from '../components/ProyectoSelectorModal';
+import { cop as COP } from '../lib/currencyFormat';
 
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
 
@@ -25,8 +26,6 @@ const T = {
   textMuted: 'rgba(25,28,30,0.55)', primary: '#0058be', primarySoft: 'rgba(0,88,190,0.08)',
   error: '#ba1a1a', success: '#2e7d32', warn: '#b45309', font: "'Manrope', sans-serif",
 };
-
-const COP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
 type Fase = 'NEGRA' | 'GRIS' | 'BLANCA';
 const FASES: Fase[] = ['NEGRA', 'GRIS', 'BLANCA'];

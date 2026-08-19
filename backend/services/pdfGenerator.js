@@ -6,6 +6,7 @@
 
 import PDFDocument from 'pdfkit';
 import crypto from 'crypto';
+import { embedSvgInPdf } from './svgEmbed.js';
 
 // ── Protocol Precision ────────────────────────────────────────────────────────
 const C = {
@@ -81,9 +82,14 @@ export function generarHashCertificacion(proyectoId, auditId, timestamp) {
 /**
  * Genera el buffer PDF del reporte certificado (SSR exclusivo).
  * @param {object} proyecto — fila completa de la tabla proyectos
+ * @param {Array<{svg: string, titulo?: string}>} [graficos] — gráficos/diagramas
+ *   ya renderizados en el navegador (Recharts vía <GraficoFinanciero>, Mermaid
+ *   vía <DiagramaMermaid>) — se recibe el <svg>.outerHTML real, este generador
+ *   NO renderiza nada por su cuenta (ver backend/services/svgEmbed.js). Opcional
+ *   — si se omite, el reporte se genera exactamente igual que antes.
  * @returns {Promise<Buffer>}
  */
-export function generarReportePDF(proyecto) {
+export function generarReportePDF(proyecto, graficos = []) {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({
@@ -216,6 +222,33 @@ export function generarReportePDF(proyecto) {
            .text('⚠  Sello de auditoría no disponible. El proyecto no ha sido radicado aún.');
       }
       doc.moveDown(1);
+
+      // ── S4.5: GRÁFICOS Y DIAGRAMAS (opcional — Motor de Diagramación
+      // ISO 9000, 2026-08-17) — página aparte para no perturbar el layout
+      // ya calibrado de las secciones 1-5. Cada gráfico ya viene renderizado
+      // en SVG real desde el navegador (GraficoFinanciero/DiagramaMermaid);
+      // aquí solo se incrusta como vector, sin rasterizar (ver svgEmbed.js).
+      // Si un SVG puntual falla al incrustarse, se omite ESE gráfico con un
+      // aviso — nunca se aborta el reporte certificado completo por eso.
+      if (graficos.length > 0) {
+        doc.addPage();
+        sTitle(doc, ML, W, 'ANEXO — GRÁFICOS Y DIAGRAMAS DEL PROYECTO');
+        for (const g of graficos) {
+          if (doc.y > doc.page.height - doc.page.margins.bottom - 220) doc.addPage();
+          if (g.titulo) {
+            doc.font(BOLD).fontSize(9).fillColor(C.body).text(g.titulo, ML, doc.y, { width: W });
+            doc.moveDown(0.3);
+          }
+          const alto = 200;
+          try {
+            embedSvgInPdf(doc, g.svg, ML, doc.y, { width: W, height: alto });
+          } catch (err) {
+            doc.font(NORMAL).fontSize(8).fillColor(C.red)
+               .text(`[No se pudo incrustar este gráfico: ${err.message}]`, ML, doc.y, { width: W });
+          }
+          doc.y += alto + 16;
+        }
+      }
 
       // ── S5: HASH DE CERTIFICACIÓN ────────────────────────────────────────
       sTitle(doc, ML, W, '5.  HASH DE CERTIFICACIÓN SHA-256');

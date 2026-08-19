@@ -1,10 +1,56 @@
 import { useState, useEffect, useRef } from 'react';
 import { getAuthHeaders } from '../../lib/apiClient';
 import { C } from '../../pages/DashboardFormuladorPage';
+import DiagramaMermaid from '../DiagramaMermaid';
+import GraficoFinanciero from '../GraficoFinanciero';
 
 interface MensajeChat {
   role: 'user' | 'model';
   content: string;
+}
+
+// Motor de Diagramación ISO 9000 (2026-08-17): el Co-Piloto (CopilotoService.js
+// buildSystemPrompt, regla 5) puede responder con bloques ```mermaid o
+// ```json ({tipo_visualizacion:"grafico_financiero"}) — se extraen del texto
+// y se renderizan como diagrama/gráfico real en vez de mostrarse como texto
+// crudo. Un bloque con sintaxis inválida simplemente no calza el tipo
+// esperado y se muestra como texto plano — nunca rompe el resto del mensaje.
+type Segmento =
+  | { tipo: 'texto'; contenido: string }
+  | { tipo: 'mermaid'; chart: string }
+  | { tipo: 'grafico'; props: { tipo: 'barra' | 'linea'; titulo?: string; claveX: string; series: { clave: string; nombre: string }[]; data: Record<string, unknown>[] } };
+
+function parseBloques(content: string): Segmento[] {
+  const segmentos: Segmento[] = [];
+  const regexBloque = /```(mermaid|json)\n([\s\S]*?)```/g;
+  let ultimoIndice = 0;
+  let m: RegExpExecArray | null;
+  while ((m = regexBloque.exec(content)) !== null) {
+    if (m.index > ultimoIndice) {
+      const texto = content.slice(ultimoIndice, m.index).trim();
+      if (texto) segmentos.push({ tipo: 'texto', contenido: texto });
+    }
+    const [, lenguaje, cuerpo] = m;
+    if (lenguaje === 'mermaid') {
+      segmentos.push({ tipo: 'mermaid', chart: cuerpo.trim() });
+    } else {
+      try {
+        const data = JSON.parse(cuerpo);
+        if (data?.tipo_visualizacion === 'grafico_financiero' && Array.isArray(data.data) && Array.isArray(data.series)) {
+          segmentos.push({ tipo: 'grafico', props: data });
+        } else {
+          segmentos.push({ tipo: 'texto', contenido: cuerpo.trim() });
+        }
+      } catch {
+        segmentos.push({ tipo: 'texto', contenido: cuerpo.trim() });
+      }
+    }
+    ultimoIndice = regexBloque.lastIndex;
+  }
+  const resto = content.slice(ultimoIndice).trim();
+  if (resto) segmentos.push({ tipo: 'texto', contenido: resto });
+  if (segmentos.length === 0) segmentos.push({ tipo: 'texto', contenido: content });
+  return segmentos;
 }
 
 /** Chat fijo del Co-Piloto RadFor-360 — vive dentro de RightPanel, tras la Bitácora. */
@@ -101,9 +147,15 @@ export default function CoPilotoSidebarChat({ proyectoId }: { proyectoId: string
               border: m.role === 'user' ? 'none' : `1px solid ${C.border}`,
               color: m.role === 'user' ? C.cyan : C.text,
               alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-              maxWidth: '90%', whiteSpace: 'pre-wrap',
+              maxWidth: m.role === 'user' ? '90%' : '100%', whiteSpace: 'pre-wrap',
             }}>
-              {m.content}
+              {m.role === 'user'
+                ? m.content
+                : parseBloques(m.content).map((seg, j) => {
+                    if (seg.tipo === 'mermaid') return <DiagramaMermaid key={j} chart={seg.chart} className="copiloto-diagrama" />;
+                    if (seg.tipo === 'grafico') return <GraficoFinanciero key={j} {...seg.props} alto={200} />;
+                    return <span key={j}>{seg.contenido}</span>;
+                  })}
             </div>
           ))
         )}
