@@ -20,6 +20,7 @@
  * indica explícitamente en el pie de página.
  */
 import PDFDocument from 'pdfkit';
+import { embedSvgInPdf } from './svgEmbed.js';
 
 const C = {
   primary: '#0037b0', accent: '#1d4ed8', body: '#191c1e', muted: '#6C757D',
@@ -105,6 +106,33 @@ function newDoc(proyecto, subtitle) {
   return { doc, ML, W };
 }
 
+// Motor de Diagramación ISO 9000 (2026-08-17) — mismo patrón que
+// pdfGenerator.js: incrusta gráficos/diagramas ya renderizados en SVG real
+// desde el navegador (Recharts/Mermaid), como vector (svgEmbed.js), nunca
+// rasterizado. Opcional — si `graficos` viene vacío, no cambia nada del
+// documento existente. Un gráfico individual que falle al incrustarse no
+// aborta el resto del documento, solo se anota el error en su lugar.
+function renderGraficosSection(doc, ML, W, graficos = []) {
+  if (!graficos.length) return;
+  doc.addPage();
+  sTitle(doc, ML, W, 'ANEXO — GRÁFICOS Y DIAGRAMAS DEL PROYECTO');
+  for (const g of graficos) {
+    if (doc.y > doc.page.height - doc.page.margins.bottom - 220) doc.addPage();
+    if (g.titulo) {
+      doc.font(BOLD).fontSize(9).fillColor(C.body).text(g.titulo, ML, doc.y, { width: W });
+      doc.moveDown(0.3);
+    }
+    const alto = 200;
+    try {
+      embedSvgInPdf(doc, g.svg, ML, doc.y, { width: W, height: alto });
+    } catch (err) {
+      doc.font(NORMAL).fontSize(8).fillColor(C.warnText)
+         .text(`[No se pudo incrustar este gráfico: ${err.message}]`, ML, doc.y, { width: W });
+    }
+    doc.y += alto + 16;
+  }
+}
+
 function finalize(doc, ML, W, titulo) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -121,7 +149,7 @@ function finalize(doc, ML, W, titulo) {
 }
 
 // ── MGA ───────────────────────────────────────────────────────────────────────
-export async function generarMGA(proyecto, arbol, indicadores, tdc, logistica) {
+export async function generarMGA(proyecto, arbol, indicadores, tdc, logistica, graficos = []) {
   const ft = safeJson(proyecto.ficha_tecnica);
   const pre = safeJson(proyecto.presupuesto);
   const { doc, ML, W } = newDoc(proyecto, 'ESTRUCTURA MGA (Metodología General Ajustada — DNP Colombia)');
@@ -167,12 +195,13 @@ export async function generarMGA(proyecto, arbol, indicadores, tdc, logistica) {
   kv(doc, ML, W, 'Tipo de Entidad', logistica?.tipo_entidad || '');
   if (tdc?.impacto_largo_plazo) kv(doc, ML, W, 'Impacto de Largo Plazo (TdC)', tdc.impacto_largo_plazo);
 
+  renderGraficosSection(doc, ML, W, graficos);
   disclaimer(doc, ML, W, 'la Metodología General Ajustada (MGA) del DNP');
   return finalize(doc, ML, W, `MGA — ${proyecto.nombre}`);
 }
 
 // ── BID (marco lógico 4×4) ──────────────────────────────────────────────────
-export async function generarBID(proyecto, arbol, indicadores) {
+export async function generarBID(proyecto, arbol, indicadores, graficos = []) {
   const { doc, ML, W } = newDoc(proyecto, 'MATRIZ DE MARCO LÓGICO (BID)');
 
   const NIVELES = [
@@ -218,6 +247,7 @@ export async function generarBID(proyecto, arbol, indicadores) {
     doc.font(NORMAL).fontSize(9).fillColor(C.muted).text('No hay árbol de objetivos generado para este proyecto — visita "Árbol de Objetivos" en el Formulador primero.', ML, doc.y, { width: W });
   }
 
+  renderGraficosSection(doc, ML, W, graficos);
   disclaimer(doc, ML, W, 'la matriz de marco lógico del BID');
   return finalize(doc, ML, W, `BID — ${proyecto.nombre}`);
 }
@@ -233,7 +263,7 @@ const REQUISITOS_ANEXO1 = [
   'Estudios y diseños técnicos disponibles',
 ];
 
-export async function generarOXI(proyecto, arbol, indicadores, tdc, logistica) {
+export async function generarOXI(proyecto, arbol, indicadores, tdc, logistica, graficos = []) {
   // OXI exige la MGA como base — el resumen MGA se genera aparte vía
   // GET /api/proyectos/:id/exportar/mga; este documento cubre la capa
   // adicional específica de OXI (viabilidad + costos) más un resumen breve.
@@ -267,6 +297,7 @@ export async function generarOXI(proyecto, arbol, indicadores, tdc, logistica) {
   kv(doc, ML, W, 'Pólizas y garantías (estimar aparte)', 'Pendiente de definir');
   kv(doc, ML, W, 'Impuestos y gastos asociados (estimar aparte)', 'Pendiente de definir');
 
+  renderGraficosSection(doc, ML, W, graficos);
   disclaimer(doc, ML, W, 'Obras por Impuestos (ART/DNP)');
   return finalize(doc, ML, W, `OXI — ${proyecto.nombre}`);
 }

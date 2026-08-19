@@ -3,11 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useSubscription, type PlanId } from '../contexts/SubscriptionContext';
 import { useAuth } from '../contexts/AuthContextNew';
 import { API_BASE } from '../lib/apiClient';
-
-// Formato de moneda del proyecto: pesos colombianos, sin decimales.
-const formatoCOP = new Intl.NumberFormat('es-CO', {
-  style: 'currency', currency: 'COP', maximumFractionDigits: 0,
-});
+import { cop as formatoCOP } from '../lib/currencyFormat';
 
 // Metadata exclusiva de UI (marketing/listado de módulos) — el precio y el
 // nombre canónico vienen de GET /api/plans (backend/routes/subscriptions.routes.js:PLANES),

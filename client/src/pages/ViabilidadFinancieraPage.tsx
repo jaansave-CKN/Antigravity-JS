@@ -18,6 +18,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { http, ApiError } from '../lib/apiClient';
 import ProyectoSelectorModal from '../components/ProyectoSelectorModal';
+import { cop as COP } from '../lib/currencyFormat';
 
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
 
@@ -33,8 +34,6 @@ const T = {
   fontHeadline: "'Hanken Grotesk', sans-serif",
   fontData: "'JetBrains Mono', monospace",
 };
-
-const COP = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
 interface ViabilidadFinancieraData {
   costos_fijos_proyectados: number | null;

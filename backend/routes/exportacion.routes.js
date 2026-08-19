@@ -32,10 +32,24 @@ export function registerExportacionRoutes(app, { authenticateToken, getRow, getR
     res.send(buffer);
   }
 
+  // Motor de Diagramación ISO 9000 (2026-08-17): graficos = [{svg, titulo}]
+  // ya renderizados en el navegador — solo llega por POST (GET no soporta
+  // body HTTP de forma confiable, y un SVG puede pesar varios KB). El GET
+  // se conserva intacto para no romper enlaces de descarga existentes.
+  function graficosDe(req) {
+    return Array.isArray(req.body?.graficos) ? req.body.graficos : [];
+  }
+
   app.get('/api/proyectos/:id/exportar/mga', authenticateToken, tryCatch(async (req, res) => {
     const ctx = await cargarContexto(req.params.id, req.userId);
     if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     const buffer = await generarMGA(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica);
+    sendPdf(res, buffer, `MGA_${req.params.id}.pdf`);
+  }));
+  app.post('/api/proyectos/:id/exportar/mga', authenticateToken, tryCatch(async (req, res) => {
+    const ctx = await cargarContexto(req.params.id, req.userId);
+    if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    const buffer = await generarMGA(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica, graficosDe(req));
     sendPdf(res, buffer, `MGA_${req.params.id}.pdf`);
   }));
 
@@ -45,11 +59,23 @@ export function registerExportacionRoutes(app, { authenticateToken, getRow, getR
     const buffer = await generarBID(ctx.proyecto, ctx.arbol, ctx.indicadores);
     sendPdf(res, buffer, `BID_${req.params.id}.pdf`);
   }));
+  app.post('/api/proyectos/:id/exportar/bid', authenticateToken, tryCatch(async (req, res) => {
+    const ctx = await cargarContexto(req.params.id, req.userId);
+    if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    const buffer = await generarBID(ctx.proyecto, ctx.arbol, ctx.indicadores, graficosDe(req));
+    sendPdf(res, buffer, `BID_${req.params.id}.pdf`);
+  }));
 
   app.get('/api/proyectos/:id/exportar/oxi', authenticateToken, tryCatch(async (req, res) => {
     const ctx = await cargarContexto(req.params.id, req.userId);
     if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     const buffer = await generarOXI(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica);
+    sendPdf(res, buffer, `OXI_${req.params.id}.pdf`);
+  }));
+  app.post('/api/proyectos/:id/exportar/oxi', authenticateToken, tryCatch(async (req, res) => {
+    const ctx = await cargarContexto(req.params.id, req.userId);
+    if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+    const buffer = await generarOXI(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica, graficosDe(req));
     sendPdf(res, buffer, `OXI_${req.params.id}.pdf`);
   }));
 }
