@@ -38,8 +38,12 @@ interface TramoApi {
 }
 interface TramosApiResponse { success: boolean; data?: TramoApi[]; message?: string }
 
-type EstadoVia = 'Pavimentada' | 'Montaña' | 'Destapada' | 'Mixta';
+type EstadoVia = 'Pavimentada' | 'Montaña' | 'Destapada' | 'Mixta' | 'Río con Rápidos' | 'Río Moderado';
 type CalidadVia = 'Óptimo' | 'Regular' | 'Crítico';
+
+const MEDIO_FLUVIAL = 'Lancha / Fluvial';
+const VIAS_TERRESTRES: EstadoVia[] = ['Pavimentada', 'Montaña', 'Destapada', 'Mixta'];
+const VIAS_FLUVIALES: EstadoVia[] = ['Río con Rápidos', 'Río Moderado'];
 
 interface Tramo {
   id: string;
@@ -507,14 +511,47 @@ export default function LogisticaPage() {
               </div>
               <div className="logx__field">
                 <label>Medio Transp.</label>
-                <select value={nuevo.medio} onChange={e => setNuevo(n => ({ ...n, medio: e.target.value }))}>
-                  <option>Camión Turbo</option><option>Doble Troque</option><option>Tractomula</option><option>Lancha / Fluvial</option><option>Mula / Trocha</option>
+                <select
+                  value={nuevo.medio}
+                  onChange={e => {
+                    const medio = e.target.value;
+                    setNuevo(n => {
+                      const eraFluvial = n.medio === MEDIO_FLUVIAL;
+                      const esFluvial = medio === MEDIO_FLUVIAL;
+                      // Solo se reasigna estado_via cuando el usuario CAMBIA
+                      // activamente el medio entre fluvial/terrestre en este
+                      // formulario — nunca al abrir "Editar Tramo" (ahí
+                      // setNuevo() carga el valor ya guardado tal cual, sin
+                      // pasar por este onChange). Evita perder o alterar
+                      // datos ya guardados de tramos que el usuario no toca.
+                      if (esFluvial !== eraFluvial) {
+                        return { ...n, medio, estado_via: esFluvial ? VIAS_FLUVIALES[0] : VIAS_TERRESTRES[0] };
+                      }
+                      return { ...n, medio };
+                    });
+                  }}
+                >
+                  <option>Camión Turbo</option><option>Doble Troque</option><option>Tractomula</option><option>{MEDIO_FLUVIAL}</option><option>Mula / Trocha</option>
                 </select>
               </div>
               <div className="logx__field">
                 <label>Estado / Tipo Vía</label>
                 <select value={nuevo.estado_via} onChange={e => setNuevo(n => ({ ...n, estado_via: e.target.value as EstadoVia }))}>
-                  <option>Pavimentada</option><option>Montaña</option><option>Destapada</option><option>Mixta</option>
+                  {(() => {
+                    const opciones = nuevo.medio === MEDIO_FLUVIAL ? VIAS_FLUVIALES : VIAS_TERRESTRES;
+                    // Si el valor actual (cargado de un tramo ya guardado) no
+                    // está en el grupo esperado para el medio actual — datos
+                    // legado, o el usuario aún no ajustó el medio — se
+                    // conserva como opción extra en vez de ocultarlo. Un
+                    // <select> controlado cuyo value no coincide con ningún
+                    // <option> se ve vacío en el navegador aunque el estado
+                    // interno siga intacto; esto evita esa confusión visual
+                    // sin tocar el dato real.
+                    const lista = opciones.includes(nuevo.estado_via as EstadoVia)
+                      ? opciones
+                      : [nuevo.estado_via as EstadoVia, ...opciones];
+                    return lista.map(v => <option key={v}>{v}</option>);
+                  })()}
                 </select>
               </div>
               <div className="logx__field">
