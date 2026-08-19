@@ -66,6 +66,29 @@
 .entr__save:hover { background: #003482; }
 .entr__save--saved { background: #15803d; }
 
+/* Boton "Generar con AI" (EXTENSIÓN 2026-08-17) — color distinto (violeta)
+   de SAVE (azul) y LIMPIAR (blanco) para que se identifique como una acción
+   de IA, no como guardar/borrar. */
+.entr__ai-btn {
+  background: #7c3aed;
+  color: #ffffff;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 10px 20px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.entr__ai-btn:hover:not(:disabled) { background: #6d28d9; }
+.entr__ai-btn:disabled { background: #c4b5fd; cursor: not-allowed; }
+
 /* Boton LIMPIAR */
 .entr__clear {
   background: #ffffff;
