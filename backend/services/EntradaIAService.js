@@ -48,6 +48,23 @@
  * entre el paquete `undici` de npm y el `fetch` nativo vendorizado. La
  * única forma verificada que funciona es `setGlobalDispatcher`, aplicada
  * una sola vez al cargar este módulo.
+ *
+ * MEJORA FUTURA OPCIONAL, evaluada y descartada por ahora (2026-08-19,
+ * revisión de `architect`): agregar un navegador headless (Puppeteer/
+ * Playwright) para renderizar JS y leer chatgpt.com/share, share.gemini.
+ * google y perplexity.ai. Descartado porque: (1) solo resolvería ChatGPT —
+ * Gemini exige sesión de Google autenticada y Perplexity está detrás de
+ * Cloudflare bot-management, ninguno de los dos lo arregla un headless; (2)
+ * incluso para ChatGPT, el contenido real vive en un blob "turbo-stream" de
+ * React Router 7 no documentado, no en el DOM renderizado — ejecutar JS no
+ * basta; (3) Render corre esta app como un solo servicio (`render.yaml`,
+ * plan starter, sin worker aparte) — un Chromium empaquetado (~300MB+)
+ * compite por memoria con el mismo proceso que sirve la API y el frontend,
+ * y contradice el trabajo ya invertido en bajar el tiempo de arranque (ver
+ * memoria `project_fix_arranque_lento_root_offline_2026_08_17`). La vía que
+ * sí funciona hoy sin costo de infraestructura: el usuario pega el texto de
+ * la conversación en el campo `texto` del anexo (ver
+ * `compilarContenidoCarpeta` más abajo, que ya lo lee).
  */
 import { Agent, setGlobalDispatcher } from 'undici';
 import { supabaseStorage } from '../config/supabase.config.js';
