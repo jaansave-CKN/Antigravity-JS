@@ -119,7 +119,25 @@ class GeminiCircuitBreaker {
     const ks = this.keyStates[i];
     if (!ks) return false;
     this._checkDailyReset(ks);
-    if (ks.state === 'OPEN') return false;
+
+    // FIX (2026-08-19, verificado en vivo — bug preexistente, no introducido
+    // por el refactor de pool): OPEN solo transicionaba a HALF_OPEN en el
+    // reset diario (medianoche UTC) — un solo 429 real (típicamente de RPM,
+    // que Google libera en ~60s) dejaba esta llave sin poder intentar IA
+    // real el resto del día entero, cayendo siempre a heurística/Modo
+    // Respaldo pese a que la cuota real ya se hubiera recuperado. Confirmado
+    // con /api/admin/quota-status mostrando "reset_time_countdown":"18:54:39"
+    // minutos después de un solo error real. HALF_OPEN_PROBE_MS (5 min) ya
+    // existía y su nombre/comentario ya decían "espera 5 min antes de
+    // re-probar" — nunca estaba conectado a esta transición.
+    if (ks.state === 'OPEN') {
+      const msDesdeError = Date.now() - (ks.lastQuotaError?.getTime() ?? 0);
+      if (msDesdeError < HALF_OPEN_PROBE_MS) return false;
+      ks.state = 'HALF_OPEN';
+      ks.lastHalfOpenAt = Date.now();
+      console.log(`[GeminiCB] Llave #${i + 1} — ${Math.round(HALF_OPEN_PROBE_MS / 60_000)} min sin nuevo error → HALF_OPEN para sondeo.`);
+      return true;
+    }
     if (ks.state === 'HALF_OPEN') {
       if (Date.now() - ks.lastHalfOpenAt < HALF_OPEN_PROBE_MS) return false;
       ks.lastHalfOpenAt = Date.now();
