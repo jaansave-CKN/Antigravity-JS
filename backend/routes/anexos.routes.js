@@ -34,7 +34,7 @@
  */
 import crypto from 'crypto';
 import pLimit from 'p-limit';
-import { supabaseAdmin } from '../config/supabase.config.js';
+import { supabaseAdmin, supabaseStorage } from '../config/supabase.config.js';
 import { sanitizeTechnicalText, sanitizeUrl } from '../middlewares/SecurityMiddleware.js';
 import { parseAndSanitizeExcel } from '../services/ExtractorService.js';
 import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js';
@@ -63,16 +63,20 @@ const extraccionLimiter = pLimit(3);
 const ANEXOS_BUCKET = 'anexos';
 
 // ── Whitelist de tipos permitidos (documentos de soporte del proyecto) ───────
+// Límites subidos 2026-08-17 (15MB→50MB documentos, 8MB→15MB imágenes):
+// los PDF escaneados de resoluciones/decretos gubernamentales rutinariamente
+// superan 15MB — el límite anterior rechazaba archivos reales y legítimos.
 const ALLOWED_ANEXO_TYPES = {
-  pdf:  { mimes: ['application/pdf'],                                                                        maxBytes: 15 * 1024 * 1024 },
-  doc:  { mimes: ['application/msword'],                                                                      maxBytes: 15 * 1024 * 1024 },
-  docx: { mimes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip'], maxBytes: 15 * 1024 * 1024 },
-  xls:  { mimes: ['application/vnd.ms-excel'],                                                                 maxBytes: 15 * 1024 * 1024 },
-  xlsx: { mimes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip'],       maxBytes: 15 * 1024 * 1024 },
-  jpg:  { mimes: ['image/jpeg'], maxBytes: 8 * 1024 * 1024 },
-  jpeg: { mimes: ['image/jpeg'], maxBytes: 8 * 1024 * 1024 },
-  png:  { mimes: ['image/png'],  maxBytes: 8 * 1024 * 1024 },
+  pdf:  { mimes: ['application/pdf'],                                                                        maxBytes: 50 * 1024 * 1024 },
+  doc:  { mimes: ['application/msword'],                                                                      maxBytes: 50 * 1024 * 1024 },
+  docx: { mimes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip'], maxBytes: 50 * 1024 * 1024 },
+  xls:  { mimes: ['application/vnd.ms-excel'],                                                                 maxBytes: 50 * 1024 * 1024 },
+  xlsx: { mimes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip'],       maxBytes: 50 * 1024 * 1024 },
+  jpg:  { mimes: ['image/jpeg'], maxBytes: 15 * 1024 * 1024 },
+  jpeg: { mimes: ['image/jpeg'], maxBytes: 15 * 1024 * 1024 },
+  png:  { mimes: ['image/png'],  maxBytes: 15 * 1024 * 1024 },
 };
+const ANEXO_MAX_BYTES = 50 * 1024 * 1024; // techo global de multer (el mayor de los límites por tipo)
 
 const CATEGORIAS_VALIDAS = new Set(['legal', 'financiero', 'tecnico', 'institucional', 'presupuesto_apu', 'otro']);
 
@@ -108,8 +112,33 @@ function safeExt(filename) {
   return (filename || '').split('.').pop().toLowerCase();
 }
 
+// Carpeta "Investigación" protegida (mandato 2026-08-17): es la fuente real
+// que lee EntradaIAService.js para "Generar con AI" — renombrarla o
+// borrarla rompería esa función en silencio, así que el bloqueo no puede
+// depender solo de ocultar los botones en el frontend (una llamada directa
+// a la API los saltaría). Mismo criterio de normalización (sin tildes) que
+// EntradaIAService.js y AnexosCalcoView.tsx.
+function normalizar(s) {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+function esCarpetaProtegida(nombre) {
+  return normalizar(nombre).includes('investigacion');
+}
+
+// FIX (auditoría 2026-08-17, "no me deja anexar archivos" — tercera causa
+// distinta de las ya corregidas): la lista blanca anterior (\w = SOLO ASCII)
+// rechazaba cualquier nombre real con tildes/ñ/paréntesis/símbolos como "N°"
+// — es decir, prácticamente todo nombre de archivo institucional en español
+// ("Plan de Desarrollo Bolívar (2024-2027).pdf"). El nombre real NUNCA se
+// usa para construir la ruta de Storage (esa usa el UUID de la fila) — solo
+// se guarda para mostrarlo y para el Content-Disposition de la descarga. Se
+// cambia a lista NEGRA: solo se bloquean caracteres de control (incluye
+// CRLF — inyección de cabecera), comillas y separadores de ruta (/ \) —
+// cualquier letra, tilde, ñ, símbolo o puntuación normal queda permitida.
+const NOMBRE_ARCHIVO_PELIGROSO = /[\x00-\x1F"<>\\/]/;
 function validateAnexoFile(file) {
-  const safeName = /^[\w\-. ]{1,200}$/.test(file.originalname);
+  const nombre = file.originalname || '';
+  const safeName = nombre.length >= 1 && nombre.length <= 200 && !NOMBRE_ARCHIVO_PELIGROSO.test(nombre);
   if (!safeName) return 'Nombre de archivo no permitido';
 
   const ext = safeExt(file.originalname);
@@ -136,26 +165,40 @@ function wrap(fn) {
 }
 
 export async function registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows, financialPipelineLimiter }) {
-  if (!supabaseAdmin) {
+  if (!supabaseStorage) {
     console.error('[anexos] SUPABASE_URL/SUPABASE_SERVICE_KEY no configurados — subida de anexos desactivada');
   } else {
-    // Idempotente: si el bucket ya existe, Supabase devuelve un error que se ignora.
-    const { error } = await supabaseAdmin.storage.createBucket(ANEXOS_BUCKET, {
+    // Idempotente: si el bucket ya existe, createBucket devuelve un error que
+    // se ignora — pero eso significa que su fileSizeLimit original NUNCA se
+    // actualiza. updateBucket sí aplica el límite nuevo a un bucket existente
+    // (fix 2026-08-17: el bucket llevaba meses con el tope viejo de 15MB pese
+    // a que el código ya pedía uno mayor).
+    const { error } = await supabaseStorage.storage.createBucket(ANEXOS_BUCKET, {
       public: false,
-      fileSizeLimit: 15 * 1024 * 1024,
+      fileSizeLimit: ANEXO_MAX_BYTES,
     });
     if (error && !/already exists/i.test(error.message || '')) {
       console.warn('[anexos] No se pudo confirmar el bucket de Storage:', error.message);
+    } else if (error) {
+      const { error: updateError } = await supabaseStorage.storage.updateBucket(ANEXOS_BUCKET, {
+        public: false,
+        fileSizeLimit: ANEXO_MAX_BYTES,
+      });
+      if (updateError) console.warn('[anexos] No se pudo actualizar el límite del bucket:', updateError.message);
     }
   }
 
   const multer = (await import('multer')).default;
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 15 * 1024 * 1024 },
+    limits: { fileSize: ANEXO_MAX_BYTES },
     fileFilter: (_req, file, cb) => {
       const ext = safeExt(file.originalname);
-      if (!ALLOWED_ANEXO_TYPES[ext]) return cb(new Error(`Extensión ".${ext}" no permitida`));
+      if (!ALLOWED_ANEXO_TYPES[ext]) {
+        const err = new Error(`Extensión ".${ext}" no permitida`);
+        err.status = 422;
+        return cb(err);
+      }
       cb(null, true);
     },
   });
@@ -180,10 +223,108 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
       // (más nuevo primero) invertía el orden de ingreso cada vez que la
       // lista se recargaba — el usuario numera sus filas mentalmente en el
       // orden en que las escribe, no al revés. ASC = orden de ingreso real.
-      'SELECT id, project_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at FROM project_anexos WHERE project_id = ? ORDER BY created_at ASC',
+      'SELECT id, project_id, carpeta_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at FROM project_anexos WHERE project_id = ? ORDER BY created_at ASC',
       [req.params.id]
     );
     res.json({ success: true, data: anexos });
+  }));
+
+  /**
+   * GET /api/proyectos/:id/anexos/carpetas
+   */
+  app.get('/api/proyectos/:id/anexos/carpetas', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const carpetas = await getRows(
+      'SELECT id, project_id, nombre, orden, created_at FROM project_anexos_carpetas WHERE project_id = ? ORDER BY orden ASC, created_at ASC',
+      [req.params.id]
+    );
+    res.json({ success: true, data: carpetas });
+  }));
+
+  /**
+   * POST /api/proyectos/:id/anexos/carpetas — crea una carpeta { nombre }
+   */
+  app.post('/api/proyectos/:id/anexos/carpetas', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
+    if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
+
+    const [{ maxOrden } = { maxOrden: -1 }] = await getRows(
+      'SELECT COALESCE(MAX(orden), -1) AS "maxOrden" FROM project_anexos_carpetas WHERE project_id = ?',
+      [req.params.id]
+    );
+
+    const id = crypto.randomUUID();
+    await runSql(
+      'INSERT INTO project_anexos_carpetas (id, project_id, tenant_id, nombre, orden, created_at) VALUES (?,?,?,?,?,?)',
+      [id, req.params.id, req.userId, nombre, Number(maxOrden) + 1, new Date().toISOString()]
+    );
+    res.status(201).json({ success: true, data: { id, project_id: req.params.id, nombre, orden: Number(maxOrden) + 1 } });
+  }));
+
+  /**
+   * PUT /api/proyectos/:id/anexos/carpetas/:carpetaId — renombra { nombre }
+   */
+  app.put('/api/proyectos/:id/anexos/carpetas/:carpetaId', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
+    if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
+
+    const carpeta = await getRow(
+      'SELECT id, nombre FROM project_anexos_carpetas WHERE id = ? AND project_id = ?',
+      [req.params.carpetaId, req.params.id]
+    );
+    if (!carpeta) return res.status(404).json({ success: false, message: 'Carpeta no encontrada' });
+    if (esCarpetaProtegida(carpeta.nombre)) {
+      return res.status(403).json({ success: false, message: 'Esta carpeta está protegida y vinculada al botón "Generar con AI" de Entrada — no se puede renombrar.' });
+    }
+
+    await runSql('UPDATE project_anexos_carpetas SET nombre = ? WHERE id = ?', [nombre, req.params.carpetaId]);
+    res.json({ success: true, message: 'Carpeta renombrada' });
+  }));
+
+  /**
+   * DELETE /api/proyectos/:id/anexos/carpetas/:carpetaId
+   * Por defecto, los anexos de la carpeta quedan "sin carpeta" (FK ON DELETE
+   * SET NULL) — nunca se borran implícitamente. Solo con
+   * ?eliminarDocumentos=true se borran también los anexos (fila + archivo en
+   * Storage), acción explícita y opt-in desde el frontend — mismo criterio
+   * que biblioteca.routes.js.
+   */
+  app.delete('/api/proyectos/:id/anexos/carpetas/:carpetaId', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const carpeta = await getRow(
+      'SELECT id, nombre FROM project_anexos_carpetas WHERE id = ? AND project_id = ?',
+      [req.params.carpetaId, req.params.id]
+    );
+    if (!carpeta) return res.status(404).json({ success: false, message: 'Carpeta no encontrada' });
+    if (esCarpetaProtegida(carpeta.nombre)) {
+      return res.status(403).json({ success: false, message: 'Esta carpeta está protegida y vinculada al botón "Generar con AI" de Entrada — no se puede eliminar.' });
+    }
+
+    const eliminarDocumentos = String(req.query?.eliminarDocumentos || '') === 'true';
+    if (eliminarDocumentos) {
+      const docs = await getRows(
+        'SELECT id, ruta_storage FROM project_anexos WHERE carpeta_id = ? AND project_id = ?',
+        [req.params.carpetaId, req.params.id]
+      );
+      await runSql('DELETE FROM project_anexos WHERE carpeta_id = ? AND project_id = ?', [req.params.carpetaId, req.params.id]);
+      if (supabaseStorage) {
+        const rutas = docs.map(d => d.ruta_storage).filter(Boolean);
+        if (rutas.length) supabaseStorage.storage.from(ANEXOS_BUCKET).remove(rutas).catch(() => {});
+      }
+    }
+
+    await runSql('DELETE FROM project_anexos_carpetas WHERE id = ?', [req.params.carpetaId]);
+    res.json({ success: true, message: eliminarDocumentos ? 'Carpeta y sus anexos eliminados' : 'Carpeta eliminada — sus anexos quedaron sin carpeta' });
   }));
 
   /**
@@ -212,13 +353,28 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     }
 
     if (req.file) {
+      // FIX (auditoría 2026-08-17): multer/busboy decodifican el campo
+      // "filename" del multipart como latin1 por defecto, aunque el
+      // navegador lo mande en UTF-8 (estándar real) — "Bolívar" llegaba
+      // como "BolÃ­var". Reinterpretar los bytes como UTF-8 corrige
+      // cualquier nombre con tildes/ñ/etc. antes de validarlo o guardarlo.
+      req.file.originalname = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
       const error = validateAnexoFile(req.file);
       if (error) return res.status(422).json({ success: false, message: error });
-      if (!supabaseAdmin) return res.status(503).json({ success: false, message: 'Almacenamiento de archivos no disponible — Supabase no configurado' });
+      if (!supabaseStorage) return res.status(503).json({ success: false, message: 'Almacenamiento de archivos no disponible — Supabase no configurado' });
     }
 
     const categoriaRaw = String(req.body?.categoria || 'otro').toLowerCase();
     const categoria = CATEGORIAS_VALIDAS.has(categoriaRaw) ? categoriaRaw : 'otro';
+
+    // carpeta_id es opcional (anexo "sin carpeta" es válido) — se valida que
+    // exista y pertenezca al mismo proyecto antes de aceptarla. Mismo
+    // criterio que biblioteca.routes.js (migración 042).
+    let carpetaId = req.body?.carpeta_id ? String(req.body.carpeta_id) : null;
+    if (carpetaId) {
+      const carpeta = await getRow('SELECT id FROM project_anexos_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
+      if (!carpeta) carpetaId = null;
+    }
 
     // Rate limit por org_id SOLO para la ruta pesada (extracción de Excel) —
     // aplicarlo a todo /anexos golpearía el autoguardado onBlur de filas
@@ -237,7 +393,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
       const storedName = `${id}.${ext}`;
       const storagePath = `${req.params.id}/${storedName}`;
 
-      const { error: uploadError } = await supabaseAdmin.storage
+      const { error: uploadError } = await supabaseStorage.storage
         .from(ANEXOS_BUCKET)
         .upload(storagePath, req.file.buffer, { contentType: req.file.mimetype, upsert: false });
       if (uploadError) {
@@ -257,13 +413,13 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     try {
       await runSql(
         `INSERT INTO project_anexos
-         (id, project_id, tenant_id, nombre_archivo, ruta_storage, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [id, req.params.id, req.userId, nombreArchivo, rutaStorage, tipoMime, tamanoBytes, categoria, descripcion, texto, link, new Date().toISOString()]
+         (id, project_id, tenant_id, nombre_archivo, ruta_storage, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, carpeta_id, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [id, req.params.id, req.userId, nombreArchivo, rutaStorage, tipoMime, tamanoBytes, categoria, descripcion, texto, link, carpetaId, new Date().toISOString()]
       );
     } catch (dbError) {
       if (rutaStorage) {
-        await supabaseAdmin.storage.from(ANEXOS_BUCKET).remove([rutaStorage])
+        await supabaseStorage.storage.from(ANEXOS_BUCKET).remove([rutaStorage])
           .catch(cleanupErr => console.error('[anexos] Rollback de Storage también falló:', cleanupErr.message));
       }
       console.error('[anexos] INSERT falló tras subir a Storage — rollback aplicado:', dbError.message);
@@ -363,7 +519,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
         }
       } catch (extErr) {
         await runSql('DELETE FROM project_anexos WHERE id = ?', [id]);
-        if (rutaStorage) supabaseAdmin.storage.from(ANEXOS_BUCKET).remove([rutaStorage]).catch(() => {});
+        if (rutaStorage) supabaseStorage.storage.from(ANEXOS_BUCKET).remove([rutaStorage]).catch(() => {});
         return res.status(extErr.status || 500).json({ success: false, message: extErr.message });
       }
     }
@@ -390,6 +546,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
       data: {
         id, project_id: req.params.id, nombre_archivo: nombreArchivo,
         tipo_mime: tipoMime, tamano_bytes: tamanoBytes, categoria, descripcion, texto, link,
+        carpeta_id: carpetaId,
         created_at: new Date().toISOString(),
       },
       // No se envían las líneas crudas al cliente — solo el resumen.
@@ -440,12 +597,17 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
    * AuditorForenseService aunque la nueva categoria sea 'presupuesto_apu';
    * ese pipeline solo corre una vez, en el POST original de subida.
    *
-   * BLINDAJE ANTIPÉRDIDA (2026-08-17): si el payload trae un campo vacío
-   * pero el valor ya guardado en BD no lo está, se conserva el valor
-   * existente en vez de sobrescribirlo con vacío. Consecuencia consciente:
-   * ya no se puede vaciar un campo por edición normal (blur con el campo
-   * borrado) — solo eliminando la fila completa. Es la lectura más segura
-   * del pedido "no perder datos ya guardados" del usuario.
+   * FIX (auditoría 2026-08-17, "borro el texto ODS, guardo, F5 y vuelve a
+   * aparecer"): el BLINDAJE ANTIPÉRDIDA original trataba CUALQUIER valor
+   * vacío como "dato perdido accidentalmente" y lo descartaba en silencio —
+   * protegía contra una condición de carrera real de esa fecha, pero de paso
+   * hacía imposible borrar un campo a propósito. Esa carrera ya está resuelta
+   * en el frontend por otra vía (cola de guardado `encolar()` +
+   * `eliminadosRef`) — el payload que llega aquí siempre refleja el estado
+   * real y completo de la fila en el cliente, nunca un fragmento parcial.
+   * El fix correcto distingue "el campo llegó vacío a propósito" (el usuario
+   * lo borró) de "el campo ni siquiera vino en el body" — por PRESENCIA
+   * (`!== undefined`), mismo criterio que ya usaba `categoria` más abajo.
    */
   app.patch('/api/proyectos/:id/anexos/:anexoId', authenticateToken, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
@@ -457,24 +619,37 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     );
     if (!existente) return res.status(404).json({ success: false, message: 'Anexo no encontrado' });
 
-    const descripcionIn = sanitizeTechnicalText(String(req.body?.descripcion ?? ''), 500);
-    const textoIn        = sanitizeTechnicalText(String(req.body?.texto ?? ''), 500);
-    const linkIn          = sanitizeUrl(String(req.body?.link ?? ''), 500);
-    const descripcion = descripcionIn.trim() ? descripcionIn : existente.descripcion;
-    const texto        = textoIn.trim() ? textoIn : existente.texto;
-    const link          = linkIn.trim() ? linkIn : existente.link;
+    const descripcion = req.body?.descripcion !== undefined ? sanitizeTechnicalText(String(req.body.descripcion), 500) : existente.descripcion;
+    const texto        = req.body?.texto !== undefined ? sanitizeTechnicalText(String(req.body.texto), 500) : existente.texto;
+    const link          = req.body?.link !== undefined ? sanitizeUrl(String(req.body.link), 500) : existente.link;
+
+    // carpeta_id — mover el anexo a otra carpeta (o a null = sin carpeta).
+    // Mismo criterio de presencia que categoria más abajo: null es un valor
+    // válido e intencional aquí, no un dato accidentalmente perdido.
+    let carpetaClause = '';
+    const params = [descripcion, texto, link];
+    if (req.body?.carpeta_id !== undefined) {
+      let carpetaId = req.body.carpeta_id ? String(req.body.carpeta_id) : null;
+      if (carpetaId) {
+        const carpeta = await getRow('SELECT id FROM project_anexos_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
+        if (!carpeta) carpetaId = null;
+      }
+      carpetaClause = ', carpeta_id = ?';
+      params.push(carpetaId);
+    }
 
     if (req.body?.categoria !== undefined) {
       const categoriaRaw = String(req.body.categoria || 'otro').toLowerCase();
       const categoria = CATEGORIAS_VALIDAS.has(categoriaRaw) ? categoriaRaw : 'otro';
+      params.push(categoria);
       await runSql(
-        'UPDATE project_anexos SET descripcion = ?, texto = ?, link = ?, categoria = ? WHERE id = ? AND project_id = ?',
-        [descripcion, texto, link, categoria, req.params.anexoId, req.params.id]
+        `UPDATE project_anexos SET descripcion = ?, texto = ?, link = ?${carpetaClause}, categoria = ? WHERE id = ? AND project_id = ?`,
+        [...params, req.params.anexoId, req.params.id]
       );
     } else {
       await runSql(
-        'UPDATE project_anexos SET descripcion = ?, texto = ?, link = ? WHERE id = ? AND project_id = ?',
-        [descripcion, texto, link, req.params.anexoId, req.params.id]
+        `UPDATE project_anexos SET descripcion = ?, texto = ?, link = ?${carpetaClause} WHERE id = ? AND project_id = ?`,
+        [...params, req.params.anexoId, req.params.id]
       );
     }
     res.json({ success: true, message: 'Anexo actualizado' });
@@ -495,9 +670,9 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
       [req.params.anexoId, req.params.id]
     );
     if (!anexo || !anexo.ruta_storage) return res.status(404).json({ success: false, message: 'Anexo no encontrado o sin archivo adjunto' });
-    if (!supabaseAdmin) return res.status(503).json({ success: false, message: 'Almacenamiento de archivos no disponible' });
+    if (!supabaseStorage) return res.status(503).json({ success: false, message: 'Almacenamiento de archivos no disponible' });
 
-    const { data, error } = await supabaseAdmin.storage
+    const { data, error } = await supabaseStorage.storage
       .from(ANEXOS_BUCKET)
       .createSignedUrl(anexo.ruta_storage, 300, { download: anexo.nombre_archivo });
     if (error) return res.status(502).json({ success: false, message: `No se pudo generar el enlace de descarga: ${error.message}` });
@@ -521,8 +696,8 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     await runSql('DELETE FROM project_anexos WHERE id = ?', [req.params.anexoId]);
 
     // Best-effort: un fallo al borrar el objeto en Storage no bloquea la respuesta.
-    if (anexo.ruta_storage && supabaseAdmin) {
-      supabaseAdmin.storage.from(ANEXOS_BUCKET).remove([anexo.ruta_storage]).catch(() => {});
+    if (anexo.ruta_storage && supabaseStorage) {
+      supabaseStorage.storage.from(ANEXOS_BUCKET).remove([anexo.ruta_storage]).catch(() => {});
     }
 
     res.json({ success: true, message: 'Anexo eliminado' });
