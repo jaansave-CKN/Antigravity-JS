@@ -241,7 +241,7 @@ export async function calcularViabilidadIA(ctx) {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${GEMINI_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'gemini-2.0-flash',
+          model: 'gemini-3.6-flash',
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             { role: 'user', content: buildUserPrompt(ctx) },
@@ -299,7 +299,7 @@ export async function calcularViabilidadIA(ctx) {
         supuestos: Array.isArray(parsed.teoria_del_cambio_generada?.supuestos) ? parsed.teoria_del_cambio_generada.supuestos : [],
         resultados_esperados: Array.isArray(parsed.teoria_del_cambio_generada?.resultados_esperados) ? parsed.teoria_del_cambio_generada.resultados_esperados : [],
       },
-      fuente: 'gemini-2.0-flash',
+      fuente: 'gemini-3.6-flash',
       calculadoEn: new Date().toISOString(),
     };
   } catch (err) {

@@ -52,7 +52,7 @@ export async function generarEnfoqueEntidad(ctx) {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${GEMINI_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'gemini-2.0-flash',
+          model: 'gemini-3.6-flash',
           messages: [{ role: 'user', content: buildPrompt(ctx) }],
           temperature: 0.4,
           max_tokens: 400,
@@ -75,7 +75,7 @@ export async function generarEnfoqueEntidad(ctx) {
       tokensInput: data?.usage?.prompt_tokens ?? 0,
       tokensOutput: data?.usage?.completion_tokens ?? 0,
     }).catch(() => {});
-    return { enfoque: text.slice(0, 800), fuente: 'gemini-2.0-flash' };
+    return { enfoque: text.slice(0, 800), fuente: 'gemini-3.6-flash' };
   } catch (err) {
     if (isQuotaError(err)) geminiCB.recordQuotaError();
     return { enfoque: generarEnfoqueHeuristico(ctx), fuente: 'heuristica' };

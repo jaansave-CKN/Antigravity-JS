@@ -129,7 +129,7 @@ export async function classifySectors(titulo, descripcion, donante = '') {
   const genAI = getGenAI();
   if (genAI && geminiCB.canCall()) {
     try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
       const result = await model.generateContent(PROMPT_TEMPLATE(titulo, descripcion, donante));
       const text = result.response.text().trim();
       const match = text.match(/\[[\s\S]*\]/);

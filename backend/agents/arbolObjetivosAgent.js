@@ -60,7 +60,7 @@ export async function generarArbolConIA(objetivoCentral, apiKey, userId) {
   try {
     const genAI = new GoogleGenerativeAI(key);
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-3.6-flash',
       generationConfig: {
         temperature:     0.3,
         topP:            0.8,
