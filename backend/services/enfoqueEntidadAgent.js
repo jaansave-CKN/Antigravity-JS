@@ -7,7 +7,7 @@
  * geminiCB), y si no hay key/cuota/la respuesta es inválida, cae a una
  * plantilla determinista — nunca lanza, siempre devuelve texto utilizable.
  */
-import { geminiCB, isQuotaError } from './geminiCircuitBreaker.js';
+import { withKeyRotation } from './geminiCircuitBreaker.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 
 function buildPrompt({ nombreEntidad, urlLineamientos, problematicaCentral, poblacionObjetivo }) {
@@ -39,45 +39,42 @@ function generarEnfoqueHeuristico({ nombreEntidad, problematicaCentral, poblacio
  * @param {{nombreEntidad:string, urlLineamientos?:string, problematicaCentral?:string, poblacionObjetivo?:string}} ctx
  * @returns {Promise<{enfoque:string, fuente:string}>}
  */
+// REFACTOR (2026-08-19, pool de llaves): withKeyRotation() prueba cada
+// llave del pool ante 429 — mismo contrato (nunca lanza, cae a la plantilla
+// heurística ante cualquier fallo real o pool agotado).
 export async function generarEnfoqueEntidad(ctx) {
-  const GEMINI_KEY = process.env.GOOGLE_API_KEY;
-  if (!GEMINI_KEY || !geminiCB.canCall()) {
-    return { enfoque: generarEnfoqueHeuristico(ctx), fuente: 'heuristica' };
-  }
-
   try {
-    const upstream = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-      {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${GEMINI_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'gemini-3.6-flash',
-          messages: [{ role: 'user', content: buildPrompt(ctx) }],
-          temperature: 0.4,
-          max_tokens: 400,
-        }),
-      }
-    );
+    const { text, usage } = await withKeyRotation(async (apiKey) => {
+      const upstream = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'gemini-3.6-flash',
+            messages: [{ role: 'user', content: buildPrompt(ctx) }],
+            temperature: 0.4,
+            max_tokens: 400,
+          }),
+        }
+      );
 
-    if (!upstream.ok) {
-      if (upstream.status === 429) geminiCB.recordQuotaError();
-      return { enfoque: generarEnfoqueHeuristico(ctx), fuente: 'heuristica' };
-    }
+      if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');
+      if (!upstream.ok) throw new Error(`Gemini HTTP ${upstream.status}`);
 
-    const data = await upstream.json();
-    const text = (data?.choices?.[0]?.message?.content ?? '').trim();
-    if (!text) return { enfoque: generarEnfoqueHeuristico(ctx), fuente: 'heuristica' };
+      const data = await upstream.json();
+      const textLocal = (data?.choices?.[0]?.message?.content ?? '').trim();
+      if (!textLocal) throw new Error('Gemini sin contenido en la respuesta');
+      return { text: textLocal, usage: data?.usage ?? {} };
+    });
 
-    geminiCB.recordSuccess();
     logTokenUsage({
       userId: ctx.userId, agentName: 'enfoque_entidad',
-      tokensInput: data?.usage?.prompt_tokens ?? 0,
-      tokensOutput: data?.usage?.completion_tokens ?? 0,
+      tokensInput: usage?.prompt_tokens ?? 0,
+      tokensOutput: usage?.completion_tokens ?? 0,
     }).catch(() => {});
     return { enfoque: text.slice(0, 800), fuente: 'gemini-3.6-flash' };
-  } catch (err) {
-    if (isQuotaError(err)) geminiCB.recordQuotaError();
+  } catch {
     return { enfoque: generarEnfoqueHeuristico(ctx), fuente: 'heuristica' };
   }
 }

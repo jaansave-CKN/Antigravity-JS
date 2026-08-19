@@ -24,7 +24,7 @@
  * cae a un cálculo heurístico determinista — nunca lanza, siempre devuelve
  * un resultado real utilizable, con el MISMO esquema en ambos casos.
  */
-import { geminiCB, isQuotaError } from './geminiCircuitBreaker.js';
+import { withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
 
@@ -228,59 +228,56 @@ function calcularViabilidadHeuristica({ problema, metaEsperada, poblacionAfectad
  * @param {object} ctx
  * @returns {Promise<object>}
  */
+// REFACTOR (2026-08-19, pool de llaves): withKeyRotation() prueba cada
+// llave del pool ante 429 — mismo contrato (nunca lanza, siempre cae a
+// calcularViabilidadHeuristica ante cualquier fallo real o pool agotado).
 export async function calcularViabilidadIA(ctx) {
-  const GEMINI_KEY = process.env.GOOGLE_API_KEY;
-  if (!GEMINI_KEY || !geminiCB.canCall()) {
-    return calcularViabilidadHeuristica(ctx);
-  }
-
   try {
-    const upstream = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-      {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${GEMINI_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'gemini-3.6-flash',
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: buildUserPrompt(ctx) },
-          ],
-          temperature: 0.2,
-          max_tokens: 2048,
-          response_format: { type: 'json_object' },
-        }),
-      }
-    );
+    const { parsed, usage } = await withKeyRotation(async (apiKey) => {
+      const upstream = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'gemini-3.6-flash',
+            messages: [
+              { role: 'system', content: SYSTEM_PROMPT },
+              { role: 'user', content: buildUserPrompt(ctx) },
+            ],
+            temperature: 0.2,
+            max_tokens: 2048,
+            response_format: { type: 'json_object' },
+          }),
+        }
+      );
 
-    if (!upstream.ok) {
-      if (upstream.status === 429) {
-        geminiCB.recordQuotaError();
-      } else {
+      if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');
+      if (!upstream.ok) {
         // FIX (auditoría SRE Red Team 2026-08-10, Capa 4): mismo patrón que
         // CopilotoService.js — un fallo no-429 quedaba invisible en logs.
         const cuerpo = await upstream.text().catch(() => '');
         logger.error('[ViabilidadAgent] Fallo Gemini no-cuota', { status: upstream.status, body: cuerpo.slice(0, 300) });
+        throw new Error(`Gemini HTTP ${upstream.status}`);
       }
-      return calcularViabilidadHeuristica(ctx);
-    }
 
-    const data = await upstream.json();
-    const text = data?.choices?.[0]?.message?.content ?? '';
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return calcularViabilidadHeuristica(ctx);
+      const data = await upstream.json();
+      const text = data?.choices?.[0]?.message?.content ?? '';
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error('Respuesta de Gemini sin JSON');
 
-    const parsed = JSON.parse(match[0]);
-    const validEstados = JSON_SCHEMA.schema.properties.estado_auditoria.enum;
-    if (!validEstados.includes(parsed.estado_auditoria) || typeof parsed.score_viabilidad !== 'number') {
-      return calcularViabilidadHeuristica(ctx);
-    }
+      const parsedLocal = JSON.parse(match[0]);
+      const validEstados = JSON_SCHEMA.schema.properties.estado_auditoria.enum;
+      if (!validEstados.includes(parsedLocal.estado_auditoria) || typeof parsedLocal.score_viabilidad !== 'number') {
+        throw new Error('Respuesta de Gemini con esquema inválido');
+      }
+      return { parsed: parsedLocal, usage: data?.usage ?? {} };
+    });
 
-    geminiCB.recordSuccess();
     logTokenUsage({
       userId: ctx.userId, agentName: 'viabilidad',
-      tokensInput: data?.usage?.prompt_tokens ?? 0,
-      tokensOutput: data?.usage?.completion_tokens ?? 0,
+      tokensInput: usage?.prompt_tokens ?? 0,
+      tokensOutput: usage?.completion_tokens ?? 0,
     }).catch(() => {});
     return {
       estado_auditoria: parsed.estado_auditoria,
@@ -303,9 +300,7 @@ export async function calcularViabilidadIA(ctx) {
       calculadoEn: new Date().toISOString(),
     };
   } catch (err) {
-    if (isQuotaError(err)) {
-      geminiCB.recordQuotaError();
-    } else {
+    if (!(err instanceof GeminiPoolExhaustedError) && !isQuotaError(err)) {
       logger.error('[ViabilidadAgent] Excepción Gemini no-cuota', { err: err.message });
     }
     return calcularViabilidadHeuristica(ctx);

@@ -4,7 +4,7 @@
  */
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from '../utils/logger.js';
-import { geminiCB, isQuotaError } from '../services/geminiCircuitBreaker.js';
+import { geminiCB, isQuotaError, withKeyRotation, GeminiPoolExhaustedError } from '../services/geminiCircuitBreaker.js';
 import { logTokenUsage } from '../services/aiTokenLogger.js';
 
 export const ARBOL_SYSTEM_PROMPT = `Eres un experto en formulación de proyectos de cooperación internacional, \
@@ -40,65 +40,78 @@ function buildMockArbol(objetivoCentral) {
   ];
 }
 
-export async function generarArbolConIA(objetivoCentral, apiKey, userId) {
-  // Intentar con Gemini real; caer en mock estructurado si no hay clave
-  const key = apiKey && apiKey !== 'api_key_placeholder'
-    ? apiKey
-    : (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '');
+// Llamada real al SDK con una llave dada — factorizada para poder usarse
+// tanto con la llave BYOK de un usuario (un solo intento, sin rotación) como
+// con el pool de llaves del servidor vía withKeyRotation (2026-08-19).
+async function intentarGenerarArbol(key, objetivoCentral) {
+  const genAI = new GoogleGenerativeAI(key);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-3.6-flash',
+    generationConfig: {
+      temperature:     0.3,
+      topP:            0.8,
+      maxOutputTokens: 4096,
+      responseMimeType: 'application/json',
+    },
+  });
 
-  if (!key) {
-    console.warn('[ArbolAgent] Sin GOOGLE_API_KEY — usando árbol de objetivos de demostración');
+  // Sanitización anti-prompt-injection: limitar longitud y strip de delimitadores
+  const sanitized = String(objetivoCentral || '')
+    .slice(0, 400)
+    .replace(/["`\\]/g, '')
+    .replace(/\n{2,}/g, ' ');
+  const prompt = `${ARBOL_SYSTEM_PROMPT}\n\nOBJETIVO CENTRAL DEL PROYECTO:\n"${sanitized}"`;
+  const result = await model.generateContent(prompt);
+  const text   = result.response.text().trim();
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Intentar extraer JSON del texto si viene envuelto en markdown
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Respuesta de Gemini no contiene JSON válido');
+    parsed = JSON.parse(match[0]);
+  }
+
+  const nodos = parsed.nodos || parsed;
+  if (!Array.isArray(nodos) || nodos.length === 0) {
+    throw new Error('Árbol de objetivos vacío en respuesta de Gemini');
+  }
+
+  // SDK oficial @google/generative-ai — forma distinta a las llamadas fetch
+  // directas de los otros agentes (data.usage.prompt_tokens): acá viene en
+  // result.response.usageMetadata.{promptTokenCount,candidatesTokenCount}.
+  return { nodos, usage: result.response.usageMetadata || {} };
+}
+
+export async function generarArbolConIA(objetivoCentral, apiKey, userId) {
+  // Llave BYOK explícita de un usuario específico (server.js:
+  // resolveGoogleApiKey) → un solo intento con ESA llave, sin rotación ni
+  // pool del servidor (es la cuota personal del usuario, no la compartida).
+  // Sin llave de usuario → cae al pool de llaves del servidor con rotación.
+  const useUserKey = apiKey && apiKey !== 'api_key_placeholder';
+
+  if (!useUserKey && !geminiCB.keys.length) {
+    console.warn('[ArbolAgent] Sin llaves configuradas — usando árbol de objetivos de demostración');
     return buildMockArbol(objetivoCentral);
   }
 
-  // ── Circuit Breaker: si la cuota de Gemini está agotada, degradar sin llamar a la API ──
-  if (!geminiCB.canCall()) {
+  if (useUserKey && !geminiCB.canCall()) {
     logger.warn('[ArbolAgent] Circuit breaker OPEN — usando árbol de objetivos de demostración');
     return buildMockArbol(objetivoCentral);
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(key);
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-3.6-flash',
-      generationConfig: {
-        temperature:     0.3,
-        topP:            0.8,
-        maxOutputTokens: 4096,
-        responseMimeType: 'application/json',
-      },
-    });
-
-    // Sanitización anti-prompt-injection: limitar longitud y strip de delimitadores
-    const sanitized = String(objetivoCentral || '')
-      .slice(0, 400)
-      .replace(/["`\\]/g, '')
-      .replace(/\n{2,}/g, ' ');
-    const prompt = `${ARBOL_SYSTEM_PROMPT}\n\nOBJETIVO CENTRAL DEL PROYECTO:\n"${sanitized}"`;
-    const result = await model.generateContent(prompt);
-    const text   = result.response.text().trim();
-
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // Intentar extraer JSON del texto si viene envuelto en markdown
-      const match = text.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error('Respuesta de Gemini no contiene JSON válido');
-      parsed = JSON.parse(match[0]);
-    }
-
-    const nodos = parsed.nodos || parsed;
-    if (!Array.isArray(nodos) || nodos.length === 0) {
-      throw new Error('Árbol de objetivos vacío en respuesta de Gemini');
+    let nodos, usage;
+    if (useUserKey) {
+      ({ nodos, usage } = await intentarGenerarArbol(apiKey, objetivoCentral));
+      geminiCB.recordSuccess();
+    } else {
+      ({ nodos, usage } = await withKeyRotation((key) => intentarGenerarArbol(key, objetivoCentral)));
     }
 
     console.log(`[ArbolAgent] Árbol generado con ${nodos.length} nodos via Gemini`);
-    geminiCB.recordSuccess();
-    // SDK oficial @google/generative-ai — forma distinta a las llamadas fetch
-    // directas de los otros agentes (data.usage.prompt_tokens): acá viene en
-    // result.response.usageMetadata.{promptTokenCount,candidatesTokenCount}.
-    const usage = result.response.usageMetadata || {};
     logTokenUsage({
       userId, agentName: 'arbol_objetivos',
       tokensInput: usage.promptTokenCount ?? 0,
@@ -106,8 +119,8 @@ export async function generarArbolConIA(objetivoCentral, apiKey, userId) {
     }).catch(() => {});
     return nodos;
   } catch (err) {
-    if (isQuotaError(err)) {
-      geminiCB.recordQuotaError();
+    if (isQuotaError(err) || err instanceof GeminiPoolExhaustedError) {
+      if (useUserKey) geminiCB.recordQuotaError();
       logger.warn('[ArbolAgent] Cuota de Gemini agotada — degradando a árbol de demostración', { objetivoCentral });
       return buildMockArbol(objetivoCentral);
     }

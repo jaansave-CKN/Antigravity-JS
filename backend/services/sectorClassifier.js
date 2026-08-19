@@ -9,7 +9,7 @@
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { geminiCB, isQuotaError } from './geminiCircuitBreaker.js';
+import { withKeyRotation } from './geminiCircuitBreaker.js';
 
 // Espejo plano del taxonomy del frontend (sectoresTaxonomy.ts).
 // Actualizar aquí cuando se modifique el taxonomy en el cliente.
@@ -33,15 +33,6 @@ const PROMPT_TEMPLATE = (titulo, descripcion, donante) =>
   `Responde SOLO con un array JSON, sin texto extra.\n\n` +
   `Sectores válidos: ${JSON.stringify(SECTOR_NAMES)}\n\n` +
   `Donante: ${donante || '(no especificado)'}\nTítulo: ${titulo}\nDescripción: ${descripcion?.slice(0, 400) ?? '(sin descripción)'}`;
-
-let _genAI = null;
-function getGenAI() {
-  if (_genAI) return _genAI;
-  const key = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY_FALLBACK || process.env.GEMINI_API_KEY;
-  if (!key) return null;
-  _genAI = new GoogleGenerativeAI(key);
-  return _genAI;
-}
 
 // ── Clasificador por palabras clave (fallback sin API) ────────────────────────
 // IMPORTANTE: El orden de KW_MAP determina la prioridad cuando hay solapamiento.
@@ -125,24 +116,29 @@ function classifyByKeywords(titulo, descripcion, donante) {
  * @param {string} [donante]  — nombre del donante/entidad para enriquecer la clasificación
  * @returns {Promise<string[]>}
  */
+// REFACTOR (2026-08-19, pool de llaves): withKeyRotation() crea un cliente
+// del SDK por intento (rota entre llaves ante 429) — antes cacheaba un solo
+// cliente ligado a una sola llave (_genAI). Mismo contrato: nunca lanza,
+// cae a classifyByKeywords ante cualquier fallo real o pool agotado.
 export async function classifySectors(titulo, descripcion, donante = '') {
-  const genAI = getGenAI();
-  if (genAI && geminiCB.canCall()) {
-    try {
+  try {
+    const valid = await withKeyRotation(async (apiKey) => {
+      const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
       const result = await model.generateContent(PROMPT_TEMPLATE(titulo, descripcion, donante));
       const text = result.response.text().trim();
       const match = text.match(/\[[\s\S]*\]/);
-      if (match) {
-        const parsed = JSON.parse(match[0]);
-        if (Array.isArray(parsed)) {
-          const valid = parsed.filter(s => SECTOR_NAMES.includes(String(s).trim())).slice(0, 3);
-          if (valid.length > 0) { geminiCB.recordSuccess(); return valid; }
-        }
-      }
-    } catch (err) {
-      if (isQuotaError(err)) geminiCB.recordQuotaError();
-    }
+      if (!match) throw new Error('Respuesta de Gemini sin array JSON');
+
+      const parsed = JSON.parse(match[0]);
+      if (!Array.isArray(parsed)) throw new Error('Respuesta de Gemini no es un array');
+
+      const validLocal = parsed.filter(s => SECTOR_NAMES.includes(String(s).trim())).slice(0, 3);
+      if (!validLocal.length) throw new Error('Sin sectores válidos en la respuesta');
+      return validLocal;
+    });
+    return valid;
+  } catch {
+    return classifyByKeywords(titulo, descripcion, donante);
   }
-  return classifyByKeywords(titulo, descripcion, donante);
 }

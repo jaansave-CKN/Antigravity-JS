@@ -11,6 +11,7 @@ import { join } from 'path';
 import { writeFile, unlink } from 'fs/promises';
 import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { withKeyRotation } from './geminiCircuitBreaker.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -84,15 +85,6 @@ export async function convertBufferToMarkdown(buffer, ext, timeoutMs = 30_000) {
 
 // ── Gemini extractor ─────────────────────────────────────────────────────────
 
-let _genAI = null;
-function getGenAI() {
-  if (_genAI) return _genAI;
-  const key = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY_FALLBACK || process.env.GEMINI_API_KEY;
-  if (!key) return null;
-  _genAI = new GoogleGenerativeAI(key);
-  return _genAI;
-}
-
 const EXTRACT_PROMPT = (md) =>
   `Eres un asistente que extrae información estructurada de convocatorias de financiamiento.
 Analiza este documento y responde SOLO con JSON válido (sin markdown fences):
@@ -113,25 +105,30 @@ ${md.slice(0, 8000)}`;
  * @param {string} markdown
  * @returns {Promise<{titulo,descripcion,fecha_limite,monto_max,moneda}|null>}
  */
+// REFACTOR (2026-08-19, pool de llaves): withKeyRotation() crea un cliente
+// por intento y rota entre llaves ante 429 — antes un solo cliente cacheado
+// con una sola llave, y ni siquiera pasaba por geminiCB. Mismo contrato:
+// nunca lanza, retorna null ante cualquier fallo real o pool agotado.
 export async function extractConvocatoriaFields(markdown) {
   if (!markdown || markdown.length < 80) return null;
-  const genAI = getGenAI();
-  if (!genAI) return null;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
-    const result = await model.generateContent(EXTRACT_PROMPT(markdown));
-    const text = result.response.text().trim();
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    const parsed = JSON.parse(match[0]);
-    return {
-      titulo:       String(parsed.titulo       ?? '').slice(0, 255),
-      descripcion:  String(parsed.descripcion  ?? '').slice(0, 500),
-      fecha_limite: String(parsed.fecha_limite ?? '').slice(0, 20),
-      monto_max:    Number(parsed.monto_max    ?? 0) || 0,
-      moneda:       String(parsed.moneda       ?? '').slice(0, 10),
-    };
+    return await withKeyRotation(async (apiKey) => {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+      const result = await model.generateContent(EXTRACT_PROMPT(markdown));
+      const text = result.response.text().trim();
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error('Respuesta de Gemini sin JSON');
+      const parsed = JSON.parse(match[0]);
+      return {
+        titulo:       String(parsed.titulo       ?? '').slice(0, 255),
+        descripcion:  String(parsed.descripcion  ?? '').slice(0, 500),
+        fecha_limite: String(parsed.fecha_limite ?? '').slice(0, 20),
+        monto_max:    Number(parsed.monto_max    ?? 0) || 0,
+        moneda:       String(parsed.moneda       ?? '').slice(0, 10),
+      };
+    });
   } catch {
     return null;
   }
