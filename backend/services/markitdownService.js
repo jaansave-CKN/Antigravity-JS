@@ -119,7 +119,7 @@ export async function extractConvocatoriaFields(markdown) {
   if (!genAI) return null;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
     const result = await model.generateContent(EXTRACT_PROMPT(markdown));
     const text = result.response.text().trim();
     const match = text.match(/\{[\s\S]*\}/);
