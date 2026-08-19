@@ -4,7 +4,7 @@
  * Tokens: bg #f7f9fb · card #ffffff · border #e0e3e5 · text #191c1e · primary #0058be
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getAuthHeaders, http } from '../lib/apiClient';
+import { getAuthHeaders, http, ApiError } from '../lib/apiClient';
 import './EntradaPage.css';
 
 const STORAGE_KEY = 'radar360_entrada_m1';
@@ -149,6 +149,21 @@ const ESTADO_INICIAL: EntradaState = {
   detallePoblacion: [], municipio: '', vereda: '', contexto: {},
 };
 
+// ── "Generar con AI" (EXTENSIÓN 2026-08-17, acotado al módulo 11 el mismo
+// día por pedido explícito del usuario con captura real: "el botón de
+// generar con ai es solo para el módulo 11") ────────────────────────────────
+// Fusiona SOLO los 7 campos de "Contexto del Problema" sobre el estado
+// actual, sin perder nada que el usuario ya haya escrito — cada campo se
+// llena únicamente si está vacío; si ya tiene texto, se conserva tal cual.
+function fusionarContextoIA(actual: EntradaState, contextoSugerido: Partial<Record<string, string>>): EntradaState {
+  return {
+    ...actual,
+    contexto: Object.fromEntries(
+      CONTEXTO_CAMPOS.map(c => [c.id, actual.contexto[c.id]?.trim() ? actual.contexto[c.id] : (contextoSugerido[c.id] || actual.contexto[c.id] || '')])
+    ),
+  };
+}
+
 export default function EntradaPage() {
   const [st, setSt] = useState<EntradaState>(() => {
     try {
@@ -158,6 +173,8 @@ export default function EntradaPage() {
   });
   const [guardado, setGuardado] = useState(false);
   const [limpiado, setLimpiado] = useState(false);
+  const [generandoIA, setGenerandoIA] = useState(false);
+  const [errorIA, setErrorIA] = useState<string | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   const [voiceField, setVoiceField] = useState<string | null>(null);
   const recRef = useRef<any>(null);
@@ -311,6 +328,31 @@ export default function EntradaPage() {
     mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     setLimpiado(true);
     setTimeout(() => setLimpiado(false), 2000);
+  };
+
+  // "Generar con AI" (módulo 11 — Contexto del Problema, ver comentario de
+  // fusionarContextoIA): lee la carpeta "Investigación" de Anexos del
+  // proyecto activo y sugiere SOLO estos 7 campos — el usuario puede seguir
+  // llenándolos a mano igual que siempre, esto es una ayuda opcional. "A
+  // prueba de errores": cada fallo posible (sin proyecto activo, sin
+  // carpeta, carpeta vacía, IA sin responder, JSON inválido) muestra un
+  // mensaje claro y deja el formulario exactamente como estaba.
+  const generarConIA = async () => {
+    const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
+    if (!proyectoId) { setErrorIA('Activa un proyecto antes de generar con IA.'); return; }
+    setGenerandoIA(true);
+    setErrorIA(null);
+    try {
+      const resp = await http.post<{ success: boolean; data?: Partial<Record<string, string>>; message?: string }>(
+        `/api/proyectos/${proyectoId}/entrada/generar-ai`, {}
+      );
+      if (!resp.data) throw new Error(resp.message || 'La IA no devolvió datos.');
+      setSt(prev => fusionarContextoIA(prev, resp.data!));
+    } catch (e) {
+      setErrorIA(e instanceof ApiError ? e.message : (e instanceof Error ? e.message : 'No se pudo generar con IA — inténtalo de nuevo.'));
+    } finally {
+      setGenerandoIA(false);
+    }
   };
 
   const toggleSector = (s: string) =>
@@ -695,7 +737,20 @@ export default function EntradaPage() {
               <div className="entr__card-header">
                 <span className="entr__step-badge">11</span>
                 <h2 className="entr__section-heading">Contexto del Problema</h2>
+                <button
+                  className="entr__ai-btn"
+                  style={{ marginLeft: 'auto' }}
+                  onClick={generarConIA}
+                  disabled={generandoIA}
+                  title="Lee la carpeta 'Investigación' de Anexos y sugiere estos 7 campos — nunca sobrescribe lo que ya escribiste a mano."
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>auto_awesome</span>
+                  {generandoIA ? 'Generando…' : 'Generar con AI'}
+                </button>
               </div>
+              {errorIA && (
+                <div role="alert" style={{ fontSize: 11, color: '#dc2626', background: '#fef2f2', padding: '6px 10px', borderRadius: 6, marginBottom: 10 }}>{errorIA}</div>
+              )}
               <p className="entr__section-hint">Caracterice la situación problemática que el proyecto busca resolver.</p>
               <div className="entr__context-list">
                 {CONTEXTO_CAMPOS.map(c => (
