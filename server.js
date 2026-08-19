@@ -52,6 +52,7 @@ import { registerBibliotecaRoutes } from './backend/routes/biblioteca.routes.js'
 import { registerEstresFinancieroRoutes } from './backend/routes/estresFinanciero.routes.js';
 import { registerValorExponencialRoutes } from './backend/routes/valorExponencial.routes.js';
 import { registerCopilotoRoutes } from './backend/routes/copiloto.routes.js';
+import { registerEntradaIARoutes } from './backend/routes/entradaIA.routes.js';
 import { radarCacheMiddleware, invalidateRadarCache } from './backend/middlewares/radarCache.js';
 import { RENDIMIENTOS_CATALOGO } from './backend/pipeline/apuEngine.js';
 import { registerSubscriptionRoutes }    from './backend/routes/subscriptions.routes.js';
@@ -317,6 +318,24 @@ async function verifyPassword(password, stored) {
 }
 
 // ── Inicialización BD ────────────────────────────────────────────────────────
+// FIX (auditoría 2026-08-17, "se cae la red en local"): decenas de líneas
+// más abajo hacen "ALTER TABLE x ADD COLUMN y" sin IF NOT EXISTS y confían
+// en un try/catch para tragarse el error una vez que la columna ya existe
+// (ver nota histórica en la migración de user_id, más abajo: SQLite no
+// soporta "ADD COLUMN IF NOT EXISTS", por eso no se usó desde el inicio).
+// Confirmado en backend.err.log: cada una de esas ~34 líneas falla en CADA
+// arranque con "column X already exists", y cada fallo escala a un
+// reintento vía REST (Capa 2, más lento) antes de descartarse — sumando
+// ~15-25s reales al arranque (RootIndicator muestra "ROOT OFFLINE" mientras
+// tanto). Postgres SÍ soporta IF NOT EXISTS — se usa aquí cuando
+// DATABASE_URL está configurado (mismo criterio que USE_PG en otros
+// archivos de este repo), preservando el comportamiento original en SQLite.
+const PG_ACTIVE_INITDB = !!process.env.DATABASE_URL;
+async function addColumnSafe(sql) {
+  const finalSql = PG_ACTIVE_INITDB ? sql.replace(/ADD COLUMN\s+/i, 'ADD COLUMN IF NOT EXISTS ') : sql;
+  try { await runSql(finalSql); } catch {}
+}
+
 async function initDb() {
   // pgvector: habilitar extensión en PostgreSQL para similitud vectorial
   if (process.env.DATABASE_URL) {
@@ -414,7 +433,7 @@ async function initDb() {
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
   // Formalización de 'Problema' (013): tabla ya existente antes de esta columna
-  try { await runSql(`ALTER TABLE objetivos_arbol ADD COLUMN tipo_nodo TEXT CHECK(tipo_nodo IN ('PROBLEMA_CENTRAL','CAUSA','EFECTO','OBJETIVO_GENERAL','OBJETIVO_ESPECIFICO'))`); } catch {}
+  await addColumnSafe(`ALTER TABLE objetivos_arbol ADD COLUMN tipo_nodo TEXT CHECK(tipo_nodo IN ('PROBLEMA_CENTRAL','CAUSA','EFECTO','OBJETIVO_GENERAL','OBJETIVO_ESPECIFICO'))`);
 
   // Anexos externos del proyecto (013) — antes solo en localStorage del cliente
   await runSql(`CREATE TABLE IF NOT EXISTS project_anexos (
@@ -526,15 +545,15 @@ async function initDb() {
     FOREIGN KEY (user_id) REFERENCES usuarios(id)
   )`);
   // Migraciones de proyectos: agrega columnas ausentes en versiones anteriores del esquema
-  try { await runSql(`ALTER TABLE proyectos ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`); } catch {}
-  try { await runSql(`ALTER TABLE proyectos ADD COLUMN org_id TEXT NOT NULL DEFAULT ''`); } catch {}
-  try { await runSql(`ALTER TABLE proyectos ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL`); } catch {}
+  await addColumnSafe(`ALTER TABLE proyectos ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`);
+  await addColumnSafe(`ALTER TABLE proyectos ADD COLUMN org_id TEXT NOT NULL DEFAULT ''`);
+  await addColumnSafe(`ALTER TABLE proyectos ADD COLUMN deleted_at TIMESTAMP DEFAULT NULL`);
   // Backfill: registros anteriores heredan user_id como org_id
   try { await runSql(`UPDATE proyectos SET org_id = user_id WHERE org_id = ''`); } catch {}
 
   // Migraciones de integridad referencial Convocatorias ↔ Directorio
-  try { await runSql(`ALTER TABLE convocatorias ADD COLUMN entidad_id TEXT`); } catch {}
-  try { await runSql(`ALTER TABLE directorio_entidades ADD COLUMN status TEXT DEFAULT 'active'`); } catch {}
+  await addColumnSafe(`ALTER TABLE convocatorias ADD COLUMN entidad_id TEXT`);
+  await addColumnSafe(`ALTER TABLE directorio_entidades ADD COLUMN status TEXT DEFAULT 'active'`);
   // Backfill: enlaza convocatorias existentes a entidades por nombre exacto del donante
   try {
     await runSql(`
@@ -659,28 +678,28 @@ async function initDb() {
 
   // Migraciones defensivas V8.0: agrega user_id si las tablas existen sin esa columna
   // (SQLite no soporta ADD COLUMN IF NOT EXISTS — el catch silencia "already exists")
-  try { await runSql("ALTER TABLE motor_dialectico  ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
-  try { await runSql("ALTER TABLE config_logistica  ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
-  try { await runSql("ALTER TABLE marco_normativo   ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
-  try { await runSql("ALTER TABLE compliance_data   ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
+  await addColumnSafe("ALTER TABLE motor_dialectico  ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
+  await addColumnSafe("ALTER TABLE config_logistica  ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
+  await addColumnSafe("ALTER TABLE marco_normativo   ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
+  await addColumnSafe("ALTER TABLE compliance_data   ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
   // Soft-Lock predial (F-Legal-01): 'condicionado' NO bloquea la formulación
   // técnica en paralelo — solo 'despejado' habilita el Hard-Lock final de
   // certificación (ver POST /api/m12/ficha/:proyectoId y
   // POST /api/modulo9/radicar/:proyectoId).
-  try { await runSql("ALTER TABLE compliance_data ADD COLUMN estado_legal TEXT NOT NULL DEFAULT 'sin_evaluar'"); } catch {}
+  await addColumnSafe("ALTER TABLE compliance_data ADD COLUMN estado_legal TEXT NOT NULL DEFAULT 'sin_evaluar'");
   try { await runSql("ALTER TABLE compliance_data ADD CONSTRAINT compliance_data_estado_legal_check CHECK (estado_legal IN ('sin_evaluar','condicionado','despejado'))"); } catch {}
-  try { await runSql("ALTER TABLE versiones_proyecto ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"); } catch {}
-  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN access_radar INTEGER DEFAULT 0"); } catch {}
-  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN access_formulador INTEGER DEFAULT 0"); } catch {}
-  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN stripe_customer_id TEXT DEFAULT NULL"); } catch {}
-  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN stripe_subscription_id TEXT DEFAULT NULL"); } catch {}
-  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN current_period_end TIMESTAMP DEFAULT NULL"); } catch {}
-  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN cancel_at_period_end INTEGER DEFAULT 0"); } catch {}
-  try { await runSql("ALTER TABLE user_subscriptions ADD COLUMN expires_at TIMESTAMPTZ DEFAULT NULL"); } catch {}
-  try { await runSql("ALTER TABLE directorio_entidades ADD COLUMN status TEXT DEFAULT 'active'"); } catch {}
+  await addColumnSafe("ALTER TABLE versiones_proyecto ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
+  await addColumnSafe("ALTER TABLE user_subscriptions ADD COLUMN access_radar INTEGER DEFAULT 0");
+  await addColumnSafe("ALTER TABLE user_subscriptions ADD COLUMN access_formulador INTEGER DEFAULT 0");
+  await addColumnSafe("ALTER TABLE user_subscriptions ADD COLUMN stripe_customer_id TEXT DEFAULT NULL");
+  await addColumnSafe("ALTER TABLE user_subscriptions ADD COLUMN stripe_subscription_id TEXT DEFAULT NULL");
+  await addColumnSafe("ALTER TABLE user_subscriptions ADD COLUMN current_period_end TIMESTAMP DEFAULT NULL");
+  await addColumnSafe("ALTER TABLE user_subscriptions ADD COLUMN cancel_at_period_end INTEGER DEFAULT 0");
+  await addColumnSafe("ALTER TABLE user_subscriptions ADD COLUMN expires_at TIMESTAMPTZ DEFAULT NULL");
+  await addColumnSafe("ALTER TABLE directorio_entidades ADD COLUMN status TEXT DEFAULT 'active'");
   // root_domain — llave relacional normalizada (funding.wellcome.org → wellcome.org)
-  try { await runSql("ALTER TABLE directorio_entidades ADD COLUMN root_domain TEXT DEFAULT NULL"); } catch {}
-  try { await runSql("ALTER TABLE convocatorias ADD COLUMN root_domain TEXT DEFAULT NULL"); } catch {}
+  await addColumnSafe("ALTER TABLE directorio_entidades ADD COLUMN root_domain TEXT DEFAULT NULL");
+  await addColumnSafe("ALTER TABLE convocatorias ADD COLUMN root_domain TEXT DEFAULT NULL");
   // Tabla de idempotencia de webhooks Stripe
   await runSql(`CREATE TABLE IF NOT EXISTS stripe_events (
     stripe_event_id  TEXT        PRIMARY KEY,
@@ -689,8 +708,8 @@ async function initDb() {
     processed_at     TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
     raw_payload      TEXT
   )`);
-  try { await runSql("ALTER TABLE system_config ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); } catch {}
-  try { await runSql("ALTER TABLE system_logs  ADD COLUMN nivel TEXT DEFAULT 'ERROR'"); } catch {}
+  await addColumnSafe("ALTER TABLE system_config ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+  await addColumnSafe("ALTER TABLE system_logs  ADD COLUMN nivel TEXT DEFAULT 'ERROR'");
   // Configuración global de la aplicación (clave-valor)
   await runSql(`CREATE TABLE IF NOT EXISTS app_settings (
     key        TEXT      PRIMARY KEY,
@@ -727,13 +746,13 @@ async function initDb() {
   }
 
   // Migraciones idempotentes para columnas nuevas
-  try { await runSql('ALTER TABLE proyectos ADD COLUMN embedding TEXT DEFAULT NULL'); } catch {}
-  try { await runSql('ALTER TABLE convocatorias ADD COLUMN embedding TEXT DEFAULT NULL'); } catch {}
+  await addColumnSafe('ALTER TABLE proyectos ADD COLUMN embedding TEXT DEFAULT NULL');
+  await addColumnSafe('ALTER TABLE convocatorias ADD COLUMN embedding TEXT DEFAULT NULL');
 
   // pgvector: columnas vector(768) nativas e índices HNSW para búsqueda semántica (PostgreSQL only)
   if (process.env.DATABASE_URL) {
-    try { await runSql('ALTER TABLE convocatorias ADD COLUMN embedding_vec vector(768)'); } catch {}
-    try { await runSql('ALTER TABLE proyectos     ADD COLUMN embedding_vec vector(768)'); } catch {}
+    await addColumnSafe('ALTER TABLE convocatorias ADD COLUMN embedding_vec vector(768)');
+    await addColumnSafe('ALTER TABLE proyectos     ADD COLUMN embedding_vec vector(768)');
     // Índice HNSW: búsqueda aproximada por coseno (<10 ms en 100k registros)
     try { await runSql('CREATE INDEX IF NOT EXISTS idx_conv_emb_hnsw ON convocatorias USING hnsw(embedding_vec vector_cosine_ops)'); } catch {}
     try { await runSql('CREATE INDEX IF NOT EXISTS idx_proy_emb_hnsw ON proyectos     USING hnsw(embedding_vec vector_cosine_ops)'); } catch {}
@@ -744,26 +763,39 @@ async function initDb() {
   }
   // lock_timeout evita que las migraciones queden bloqueadas indefinidamente si hay locks activos
   try { await runSql("SET lock_timeout = '3s'"); } catch {}
-  try { await runSql("ALTER TABLE match_scores ADD COLUMN org_id TEXT DEFAULT ''"); } catch {}
+  await addColumnSafe("ALTER TABLE match_scores ADD COLUMN org_id TEXT DEFAULT ''");
   // Migración Google OAuth: columnas faltantes en user_credentials
-  try { await runSql("ALTER TABLE user_credentials ADD COLUMN service TEXT DEFAULT 'api_key'"); } catch {}
-  try { await runSql('ALTER TABLE user_credentials ADD COLUMN encrypted_key TEXT DEFAULT NULL'); } catch {}
-  try { await runSql("ALTER TABLE user_credentials ADD COLUMN label TEXT DEFAULT ''"); } catch {}
+  await addColumnSafe("ALTER TABLE user_credentials ADD COLUMN service TEXT DEFAULT 'api_key'");
+  await addColumnSafe('ALTER TABLE user_credentials ADD COLUMN encrypted_key TEXT DEFAULT NULL');
+  await addColumnSafe("ALTER TABLE user_credentials ADD COLUMN label TEXT DEFAULT ''");
   // Migraciones proyectos: columnas que pueden faltar en radar.db de versiones anteriores
-  try { await runSql("ALTER TABLE proyectos ADD COLUMN bloqueo_razon TEXT"); } catch {}
-  try { await runSql("ALTER TABLE proyectos ADD COLUMN ficha_tecnica JSONB DEFAULT '{}'::jsonb"); } catch {}
-  try { await runSql("ALTER TABLE proyectos ADD COLUMN presupuesto TEXT DEFAULT '{}'"); } catch {}
-  try { await runSql("ALTER TABLE proyectos ADD COLUMN crosscheck_sello TEXT DEFAULT NULL"); } catch {}
-  try { await runSql("ALTER TABLE proyectos ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); } catch {}
-  try { await runSql("ALTER TABLE proyectos ADD COLUMN location TEXT DEFAULT ''"); } catch {}
-  try { await runSql("ALTER TABLE proyectos ADD COLUMN problem_statement TEXT DEFAULT ''"); } catch {}
+  await addColumnSafe("ALTER TABLE proyectos ADD COLUMN bloqueo_razon TEXT");
+  await addColumnSafe("ALTER TABLE proyectos ADD COLUMN ficha_tecnica JSONB DEFAULT '{}'::jsonb");
+  await addColumnSafe("ALTER TABLE proyectos ADD COLUMN presupuesto TEXT DEFAULT '{}'");
+  await addColumnSafe("ALTER TABLE proyectos ADD COLUMN crosscheck_sello TEXT DEFAULT NULL");
+  await addColumnSafe("ALTER TABLE proyectos ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+  await addColumnSafe("ALTER TABLE proyectos ADD COLUMN location TEXT DEFAULT ''");
+  await addColumnSafe("ALTER TABLE proyectos ADD COLUMN problem_statement TEXT DEFAULT ''");
   // Migración usuarios: rol granular (Formulador, Evaluador, Diseñador, Administrador, Usuario)
-  try { await runSql("ALTER TABLE usuarios ADD COLUMN rol TEXT DEFAULT 'Usuario'"); } catch {}
-  try { await runSql("ALTER TABLE usuarios ADD COLUMN org_id TEXT DEFAULT NULL"); } catch {}
-  try { await runSql("ALTER TABLE usuarios ADD COLUMN tokens_invalidated_at TIMESTAMP DEFAULT NULL"); } catch {}
+  await addColumnSafe("ALTER TABLE usuarios ADD COLUMN rol TEXT DEFAULT 'Usuario'");
+  await addColumnSafe("ALTER TABLE usuarios ADD COLUMN org_id TEXT DEFAULT NULL");
+  await addColumnSafe("ALTER TABLE usuarios ADD COLUMN tokens_invalidated_at TIMESTAMP DEFAULT NULL");
 
-  // Seed catalogo de rendimientos desde RENDIMIENTOS_CATALOGO (idempotente via UNIQUE)
+  // Seed catalogo de rendimientos desde RENDIMIENTOS_CATALOGO.
+  // FIX (auditoría 2026-08-17, "se cae la red en local"): antes reintentaba
+  // las 24 INSERT en CADA arranque sin pre-chequeo — tras el primer boot
+  // exitoso, las 24 SIEMPRE fallan por UNIQUE(clave), y cada fallo de pg
+  // escala a un reintento vía REST (Capa 2, más lento) — confirmado en
+  // backend.err.log como "duplicate key value violates unique constraint
+  // catalogo_rendimientos_clave_key" repetido 24 veces en cada arranque.
+  // Hasta 48 round-trips de red desperdiciados por boot, contribuyendo
+  // directamente a la ventana de ~50s en la que /api/health no responde
+  // (RootIndicator la reporta como "ROOT OFFLINE"). Mismo patrón de
+  // pre-chequeo ya usado más abajo para el seed de directorio_entidades
+  // (existsWP/existsDI) — solo se inserta lo que realmente falta.
+  const clavesExistentes = new Set((await getRows('SELECT clave FROM catalogo_rendimientos')).map(r => r.clave));
   for (const [clave, r] of Object.entries(RENDIMIENTOS_CATALOGO)) {
+    if (clavesExistentes.has(clave)) continue;
     try {
       await runSql(
         'INSERT INTO catalogo_rendimientos (id,clave,descripcion,fase,unidad,valor) VALUES (?,?,?,?,?,?)',
@@ -4788,6 +4820,8 @@ Reglas:
   await registerEstresFinancieroRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
   await registerValorExponencialRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
   await registerCopilotoRoutes(app, { authenticateToken, getRow, aiLimiter });
+  // Entrada (M1) — "Generar con AI" a partir de la carpeta "Investigación" de Anexos
+  await registerEntradaIARoutes(app, { authenticateToken, getRow, getRows, requireAccess, aiLimiter });
 
   // F5-01: Módulo 9 — Cross-Check Pipeline & Radicación
   registerRadicacionRoutes(app, { authenticateToken, runSql, getRow });
@@ -4806,6 +4840,18 @@ Reglas:
   app.use((err, req, res, _next) => {
     if (err.message?.startsWith('CORS:')) {
       return res.status(403).json({ success: false, code: 'CORS_BLOCKED', message: err.message });
+    }
+    // Errores de subida de archivos (multer, disparados por upload.single()
+    // ANTES de llegar al handler de la ruta — su propio try/catch nunca los
+    // ve) — antes se perdían en el 500 genérico de abajo, dejando al usuario
+    // sin saber POR QUÉ falló adjuntar un archivo (bug reportado 2026-08-17:
+    // "no permite anexar archivos" resultó ser esto + una clave de Supabase
+    // Storage inválida — ver anexos.routes.js/biblioteca.routes.js).
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ success: false, message: 'El archivo supera el tamaño máximo permitido.' });
+    }
+    if (err.status) {
+      return res.status(err.status).json({ success: false, message: err.message });
     }
     logger.error('[server] Error middleware', { path: req.path, err: err.message });
     res.status(500).json({ success: false, message: 'Error interno del servidor' });
