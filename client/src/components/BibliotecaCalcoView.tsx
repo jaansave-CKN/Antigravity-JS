@@ -32,6 +32,7 @@ interface Documento {
   carpetaId: string | null; // null = "Sin carpeta"
   persistido: boolean; // true si ya existe como fila real en project_biblioteca
   subiendo?: boolean;
+  progreso?: number; // 0-100, real (XHR upload.onprogress) — solo mientras subiendo es true
 }
 interface DocumentoApi {
   id: string; nombre_archivo: string; descripcion: string | null; texto: string | null; link: string | null; carpeta_id: string | null;
@@ -71,6 +72,26 @@ export default function BibliotecaCalcoView() {
   // ya la había filtrado. Un ref no tiene ese problema: se lee/escribe al
   // instante, siempre consistente.
   const eliminadosRef = useRef<Set<string>>(new Set());
+  // Cola de guardado por fila (FIX 2026-08-17, bug de duplicación reportado
+  // dos veces por el usuario, persistía tras el fix de eliminadosRef porque
+  // era OTRA causa): cada input (descripcion/texto/link) dispara su propio
+  // onBlur → guardarEnServidor(id) de forma independiente. Si dos blurs de la
+  // MISMA fila aún no persistida ocurren en sucesión rápida (p. ej. tabular
+  // de descripcion a link), el segundo se ejecuta ANTES de que el primer POST
+  // resuelva — persistido todavía lee `false` para ambos — y los dos disparan
+  // su propio POST: el servidor crea DOS filas, el estado local solo se
+  // queda con el id de la que resolvió última, dejando la otra como
+  // duplicado huérfano con datos parciales (visible recién en el próximo
+  // reload — coincide exactamente con lo reportado: misma descripción, link
+  // vacío). encolar() serializa TODAS las operaciones de guardado de una
+  // misma fila (texto y adjuntar archivo) para que nunca corran dos a la vez.
+  const colaGuardadoRef = useRef<Map<string, Promise<unknown>>>(new Map());
+  function encolar<T>(id: string, tarea: () => Promise<T>): Promise<T> {
+    const anterior = colaGuardadoRef.current.get(id) ?? Promise.resolve();
+    const siguiente = anterior.then(tarea, tarea);
+    colaGuardadoRef.current.set(id, siguiente.catch(() => {}));
+    return siguiente;
+  }
 
   useEffect(() => {
     if (!proyectoId) {
@@ -206,8 +227,12 @@ export default function BibliotecaCalcoView() {
     setDocumentos(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
 
   // Devuelve si la fila quedó realmente persistida — guardar() lo usa para no
-  // mostrar "✓ GUARDADO" cuando en realidad falló.
-  const guardarEnServidor = async (id: string): Promise<boolean> => {
+  // mostrar "✓ GUARDADO" cuando en realidad falló. Encolada por id (ver
+  // colaGuardadoRef) para que nunca corra en paralelo con otro guardado de la
+  // misma fila.
+  const guardarEnServidor = (id: string): Promise<boolean> => encolar(id, () => ejecutarGuardado(id));
+
+  const ejecutarGuardado = async (id: string): Promise<boolean> => {
     if (!proyectoId) return true;
     const row = documentos.find(s => s.id === id);
     if (!row) return true;
@@ -333,29 +358,59 @@ export default function BibliotecaCalcoView() {
     fileInputRef.current?.click();
   };
 
-  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     const id = targetIdRef.current;
     e.target.value = '';
     if (!f || !id) return;
-    actualizarLocal(id, { anexo: f.name, subiendo: !!proyectoId });
+    // FIX (auditoría 2026-08-17, "subo un PDF y al rato desaparece"): el
+    // nombre se mostraba de inmediato (optimista) ANTES de saber si la
+    // subida a Storage tuvo éxito, pero si fallaba (p. ej. la clave de
+    // Supabase Storage inválida — ver hallazgo previo, aún sin corregir por
+    // el usuario) el catch de más abajo solo apagaba "subiendo", nunca
+    // revertía el nombre — la fila seguía mostrando un archivo fantasma que
+    // NUNCA se guardó, hasta que un F5/recarga futura lo hacía "desaparecer"
+    // de golpe. Se captura el valor real anterior aquí para poder revertir
+    // al instante si falla, en vez de mentir hasta la próxima recarga.
+    const anexoAnterior = documentos.find(s => s.id === id)?.anexo ?? '';
+    actualizarLocal(id, { anexo: f.name, subiendo: !!proyectoId, progreso: 0 });
     if (!proyectoId) return;
+    // Encolada por id: si un guardado de texto (descripcion/link) para esta
+    // misma fila sigue en vuelo, este adjunto espera a que termine antes de
+    // decidir crear o reemplazar — evita la carrera con ejecutarGuardado.
+    encolar(id, () => ejecutarAdjuntar(id, f, anexoAnterior));
+  };
 
+  // FIX (bug real reportado 2026-08-17, DISTINTO del de eliminadosRef): el
+  // backend no soporta adjuntar un archivo a una fila que YA existe en el
+  // servidor vía PATCH (solo POST crea filas con archivo) — antes esta
+  // función hacía POST siempre, sin mirar `persistido`, así que adjuntar un
+  // archivo a una fila que el usuario ya había tecleado y guardado (flujo
+  // normal: escribir descripción → onBlur la guarda → luego adjuntar el
+  // archivo) creaba una fila NUEVA con el archivo y dejaba la vieja como
+  // duplicado permanente (mismo texto, sin archivo). Fix: si la fila ya
+  // estaba persistida, se crea la fila de reemplazo CON el archivo primero
+  // y solo si eso tuvo éxito se borra la fila vieja — nunca al revés, para
+  // no perder datos si la subida falla.
+  const ejecutarAdjuntar = async (id: string, f: File, anexoAnterior: string): Promise<boolean> => {
     const row = documentos.find(s => s.id === id);
+    if (!row) return true;
+    const idAntiguo = row.persistido ? row.id : null;
     try {
       const fd = new FormData();
       fd.append('file', f);
-      if (row?.carpetaId) fd.append('carpeta_id', row.carpetaId);
-      fd.append('descripcion', row?.descripcion || '');
-      fd.append('texto', row?.texto || '');
-      fd.append('link', row?.link || '');
-      const resp = await http.upload<{ success: boolean; data?: { id: string; nombre_archivo: string }; message?: string }>(
-        `/api/proyectos/${proyectoId}/biblioteca`, fd
+      if (row.carpetaId) fd.append('carpeta_id', row.carpetaId);
+      fd.append('descripcion', row.descripcion || '');
+      fd.append('texto', row.texto || '');
+      fd.append('link', row.link || '');
+      const resp = await http.uploadConProgreso<{ success: boolean; data?: { id: string; nombre_archivo: string }; message?: string }>(
+        `/api/proyectos/${proyectoId}/biblioteca`, fd,
+        pct => actualizarLocal(id, { progreso: pct })
       );
       if (resp.data) {
         const idServidor = resp.data.id;
         const nombreArchivo = resp.data.nombre_archivo;
-        // Misma condición de carrera que en guardarEnServidor: si el
+        // Misma condición de carrera que en ejecutarGuardado: si el
         // documento se borró mientras esta subida seguía en vuelo, el
         // archivo real ya quedó guardado en el servidor — eliminadosRef es
         // la fuente de verdad (ver comentario en su declaración).
@@ -363,13 +418,31 @@ export default function BibliotecaCalcoView() {
           eliminadosRef.current.delete(id);
           http.delete(`/api/proyectos/${proyectoId}/biblioteca/${idServidor}`).catch(() => {});
         } else {
-          actualizarLocal(id, { id: idServidor, anexo: nombreArchivo, persistido: true, subiendo: false });
+          actualizarLocal(id, { id: idServidor, anexo: nombreArchivo, persistido: true, subiendo: false, progreso: undefined });
+          if (idAntiguo) {
+            http.delete(`/api/proyectos/${proyectoId}/biblioteca/${idAntiguo}`)
+              .catch(() => setErrorSync('El archivo se adjuntó, pero quedó una fila duplicada sin limpiar — recarga la página e ilumínala para borrarla a mano.'));
+          }
         }
       }
       setErrorSync(null);
-    } catch {
-      actualizarLocal(id, { subiendo: false });
-      setErrorSync('No se pudo subir el archivo — inténtalo de nuevo.');
+      return true;
+    } catch (e) {
+      // FIX (auditoría 2026-08-17, "sube un PDF y al rato desaparece"): antes
+      // solo se apagaba "subiendo", dejando el nombre optimista puesto en
+      // onFile aunque la subida real hubiera fallado — la fila mentía hasta
+      // el próximo reload, donde el nombre fantasma desaparecía de golpe.
+      // Ahora se revierte al valor real (lo que había ANTES de este intento)
+      // de inmediato, para que el estado visible sea siempre el verdadero.
+      actualizarLocal(id, { subiendo: false, progreso: undefined, anexo: anexoAnterior });
+      // FIX (auditoría 2026-08-17): antes se mostraba siempre el mismo texto
+      // genérico sin importar la causa real — eso ocultaba errores como
+      // "El archivo supera el tamaño máximo" o una falla de credenciales de
+      // Storage, forzando a revisar los logs del servidor para saber qué
+      // pasó. e.message ya trae el mensaje real que el backend devuelve
+      // (ver ApiError en apiClient.ts).
+      setErrorSync(e instanceof Error && e.message ? e.message : 'No se pudo subir el archivo — inténtalo de nuevo.');
+      return false;
     }
   };
 
@@ -580,11 +653,19 @@ export default function BibliotecaCalcoView() {
                               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                             </button>
                           )}
-                          <button className="bib__attach-btn" title={s.subiendo ? 'Subiendo…' : 'Adjuntar documento'} disabled={s.subiendo} onClick={() => adjuntar(s.id)}>
+                          <button className="bib__attach-btn" title={s.subiendo ? `Subiendo… ${s.progreso ?? 0}%` : 'Adjuntar documento'} disabled={s.subiendo} onClick={() => adjuntar(s.id)}>
                             {s.subiendo
-                              ? <span style={{ fontSize: 10, fontWeight: 700 }}>…</span>
+                              ? <span style={{ fontSize: 9, fontWeight: 700 }}>{s.progreso ?? 0}%</span>
                               : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>}
                           </button>
+                          {/* Barra de progreso real (XHR upload.onprogress, ver apiClient.ts
+                              uploadConProgreso) — FIX 2026-08-19: sin esto, subir un archivo
+                              grande sin ninguna señal visual hace parecer que la app se congeló. */}
+                          {s.subiendo && (
+                            <div className="bib__progress-track">
+                              <div className="bib__progress-fill" style={{ width: `${s.progreso ?? 0}%` }} />
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="bib__td">

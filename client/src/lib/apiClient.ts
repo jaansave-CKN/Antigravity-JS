@@ -113,22 +113,33 @@ async function parseResponse<T>(resp: Response): Promise<T> {
   catch { throw new ApiError('Invalid JSON response from server', resp.status); }
 }
 
-// ── Retry en cold-start serverless (502/503) ──────────────────────────────────
-async function fetchWithRetry(url: string, init: RequestInit, retries = 2): Promise<Response> {
+// ── Retry con backoff exponencial (cold-start serverless 502/503, caídas de
+//    red transitorias — p. ej. la ventana de arranque del backend que
+//    RootIndicator marca "ROOT OFFLINE") ────────────────────────────────────
+// Usado por TODOS los métodos de `http` (get/post/put/patch/delete/upload) —
+// fortalecer esta única función blinda todos los guardados de Anexos/
+// Biblioteca (y el resto de la app) sin tocar cada componente por separado.
+// Backoff exponencial real (antes era ~lineal: 1000*(intento+1)) con techo de
+// 8s para no dejar al usuario esperando indefinidamente un guardado colgado.
+function backoffMs(attempt: number, baseMs: number): number {
+  return Math.min(baseMs * 2 ** attempt, 8000);
+}
+
+async function fetchWithRetry(url: string, init: RequestInit, retries = 3): Promise<Response> {
   let lastError: Error = new Error('Network error');
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const resp = await fetch(url, init);
       if (resp.status === 502 || resp.status === 503) {
         if (attempt < retries) {
-          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          await new Promise(r => setTimeout(r, backoffMs(attempt, 1000)));
           continue;
         }
       }
       return resp;
     } catch (err) {
       lastError = err as Error;
-      if (attempt < retries) await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+      if (attempt < retries) await new Promise(r => setTimeout(r, backoffMs(attempt, 800)));
     }
   }
   throw lastError;
@@ -203,8 +214,51 @@ async function upload<T>(endpoint: string, formData: FormData): Promise<T> {
   return parseResponse<T>(resp);
 }
 
+// ── Upload con progreso real (XMLHttpRequest) ─────────────────────────────────
+// FIX (auditoría 2026-08-19, "el usuario cree que la app se congeló"): fetch()
+// no expone el progreso de SUBIDA de forma confiable entre navegadores (solo
+// progreso de descarga vía ReadableStream) — XHR sí lo hace de forma nativa
+// y estable desde hace años, así que este único caso de uso (adjuntar
+// archivos grandes en Anexos/Biblioteca) usa XHR en vez de fetch. Replica el
+// mismo contrato de error que parseResponse() (ApiError con status/code/body)
+// para que el resto del código (catch por ApiError) siga funcionando igual.
+function uploadConProgreso<T>(endpoint: string, formData: FormData, onProgress?: (pct: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}${endpoint}`);
+    const token = getAuthToken();
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+
+    xhr.onload = () => {
+      const text = xhr.responseText;
+      let parsed: { message?: string; error?: string; code?: string } = {};
+      try { parsed = JSON.parse(text); } catch { /* raw text error */ }
+
+      if (xhr.status < 200 || xhr.status >= 300) {
+        if (xhr.status === 401 && token && token !== 'demo-mode-token') {
+          window.dispatchEvent(new CustomEvent('auth-session-expired', { detail: { code: parsed.code, message: parsed.message } }));
+        }
+        reject(new ApiError(parsed.message || parsed.error || `HTTP ${xhr.status}`, xhr.status, parsed.code, parsed));
+        return;
+      }
+      if (!text) { resolve(undefined as unknown as T); return; }
+      try { resolve(JSON.parse(text) as T); }
+      catch { reject(new ApiError('Invalid JSON response from server', xhr.status)); }
+    };
+    xhr.onerror = () => reject(new ApiError('Network error', 0));
+    xhr.ontimeout = () => reject(new ApiError('La subida tardó demasiado — inténtalo de nuevo.', 0));
+    xhr.send(formData);
+  });
+}
+
 // ── Objeto exportado principal ────────────────────────────────────────────────
-export const http = { get, post, put, patch, delete: del, upload };
+export const http = { get, post, put, patch, delete: del, upload, uploadConProgreso };
 
 // ── Helpers de dominio ────────────────────────────────────────────────────────
 

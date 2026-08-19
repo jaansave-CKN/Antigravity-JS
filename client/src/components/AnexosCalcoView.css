@@ -118,19 +118,22 @@
    discrepancia era la causa de los desalineamientos anteriores). Columnas de
    ancho fijo para TEXTO/ANEXO/LINK/basura garantizan que la papelera siempre
    quepa sin scroll horizontal; DESCRIPCION toma el espacio restante. */
+/* 8 columnas (antes 7): se agregó CARPETA entre LINK y TÉCNICO — mismo ancho
+   (56px) que usa BibliotecaCalcoView.css para su columna de carpeta. */
 .anx__grid {
   display: grid;
-  grid-template-columns: 20px minmax(110px, 1fr) 70px 92px 92px 56px 36px;
+  grid-template-columns: 20px minmax(110px, 1fr) 70px 92px 92px 56px 56px 36px;
   column-gap: 8px;
   align-items: center;
 }
 .anx__rownum { font-size: 12px; font-weight: 600; color: #9199a3; text-align: right; display: flex; justify-content: flex-end; align-items: center; }
 
-/* ── Bloques (Documentos Técnicos / Anexos Generales) ──────────────────────
-   Reutiliza los mismos tokens ya calcados (primary #0041a3, outline-variant
-   #c4c5d7, Public Sans) — sin fuente Stitch propia para este agrupamiento,
-   autorizado explícitamente para extenderse en código sobre el sistema ya
-   verificado en vez de bloquear la entrega por falta de un screen nuevo. */
+/* ── Bloques (carpetas dinámicas, EXTENSIÓN 2026-08-17 — antes 2 bloques
+   fijos Documentos Técnicos/Generales) ── Reutiliza los mismos tokens ya
+   calcados (primary #0041a3, outline-variant #c4c5d7, Public Sans) — sin
+   screen Stitch propio para este agrupamiento, mismo criterio ya usado y
+   autorizado para BibliotecaCalcoView.css, del que se copian estos valores
+   1:1 para que ambas ventanas se vean como el mismo sistema. */
 .anx__bloque + .anx__bloque { margin-top: 8px; }
 .anx__bloquehead {
   display: flex;
@@ -141,6 +144,34 @@
   border-top: 1px solid #c4c5d7;
   border-bottom: 1px solid #c4c5d7;
 }
+.anx__bloquehead--clickable { cursor: pointer; user-select: none; }
+.anx__bloquehead--clickable:hover { background: #e4e9f0; }
+
+/* ── Carpeta "Investigación" (protegida — vinculada a "Generar con AI" en
+   Entrada, EXTENSIÓN 2026-08-17): siempre primera (ver bloques.sort en el
+   componente), color rojo para distinguirla de las carpetas normales, sin
+   botones de renombrar/eliminar — un candado reemplaza esos íconos. */
+.anx__bloquehead--protegida {
+  background: #fef2f2;
+  border-top-color: #fca5a5;
+  border-bottom-color: #fca5a5;
+}
+.anx__bloquehead--protegida:hover { background: #fee2e2; }
+.anx__bloquehead-icon--protegida { filter: none; }
+.anx__bloquehead-title--protegida { color: #b91c1c; }
+.anx__bloquehead-lock {
+  display: inline-flex;
+  align-items: center;
+  color: #b91c1c;
+  margin-left: 2px;
+}
+.anx__bloquehead-chevron {
+  flex-shrink: 0;
+  color: #747686;
+  transition: transform 0.15s;
+  transform: rotate(0deg);
+}
+.anx__bloquehead-chevron--open { transform: rotate(90deg); }
 .anx__bloquehead-icon { font-size: 14px; line-height: 1; }
 .anx__bloquehead-title {
   font-size: 12px;
@@ -149,11 +180,85 @@
   text-transform: uppercase;
   color: #191c1e;
 }
+.anx__bloquehead-input {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #191c1e;
+  border: 1px solid #0041a3;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: inherit;
+  outline: none;
+}
+.anx__bloquehead-actions { display: flex; align-items: center; gap: 4px; margin-left: 4px; }
+.anx__bloquehead-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: none;
+  background: none;
+  color: #747686;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.anx__bloquehead-btn:hover { background: rgba(0, 65, 163, 0.1); color: #0041a3; }
+.anx__bloquehead-btn--danger:hover { background: rgba(186, 26, 26, 0.1); color: #ba1a1a; }
 .anx__bloque-empty {
   padding: 16px 24px;
   font-size: 13px;
   color: #747686;
   font-style: italic;
+}
+.anx__bloque-footer { padding: 10px 24px 16px; }
+.anx__add--sm { font-size: 13px; }
+
+/* ── Carpeta (select por fila) ── */
+.anx__select {
+  width: 100%;
+  border: 1px solid #c4c5d7;
+  border-radius: 0.5rem;
+  padding: 8px 10px;
+  background: #ffffff;
+  font-family: inherit;
+  font-size: 12px;
+  color: #191c1e;
+  outline: none;
+  cursor: pointer;
+}
+.anx__select:focus { border-color: #0041a3; box-shadow: 0 0 0 2px rgba(0, 65, 163, 0.2); }
+
+/* ── Carpetas: crear (botón + input en el topbar) ── */
+.anx__newcarpeta-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  color: #0041a3;
+  border: 1px solid #0041a3;
+  border-radius: 0.5rem;
+  padding: 10px 16px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.anx__newcarpeta-btn:hover { background: #eef1f5; }
+.anx__newcarpeta-input {
+  border: 1px solid #0041a3;
+  border-radius: 0.5rem;
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  width: 200px;
+  box-shadow: 0 0 0 2px rgba(0, 65, 163, 0.2);
 }
 
 /* ── Toggle "Documento Técnico" ── */
@@ -256,6 +361,24 @@
   transition: color 0.15s;
 }
 .anx__tr:hover .anx__attach-btn { color: #0041a3; }
+
+/* Barra de progreso real de subida (EXTENSIÓN 2026-08-19) — delgada, pegada
+   al borde inferior del input, dentro de .anx__attach-wrap (position:relative). */
+.anx__progress-track {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 1px;
+  height: 3px;
+  background: transparent;
+  border-radius: 0 0 0.4rem 0.4rem;
+  overflow: hidden;
+}
+.anx__progress-fill {
+  height: 100%;
+  background: #0041a3;
+  transition: width 0.15s linear;
+}
 
 .anx__delete {
   background: none;

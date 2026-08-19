@@ -304,6 +304,24 @@
 }
 .bib__tr:hover .bib__attach-btn { color: #0041a3; }
 
+/* Barra de progreso real de subida (EXTENSIÓN 2026-08-19) — mismo patrón que
+   AnexosCalcoView.css. */
+.bib__progress-track {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 1px;
+  height: 3px;
+  background: transparent;
+  border-radius: 0 0 0.4rem 0.4rem;
+  overflow: hidden;
+}
+.bib__progress-fill {
+  height: 100%;
+  background: #0041a3;
+  transition: width 0.15s linear;
+}
+
 .bib__delete {
   background: none;
   border: none;
