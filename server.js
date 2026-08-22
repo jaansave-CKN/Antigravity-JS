@@ -3794,7 +3794,12 @@ Reglas:
     res.json({ success: true, resultados, total: resultados.length, motor: usePg ? 'pgvector·HNSW' : 'js-coseno' });
   }));
   // GET /api/radar/buscar?q= — búsqueda semántica (alias legacy de /api/ia/busqueda-semantica)
-  app.get('/api/radar/buscar', tryCatch(async (req, res) => {
+  // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): alias sin auth ni
+  // rate-limit de /api/ia/busqueda-semantica (que sí los tiene) — llama a
+  // textToEmbedding() (Gemini) por request, público. El único caller real
+  // (client/src/services/api.ts:142, fetchApi) ya manda Bearer token en
+  // cada request — agregar authenticateToken no rompe al consumidor real.
+  app.get('/api/radar/buscar', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
     const texto = String(req.query.q || '').trim();
     if (!texto) return res.status(400).json({ success: false, message: 'q requerido' });
     const qVec   = await textToEmbedding(texto);
