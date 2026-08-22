@@ -166,8 +166,13 @@ function fusionarContextoIA(actual: EntradaState, contextoSugerido: Partial<Reco
     ...actual,
     contexto: Object.fromEntries(
       CONTEXTO_CAMPOS.map(c => {
-        if (actual.contexto[c.id]?.trim()) return [c.id, actual.contexto[c.id]];
-        const sugerido = contextoSugerido[c.id] || actual.contexto[c.id] || '';
+        const actualVal = actual.contexto[c.id];
+        // ALERTA_ND NO cuenta como "el usuario ya escribió algo" — si contara,
+        // un segundo "Generar con AI" nunca podría reemplazarla aunque el
+        // usuario ya haya completado los Anexos y la IA encuentre el dato
+        // real (el ciclo de corrección del paso 3 no funcionaría).
+        if (actualVal?.trim() && actualVal !== ALERTA_ND) return [c.id, actualVal];
+        const sugerido = contextoSugerido[c.id] || actualVal || '';
         // ND del backend → alarma visual estandarizada en el estado del
         // formulario (no solo estilo en el render) — se apaga sola en el
         // próximo "Generar con AI" si el usuario ya completó los Anexos y
