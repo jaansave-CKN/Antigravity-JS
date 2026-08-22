@@ -482,12 +482,26 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     });
     const hashValue = crypto.createHash('sha256').update(canonical, 'utf8').digest('hex');
 
+    // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 3): la escritura real ya
+    // NO sobreescribe el blob completo con `fichaJson` (snapshot de T0 + delta
+    // + viabilidad_ia calculado en JS) — eso pisaba en silencio cualquier otra
+    // clave de ficha_tecnica escrita por un actor paralelo entre la lectura
+    // (línea 458) y este UPDATE, ventana ampliada aquí por la llamada de red a
+    // Gemini en calcularViabilidadIA (1-5+ segundos). `||` (merge de jsonb)
+    // aplica el delta y viabilidad_ia como parches atómicos sobre el valor
+    // VIVO de la fila en Postgres, igual en espíritu al fix ya aplicado en
+    // /viabilidad-financiera (jsonb_set) y en etapa-construccion. `fichaJson`
+    // se conserva solo para el hash de versión de abajo (trazabilidad), no
+    // para la escritura real.
     // Delta + versión inmutable en una sola transacción — un fallo parcial no
     // debe dejar el proyecto actualizado sin su versión, ni viceversa.
     const [, hashRows] = await runTransaction([
       {
-        sql: 'UPDATE proyectos SET ficha_tecnica = ?, updated_at = ? WHERE id = ? AND org_id = ?',
-        params: [fichaJson, ahora, proyectoId, req.userId],
+        sql: `UPDATE proyectos
+              SET ficha_tecnica = ficha_tecnica || ?::jsonb || jsonb_build_object('viabilidad_ia', ?::jsonb),
+                  updated_at = ?
+              WHERE id = ? AND org_id = ?`,
+        params: [JSON.stringify(delta), JSON.stringify(resultado), ahora, proyectoId, req.userId],
       },
       {
         sql: `INSERT INTO project_version_hashes
@@ -657,7 +671,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     }
 
     const proyecto = await getRow(
-      'SELECT id, ficha_tecnica, estado FROM proyectos WHERE id = ? AND org_id = ?',
+      'SELECT id, estado FROM proyectos WHERE id = ? AND org_id = ?',
       [proyectoId, req.userId]
     );
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
@@ -665,12 +679,20 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       return res.status(409).json({ success: false, message: 'Un proyecto Finalizado no puede modificarse' });
     }
 
-    const fichaTecnica = safeParseJson(proyecto.ficha_tecnica) || {};
-    const fichaActualizada = { ...fichaTecnica, etapa_construccion_finalizada };
-
+    // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 3): mismo patrón
+    // read-modify-write inseguro ya corregido con jsonb_set en el endpoint
+    // hermano /viabilidad-financiera (línea 628) — este había quedado sin el
+    // fix. Leer ficha_tecnica completo en JS y sobreescribir el blob entero
+    // pisa en silencio cualquier otra clave escrita por un actor paralelo
+    // (ej. anexos.routes.js invalidando viabilidad_financiera tras ingerir
+    // un presupuesto casi al mismo tiempo). jsonb_set aplica el merge
+    // atómicamente sobre el valor vivo de la fila en Postgres.
     await runSql(
-      'UPDATE proyectos SET ficha_tecnica = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
-      [JSON.stringify(fichaActualizada), proyectoId, req.userId]
+      `UPDATE proyectos
+       SET ficha_tecnica = jsonb_set(ficha_tecnica, '{etapa_construccion_finalizada}', ?::jsonb, true),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND org_id = ?`,
+      [JSON.stringify(etapa_construccion_finalizada), proyectoId, req.userId]
     );
 
     return res.json({ success: true, data: { etapa_construccion_finalizada } });
