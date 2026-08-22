@@ -10,6 +10,7 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { withKeyRotation } from './geminiCircuitBreaker.js';
+import { logTokenUsage } from './aiTokenLogger.js';
 
 // Espejo plano del taxonomy del frontend (sectoresTaxonomy.ts).
 // Actualizar aquí cuando se modifique el taxonomy en el cliente.
@@ -124,7 +125,12 @@ export async function classifySectors(titulo, descripcion, donante = '') {
   try {
     const valid = await withKeyRotation(async (apiKey) => {
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+      // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): sin
+      // maxOutputTokens, a diferencia de arbolObjetivosAgent.js (mismo SDK)
+      // que sí lo fija — inconsistencia real entre archivos del mismo
+      // patrón. La respuesta es un array de máx. 3 strings cortos, 512 es
+      // holgado.
+      const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash', generationConfig: { maxOutputTokens: 512 } });
       const result = await model.generateContent(PROMPT_TEMPLATE(titulo, descripcion, donante));
       const text = result.response.text().trim();
       const match = text.match(/\[[\s\S]*\]/);
@@ -135,9 +141,20 @@ export async function classifySectors(titulo, descripcion, donante = '') {
 
       const validLocal = parsed.filter(s => SECTOR_NAMES.includes(String(s).trim())).slice(0, 3);
       if (!validLocal.length) throw new Error('Sin sectores válidos en la respuesta');
-      return validLocal;
+      return { validLocal, usage: result.response.usageMetadata || {} };
     });
-    return valid;
+    // FinOps (auditoría PROTOCOLO 5x5): antes este archivo nunca llamaba
+    // logTokenUsage — su gasto era invisible en /api/admin/finops. Se
+    // dispara desde pipelines en background (EntityScraper/DataIngestor),
+    // sin userId real de request — se registra bajo un identificador de
+    // sistema fijo (ai_token_logs.user_id no tiene FK real, ver migración
+    // 034, admite esto a propósito).
+    logTokenUsage({
+      userId: 'sistema-radar-batch', agentName: 'sector-classifier',
+      tokensInput: valid.usage.promptTokenCount ?? 0,
+      tokensOutput: valid.usage.candidatesTokenCount ?? 0,
+    }).catch(() => {});
+    return valid.validLocal;
   } catch {
     return classifyByKeywords(titulo, descripcion, donante);
   }
