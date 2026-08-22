@@ -184,9 +184,26 @@ async function extraerTextoDeLink(url) {
 // descripcion/texto/link narrativos + texto extraído del archivo si el
 // formato lo permite. Nunca lanza por un archivo individual: lo omite y
 // sigue con el resto (ver punto 3 del comentario de cabecera).
-async function compilarContenidoCarpeta(carpetaId, projectId, { getRows }) {
+//
+// CACHÉ (2026-08-22, corregida en 044): extraerTextoDeLink() (fetch real,
+// hasta 15s) y convertBufferToMarkdown() (descarga de Supabase Storage +
+// subprocess de Python vía MarkItDown) son las dos operaciones caras de
+// esta función — antes se repetían íntegras en CADA clic de "Generar con
+// AI" aunque el anexo no hubiera cambiado. El diseño original invalidaba
+// por `updated_at`, pero project_anexos NO tiene esa columna (verificado
+// en vivo: la 043 original habría roto el SELECT completo con "column
+// updated_at does not exist" — nunca llegó a ejecutarse contra datos
+// reales). Ahora la invalidación es por CONTENIDO: cada canal guarda el
+// valor exacto (`link`/`ruta_storage`) que se cacheó — si el usuario edita
+// el link o sube otro archivo, ese valor cambia y la caché de ESE canal se
+// invalida sola, sin depender de ninguna columna de timestamp de fila.
+// Escritura de caché best-effort — un fallo al guardar no debe tumbar la
+// generación (mismo criterio "no bloqueante" del resto de esta función).
+async function compilarContenidoCarpeta(carpetaId, projectId, { getRows, runSql }) {
   const anexos = await getRows(
-    'SELECT id, nombre_archivo, ruta_storage, descripcion, texto, link FROM project_anexos WHERE carpeta_id = ? AND project_id = ?',
+    `SELECT id, nombre_archivo, ruta_storage, descripcion, texto, link,
+            link_texto_cache, link_cache_de, archivo_texto_cache, archivo_cache_de
+     FROM project_anexos WHERE carpeta_id = ? AND project_id = ?`,
     [carpetaId, projectId]
   );
   if (!anexos.length) return { anexos: [], contenido: '' };
@@ -197,15 +214,25 @@ async function compilarContenidoCarpeta(carpetaId, projectId, { getRows }) {
     if (a.descripcion?.trim()) partes.push(a.descripcion.trim());
     if (a.texto?.trim()) partes.push(a.texto.trim());
 
+    let nuevoLinkCache, nuevoLinkCacheDe;       // undefined = no tocar esa columna al persistir
+    let nuevoArchivoCache, nuevoArchivoCacheDe;
+
     if (a.link?.trim()) {
       const linkTrim = a.link.trim();
+      const linkCacheVigente = a.link_cache_de === linkTrim && a.link_texto_cache != null;
       if (esDominioProtegido(linkTrim)) {
         // Fail-fast — no se intenta el fetch. Si este mismo anexo también
         // tiene texto/descripción, ya se agregaron arriba (líneas 179-180)
         // y no se pierden por esta alerta — solo se advierte sobre el link.
         partes.push(`Fuente: ${linkTrim} — [ALERTA DE SISTEMA]: Se detectó un enlace a un motor de IA protegido. El contenido no pudo ser extraído automáticamente. Acción requerida: exportar la investigación a PDF/TXT y subirla como Anexo, o pegar el texto directo.`);
+      } else if (linkCacheVigente) {
+        partes.push(a.link_texto_cache
+          ? `Contenido de ${linkTrim}:\n${a.link_texto_cache}`
+          : `Fuente: ${linkTrim} — [Contenido inaccesible por seguridad de la página fuente]`);
       } else {
         const textoLink = await extraerTextoDeLink(linkTrim);
+        nuevoLinkCache = textoLink; // string vacío también se cachea: evita reintentar un link que ya se probó y falló
+        nuevoLinkCacheDe = linkTrim;
         // String de control explícito (no una frase libre) — así el prompt
         // puede instruir a la IA a reconocerlo y tratarlo como "sin datos
         // para este anexo" en vez de intentar extraer sentido de un mensaje
@@ -217,19 +244,37 @@ async function compilarContenidoCarpeta(carpetaId, projectId, { getRows }) {
     }
 
     if (a.ruta_storage && supabaseStorage && EXTENSIONES_CON_TEXTO.has(safeExt(a.nombre_archivo))) {
-      try {
-        const { data, error } = await supabaseStorage.storage.from(ANEXOS_BUCKET).download(a.ruta_storage);
-        if (!error && data) {
-          const buffer = Buffer.from(await data.arrayBuffer());
-          const texto = await convertBufferToMarkdown(buffer, safeExt(a.nombre_archivo));
-          if (texto?.trim()) partes.push(texto.trim());
+      const archivoCacheVigente = a.archivo_cache_de === a.ruta_storage && a.archivo_texto_cache != null;
+      if (archivoCacheVigente) {
+        if (a.archivo_texto_cache.trim()) partes.push(a.archivo_texto_cache.trim());
+      } else {
+        try {
+          const { data, error } = await supabaseStorage.storage.from(ANEXOS_BUCKET).download(a.ruta_storage);
+          if (!error && data) {
+            const buffer = Buffer.from(await data.arrayBuffer());
+            const texto = await convertBufferToMarkdown(buffer, safeExt(a.nombre_archivo));
+            nuevoArchivoCache = texto?.trim() || '';
+            nuevoArchivoCacheDe = a.ruta_storage;
+            if (nuevoArchivoCache) partes.push(nuevoArchivoCache);
+          }
+        } catch (e) {
+          // No bloqueante — un archivo que no se puede leer no debe tumbar la
+          // generación completa. Se sigue con el resto de anexos.
+          logger.warn?.('[EntradaIA] No se pudo extraer texto de un anexo (se omite, no bloqueante)', { anexoId: a.id, err: e.message })
+            ?? console.warn('[EntradaIA] No se pudo extraer texto de un anexo (se omite):', e.message);
         }
-      } catch (e) {
-        // No bloqueante — un archivo que no se puede leer no debe tumbar la
-        // generación completa. Se sigue con el resto de anexos.
-        logger.warn?.('[EntradaIA] No se pudo extraer texto de un anexo (se omite, no bloqueante)', { anexoId: a.id, err: e.message })
-          ?? console.warn('[EntradaIA] No se pudo extraer texto de un anexo (se omite):', e.message);
       }
+    }
+
+    if (runSql && (nuevoLinkCache !== undefined || nuevoArchivoCache !== undefined)) {
+      const link_texto_cache    = nuevoLinkCache    !== undefined ? nuevoLinkCache    : a.link_texto_cache;
+      const link_cache_de       = nuevoLinkCacheDe  !== undefined ? nuevoLinkCacheDe  : a.link_cache_de;
+      const archivo_texto_cache = nuevoArchivoCache !== undefined ? nuevoArchivoCache : a.archivo_texto_cache;
+      const archivo_cache_de    = nuevoArchivoCacheDe !== undefined ? nuevoArchivoCacheDe : a.archivo_cache_de;
+      runSql(
+        'UPDATE project_anexos SET link_texto_cache = ?, link_cache_de = ?, archivo_texto_cache = ?, archivo_cache_de = ? WHERE id = ?',
+        [link_texto_cache, link_cache_de, archivo_texto_cache, archivo_cache_de, a.id]
+      ).catch(e => console.warn('[EntradaIA] No se pudo guardar caché de extracción (se omite, no bloqueante):', e.message));
     }
 
     if (partes.length) {
@@ -358,13 +403,13 @@ function sanitizarRespuesta(raw) {
  * @param {string} projectId
  * @param {string} orgId
  */
-export async function generarEntradaDesdeInvestigacion(projectId, orgId, { getRow, getRows }) {
+export async function generarEntradaDesdeInvestigacion(projectId, orgId, { getRow, getRows, runSql }) {
   const carpeta = await buscarCarpetaInvestigacion(projectId, { getRows });
   if (!carpeta) {
     throw new EntradaIAError('No se encontró una carpeta de Anexos llamada "Investigación" en este proyecto. Crea una carpeta con ese nombre en Anexos y sube ahí tu material antes de generar con IA.');
   }
 
-  const { anexos, contenido } = await compilarContenidoCarpeta(carpeta.id, projectId, { getRows });
+  const { anexos, contenido } = await compilarContenidoCarpeta(carpeta.id, projectId, { getRows, runSql });
   if (!anexos.length) {
     throw new EntradaIAError(`La carpeta "${carpeta.nombre}" está vacía — agrega documentos o notas en Anexos antes de generar con IA.`);
   }
