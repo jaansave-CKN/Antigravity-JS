@@ -51,6 +51,7 @@
  */
 
 import { captureMessage } from '../config/sentry.config.js';
+import { supabaseAdmin } from '../config/supabase.config.js';
 
 const RPM_LIMIT  = 15;
 const RPD_LIMIT  = 1500;
@@ -169,6 +170,32 @@ class GeminiCircuitBreaker {
     return true;
   }
 
+  // PERSISTENCIA (2026-08-22, migración 043): el estado de arriba vivía SOLO
+  // en memoria — cada reinicio de PM2 reseteaba dailyCount/state a 0/CLOSED,
+  // aunque la cuota REAL de Google siguiera agotada del lado de ellos (ya
+  // confirmado en vivo esta sesión: primer intento tras un restart limpio
+  // volvió a fallar con 429 real inmediatamente). Persistir en
+  // gemini_key_state no cambia NINGUNA regla de negocio de arriba — solo
+  // evita que un restart le "mienta" a la app sobre cuánta cuota queda.
+  // Best-effort: un fallo al guardar no debe romper ninguna llamada real a
+  // Gemini, por eso siempre es fire-and-forget con .catch().
+  _persistir(i) {
+    if (!supabaseAdmin) return;
+    const ks = this.keyStates[i];
+    if (!ks) return;
+    supabaseAdmin.from('gemini_key_state').upsert({
+      key_index:        i + 1,
+      state:             ks.state,
+      daily_count:       ks.dailyCount,
+      daily_reset_at:    ks.dailyResetAt.toISOString(),
+      last_quota_error:  ks.lastQuotaError ? ks.lastQuotaError.toISOString() : null,
+      updated_at:        new Date().toISOString(),
+    }, { onConflict: 'key_index' }).then(
+      ({ error }) => { if (error) console.warn('[GeminiCB] No se pudo persistir estado (se omite, no bloqueante):', error.message); },
+      (e) => console.warn('[GeminiCB] No se pudo persistir estado (se omite, no bloqueante):', e.message)
+    );
+  }
+
   /** Registrar llamada exitosa con la llave #i */
   recordSuccess(i = 0) {
     const ks = this.keyStates[i];
@@ -179,6 +206,7 @@ class GeminiCircuitBreaker {
       ks.state = 'CLOSED';
       console.log(`[GeminiCB] Llave #${i + 1} — sondeo exitoso → CLOSED.`);
     }
+    this._persistir(i);
   }
 
   /** Registrar error 429 con la llave #i — abre el circuito de ESA llave */
@@ -189,6 +217,7 @@ class GeminiCircuitBreaker {
     const eraCerrado = ks.state !== 'OPEN';
     ks.state = 'OPEN';
     console.warn(`[GeminiCB] Llave #${i + 1} — cuota agotada → OPEN.`);
+    this._persistir(i);
     // Solo alerta cuando la transición deja a TODAS las llaves sin cuota —
     // antes alertaba en cada transición de una sola llave compartida; con
     // pool, una llave en OPEN no es crítico si otra sigue disponible.
@@ -261,6 +290,30 @@ class GeminiCircuitBreaker {
 
 // Singleton compartido por toda la aplicación
 export const geminiCB = new GeminiCircuitBreaker();
+
+// Carga el estado persistido (si existe) al arrancar — llamarse UNA vez
+// desde server.js, después de que la conexión a BD esté lista. Antes de que
+// esto se llame, geminiCB ya funciona con el estado por defecto (CLOSED/0)
+// exactamente igual que antes de esta extensión — es un enriquecimiento del
+// estado inicial, no una dependencia dura para operar.
+export async function loadPersistedKeyState() {
+  if (!supabaseAdmin) return;
+  try {
+    const { data, error } = await supabaseAdmin.from('gemini_key_state').select('*');
+    if (error || !data) return;
+    for (const row of data) {
+      const ks = geminiCB.keyStates[row.key_index - 1];
+      if (!ks) continue; // fila persistida de una llave que ya no está configurada — se ignora
+      ks.state           = row.state || 'CLOSED';
+      ks.dailyCount       = row.daily_count || 0;
+      ks.dailyResetAt     = row.daily_reset_at ? new Date(row.daily_reset_at) : nextMidnightUTC();
+      ks.lastQuotaError   = row.last_quota_error ? new Date(row.last_quota_error) : null;
+    }
+    console.log(`[GeminiCB] Estado persistido cargado: ${data.length} llave(s) restauradas desde gemini_key_state.`);
+  } catch (e) {
+    console.warn('[GeminiCB] No se pudo cargar estado persistido (se sigue con estado por defecto):', e.message);
+  }
+}
 
 // ── Respuesta estandarizada — todo consumidor de geminiCB debe usar esta forma
 // cuando canCall() es false o Google responde 429, en vez de inventar su propio
