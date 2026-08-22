@@ -472,7 +472,26 @@ export async function runTransaction(queries) {
       client.release();
     }
   }
-  // REST: ejecutar secuencialmente (no atómico en degradado)
+  // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 3, hallazgo 3): PostgREST
+  // (Capa 2) no soporta transacciones multi-sentencia reales — ejecutar las
+  // queries en un for secuencial sin BEGIN/COMMIT/ROLLBACK real deja abierta
+  // la ventana de un fallo parcial (ej. el UPDATE de ficha_tecnica corre, el
+  // INSERT del hash de versión falla, el proyecto queda con datos a medias
+  // y sin rollback posible). La atomicidad real en Capa 2 exigiría envolver
+  // cada conjunto de queries en una función RPC de Postgres (server-side) —
+  // cambio de esquema real, no un fix mecánico de este archivo. Mientras eso
+  // no exista, se prefiere fallar rápido y honesto (503, "intenta en un
+  // momento") a ejecutar parcialmente y arriesgar corrupción silenciosa —
+  // Capa 1 (pg Pool) es la ruta activa el ~100% del tiempo (ver boot logs,
+  // "[DB] Capa 1 (pg Pool) ACTIVA"); Capa 2 es solo el fallback de blips de
+  // conectividad, reintenta reconectar cada 60s (RETRY_INTERVAL_MS).
+  if (queries.length > 1) {
+    const err = new Error('No se puede garantizar una escritura atómica en este momento (base de datos en modo degradado) — intenta de nuevo en unos segundos.');
+    err.status = 503;
+    err.code = 'DB_DEGRADED_NO_ATOMIC';
+    throw err;
+  }
+  // Una sola query: Postgres ya la ejecuta atómicamente sin necesitar BEGIN/COMMIT.
   const results = [];
   for (const q of queries) results.push(await pgOrRest(q.sql, q.params || []));
   return results;
