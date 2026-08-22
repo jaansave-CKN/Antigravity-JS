@@ -109,6 +109,12 @@ const DETALLE_POBLACION = [
   { grupo: 'D. VULNERABILIDAD CRÍTICA, SALUD Y RESILIENCIA', opciones: ['Personas con discapacidad', 'Población migrante', 'Población en pobreza extrema', 'Damnificados por desastres'] },
 ];
 
+// Debe coincidir literal con el marcador que devuelve el prompt de
+// EntradaIAService.js (regla 2, backend) cuando un campo crítico no tiene
+// dato en el material de investigación.
+const ND_INVESTIGACION = 'ND (No Disponible en la investigación)';
+const ALERTA_ND = '⚠️ REQUERIDO: FALTA INFORMACIÓN EN ANEXOS';
+
 const CONTEXTO_CAMPOS = [
   { id: 'situacion_actual', label: 'A. SITUACION ACTUAL SIN PROYECTO', ph: "ej: 'El 80% de las familias consumen agua no potable'" },
   { id: 'linea_base', label: 'B. INDICADOR DE LINEA BASE CUANTIFICABLE', ph: "ej: % de familias sin acceso a energía — Valor actual: 80 — Unidad: %" },
@@ -159,7 +165,15 @@ function fusionarContextoIA(actual: EntradaState, contextoSugerido: Partial<Reco
   return {
     ...actual,
     contexto: Object.fromEntries(
-      CONTEXTO_CAMPOS.map(c => [c.id, actual.contexto[c.id]?.trim() ? actual.contexto[c.id] : (contextoSugerido[c.id] || actual.contexto[c.id] || '')])
+      CONTEXTO_CAMPOS.map(c => {
+        if (actual.contexto[c.id]?.trim()) return [c.id, actual.contexto[c.id]];
+        const sugerido = contextoSugerido[c.id] || actual.contexto[c.id] || '';
+        // ND del backend → alarma visual estandarizada en el estado del
+        // formulario (no solo estilo en el render) — se apaga sola en el
+        // próximo "Generar con AI" si el usuario ya completó los Anexos y
+        // la IA encuentra el dato real.
+        return [c.id, sugerido === ND_INVESTIGACION ? ALERTA_ND : sugerido];
+      })
     ),
   };
 }
@@ -759,7 +773,7 @@ export default function EntradaPage() {
                     <div className="entr__textarea-wrap">
                       <textarea
                         id={`entr-${c.id}`}
-                        className="entr__textarea"
+                        className={`entr__textarea${st.contexto[c.id] === ALERTA_ND ? ' entr__textarea--alerta' : ''}`}
                         rows={1}
                         placeholder={c.ph}
                         value={st.contexto[c.id] || ''}
