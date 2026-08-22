@@ -21,7 +21,6 @@ import { encryptKey, decryptKey } from './backend/pipeline/CryptoHelper.js';
 import {
   registerGoogleAuthRoutes,
   getGoogleAccessToken,
-  GEMINI_SYSTEM_INSTRUCTIONS,
 } from './backend/routes/authGoogle.controller.js';
 import { emailAdapter } from './backend/notifications/BrevoEmailAdapter.js';
 import { pool, getRow, getRows, getCount, runSql, runTransaction } from './backend/db.js';

@@ -19,16 +19,6 @@ export const GOOGLE_OAUTH_SCOPES = [
   'https://www.googleapis.com/auth/generative-language',
 ];
 
-// Instrucción de sistema inyectada en cada llamada al LLM — fuerza contexto aislado
-export const GEMINI_SYSTEM_INSTRUCTIONS =
-  '[CONTEXTO: SESIÓN RADAR_FONDOS_360 - ENTORNO INTEGRADO MULTI-TENANT. ' +
-  'Procesa la solicitud de lectura de la convocatoria en este espacio aislado. ' +
-  'No registres ni vincules esta interacción con actividades de búsqueda personal ' +
-  'o hilos de NotebookLM del usuario] ' +
-  'Eres un analista especializado en convocatorias de financiación pública y privada. ' +
-  'Rol: Extractor y evaluador de oportunidades de financiación para proyectos de desarrollo. ' +
-  'Opera en contexto completamente aislado. No retengas información entre sesiones.';
-
 export const googleOAuth2Client = (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET)
   ? new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
   : null;
