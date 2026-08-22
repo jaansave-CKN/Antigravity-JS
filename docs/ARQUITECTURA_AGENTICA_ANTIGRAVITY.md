@@ -348,4 +348,20 @@ El usuario pidió explícitamente declarar este documento en "100/100 de cumplim
 | 4. FinOps | 13/20 | **16/20** | `GET /api/radar/buscar` sigue sin autenticación ni límite; `sectorClassifier.js`/`markitdownService.js` siguen sin `maxOutputTokens` ni registro de consumo |
 | 5. Multiagente | 16/20 | **16/20 — sin cambios técnicos** | Gate técnico sigue inerte — ahora es una decisión informada del usuario (standby, como Stripe/Wompi), no un vacío por descubrir |
 
-**SCORE TOTAL: 83/100.** Mejora real de +9 puntos sobre el 74/100 original, con evidencia verificable en los commits `d78e332`, `9add744`, `f2a618d`. Queda una Fase 3 real y concreta si se quiere seguir subiendo el score: Vector 3 completo (atomicidad de `runTransaction`, observabilidad Sentry) y el resto de Vector 4 (rate limiting del alias sin auth, tracking de FinOps en los 2 agentes que no lo tienen).
+**SCORE TOTAL Fase 2: 83/100.** Mejora real de +9 puntos sobre el 74/100 original, con evidencia verificable en los commits `d78e332`, `9add744`, `f2a618d`.
+
+### 6.8 Cierre Fase 3 (2026-08-22) — Vector 3 y resto de Vector 4
+
+| Vector | Fase 2 | Después (Fase 3) | Por qué no es 20/20 |
+|---|---|---|---|
+| 3. Concurrencia | 14/20 | **18/20** | `resolveGoogleApiKey` (server.js) sigue con catch silencioso sin log; TOCTOU check-then-insert sin `UNIQUE` confirmado en 3 tablas — ninguno de los dos se tocó esta ronda |
+| 4. FinOps | 16/20 | **19/20** | Techo teórico de gasto sigue siendo la cuota compartida de Google (RPD global, no por cuenta) — mitigado por `aiLimiter`, no eliminado; es un límite de diseño, no un bug |
+
+Cambios reales (commits `f678deb`, `9bc36a1`, `39a5897`, `76543f9`):
+- `runTransaction()` falla rápido (503, `DB_DEGRADED_NO_ATOMIC`) en vez de ejecutar parcialmente cuando Capa 2 (REST) está activa — atomicidad real en Capa 2 exigiría una función RPC de Postgres server-side, cambio de esquema fuera de alcance de un fix mecánico; se prefirió honestidad (fallar rápido) a riesgo de corrupción silenciosa. Capa 1 (ruta activa el ~100% del tiempo) no cambió.
+- Sentry conectado a los 9 archivos de rutas que solo usaban `console.error` (`anexos`, `biblioteca`, `copiloto`, `entradaIA`, `estresFinanciero`, `presupuesto`, `proyectos`, `radicacion`, `valorExponencial`) — no-op seguro mientras `SENTRY_DSN` no esté configurado, mismo patrón standby que Stripe/Wompi.
+- `GET /api/radar/buscar` ahora exige `authenticateToken` + `aiLimiter` — verificado en vivo (sin auth → 401, con auth → 200, sin romper al único caller real).
+- `sectorClassifier.js`/`markitdownService.js` ganan `maxOutputTokens` (512/1024) + `logTokenUsage` bajo `userId: 'sistema-radar-batch'` (se disparan desde pipelines en background, sin request de usuario real).
+- Gate técnico (`ANTHROPIC_API_KEY`) — confirmado de nuevo por el usuario: se deja en standby, decisión explícita, no pendiente técnico.
+
+**SCORE TOTAL Fase 3: 90/100** (18 arquitectura + 19 seguridad + 18 concurrencia + 19 finops + 16 multiagente). Los 10 puntos restantes son: 90 usos de `any` sin corregir, `injectTenantFilter` sin parametrizar, catch silencioso de `resolveGoogleApiKey`, TOCTOU sin `UNIQUE` confirmado, y el gate técnico en standby por decisión de negocio — ninguno es un fix mecánico de una línea, cada uno requiere una decisión o un cambio de alcance real.
