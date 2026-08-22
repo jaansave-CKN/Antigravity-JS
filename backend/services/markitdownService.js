@@ -12,6 +12,7 @@ import { writeFile, unlink } from 'fs/promises';
 import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { withKeyRotation } from './geminiCircuitBreaker.js';
+import { logTokenUsage } from './aiTokenLogger.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -113,22 +114,38 @@ export async function extractConvocatoriaFields(markdown) {
   if (!markdown || markdown.length < 80) return null;
 
   try {
-    return await withKeyRotation(async (apiKey) => {
+    const { campos, usage } = await withKeyRotation(async (apiKey) => {
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
+      // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): sin
+      // maxOutputTokens, igual que sectorClassifier.js — inconsistencia
+      // real frente a arbolObjetivosAgent.js (mismo SDK, sí lo fija). El
+      // JSON de salida es acotado (5 campos cortos), 1024 es holgado.
+      const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash', generationConfig: { maxOutputTokens: 1024 } });
       const result = await model.generateContent(EXTRACT_PROMPT(markdown));
       const text = result.response.text().trim();
       const match = text.match(/\{[\s\S]*\}/);
       if (!match) throw new Error('Respuesta de Gemini sin JSON');
       const parsed = JSON.parse(match[0]);
       return {
-        titulo:       String(parsed.titulo       ?? '').slice(0, 255),
-        descripcion:  String(parsed.descripcion  ?? '').slice(0, 500),
-        fecha_limite: String(parsed.fecha_limite ?? '').slice(0, 20),
-        monto_max:    Number(parsed.monto_max    ?? 0) || 0,
-        moneda:       String(parsed.moneda       ?? '').slice(0, 10),
+        campos: {
+          titulo:       String(parsed.titulo       ?? '').slice(0, 255),
+          descripcion:  String(parsed.descripcion  ?? '').slice(0, 500),
+          fecha_limite: String(parsed.fecha_limite ?? '').slice(0, 20),
+          monto_max:    Number(parsed.monto_max    ?? 0) || 0,
+          moneda:       String(parsed.moneda       ?? '').slice(0, 10),
+        },
+        usage: result.response.usageMetadata || {},
       };
     });
+    // FinOps (auditoría PROTOCOLO 5x5): igual que sectorClassifier.js, este
+    // archivo nunca llamaba logTokenUsage — invisible en /api/admin/finops.
+    // Se dispara desde EntityScraper.js en background, sin userId real.
+    logTokenUsage({
+      userId: 'sistema-radar-batch', agentName: 'markitdown-extract',
+      tokensInput: usage.promptTokenCount ?? 0,
+      tokensOutput: usage.candidatesTokenCount ?? 0,
+    }).catch(() => {});
+    return campos;
   } catch {
     return null;
   }
