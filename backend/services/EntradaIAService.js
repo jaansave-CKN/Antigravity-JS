@@ -114,6 +114,24 @@ const LINK_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/5
 // afecta ningún otro fetch existente en la app.
 setGlobalDispatcher(new Agent({ maxHeaderSize: 262144 }));
 
+// Fail-fast (2026-08-22): dominios verificados en vivo el 2026-08-19 contra
+// los 4 links reales de este proyecto como imposibles de leer por fetch
+// simple — share.gemini.google exige sesión de Google autenticada,
+// perplexity.ai bloquea con el challenge de Cloudflare, chatgpt.com/share
+// renderiza la conversación por JS del lado del cliente. En vez de gastar
+// LINK_FETCH_TIMEOUT_MS (15s) en un intento que ya se sabe que va a fallar,
+// se corta de inmediato con un mensaje accionable para el usuario. Dominio
+// real verificado contra la BD del proyecto: `share.gemini.google`, SIN
+// `.com` — no confundir con el dominio de consumidor `gemini.google.com`.
+const DOMINIOS_PROTEGIDOS = [/(^|\.)chatgpt\.com$/i, /(^|\.)share\.gemini\.google$/i, /(^|\.)perplexity\.ai$/i];
+function esDominioProtegido(url) {
+  try {
+    return DOMINIOS_PROTEGIDOS.some(re => re.test(new URL(url).hostname));
+  } catch {
+    return false;
+  }
+}
+
 // Descarga un link real (conversación compartida de Gemini/ChatGPT/
 // Perplexity, artículo, etc.) y extrae texto plano del HTML. Nunca lanza —
 // cualquier fallo (timeout, 404, red caída, contenido no-HTML) devuelve
@@ -180,14 +198,22 @@ async function compilarContenidoCarpeta(carpetaId, projectId, { getRows }) {
     if (a.texto?.trim()) partes.push(a.texto.trim());
 
     if (a.link?.trim()) {
-      const textoLink = await extraerTextoDeLink(a.link.trim());
-      // String de control explícito (no una frase libre) — así el prompt
-      // puede instruir a la IA a reconocerlo y tratarlo como "sin datos
-      // para este anexo" en vez de intentar extraer sentido de un mensaje
-      // de error ambiguo.
-      partes.push(textoLink
-        ? `Contenido de ${a.link.trim()}:\n${textoLink}`
-        : `Fuente: ${a.link.trim()} — [Contenido inaccesible por seguridad de la página fuente]`);
+      const linkTrim = a.link.trim();
+      if (esDominioProtegido(linkTrim)) {
+        // Fail-fast — no se intenta el fetch. Si este mismo anexo también
+        // tiene texto/descripción, ya se agregaron arriba (líneas 179-180)
+        // y no se pierden por esta alerta — solo se advierte sobre el link.
+        partes.push(`Fuente: ${linkTrim} — [ALERTA DE SISTEMA]: Se detectó un enlace a un motor de IA protegido. El contenido no pudo ser extraído automáticamente. Acción requerida: exportar la investigación a PDF/TXT y subirla como Anexo, o pegar el texto directo.`);
+      } else {
+        const textoLink = await extraerTextoDeLink(linkTrim);
+        // String de control explícito (no una frase libre) — así el prompt
+        // puede instruir a la IA a reconocerlo y tratarlo como "sin datos
+        // para este anexo" en vez de intentar extraer sentido de un mensaje
+        // de error ambiguo.
+        partes.push(textoLink
+          ? `Contenido de ${linkTrim}:\n${textoLink}`
+          : `Fuente: ${linkTrim} — [Contenido inaccesible por seguridad de la página fuente]`);
+      }
     }
 
     if (a.ruta_storage && supabaseStorage && EXTENSIONES_CON_TEXTO.has(safeExt(a.nombre_archivo))) {
@@ -229,7 +255,7 @@ function buildSystemPrompt(contenido) {
 REGLAS INQUEBRANTABLES:
 1. Lee y analiza CADA fuente del material de investigación a fondo, no solo la primera — si hay varias fuentes (por ejemplo, la misma investigación consultada con distintas IAs), sintetiza y cruza la información entre todas ellas: usa el dato más específico/cuantificado cuando varias fuentes coincidan, y complementa un campo con lo que aporte cada fuente si ninguna sola lo cubre completo.
 2. Usa EXCLUSIVAMENTE información que puedas fundamentar en el material de investigación de abajo. Si un campo no se puede inferir razonablemente del material, déjalo vacío ("") — NUNCA inventes cifras, ubicaciones ni datos que no estén respaldados por el texto. La precisión no admite inferencias no sustentadas en el material real.
-3. Si una fuente aparece marcada como "[Contenido inaccesible por seguridad de la página fuente]", trátala como si no existiera para efectos de ese campo — NUNCA la uses como base ni la menciones en la respuesta, simplemente ignórala y sigue con las demás fuentes disponibles.
+3. Si una fuente aparece marcada como "[Contenido inaccesible por seguridad de la página fuente]" o "[ALERTA DE SISTEMA]", trátala como si no existiera para efectos de ese campo — NUNCA la uses como base ni la menciones en la respuesta, simplemente ignórala y sigue con las demás fuentes disponibles.
 4. Sé específico y sustancioso en cada campo (cifras, nombres de lugares, unidades, plazos) cuando el material los tenga — evita respuestas genéricas de una sola frase si el material soporta más detalle.
 5. Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown, sin texto antes ni después — solo el JSON.
 
