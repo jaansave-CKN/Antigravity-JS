@@ -8,12 +8,14 @@
  * vacíos, nunca sobrescribe lo que ya escribió).
  */
 import { generarEntradaDesdeInvestigacion } from '../services/EntradaIAService.js';
+import { captureError } from '../config/sentry.config.js';
 
 function wrap(fn) {
   return async (req, res) => {
     try { await fn(req, res); }
     catch (err) {
       console.error('[entradaIA]', err.message);
+      captureError(err, { route: 'entradaIA', method: req.method, path: req.path, userId: req.userId });
       res.status(err.status || 500).json({ success: false, message: err.status ? err.message : 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };

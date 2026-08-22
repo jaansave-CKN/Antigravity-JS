@@ -6,6 +6,7 @@
  * GET  /api/proyectos/:id/estres-financiero — lista los escenarios ya corridos
  */
 import { simularEscenario, listarEscenarios } from '../services/EstresadoFinancieroService.js';
+import { captureError } from '../config/sentry.config.js';
 
 function wrap(fn) {
   return async (req, res) => {
@@ -16,6 +17,7 @@ function wrap(fn) {
       // seguro (ver EstresadoFinancieroService.js, status=422); ausente = no
       // exponer err.message crudo.
       console.error('[estresFinanciero]', err.message);
+      captureError(err, { route: 'estresFinanciero', method: req.method, path: req.path, userId: req.userId });
       res.status(err.status || 500).json({ success: false, message: err.status ? err.message : 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };

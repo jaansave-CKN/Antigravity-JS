@@ -28,6 +28,7 @@
 import crypto from 'crypto';
 import { supabaseStorage } from '../config/supabase.config.js';
 import { sanitizeTechnicalText, sanitizeUrl } from '../middlewares/SecurityMiddleware.js';
+import { captureError } from '../config/sentry.config.js';
 
 const BIBLIOTECA_BUCKET = 'biblioteca';
 
@@ -84,6 +85,7 @@ function wrap(fn) {
     try { await fn(req, res, next); }
     catch (err) {
       console.error('[biblioteca]', err.message);
+      captureError(err, { route: 'biblioteca', method: req.method, path: req.path, userId: req.userId });
       res.status(500).json({ success: false, message: 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };

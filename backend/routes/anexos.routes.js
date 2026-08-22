@@ -40,6 +40,7 @@ import { parseAndSanitizeExcel } from '../services/ExtractorService.js';
 import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js';
 import { convertBufferToMarkdown } from '../services/markitdownService.js';
 import { textToEmbedding, serializeEmbedding } from '../services/embeddingsService.js';
+import { captureError } from '../config/sentry.config.js';
 
 function safeParseJson(val) {
   if (!val) return null;
@@ -159,6 +160,7 @@ function wrap(fn) {
       // de columna). El log interno sigue completo, solo cambia lo que ve
       // el cliente.
       console.error('[anexos]', err.message);
+      captureError(err, { route: 'anexos', method: req.method, path: req.path, userId: req.userId });
       res.status(500).json({ success: false, message: 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };
