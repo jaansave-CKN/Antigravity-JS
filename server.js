@@ -28,7 +28,7 @@ import { dbStatus, withTenant } from './backend/config/database.config.js';
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { geminiCB, isQuotaError, AI_LIMIT_EXCEEDED_RESPONSE } from './backend/services/geminiCircuitBreaker.js';
+import { geminiCB, isQuotaError, AI_LIMIT_EXCEEDED_RESPONSE, loadPersistedKeyState } from './backend/services/geminiCircuitBreaker.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
 import { wompiWebhookHandler } from './backend/routes/wompi.webhook.js';
 import { isRevoked, checkSessionValid, checkAccountStatus, revokeToken, revokeUserSession, initBlacklist, purgeExpiredTokens } from './backend/middlewares/tokenBlacklist.js';
@@ -1046,6 +1046,10 @@ async function start() {
   }
   // C-1: Inicializar blacklist — crea tabla revoked_tokens y carga Set en memoria
   await initBlacklist(runSql, getRows);
+  // Restaura el estado del circuit breaker de Gemini persistido (migración
+  // 043) — evita que un restart le haga creer a la app que hay cuota
+  // disponible cuando Google la sigue negando del lado real.
+  await loadPersistedKeyState();
   // A-1: Purgar tokens expirados cada hora (Set + tabla revoked_tokens)
   setInterval(() => purgeExpiredTokens(runSql).catch(e => console.warn('[blacklist] purge error:', e.message)), 60 * 60_000);
   await seedPredios();
@@ -4881,7 +4885,7 @@ Reglas:
   await registerValorExponencialRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
   await registerCopilotoRoutes(app, { authenticateToken, getRow, aiLimiter });
   // Entrada (M1) — "Generar con AI" a partir de la carpeta "Investigación" de Anexos
-  await registerEntradaIARoutes(app, { authenticateToken, getRow, getRows, requireAccess, aiLimiter });
+  await registerEntradaIARoutes(app, { authenticateToken, getRow, getRows, runSql, requireAccess, aiLimiter });
 
   // F5-01: Módulo 9 — Cross-Check Pipeline & Radicación
   registerRadicacionRoutes(app, { authenticateToken, runSql, getRow });
