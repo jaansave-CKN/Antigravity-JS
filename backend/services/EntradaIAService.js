@@ -249,6 +249,15 @@ async function compilarContenidoCarpeta(carpetaId, projectId, { getRows }) {
 // medio) ya no hace falta que el frontend mande catálogos para validar.
 const CAMPOS_CONTEXTO = ['situacion_actual', 'linea_base', 'meta', 'justificacion', 'sociocultural', 'problema_urgente', 'incertidumbre'];
 
+// EXTENSIÓN (2026-08-22, trazabilidad de fuentes): este prompt solo recibe
+// contenido de `project_anexos` (carpeta Investigación) — el módulo
+// Biblioteca Gubernamental (leyes/CONPES/DNP/normativas, tabla propia
+// project_biblioteca) NO está conectado a este flujo. Si se quiere que
+// Biblioteca también alimente "Contexto del Problema", es una conexión
+// nueva de datos que debe pedirse explícitamente, no algo que este prompt
+// ya cubra. Los datos de presupuesto/costos en COP los ingresa el usuario
+// directamente en otros módulos (Presupuesto/APU) — no pasan por este
+// prompt, por eso no necesitan la cita de fuente de la regla 7 de abajo.
 function buildSystemPrompt(contenido) {
   return `Eres un asistente experto en formulación de proyectos de inversión/infraestructura en Colombia. Vas a leer material de investigación real (documentos, conversaciones de investigación con otras IAs, notas) que el usuario ya subió a la carpeta "Investigación" de su proyecto, y a partir de ESE contenido vas a completar la sección "Contexto del Problema" de un formulario de formulación de proyectos.
 
@@ -259,7 +268,8 @@ REGLAS INQUEBRANTABLES:
 4. Toda cifra de presupuesto, costo o viabilidad financiera debe expresarse EXCLUSIVAMENTE en Pesos Colombianos (COP) — prohibido usar o mencionar dólares u otra divisa. Si el material fuente trae una cifra en otra moneda, conviértela a COP solo si el material mismo da la tasa de conversión; si no la da, márcala como "ND (No Disponible en la investigación)" en vez de asumir una tasa.
 5. Tono "Arquitecto Constructor": técnico, breve, directo — cifras, unidades, plazos y lugares concretos. Cero introducciones, cero lenguaje comercial, cero explicaciones básicas de conceptos ya obvios para un formulador de proyectos.
 6. Sé específico y sustancioso en cada campo (cifras, nombres de lugares, unidades, plazos) cuando el material los tenga — evita respuestas genéricas de una sola frase si el material soporta más detalle.
-7. Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown, sin texto antes ni después — solo el JSON.
+7. TRAZABILIDAD DE FUENTE: cada bloque del material de investigación de abajo empieza con un encabezado "### <nombre>" que identifica su origen exacto. Cuando un campo (A-G) se apoye en un dato específico de ese material, cierra el campo citando entre paréntesis el encabezado exacto de la fuente usada, ej: "(Fuente: investigacion Cantagallo GEMA)". Si el campo combina datos de varias fuentes, cita todas separadas por coma. Esta trazabilidad aplica SOLO a datos de investigación — nunca inventes una cita de fuente para un dato que no esté realmente respaldado en el material.
+8. Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown, sin texto antes ni después — solo el JSON.
 
 FORMA EXACTA DEL JSON A DEVOLVER (los 7 campos de "Contexto del Problema"):
 {
