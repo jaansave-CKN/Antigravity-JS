@@ -254,10 +254,12 @@ function buildSystemPrompt(contenido) {
 
 REGLAS INQUEBRANTABLES:
 1. Lee y analiza CADA fuente del material de investigación a fondo, no solo la primera — si hay varias fuentes (por ejemplo, la misma investigación consultada con distintas IAs), sintetiza y cruza la información entre todas ellas: usa el dato más específico/cuantificado cuando varias fuentes coincidan, y complementa un campo con lo que aporte cada fuente si ninguna sola lo cubre completo.
-2. Usa EXCLUSIVAMENTE información que puedas fundamentar en el material de investigación de abajo. Si un campo no se puede inferir razonablemente del material, déjalo vacío ("") — NUNCA inventes cifras, ubicaciones ni datos que no estén respaldados por el texto. La precisión no admite inferencias no sustentadas en el material real.
+2. Usa EXCLUSIVAMENTE información que puedas fundamentar en el material de investigación de abajo — NUNCA inventes cifras, ubicaciones ni datos que no estén respaldados por el texto. Si un campo crítico (ej. B. Línea Base Cuantificable, C. Meta Esperada) no se encuentra en el material, responde exactamente "ND (No Disponible en la investigación)" en ese campo — nunca lo dejes vacío ni inventes un valor para rellenarlo.
 3. Si una fuente aparece marcada como "[Contenido inaccesible por seguridad de la página fuente]" o "[ALERTA DE SISTEMA]", trátala como si no existiera para efectos de ese campo — NUNCA la uses como base ni la menciones en la respuesta, simplemente ignórala y sigue con las demás fuentes disponibles.
-4. Sé específico y sustancioso en cada campo (cifras, nombres de lugares, unidades, plazos) cuando el material los tenga — evita respuestas genéricas de una sola frase si el material soporta más detalle.
-5. Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown, sin texto antes ni después — solo el JSON.
+4. Toda cifra de presupuesto, costo o viabilidad financiera debe expresarse EXCLUSIVAMENTE en Pesos Colombianos (COP) — prohibido usar o mencionar dólares u otra divisa. Si el material fuente trae una cifra en otra moneda, conviértela a COP solo si el material mismo da la tasa de conversión; si no la da, márcala como "ND (No Disponible en la investigación)" en vez de asumir una tasa.
+5. Tono "Arquitecto Constructor": técnico, breve, directo — cifras, unidades, plazos y lugares concretos. Cero introducciones, cero lenguaje comercial, cero explicaciones básicas de conceptos ya obvios para un formulador de proyectos.
+6. Sé específico y sustancioso en cada campo (cifras, nombres de lugares, unidades, plazos) cuando el material los tenga — evita respuestas genéricas de una sola frase si el material soporta más detalle.
+7. Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown, sin texto antes ni después — solo el JSON.
 
 FORMA EXACTA DEL JSON A DEVOLVER (los 7 campos de "Contexto del Problema"):
 {
