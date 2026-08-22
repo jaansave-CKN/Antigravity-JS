@@ -10,12 +10,14 @@ import { sanitizeFormuladorBody } from '../middlewares/SecurityMiddleware.js';
 import { calcularViabilidadIA, recolectarContextoViabilidad, calcularPuntoEquilibrio } from '../services/viabilidadAgent.js';
 import { auditarViabilidadFinancieraIncompleta } from '../services/AuditorForenseService.js';
 import { supabaseAdmin } from '../config/supabase.config.js';
+import { captureError } from '../config/sentry.config.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
     try { await fn(req, res, next); }
     catch (err) {
       console.error('[proyectos] Error:', err.message);
+      captureError(err, { route: 'proyectos', method: req.method, path: req.path, userId: req.userId });
       res.status(500).json({ success: false, message: 'Error de conexión a la base de datos' });
     }
   };

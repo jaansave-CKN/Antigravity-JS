@@ -6,6 +6,7 @@
 
 import crypto from 'crypto';
 import { runCrossCheck } from '../validators/crossCheckValidator.js';
+import { captureError } from '../config/sentry.config.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -14,6 +15,7 @@ function wrap(fn) {
       // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 4): no exponer
       // err.message crudo al cliente. Log interno intacto.
       console.error('[radicacion] Error:', err.message);
+      captureError(err, { route: 'radicacion', method: req.method, path: req.path, userId: req.userId });
       res.status(500).json({ success: false, message: 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };

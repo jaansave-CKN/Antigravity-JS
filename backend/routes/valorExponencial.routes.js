@@ -5,6 +5,7 @@
  * GET  /api/proyectos/:id/impacto-social  — última métrica SROI + mapeo ODS vigente
  */
 import { calcularSROI, calcularMapeoODS, obtenerImpactoSocial } from '../services/ValorExponencialService.js';
+import { captureError } from '../config/sentry.config.js';
 
 function wrap(fn) {
   return async (req, res) => {
@@ -15,6 +16,7 @@ function wrap(fn) {
       // seguro (ver ValorExponencialService.js, status=422); ausente = no
       // exponer err.message crudo.
       console.error('[valorExponencial]', err.message);
+      captureError(err, { route: 'valorExponencial', method: req.method, path: req.path, userId: req.userId });
       res.status(err.status || 500).json({ success: false, message: err.status ? err.message : 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };

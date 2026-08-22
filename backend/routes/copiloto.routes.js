@@ -5,6 +5,7 @@
  * POST /api/proyectos/:id/copiloto/chat      — envía un mensaje, recibe respuesta de Gemini/Modo Respaldo
  */
 import { obtenerHistorial, chatConCopiloto } from '../services/CopilotoService.js';
+import { captureError } from '../config/sentry.config.js';
 
 function wrap(fn) {
   return async (req, res) => {
@@ -15,6 +16,7 @@ function wrap(fn) {
       // status=422), mensaje seguro para el cliente. Ausente = error no
       // controlado (500) — no exponer err.message crudo (ej. detalle de BD).
       console.error('[copiloto]', err.message);
+      captureError(err, { route: 'copiloto', method: req.method, path: req.path, userId: req.userId });
       res.status(err.status || 500).json({ success: false, message: err.status ? err.message : 'Error interno del servidor. Si el problema persiste, contacta al administrador.' });
     }
   };
