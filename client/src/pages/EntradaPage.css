@@ -684,6 +684,21 @@
 }
 .entr__textarea::placeholder { color: rgba(25,28,30,0.28); }
 
+/* Alarma visual (EXTENSIÓN 2026-08-22): campo sin dato en la investigación
+   (backend devolvió "ND (No Disponible en la investigación)") — estática
+   hasta que el usuario complete Anexos y vuelva a generar con IA. */
+.entr__textarea--alerta {
+  background: #dc2626;
+  color: #ffffff;
+  font-weight: 700;
+  border-color: #dc2626;
+}
+.entr__textarea--alerta::placeholder { color: rgba(255,255,255,0.7); }
+.entr__textarea--alerta:focus {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 2px rgba(220,38,38,0.35);
+}
+
 /* Tarjeta IA (Posibles Soluciones) */
 .entr__ia-card {
   background: rgba(0,65,163,0.04);
