@@ -64,18 +64,39 @@ function nextMidnightUTC() {
   ));
 }
 
-// Lee el pool de llaves desde .env. Retrocompatible: si no hay ninguna
-// GEMINI_API_KEY_N explícita, GOOGLE_API_KEY (o el legacy GEMINI_API_KEY,
-// ya usado como fallback en algunos archivos) se toma como llave única #1.
+// FIX (2026-08-22, hallazgo real verificado): la versión anterior escaneaba
+// GEMINI_API_KEY_1, _2, _3... deteniéndose en el primer índice AUSENTE o
+// VACÍO. Causaba una falla silenciosa real: el usuario agregó
+// GEMINI_API_KEY_2="" en .env (nombre presente, valor vacío) SIN
+// GEMINI_API_KEY_1 — el loop cortaba en i=1 (ni siquiera existía) y el
+// pool caía siempre a la única legacy GOOGLE_API_KEY, sin ningún aviso de
+// que "_2" estaba siendo ignorada. Ahora escanea un rango acotado (1-10),
+// solo exige que el VALOR no esté vacío, no la contigüidad de índices, y
+// loguea un aviso si detecta un hueco (ej. _1 ausente pero _2 presente) —
+// nunca loguea el valor de la llave, solo su presencia/índice.
+const MAX_KEYS_ESCANEADAS = 10;
 function resolveKeyPool() {
   const explicit = [];
-  for (let i = 1; ; i++) {
+  const huecos = [];
+  let ultimoPresente = 0;
+  for (let i = 1; i <= MAX_KEYS_ESCANEADAS; i++) {
     const k = process.env[`GEMINI_API_KEY_${i}`];
-    if (!k) break;
-    explicit.push(k);
+    if (k && k.trim()) {
+      if (i > ultimoPresente + 1) huecos.push(...Array.from({ length: i - ultimoPresente - 1 }, (_, n) => ultimoPresente + 1 + n));
+      explicit.push(k.trim());
+      ultimoPresente = i;
+    }
   }
-  if (explicit.length) return explicit;
+  if (huecos.length) {
+    console.warn(`[GeminiCB] GEMINI_API_KEY_${huecos.join(', GEMINI_API_KEY_')} tienen nombre en .env pero están vacías o ausentes — se omiten del pool, no bloquean a las llaves posteriores.`);
+  }
+  if (explicit.length) {
+    console.log(`[GeminiCB] Pool de llaves: ${explicit.length} configurada(s) explícitamente (GEMINI_API_KEY_N).`);
+    return explicit;
+  }
   const legacy = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+  if (legacy) console.log('[GeminiCB] Pool de llaves: 1 (legacy GOOGLE_API_KEY, sin GEMINI_API_KEY_N configuradas).');
+  else console.warn('[GeminiCB] Pool de llaves: VACÍO — ni GEMINI_API_KEY_N ni GOOGLE_API_KEY configuradas. La IA real quedará siempre inactiva.');
   return legacy ? [legacy] : [];
 }
 
