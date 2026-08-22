@@ -75,6 +75,40 @@ export async function getGoogleAccessToken(userId, { getRow, runSql, encryptKey,
   }
 }
 
+// FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 2, hallazgo #1): el
+// `state` era `base64url(userId)` sin firmar ni atado a sesión — cualquiera
+// que completara SU PROPIO consentimiento de Google podía llamar al
+// callback con `state=base64url(uuid_de_otro_usuario)` y sobreescribir las
+// credenciales OAuth de la víctima con las del atacante. Ahora el state
+// lleva una firma HMAC (con JWT_SECRET, ya inyectado como dependencia de
+// este módulo) atada al userId y a un timestamp de expiración corta (10 min
+// — el flujo real de consentimiento de Google completa en segundos) — sin
+// conocer JWT_SECRET no se puede forjar un state válido para otro usuario.
+function firmarState(userId, JWT_SECRET) {
+  const payload = `${userId}.${Date.now()}`;
+  const firma = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('base64url');
+  return Buffer.from(`${payload}.${firma}`).toString('base64url');
+}
+
+function verificarState(state, JWT_SECRET) {
+  let decoded;
+  try { decoded = Buffer.from(String(state), 'base64url').toString('utf8'); }
+  catch { return null; }
+
+  const partes = decoded.split('.');
+  if (partes.length !== 3) return null;
+  const [userId, ts, firma] = partes;
+  if (!userId || !ts || !firma) return null;
+
+  const esperada = crypto.createHmac('sha256', JWT_SECRET).update(`${userId}.${ts}`).digest('base64url');
+  const a = Buffer.from(firma);
+  const b = Buffer.from(esperada);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  if (Date.now() - Number(ts) > 10 * 60_000) return null; // expiración: 10 min
+
+  return userId;
+}
+
 /**
  * Registra las 4 rutas OAuth2 en la instancia Express.
  * @param {import('express').Express} app
@@ -90,7 +124,7 @@ export function registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRo
         message: 'Google OAuth no configurado. Configure GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET.',
       });
     }
-    const state = Buffer.from(req.userId).toString('base64url');
+    const state = firmarState(req.userId, JWT_SECRET);
     const authUrl = googleOAuth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: GOOGLE_OAUTH_SCOPES,
@@ -113,8 +147,12 @@ export function registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRo
       return res.redirect(`${FRONTEND_URL}/apis?status=error&reason=invalid_request`);
     }
 
+    const userId = verificarState(state, JWT_SECRET);
+    if (!userId) {
+      return res.redirect(`${FRONTEND_URL}/apis?status=error&reason=invalid_state`);
+    }
+
     try {
-      const userId = Buffer.from(String(state), 'base64url').toString('utf8');
       const { tokens } = await googleOAuth2Client.getToken(String(code));
 
       // Serializa y cifra tokens antes de persistir

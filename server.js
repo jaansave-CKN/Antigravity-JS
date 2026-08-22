@@ -3522,7 +3522,12 @@ Reglas:
     }
     res.json({ success: true, message: `Programador de radar detenido (${detenidas} tarea(s) cron).`, tareas_detenidas: detenidas });
   }));
-  app.post('/api/radar/trigger', authenticateToken, requireAccess('radar'), tryCatch(async (_req, res) => {
+  // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): sin aiLimiter, un
+  // usuario con plan Radar podía relanzar este batch (dispara classifySectors/
+  // extractConvocatoriaFields vía Gemini por cada convocatoria nueva) tantas
+  // veces como quisiera — el único freno era un mutex de memoria de proceso
+  // que solo bloquea ejecuciones CONCURRENTES, no relanzamientos frecuentes.
+  app.post('/api/radar/trigger', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (_req, res) => {
     runManualIngest().catch(e => console.error('[Radar/trigger]', e.message));
     res.json({ success: true, message: 'Rastreo 2 iniciado — portales web externos al Directorio. Los resultados aparecerán en segundos.' });
   }));
@@ -3558,13 +3563,18 @@ Reglas:
   }));
 
   // Rastreo 1: escaneo de convocatorias desde cada entidad del Directorio
-  app.post('/api/radar/rastreo1', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
+  // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): mismo riesgo que
+  // /api/radar/trigger — sin aiLimiter, relanzable sin freno de cuenta.
+  app.post('/api/radar/rastreo1', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
     ingestDirectorioConvocatorias().catch(e => console.error('[Radar/rastreo1]', e.message));
     res.json({ success: true, message: 'Rastreo 1 iniciado — visitando entidades del Directorio. Los resultados aparecerán en segundos.' });
   }));
 
   // POST /api/radar/clasificar-sectores — Clasificación masiva en background vía Gemini/keywords
-  app.post('/api/radar/clasificar-sectores', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
+  // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): hasta 1000 llamadas
+  // reales a Gemini por invocación — el mutex _clasificandoSectores solo
+  // impide ejecuciones concurrentes, no relanzamientos frecuentes.
+  app.post('/api/radar/clasificar-sectores', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
     const batchLimit = Math.min(parseInt(req.query.limit || '200'), 1000);
     clasificarSectoresEnBatch(batchLimit).catch(e => console.error('[Sectores/batch]', e.message));
     res.json({ success: true, message: `Clasificación de sectores iniciada — hasta ${batchLimit} convocatorias procesadas en background.` });
@@ -4035,11 +4045,29 @@ Reglas:
       return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
     }
 
-    const { messages, temperature = 0.7, max_tokens = 8192 } = req.body;
+    const { messages, temperature = 0.7 } = req.body;
     if (!Array.isArray(messages) || messages.length === 0)
       return res.status(400).json({ success: false, message: 'messages[] requerido' });
 
-    // Validar que cada mensaje tiene role y content string
+    // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): max_tokens venía
+    // directo de req.body sin tope — el cliente podía pedir una salida
+    // arbitrariamente grande dentro de las 20 llamadas/hora que ya permite
+    // aiLimiter, muy por encima de los 400-4096 tokens que hardcodean los
+    // 7 agentes de servicio del pool (geminiCircuitBreaker.js). Ahora el
+    // servidor decide el tope — el valor del cliente solo puede acotar
+    // hacia abajo, nunca superar el techo fijo.
+    const MAX_TOKENS_TECHO = 4096;
+    const max_tokens = Math.min(
+      Number.isFinite(Number(req.body.max_tokens)) ? Math.max(1, Math.trunc(Number(req.body.max_tokens))) : MAX_TOKENS_TECHO,
+      MAX_TOKENS_TECHO
+    );
+
+    // Validar que cada mensaje tiene role y content string, y acotar cuántos
+    // mensajes puede traer el array (mismo espíritu: no dejar que el cliente
+    // amplifique el costo por request sin límite).
+    const MAX_MENSAJES = 40;
+    if (messages.length > MAX_MENSAJES)
+      return res.status(400).json({ success: false, message: `messages[] excede el máximo permitido (${MAX_MENSAJES}).` });
     const validRoles = new Set(['system', 'user', 'assistant']);
     for (const m of messages) {
       if (!validRoles.has(m?.role) || typeof m?.content !== 'string' || m.content.length > 32_000)
