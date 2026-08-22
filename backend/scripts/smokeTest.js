@@ -4,10 +4,10 @@
  * Marca la BD como production_ready si todos los checks pasan.
  *
  * Uso: node backend/scripts/smokeTest.js [BASE_URL]
- * Ejemplo: node backend/scripts/smokeTest.js http://localhost:3000
+ * Ejemplo: node backend/scripts/smokeTest.js http://localhost:8000
  */
 
-const BASE_URL = process.argv[2] || 'http://localhost:3000';
+const BASE_URL = process.argv[2] || 'http://localhost:8000';
 const TIMEOUT  = 15000; // ms por request
 
 let passed = 0;
