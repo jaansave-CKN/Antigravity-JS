@@ -1311,10 +1311,26 @@ async function start() {
     res.json({ status: 'ok', timestamp: new Date().toISOString(), production_ready: productionReadyCache, version: '8.0' });
   });
 
-  // POST /api/system/production-ready — llamado por smokeTest.js tras checks exitosos
+  // POST /api/system/production-ready — llamado externamente (deploy hook) tras checks exitosos
+  // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 2): antes comparaba
+  // contra JWT_SECRET — el mismo secreto que firma TODOS los JWT del
+  // sistema. Si este header llegara a quedar en logs de acceso o en
+  // breadcrumbs de un servicio de monitoreo (Sentry está integrado), su
+  // exposición permitiría forjar JWT válidos como cualquier usuario/admin,
+  // comprometiendo toda la autenticación — no solo este endpoint. Ahora usa
+  // un secreto dedicado (SMOKE_TEST_TOKEN) y comparación de tiempo
+  // constante (evita timing attack). Sin SMOKE_TEST_TOKEN configurado, cae
+  // a JWT_SECRET por retrocompatibilidad (nada en este repo llama hoy a
+  // este endpoint — verificado por grep — pero podría hacerlo un script de
+  // despliegue externo no versionado aquí); configurar SMOKE_TEST_TOKEN en
+  // producción para desacoplarlo por completo.
   app.post('/api/system/production-ready', tryCatch(async (req, res) => {
-    const smokeToken = req.headers['x-smoke-token'];
-    if (!smokeToken || smokeToken !== JWT_SECRET) {
+    const smokeToken = req.headers['x-smoke-token'] || '';
+    const expected = process.env.SMOKE_TEST_TOKEN || JWT_SECRET;
+    const a = Buffer.from(String(smokeToken));
+    const b = Buffer.from(String(expected));
+    const valido = a.length === b.length && crypto.timingSafeEqual(a, b);
+    if (!smokeToken || !valido) {
       return res.status(403).json({ success: false, message: 'Token inválido' });
     }
     // Se evita "INSERT ... ON CONFLICT" con literales embebidos: el traductor
