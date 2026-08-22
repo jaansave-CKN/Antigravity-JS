@@ -242,7 +242,19 @@ async function resolveGoogleApiKey(userId, getRow) {
     try {
       const userKey = decryptKey(cred.api_key_enc, enc);
       if (userKey) return userKey;
-    } catch {}
+    } catch (e) {
+      // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 3, hallazgo 4): antes
+      // este catch era silencioso — a diferencia de todos los demás catches
+      // de este archivo, sin comentario ni log. Si ENCRYPTION_KEY rota en
+      // producción sin re-cifrar user_credentials.api_key_enc (error
+      // operacional plausible), decryptKey lanza, y el usuario seguía
+      // viendo "IA funcionando" con su árbol de objetivos/matching
+      // generándose con éxito — pero consumiendo la cuota del SISTEMA en
+      // vez de la suya, sin ningún aviso de que su clave personal dejó de
+      // funcionar. El fallback a systemKey se mantiene intacto (es
+      // deliberado, no un bug) — solo se agrega visibilidad de que ocurrió.
+      logger.warn('[resolveGoogleApiKey] No se pudo desencriptar la llave personal del usuario — cae a la llave del sistema', { userId, err: e.message });
+    }
   }
   return systemKey;
 }

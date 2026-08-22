@@ -430,22 +430,40 @@ export async function withTenant(tenantId, callback) {
     _tenantId: tenantId,
     query: async (sql, params = []) => {
       // Inyecta el filtro de tenant para SELECT
-      const enriched = injectTenantFilter(sql, tenantId);
-      return pgOrRest(enriched, params);
+      const { sql: enriched, params: enrichedParams } = injectTenantFilter(sql, tenantId, params);
+      return pgOrRest(enriched, enrichedParams);
     },
     release: () => {},
   };
   return callback(fakeClient);
 }
 
-function injectTenantFilter(sql, tenantId) {
-  // Para SELECT: añade AND org_id = 'tenantId' al WHERE
+// FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 2, hallazgo 3): tenantId
+// ya llegaba dinámico por argumento — lo que estaba mal era CÓMO se
+// aplicaba: concatenado como literal de string dentro del SQL
+// (`WHERE org_id = '${tenantId}'`) en vez de ir como placeholder ligado
+// (`?`). No era explotable con las llamadas actuales (tenantId siempre
+// viene de `req.tenantId`, columna de BD/JWT verificado, nunca de input
+// libre de usuario — ver server.js linea ~200), pero es el mismo patrón de
+// inyección SQL que el resto de este archivo evita en todo lo demás. Ahora
+// inserta un placeholder real y devuelve los `params` alineados en el
+// orden posicional correcto: si ya había un WHERE, el nuevo placeholder
+// queda ANTES de los placeholders originales en el string (tenantId va
+// primero en el array); si no había WHERE, el nuevo placeholder queda AL
+// FINAL (tenantId va al final del array).
+function injectTenantFilter(sql, tenantId, params = []) {
   const upper = sql.trim().toUpperCase();
-  if (!upper.startsWith('SELECT')) return sql;
+  if (!upper.startsWith('SELECT')) return { sql, params };
   if (/\bWHERE\b/i.test(sql)) {
-    return sql.replace(/\bWHERE\b/i, `WHERE org_id = '${tenantId}' AND `);
+    return {
+      sql: sql.replace(/\bWHERE\b/i, 'WHERE org_id = ? AND '),
+      params: [tenantId, ...params],
+    };
   }
-  return sql + ` WHERE org_id = '${tenantId}'`;
+  return {
+    sql: sql + ' WHERE org_id = ?',
+    params: [...params, tenantId],
+  };
 }
 
 // ── runTransaction ────────────────────────────────────────────────────────────
