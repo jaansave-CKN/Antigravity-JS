@@ -76,7 +76,7 @@ import { logger } from '../utils/logger.js';
 
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 const ANEXOS_BUCKET = 'anexos';
-const EXTENSIONES_CON_TEXTO = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx']);
+const EXTENSIONES_CON_TEXTO = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'md']);
 // Subido 2026-08-17 (pedido explícito: "analizando a profundidad" el
 // contenido real) — el material de investigación real del usuario son
 // conversaciones largas de IA compartidas por link, no notas cortas.
