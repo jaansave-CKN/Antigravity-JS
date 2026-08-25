@@ -9,12 +9,13 @@
  */
 
 import { generarReportePDF } from '../services/pdfGenerator.js';
+import { calcularResumenRaci } from '../services/raciService.js';
 
 /**
  * @param {import('express').Application} app
- * @param {{ authenticateToken: Function, getRow: Function }} deps
+ * @param {{ authenticateToken: Function, getRow: Function, getRows: Function }} deps
  */
-export function registerReporteRoutes(app, { authenticateToken, getRow }) {
+export function registerReporteRoutes(app, { authenticateToken, getRow, getRows }) {
 
   async function manejarReporte(req, res, graficos) {
     try {
@@ -31,7 +32,28 @@ export function registerReporteRoutes(app, { authenticateToken, getRow }) {
         return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
       }
 
-      const buffer   = await generarReportePDF(proyecto, graficos);
+      // MANDATO (2026-08-23, "que se vea como un proyecto formulado"): el
+      // reporte solo cubría Datos Generales + Presupuesto + Sello — Contexto
+      // del Problema, Motor Dialéctico, Logística y Anexos (todo lo que
+      // muestra FichaTecnicaPage) faltaban por completo del PDF. Se agregan
+      // aquí las 3 consultas que faltan (mismas tablas/columnas que ya usan
+      // los endpoints reales de cada módulo — motorDialectico.routes.js,
+      // configLogistica.routes.js, anexos.routes.js — cero tablas nuevas).
+      // MANDATO (2026-08-24, "que también al generar PDF, aparezca" — Matriz
+      // RACI): raciResumen se calcula con la MISMA función que usa
+      // GET /api/proyectos/:id/raci/resumen (matrizRaci.routes.js) — condición
+      // de diseño explícita del architect review: nunca reimplementar el
+      // conteo de validación (tareas sin A/R, roles sin asignación) por
+      // segunda vez aquí, para no repetir el patrón de fuentes divergentes
+      // ya encontrado 3 veces en este proyecto el mismo día.
+      const [dialectico, tramos, anexos, raciResumen] = await Promise.all([
+        getRow('SELECT tono, interlocutor, enfoque, humanizacion FROM motor_dialectico WHERE proyecto_id = ? AND user_id = ?', [req.params.proyectoId, req.userId]),
+        getRows('SELECT origen, destino, duracion, medio FROM logistica_tramos WHERE proyecto_id = ? ORDER BY numero ASC', [req.params.proyectoId]),
+        getRows('SELECT descripcion, nombre_archivo, link FROM project_anexos WHERE project_id = ? ORDER BY created_at ASC', [req.params.proyectoId]),
+        calcularResumenRaci(req.params.proyectoId, { getRows }),
+      ]);
+
+      const buffer   = await generarReportePDF(proyecto, graficos, { dialectico, tramos, anexos, raciResumen });
       const filename = `RadarFondos_${req.params.proyectoId.slice(0, 8)}_reporte.pdf`;
 
       res.set({

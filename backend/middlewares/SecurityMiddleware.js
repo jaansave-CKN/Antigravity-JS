@@ -77,6 +77,29 @@ export const trialLimiter = rateLimit({
   },
 });
 
+// ── Rate limiting dedicado para los botones ✨ individuales de "Contexto del
+// Problema" (2026-08-22) — hasta 7 disparos de IA (6 campos + problemáticas
+// de C1) por sesión de llenado del formulario. El aiLimiter global (20/hora)
+// es compartido con BYOK/Copiloto/continuar-formulación — agotarlo solo por
+// llenar esta sección bloquearía sin necesidad al resto de funciones de IA
+// de la app. Mismo store/patrón, ventana más amplia (30/hora) calibrada
+// para ~4 llenados completos de formulario por hora, no uso ilimitado.
+export const entradaCampoLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  store: new PostgresRateLimitStore('entradaCampoLimiter'),
+  keyGenerator: (req) => req.userId ? ipKeyGenerator(req.userId) : getRateLimitKey(req),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      success: false,
+      code: 'ENTRADA_CAMPO_RATE_LIMITED',
+      message: 'Límite de generación por campo alcanzado (30/hora). Reintenta en unos minutos.',
+    });
+  },
+});
+
 // ── Rate limiting para endpoints de IA ─────────────────────────────────────
 export const aiLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -165,6 +188,9 @@ export function sanitizeFormuladorBody(req, res, next) {
   try {
     if (typeof req.body?.nombre === 'string') {
       req.body.nombre = sanitizeInput(req.body.nombre);
+    }
+    if (typeof req.body?.nombreArchivo === 'string') {
+      req.body.nombreArchivo = sanitizeInput(req.body.nombreArchivo);
     }
     // FIX (auditoría SRE Red Team 2026-08-10, Capa 3): antes solo cubría 12
     // campos fijos — cualquier campo nuevo de fichaTecnica quedaba sin

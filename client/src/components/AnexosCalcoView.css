@@ -92,6 +92,8 @@
 }
 .anx__save:hover { background: #003482; }
 .anx__save--saved { background: #15803d; }
+.anx__save--dirty { background: #dc2626; }
+.anx__save--dirty:hover { background: #b91c1c; }
 
 .anx__clear {
   background: #ffffff;

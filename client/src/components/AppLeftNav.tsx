@@ -30,6 +30,7 @@ const PILAR_B = [
   { to: '/presupuesto',label: 'Presupuesto',      icon: 'payments'       },
   { to: '/viabilidad-financiera', label: 'Punto de Equilibrio', icon: 'account_balance' },
   { to: '/ficha',      label: 'Ficha Técnica',    icon: 'id_card'        },
+  { to: '/matriz-raci',label: 'Matriz RACI',      icon: 'groups'         },
   { to: '/viabilidad', label: 'Viabilidad',       icon: 'analytics'      },
   { to: '/checklist',  label: 'Check-List',       icon: 'checklist'      },
 ];

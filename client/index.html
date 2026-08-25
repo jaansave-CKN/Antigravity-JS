@@ -37,6 +37,15 @@
   <!-- Tailwind: migrado del CDN a build local vía PostCSS el 2026-08-03 —
        config exacto de Stitch ahora vive en client/tailwind.config.cjs -->
   <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <!-- FIX (2026-08-24, auditoría "salto visual" del botón SAVE entre ventanas):
+       Public Sans se cargaba SOLO vía @import dentro de cada .css de página
+       (EntradaPage.css, ContextoPage.css, etc.) — PresupuestoPage.tsx y
+       MatrizRaciPage.tsx no tienen .css propio (todo inline) y usaban
+       'Manrope', que nunca se cargó en ningún lado — caía al sans-serif
+       genérico del sistema, con métricas de altura de línea distintas a
+       Public Sans. Cargarla aquí, global, la deja disponible para TODA la
+       app sin depender de qué .css se haya importado. -->
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet"/>
   <!-- ERROR CATCHER: muestra errores JS en pantalla antes de que React monte -->
   <script>

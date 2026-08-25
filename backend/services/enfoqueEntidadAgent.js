@@ -8,6 +8,7 @@
  * plantilla determinista — nunca lanza, siempre devuelve texto utilizable.
  */
 import { withKeyRotation } from './geminiCircuitBreaker.js';
+import { withUserKeyRotation } from './byokService.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 
 function buildPrompt({ nombreEntidad, urlLineamientos, problematicaCentral, poblacionObjetivo }) {
@@ -42,9 +43,14 @@ function generarEnfoqueHeuristico({ nombreEntidad, problematicaCentral, poblacio
 // REFACTOR (2026-08-19, pool de llaves): withKeyRotation() prueba cada
 // llave del pool ante 429 — mismo contrato (nunca lanza, cae a la plantilla
 // heurística ante cualquier fallo real o pool agotado).
-export async function generarEnfoqueEntidad(ctx) {
+// REFACTOR (2026-08-22, BYOK migración 045): userGeminiKeys (usuario no
+// exento) rota sobre el pool PERSONAL vía withUserKeyRotation en vez del
+// pool del servidor — mismo contrato de no lanzar nunca: cae a la misma
+// plantilla ya etiquetada `fuente: 'heuristica'` (texto real armado con los
+// datos del proyecto, no narrativa fabricada) ante cualquier agotamiento.
+export async function generarEnfoqueEntidad(ctx, userGeminiKeys = null) {
   try {
-    const { text, usage } = await withKeyRotation(async (apiKey) => {
+    const intentar = async (apiKey) => {
       const upstream = await fetch(
         'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
         {
@@ -66,7 +72,11 @@ export async function generarEnfoqueEntidad(ctx) {
       const textLocal = (data?.choices?.[0]?.message?.content ?? '').trim();
       if (!textLocal) throw new Error('Gemini sin contenido en la respuesta');
       return { text: textLocal, usage: data?.usage ?? {} };
-    });
+    };
+
+    const { text, usage } = userGeminiKeys?.length
+      ? await withUserKeyRotation(userGeminiKeys, intentar)
+      : await withKeyRotation(intentar);
 
     logTokenUsage({
       userId: ctx.userId, agentName: 'enfoque_entidad',

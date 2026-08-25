@@ -10,7 +10,7 @@ import jwt from 'jsonwebtoken';
 import { authenticator } from 'otplib';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, slowDown, financialPipelineLimiter } from './backend/middlewares/SecurityMiddleware.js';
+import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, entradaCampoLimiter, slowDown, financialPipelineLimiter } from './backend/middlewares/SecurityMiddleware.js';
 import { authenticateToken, requireAdmin } from './backend/middlewares/auth.middleware.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
 import { startScheduler, runManualIngest, pauseScheduler, resumeScheduler } from './backend/pipeline/CronScheduler.js';
@@ -29,6 +29,7 @@ import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { geminiCB, isQuotaError, AI_LIMIT_EXCEEDED_RESPONSE, loadPersistedKeyState } from './backend/services/geminiCircuitBreaker.js';
+import { resolverContextoBYOK } from './backend/services/byokService.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
 import { wompiWebhookHandler } from './backend/routes/wompi.webhook.js';
 import { isRevoked, checkSessionValid, checkAccountStatus, revokeToken, revokeUserSession, initBlacklist, purgeExpiredTokens } from './backend/middlewares/tokenBlacklist.js';
@@ -45,6 +46,7 @@ import { textToEmbedding, cosineSimilarity, deserializeEmbedding } from './backe
 import { registerRadicacionRoutes } from './backend/routes/radicacion.routes.js';
 import { registerProyectosRoutes } from './backend/routes/proyectos.routes.js';
 import { registerReporteRoutes } from './backend/routes/reporte.routes.js';
+import { registerMatrizRaciRoutes } from './backend/routes/matrizRaci.routes.js';
 import { registerPresupuestoRoutes } from './backend/routes/presupuesto.routes.js';
 import { registerAnexosRoutes } from './backend/routes/anexos.routes.js';
 import { registerBibliotecaRoutes } from './backend/routes/biblioteca.routes.js';
@@ -52,6 +54,8 @@ import { registerEstresFinancieroRoutes } from './backend/routes/estresFinancier
 import { registerValorExponencialRoutes } from './backend/routes/valorExponencial.routes.js';
 import { registerCopilotoRoutes } from './backend/routes/copiloto.routes.js';
 import { registerEntradaIARoutes } from './backend/routes/entradaIA.routes.js';
+import { requireByokOrExento } from './backend/middlewares/byokGate.js';
+import { registerByokCredentialsRoutes } from './backend/routes/byokCredentials.routes.js';
 import { radarCacheMiddleware, invalidateRadarCache } from './backend/middlewares/radarCache.js';
 import { RENDIMIENTOS_CATALOGO } from './backend/pipeline/apuEngine.js';
 import { registerSubscriptionRoutes }    from './backend/routes/subscriptions.routes.js';
@@ -258,6 +262,13 @@ async function resolveGoogleApiKey(userId, getRow) {
   }
   return systemKey;
 }
+
+// BYOK (migración 045): gate compartido para las 7 acciones interactivas de
+// IA — exento (usuarios.byok_exento) sigue con el pool del servidor sin
+// cambios; no exento sin llave propia válida corta con 428 antes de tocar
+// Gemini. req.userGeminiKeys queda null (exento) o array (no exento) para
+// que cada handler lo pase al agente/servicio correspondiente.
+const byokGate = requireByokOrExento({ getRow, getRows });
 
 // V8.0 RBAC: verifica suscripción por módulo (radar | formulador)
 function requireAccess(module) {
@@ -787,6 +798,14 @@ async function initDb() {
   await addColumnSafe("ALTER TABLE proyectos ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
   await addColumnSafe("ALTER TABLE proyectos ADD COLUMN location TEXT DEFAULT ''");
   await addColumnSafe("ALTER TABLE proyectos ADD COLUMN problem_statement TEXT DEFAULT ''");
+  // Migración "nombre del archivo" ≠ "nombre del proyecto" (mandato 2026-08-24):
+  // `nombre` es el texto largo/descriptivo que se tipea en Entrada M1; este
+  // campo nuevo es el identificador corto que se edita desde el selector de
+  // proyectos y es lo único que debe mostrarse en listas/dropdowns.
+  await addColumnSafe("ALTER TABLE proyectos ADD COLUMN nombre_archivo TEXT DEFAULT NULL");
+  // Backfill: proyectos anteriores a esta columna heredan un nombre_archivo
+  // truncado de `nombre` — nunca pisa un valor que el usuario ya haya puesto.
+  try { await runSql(`UPDATE proyectos SET nombre_archivo = LEFT(nombre, 60) WHERE nombre_archivo IS NULL`); } catch {}
   // Migración usuarios: rol granular (Formulador, Evaluador, Diseñador, Administrador, Usuario)
   await addColumnSafe("ALTER TABLE usuarios ADD COLUMN rol TEXT DEFAULT 'Usuario'");
   await addColumnSafe("ALTER TABLE usuarios ADD COLUMN org_id TEXT DEFAULT NULL");
@@ -1296,6 +1315,31 @@ async function start() {
   app.get('/api/admin/quota-status', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
     res.json({ success: true, data: geminiCB.getStatus() });
+  }));
+
+  // GET /api/ia/estado-cuota — mandato 2026-08-24 ("cronómetro desincronizado
+  // tras F5"): a diferencia de quota-status (admin, expone conteos/pool
+  // completo), este endpoint es para CUALQUIER usuario autenticado y solo
+  // responde la pregunta mínima que la UI necesita al montar/recargar:
+  // ¿estoy bloqueado ahora mismo, y hasta cuándo? Sin aiLimiter a propósito
+  // — es una lectura en memoria, no una llamada a Gemini; contarla contra el
+  // mismo presupuesto que mide sería incorrecto. Diseño verificado con
+  // `architect` (agentId a08a8feda6c34f832, 2026-08-24): replica la misma
+  // asimetría BYOK que ya existe en el camino real de error (EntradaIAService.js
+  // — un GeminiPoolExhaustedError SÍ lleva retryAt, un UserKeyPoolExhaustedError
+  // NUNCA lo lleva) — un usuario no-exento con llave propia nunca se bloquea
+  // por el estado del pool del servidor, que no le aplica.
+  app.get('/api/ia/estado-cuota', authenticateToken, tryCatch(async (req, res) => {
+    const retryAt = geminiCB.getEarliestRetryAt();
+    if (!retryAt) return res.json({ success: true, data: { exhausted: false, retryAt: null } });
+    const { exento, llaves } = await resolverContextoBYOK(req.userId, { getRow, getRows });
+    // No exento: usa su propio pool BYOK (withUserKeyRotation), nunca el del
+    // servidor — el agotamiento de ESTE pool no le aplica en absoluto.
+    // Exento CON llave propia guardada: la usará como válvula de escape
+    // (ver byokGate.js) — el próximo intento real SÍ pasaría, no está
+    // bloqueado de verdad, aunque el pool del servidor lo esté.
+    if (!exento || llaves.length) return res.json({ success: true, data: { exhausted: false, retryAt: null } });
+    res.json({ success: true, data: { exhausted: true, retryAt: retryAt.toISOString() } });
   }));
 
   // ── Healthcheck ──────────────────────────────────────────────────────────
@@ -2021,6 +2065,13 @@ async function start() {
     await runSql('DELETE FROM proyectos WHERE user_id = ?', [targetId]);
     await runSql('DELETE FROM user_favorites WHERE user_id = ?', [targetId]);
     await runSql('DELETE FROM user_subscriptions WHERE user_id = ?', [targetId]);
+    // BYOK (migración 045): guarda material cifrado de terceros (llaves de
+    // Gemini del propio usuario) — Habeas Data real, no puede sobrevivir a
+    // la purga. tenant_audit_logs SÍ sobrevive a propósito (mismo criterio
+    // que admin_audit_log): es rastro de auditoría, no material sensible
+    // del usuario en sí, y el registro de "esta cuenta fue purgada" pierde
+    // sentido si se borra junto con la cuenta.
+    await runSql('DELETE FROM user_gemini_keys WHERE user_id = ?', [targetId]);
     await runSql('DELETE FROM usuarios WHERE id = ?', [targetId]);
 
     // Se registra DESPUÉS del delete — admin_audit_log no tiene FK a usuarios
@@ -4365,22 +4416,31 @@ Reglas:
     return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
-  // F4-03: Módulo 3b - Árbol de Objetivos (usa la API key del usuario o la del sistema)
-  app.post('/api/modulo3b/arbol/generar', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
+  // F4-03: Módulo 3b - Árbol de Objetivos.
+  // FIX (BYOK migración 045, hallazgo bloqueante del Arquitecto): antes esta
+  // ruta llamaba resolveGoogleApiKey() incondicionalmente — esa función lee
+  // la tabla LEGACY user_credentials (desconectada de BYOK, 0 filas reales,
+  // constraint rota, ver CredentialsPage.tsx) y cae en silencio a
+  // process.env.GOOGLE_API_KEY si no hay fila. Un usuario NO exento que
+  // pasara el gate 428 seguía consumiendo la cuota del SISTEMA sin aviso,
+  // anulando el propósito de BYOK para esta ruta. Ahora usa exclusivamente
+  // req.userGeminiKeys (byokGate → user_gemini_keys): null = exento → pool
+  // del servidor; array = rota sobre las llaves propias del usuario.
+  app.post('/api/modulo3b/arbol/generar', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, tryCatch(async (req, res) => {
     const { proyectoId, objetivoCentral } = req.body;
     if (!proyectoId || !objetivoCentral) return res.status(400).json({ success: false, message: 'proyectoId y objetivoCentral requeridos' });
     if (!(await checkProyectoOwnership(proyectoId, req.userId))) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
-    const apiKey = await resolveGoogleApiKey(req.userId, getRow);
-    if (!apiKey) {
-      return res.status(503).json({
-        success: false,
-        code: 'IA_NO_DISPONIBLE',
-        message: 'El módulo de inteligencia artificial no está disponible. Configura tu API key en Ajustes o contacta al administrador.',
-      });
+    let nodos;
+    try {
+      nodos = await generarArbolConIA(objetivoCentral, req.userGeminiKeys, req.userId);
+    } catch (err) {
+      if (err.code === 'USER_KEY_EXHAUSTED') {
+        return res.status(err.status).json({ success: false, code: err.code, message: err.message });
+      }
+      throw err;
     }
-    const nodos = await generarArbolConIA(objetivoCentral, apiKey, req.userId);
 
     // Persistir realmente los nodos en objetivos_arbol — antes se devolvían al
     // cliente pero nunca se guardaban, dejando "confirmar" sin nada que validar.
@@ -4545,7 +4605,7 @@ Reglas:
     res.json({ success: true, data: rows });
   }));
 
-  app.post('/api/proyectos/:id/postulaciones', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
+  app.post('/api/proyectos/:id/postulaciones', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, tryCatch(async (req, res) => {
     const proyecto = await getRow(
       'SELECT id, ficha_tecnica, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]
@@ -4561,7 +4621,7 @@ Reglas:
     const { problematicaCentral, poblacionObjetivo } = extraerContextoMatriz(proyecto);
     const { enfoque, fuente } = await generarEnfoqueEntidad({
       nombreEntidad, urlLineamientos, problematicaCentral, poblacionObjetivo, userId: req.userId,
-    });
+    }, req.userGeminiKeys);
 
     const id = crypto.randomUUID();
     await runSql(
@@ -4585,7 +4645,7 @@ Reglas:
   // través de checkPostulacionOwnership. Funcionalmente seguro (esa invariante
   // siempre se cumple hoy), pero no autoevidente — se agrega el filtro directo
   // para que esta consulta sea segura por sí misma, sin depender de otra.
-  app.post('/api/postulaciones/:id/regenerar-enfoque', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
+  app.post('/api/postulaciones/:id/regenerar-enfoque', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, tryCatch(async (req, res) => {
     const postulacion = await checkPostulacionOwnership(req.params.id, req.userId);
     if (!postulacion) return res.status(404).json({ success: false, message: 'Postulación no encontrada' });
 
@@ -4596,7 +4656,7 @@ Reglas:
     const { problematicaCentral, poblacionObjetivo } = extraerContextoMatriz(proyecto || {});
     const { enfoque, fuente } = await generarEnfoqueEntidad({
       nombreEntidad: postulacion.nombre_entidad, urlLineamientos: postulacion.url_lineamientos, problematicaCentral, poblacionObjetivo, userId: req.userId,
-    });
+    }, req.userGeminiKeys);
 
     await runSql(
       'UPDATE postulaciones_entidad SET enfoque_generado_ia = ?, enfoque_fuente = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -4801,7 +4861,7 @@ Reglas:
   // a un análisis real de IA sobre el proyecto y sus anexos. Usa la tabla
   // `proyectos` (esquema realmente activo: TEXT ids, sin tenant_id) en vez de
   // `projects`, porque POST /api/proyectos inserta ahí, no en `projects`.
-  app.post('/api/proyectos/:id/viabilidad-ia', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
+  app.post('/api/proyectos/:id/viabilidad-ia', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, tryCatch(async (req, res) => {
     const proyecto = await getRow(
       'SELECT id, nombre, ficha_tecnica, presupuesto, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]
@@ -4815,7 +4875,7 @@ Reglas:
     // POST /api/proyectos/:id/continuar-formulacion (proyectos.routes.js) —
     // única fuente de verdad, ya no duplicada (auditoría 2026-08-08).
     const { ctx, fichaTecnica } = await recolectarContextoViabilidad(proyecto, req.userId, { getRow, getRows });
-    const resultado = await calcularViabilidadIA(ctx);
+    const resultado = await calcularViabilidadIA(ctx, req.userGeminiKeys);
 
     // Persistencia real dentro de ficha_tecnica (columna JSON ya existente) —
     // evita depender de una columna/tabla nueva que requeriría DDL.
@@ -4858,6 +4918,9 @@ Reglas:
   // V8.0 — Formulador: M5 Configuración Logística
   registerConfigLogisticaRoutes(app, { authenticateToken, runSql, runTransaction, getRow, getRows, tryCatch });
 
+  // Matriz RACI (módulo nuevo, 2026-08-24 — diseño revisado por architect)
+  registerMatrizRaciRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch, financialPipelineLimiter });
+
   // V8.0 — Formulador: M8 Marco Normativo
   registerMarcoNormativoRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
 
@@ -4883,9 +4946,11 @@ Reglas:
   await registerBibliotecaRoutes(app, { authenticateToken, runSql, getRow, getRows });
   await registerEstresFinancieroRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
   await registerValorExponencialRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
-  await registerCopilotoRoutes(app, { authenticateToken, getRow, aiLimiter });
+  await registerCopilotoRoutes(app, { authenticateToken, getRow, getRows, aiLimiter });
+
+  registerByokCredentialsRoutes(app, { authenticateToken, getRow, getRows, runSql, aiLimiter });
   // Entrada (M1) — "Generar con AI" a partir de la carpeta "Investigación" de Anexos
-  await registerEntradaIARoutes(app, { authenticateToken, getRow, getRows, runSql, requireAccess, aiLimiter });
+  await registerEntradaIARoutes(app, { authenticateToken, getRow, getRows, runSql, requireAccess, aiLimiter, entradaCampoLimiter });
 
   // F5-01: Módulo 9 — Cross-Check Pipeline & Radicación
   registerRadicacionRoutes(app, { authenticateToken, runSql, getRow });
@@ -4894,7 +4959,7 @@ Reglas:
   registerExportacionRoutes(app, { authenticateToken, getRow, getRows, tryCatch });
 
   // F5-02: Módulo 9 — Exportación Certificada (reporte PDF SSR)
-  registerReporteRoutes(app, { authenticateToken, getRow });
+  registerReporteRoutes(app, { authenticateToken, getRow, getRows });
 
   // Google Auth routes
   registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRow, encryptKey, JWT_SECRET });

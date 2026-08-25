@@ -65,6 +65,8 @@
 }
 .entr__save:hover { background: #003482; }
 .entr__save--saved { background: #15803d; }
+.entr__save--dirty { background: #dc2626; }
+.entr__save--dirty:hover { background: #b91c1c; }
 
 /* Boton "Generar con AI" (EXTENSIÓN 2026-08-17) — color distinto (violeta)
    de SAVE (azul) y LIMPIAR (blanco) para que se identifique como una acción
@@ -285,6 +287,15 @@
   box-shadow: 0 0 0 2px rgba(0,65,163,0.12);
 }
 .entr__input::placeholder { color: rgba(25,28,30,0.30); }
+
+/* NOMBRE DEL PROYECTO — MANDATO (2026-08-24, "3 renglones, no 2 ni 1 y
+   menos 4"): textarea de exactamente 3 líneas visibles, sin resize manual
+   (fijo a 3 a propósito, el usuario lo pidió explícito). */
+.entr__input--nombre {
+  resize: none;
+  line-height: 1.5;
+  font-family: inherit;
+}
 
 /* Enfoque: icon cards (5 col) */
 .entr__enfoque-cards {
@@ -652,11 +663,95 @@
   0%,100% { box-shadow: 0 0 0 3px rgba(220,38,38,0.18); }
   50%      { box-shadow: 0 0 0 6px rgba(220,38,38,0.06); }
 }
+
+/* Botón ✨ individual por campo (REFACTOR 2026-08-22, "flujo secuencial y
+   Campo C multi-componente") — reemplaza el botón global de arriba de la
+   sección. Sin fuente Stitch propia (estructura nueva, no en el snapshot
+   original de esta pantalla) — reutiliza el mismo violeta/tamaño/posición
+   de .entr__mic para no introducir tokens nuevos, solo desplazado a la
+   izquierda del micrófono. */
+.entr__ai-btn-sm {
+  position: absolute;
+  bottom: 8px;
+  right: 42px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: #7c3aed;
+  color: #ffffff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  z-index: 1;
+}
+.entr__ai-btn-sm:hover:not(:disabled) { background: #6d28d9; }
+.entr__ai-btn-sm:disabled { background: #c4b5fd; cursor: not-allowed; }
+.entr__ai-btn-sm .material-symbols-outlined { font-size: 15px; }
+/* Mandato 2026-08-24 ("ModalBYOK — interceptar el bloqueo"): a diferencia de
+   :disabled, el botón SIGUE siendo clicable en este estado — el clic abre el
+   modal de rescate BYOK en vez de llamar a la IA. Por eso el cursor queda en
+   pointer y NO se usa el atributo disabled para esto. */
+.entr__ai-btn-sm--cooldown:not(:disabled) { background: #ddd6fe; }
+.entr__ai-btn-sm--cooldown:not(:disabled):hover { background: #c4b5fd; }
+/* Campos sin micrófono (ej. Nombre del Proyecto) — el botón IA solo, sin el
+   mic al lado, toma la posición right:8px que normalmente ocupa .entr__mic.
+   Modificador aparte a propósito: editar .entr__ai-btn-sm directo correría
+   el ícono en los 6 usos existentes de Campos A-G, que sí tienen mic. */
+.entr__ai-btn-sm--solo { right: 8px; }
+
+/* Candado por campo (mandato 2026-08-24) — bloquea/desbloquea contra edición
+   manual y regeneración con IA. Posición por defecto (right:76px) asume 3
+   iconos (candado+IA+mic, Campos A-G de Contexto); --solo (right:8px, toma
+   el slot del mic) es para campos sin mic (Nombre, Pitch — solo candado+IA). */
+.entr__lock-btn {
+  position: absolute;
+  bottom: 8px;
+  right: 76px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: #eceef0;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  z-index: 1;
+}
+.entr__lock-btn:hover:not(:disabled) { background: #dfe3e6; }
+.entr__lock-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.entr__lock-btn--locked { background: #fef3c7; color: #b45309; }
+.entr__lock-btn--locked:hover { background: #fde68a; }
+.entr__lock-btn .material-symbols-outlined { font-size: 15px; }
+/* Campos de 2 iconos (candado+IA, sin mic: Nombre, Pitch) — el candado
+   SIEMPRE va a la izquierda del par, igual que en los campos de 3 iconos de
+   arriba (candado es el más a la izquierda ahí también). El botón IA usa
+   entr__ai-btn-sm--solo (right:8px) en estos campos; el candado toma la
+   posición que el IA ocupa normalmente (right:42px). */
+.entr__lock-btn--solo { right: 42px; }
+/* Campos A-G de Contexto: candado+IA+mic (3 iconos) no caben en los 76px de
+   padding derecho ya reservados para 2 — se amplía SOLO donde se usa este
+   modificador, sin tocar .entr__textarea base (Pitch y otros usos no
+   necesitan el espacio extra, ahí solo hay candado+IA). */
+.entr__textarea--con-candado { padding-right: 110px; }
+
+/* Campo bloqueado (aún no le toca en el flujo secuencial A→B→C→D→E→F→G) */
+.entr__textarea:disabled {
+  background: #eceef0;
+  color: rgba(25,28,30,0.35);
+  cursor: not-allowed;
+}
+
 .entr__textarea {
   width: 100%;
   border: 1px solid #e0e3e5;
   border-radius: 0.375rem;
-  padding: 8px 42px 8px 12px;
+  padding: 8px 76px 8px 12px;
   font-family: 'Public Sans', sans-serif;
   font-size: 13px;
   color: #191c1e;
@@ -683,6 +778,57 @@
   box-shadow: 0 0 0 2px rgba(0,65,163,0.10);
 }
 .entr__textarea::placeholder { color: rgba(25,28,30,0.28); }
+
+/* Campo C rediseñado en 4 sub-campos (REFACTOR 2026-08-22, "Campo C multi-
+   componente") — sin fuente Stitch propia (estructura nueva). Reutiliza
+   exactamente los mismos tokens de .entr__sub-input/.entr__field-label
+   (border #e0e3e5, radius 0.375rem, bg #f7f9fb, Public Sans) — cero valores
+   nuevos inventados. */
+/* MANDATO (2026-08-23, "REESTRUCTURACIÓN CAMPO C"): 5ª columna insertada
+   entre Beneficiarios y % Calculado (selector de modalidad Piloto/Etapas/
+   Integral) — orden final: [Problemática][Déficit][Beneficiarios][Tipo][%].
+   Beneficiarios y % vuelven a su ancho mínimo real (pocos caracteres, sin
+   "espacio muerto"); Tipo recibe algo más de ancho que ellos porque sus
+   opciones son texto ("Formulado por Etapas"), no un número corto; lo
+   liberado de las 3 columnas cortas se reparte entre Problemática (sigue
+   siendo la más ancha) y Tipo. Sin fuente Stitch propia — misma nota que
+   arriba, solo reparto de fr sobre los mismos tokens ya existentes. */
+.entr__campo-c-grid {
+  display: grid;
+  grid-template-columns: 3fr 1fr 0.6fr 1.6fr 0.6fr;
+  gap: 10px;
+}
+@media (max-width: 900px) { .entr__campo-c-grid { grid-template-columns: 1fr 1fr; } }
+.entr__campo-c-input,
+.entr__campo-c-select {
+  width: 100%;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.375rem;
+  padding: 8px 10px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  color: #191c1e;
+  background: #f7f9fb;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.entr__campo-c-input:focus,
+.entr__campo-c-select:focus { border-color: #0041a3; }
+.entr__campo-c-input:disabled,
+.entr__campo-c-select:disabled { background: #eceef0; color: rgba(25,28,30,0.35); cursor: not-allowed; }
+.entr__campo-c-readonly {
+  width: 100%;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.375rem;
+  padding: 8px 10px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0041a3;
+  background: #eef2ff;
+  box-sizing: border-box;
+}
 
 /* Alarma visual (EXTENSIÓN 2026-08-22): campo sin dato en la investigación
    (backend devolvió "ND (No Disponible en la investigación)") — estática
@@ -720,20 +866,25 @@
   margin: 0 0 16px;
   font-family: 'Public Sans', sans-serif;
 }
-.entr__contact-block {
+/* MANDATO (2026-08-24, "Soluciones con AI") — reemplaza el bloque CONTACTO/
+   "Hablar con un experto" (botón decorativo, sin acción). Sin fuente Stitch
+   propia: .entr__soluciones-ai-btn reutiliza tal cual los valores que ya
+   tenía .entr__expert-btn (mismo border/radius/padding/tipografía azul
+   outline — cero valores CSS nuevos inventados, solo cambia texto+ícono).
+   .entr__solucion-textarea reutiliza los tokens de .entr__campo-c-input
+   (border #e0e3e5, radius 0.375rem, bg #f7f9fb, Public Sans 13px). */
+.entr__soluciones-header {
   border-top: 1px solid #e0e3e5;
   padding-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
-.entr__contact-title {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: rgba(25,28,30,0.42);
-  margin: 0 0 4px;
-}
-.entr__contact-sub { font-size: 14px; font-weight: 600; color: #191c1e; margin: 0 0 10px; }
-.entr__expert-btn {
+.entr__soluciones-ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: transparent;
   border: 1px solid rgba(0,65,163,0.40);
   color: #0041a3;
@@ -745,11 +896,42 @@
   cursor: pointer;
   transition: all 0.15s;
 }
-.entr__expert-btn:hover { background: rgba(0,65,163,0.08); border-color: #0041a3; }
-
-/* Footer SAVE */
-.entr__footer { display: flex; justify-content: flex-end; padding: 8px 0 24px; }
-.entr__save--lg { padding: 12px 40px; font-size: 14px; }
+.entr__soluciones-ai-btn:hover:not(:disabled) { background: rgba(0,65,163,0.08); border-color: #0041a3; }
+.entr__soluciones-ai-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.entr__soluciones-ai-btn--cooldown:not(:disabled) { border-color: #b45309; color: #b45309; }
+.entr__soluciones-ai-btn .material-symbols-outlined { font-size: 18px; }
+.entr__soluciones-count { font-size: 12px; color: rgba(25,28,30,0.55); font-family: 'Public Sans', sans-serif; }
+.entr__soluciones-lista { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.entr__soluciones-empty { font-size: 13px; color: rgba(25,28,30,0.5); font-family: 'Public Sans', sans-serif; margin: 4px 0; }
+.entr__solucion-item { display: flex; align-items: flex-start; gap: 8px; }
+.entr__solucion-radio { margin-top: 10px; width: 16px; height: 16px; flex-shrink: 0; accent-color: #0041a3; cursor: pointer; }
+.entr__solucion-num {
+  flex-shrink: 0;
+  width: 20px;
+  padding-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(25,28,30,0.42);
+  font-family: 'Public Sans', sans-serif;
+}
+.entr__solucion-textarea {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #e0e3e5;
+  border-radius: 0.375rem;
+  padding: 8px 10px;
+  font-family: 'Public Sans', sans-serif;
+  font-size: 13px;
+  color: #191c1e;
+  background: #f7f9fb;
+  outline: none;
+  resize: vertical;
+  min-height: 40px;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.entr__solucion-textarea:focus { border-color: #0041a3; box-shadow: 0 0 0 2px rgba(0,65,163,0.10); }
+.entr__solucion-textarea::placeholder { color: rgba(25,28,30,0.28); }
 
 /* Scrollbar */
 .entr__sidebar::-webkit-scrollbar { width: 4px; }

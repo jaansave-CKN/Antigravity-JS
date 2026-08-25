@@ -1,0 +1,11 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.analysis.exclude": [
+    "**/archive/**",
+    "**/node_modules/**",
+    "**/SIA_Radar/**"
+  ],
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}"
+  ]
+}

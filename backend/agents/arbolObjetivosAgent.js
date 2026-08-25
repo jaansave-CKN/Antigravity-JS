@@ -5,6 +5,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from '../utils/logger.js';
 import { geminiCB, isQuotaError, withKeyRotation, GeminiPoolExhaustedError } from '../services/geminiCircuitBreaker.js';
+import { withUserKeyRotation, UserKeyPoolExhaustedError } from '../services/byokService.js';
 import { logTokenUsage } from '../services/aiTokenLogger.js';
 
 export const ARBOL_SYSTEM_PROMPT = `Eres un experto en formulación de proyectos de cooperación internacional, \
@@ -41,8 +42,8 @@ function buildMockArbol(objetivoCentral) {
 }
 
 // Llamada real al SDK con una llave dada — factorizada para poder usarse
-// tanto con la llave BYOK de un usuario (un solo intento, sin rotación) como
-// con el pool de llaves del servidor vía withKeyRotation (2026-08-19).
+// tanto con el pool BYOK propio de un usuario (withUserKeyRotation) como
+// con el pool de llaves del servidor (withKeyRotation, 2026-08-19).
 async function intentarGenerarArbol(key, objetivoCentral) {
   const genAI = new GoogleGenerativeAI(key);
   const model = genAI.getGenerativeModel({
@@ -85,28 +86,29 @@ async function intentarGenerarArbol(key, objetivoCentral) {
   return { nodos, usage: result.response.usageMetadata || {} };
 }
 
-export async function generarArbolConIA(objetivoCentral, apiKey, userId) {
-  // Llave BYOK explícita de un usuario específico (server.js:
-  // resolveGoogleApiKey) → un solo intento con ESA llave, sin rotación ni
-  // pool del servidor (es la cuota personal del usuario, no la compartida).
-  // Sin llave de usuario → cae al pool de llaves del servidor con rotación.
-  const useUserKey = apiKey && apiKey !== 'api_key_placeholder';
+// REFACTOR (2026-08-22, BYOK migración 045): `apiKey` (una sola llave de
+// server.js:resolveGoogleApiKey) se reemplaza por `userGeminiKeys` (array de
+// llaves propias del usuario ya desencriptadas, resuelto por
+// requireByokOrExento). REGLA DE ORO explícita (revisión de architect):
+// buildMockArbol() es un árbol de DEMOSTRACIÓN fijo, no un cálculo real
+// sobre el proyecto — a diferencia de viabilidadAgent/enfoqueEntidadAgent
+// (heurísticas reales, etiquetadas), esto SÍ es la fabricación ya rechazada
+// 8 veces en este proyecto. Por eso el pool BYOK agotado NUNCA cae a
+// buildMockArbol: se propaga UserKeyPoolExhaustedError (429) tal cual. El
+// pool del SERVIDOR agotado conserva su comportamiento previo (mock) — es
+// una decisión de producto anterior a BYOK, fuera de este alcance.
+export async function generarArbolConIA(objetivoCentral, userGeminiKeys, userId) {
+  const useUserKeys = Array.isArray(userGeminiKeys) && userGeminiKeys.length > 0;
 
-  if (!useUserKey && !geminiCB.keys.length) {
+  if (!useUserKeys && !geminiCB.keys.length) {
     console.warn('[ArbolAgent] Sin llaves configuradas — usando árbol de objetivos de demostración');
-    return buildMockArbol(objetivoCentral);
-  }
-
-  if (useUserKey && !geminiCB.canCall()) {
-    logger.warn('[ArbolAgent] Circuit breaker OPEN — usando árbol de objetivos de demostración');
     return buildMockArbol(objetivoCentral);
   }
 
   try {
     let nodos, usage;
-    if (useUserKey) {
-      ({ nodos, usage } = await intentarGenerarArbol(apiKey, objetivoCentral));
-      geminiCB.recordSuccess();
+    if (useUserKeys) {
+      ({ nodos, usage } = await withUserKeyRotation(userGeminiKeys, (key) => intentarGenerarArbol(key, objetivoCentral)));
     } else {
       ({ nodos, usage } = await withKeyRotation((key) => intentarGenerarArbol(key, objetivoCentral)));
     }
@@ -119,9 +121,12 @@ export async function generarArbolConIA(objetivoCentral, apiKey, userId) {
     }).catch(() => {});
     return nodos;
   } catch (err) {
+    if (err instanceof UserKeyPoolExhaustedError) {
+      logger.warn('[ArbolAgent] Pool BYOK del usuario agotado — sin fallback a demostración (anti-fabricación)', { objetivoCentral, userId });
+      throw err;
+    }
     if (isQuotaError(err) || err instanceof GeminiPoolExhaustedError) {
-      if (useUserKey) geminiCB.recordQuotaError();
-      logger.warn('[ArbolAgent] Cuota de Gemini agotada — degradando a árbol de demostración', { objetivoCentral });
+      logger.warn('[ArbolAgent] Cuota del pool del servidor agotada — degradando a árbol de demostración', { objetivoCentral });
       return buildMockArbol(objetivoCentral);
     }
     logger.error('[ArbolAgent] Fallo al generar árbol con Gemini', { err: err.message, objetivoCentral });

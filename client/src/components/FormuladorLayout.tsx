@@ -6,8 +6,12 @@ export default function FormuladorLayout() {
     /* Contenedor fijo al viewport (menos 48px de TopNavBar) — sin scroll de página */
     <div style={{ display: 'flex', height: 'calc(100vh - 48px)', width: '100%', overflow: 'hidden' }}>
 
-      {/* C2 — contenido principal, scroll independiente dentro de su columna */}
-      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', overflowX: 'auto' }}>
+      {/* C2 — contenido principal, scroll independiente dentro de su columna.
+          overflowY:'scroll' (no 'auto') a propósito: la barra queda siempre
+          reservada/visible sin importar cuánto contenido tenga cada página —
+          con 'auto' aparecía/desaparecía según la altura de cada ventana,
+          reportado por el usuario como parte del "salto" visual entre ellas. */}
+      <div style={{ flex: 1, minWidth: 0, overflowY: 'scroll', overflowX: 'auto' }}>
         <Outlet />
       </div>
 

@@ -11,9 +11,16 @@
  *   - project_budgets (M4)         → completitud de items de presupuesto (APU)
  *   - project_indicators (013)     → indicadores MGA/BPIN estructurados
  *
- * Cada dimensión retorna { score: number|null, pendiente: boolean, fuente: string|null }.
- * pendiente=true (score=null) cuando ningún dato real está disponible todavía —
- * el frontend debe mostrar "Pendiente de cálculo", nunca inventar un número.
+ * Cada dimensión retorna { score: number|null, pendiente: boolean, fuente: string|null,
+ * items: {label:string, cumplido:boolean}[] }. pendiente=true (score=null) cuando
+ * ningún dato real está disponible todavía — el frontend debe mostrar "Pendiente
+ * de cálculo", nunca inventar un número. `items` (2026-08-24, mandato "que se
+ * vea funcional aunque esté en ceros") expone el estado REAL de cada fuente
+ * individual que compone la dimensión — cumplido=true/false según haya o no
+ * dato real en esa fuente puntual, independiente de si la dimensión completa
+ * ya cruzó el umbral para tener un score. Nunca es un valor inventado: cada
+ * `cumplido` es la misma condición booleana que ya decide el cálculo del score
+ * de esa dimensión, solo expuesta a nivel de fuente individual.
  */
 
 function textCompleteness(text, minLen = 40) {
@@ -81,6 +88,9 @@ export async function calcularScoringDinamico(proyectoId, { getRow, getRows }) {
   const ambiental = compliance?.sostenibilidad_ambiental?.trim()
     ? { score: textCompleteness(compliance.sostenibilidad_ambiental), pendiente: false, fuente: 'compliance_data.sostenibilidad_ambiental' }
     : { score: null, pendiente: true, fuente: null };
+  ambiental.items = [
+    { label: 'Sostenibilidad Ambiental (Módulo 10 — Compliance)', cumplido: !!compliance?.sostenibilidad_ambiental?.trim() },
+  ];
 
   // ── Social — compliance_data.sostenibilidad_social + enfoque_genero (M10) ──
   let social;
@@ -91,6 +101,10 @@ export async function calcularScoringDinamico(proyectoId, { getRow, getRows }) {
   } else {
     social = { score: null, pendiente: true, fuente: null };
   }
+  social.items = [
+    { label: 'Sostenibilidad Social (Módulo 10 — Compliance)', cumplido: !!compliance?.sostenibilidad_social?.trim() },
+    { label: 'Enfoque de Género (Módulo 10 — Compliance)', cumplido: !!compliance?.enfoque_genero },
+  ];
 
   // ── Económico — audit M9 > completitud de project_budgets (M4) ─────────────
   let economico;
@@ -102,21 +116,27 @@ export async function calcularScoringDinamico(proyectoId, { getRow, getRows }) {
   } else {
     economico = { score: null, pendiente: true, fuente: null };
   }
+  economico.items = [
+    { label: 'Suficiencia Presupuestal (auditoría del Módulo 9)', cumplido: typeof auditScores.suficiencia_presupuesto === 'number' },
+    { label: 'Completitud del Presupuesto — APU (Módulo 4)', cumplido: budgetItems.some(b => Number(b.valor_total) > 0) },
+  ];
 
   // ── Normativo — audit M9 > marco_normativo (M9) ─────────────────────────────
+  const normas = safeParseArray(normativo?.normas_aplicables);
+  const citas  = safeParseArray(normativo?.citas_bibliograficas);
   let normativoResult;
   if (typeof auditScores.pertinencia_normativa === 'number') {
     normativoResult = { score: Math.round(auditScores.pertinencia_normativa), pendiente: false, fuente: 'audit_result.scores.pertinencia_normativa' };
-  } else if (normativo) {
-    const normas = safeParseArray(normativo.normas_aplicables);
-    const citas  = safeParseArray(normativo.citas_bibliograficas);
-    const score  = Math.min(100, normas.length * 15 + citas.length * 10);
+  } else {
+    const score = Math.min(100, normas.length * 15 + citas.length * 10);
     normativoResult = score > 0
       ? { score, pendiente: false, fuente: 'marco_normativo (normas + citas bibliográficas)' }
       : { score: null, pendiente: true, fuente: null };
-  } else {
-    normativoResult = { score: null, pendiente: true, fuente: null };
   }
+  normativoResult.items = [
+    { label: 'Pertinencia Normativa (auditoría del Módulo 9)', cumplido: typeof auditScores.pertinencia_normativa === 'number' },
+    { label: 'Normas Aplicables y Citas Bibliográficas (Marco Normativo)', cumplido: normas.length > 0 || citas.length > 0 },
+  ];
 
   // ── Operativo — audit M9 (viabilidad_tecnica) > completitud de indicadores ──
   let operativo;
@@ -128,6 +148,10 @@ export async function calcularScoringDinamico(proyectoId, { getRow, getRows }) {
   } else {
     operativo = { score: null, pendiente: true, fuente: null };
   }
+  operativo.items = [
+    { label: 'Viabilidad Técnica (auditoría del Módulo 9)', cumplido: typeof auditScores.viabilidad_tecnica === 'number' },
+    { label: 'Completitud de Indicadores MGA/BPIN', cumplido: indicators.some(i => Number(i.meta_total) > 0 && (i.fuente_verificacion || '').trim()) },
+  ];
 
   return {
     proyectoId,

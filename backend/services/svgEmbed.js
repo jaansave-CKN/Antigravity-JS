@@ -28,6 +28,11 @@ import SVGtoPDF from 'svg-to-pdfkit';
  * @param {number} y
  * @param {{ width?: number, height?: number, preserveAspectRatio?: string }} [opciones]
  */
+// Único formato de <image href> que este sistema debe aceptar. El SVG de
+// entrada es siempre outerHTML ya renderizado de Recharts/Mermaid — nunca
+// hay una razón legítima para que referencie una ruta de archivo o URL.
+const HREF_DATA_URI_PERMITIDO = /^data:image\/(?:png|jpe?g);base64,[a-z0-9+/=]+$/i;
+
 export function embedSvgInPdf(doc, svgString, x, y, opciones = {}) {
   if (!svgString || typeof svgString !== 'string' || !svgString.trim().startsWith('<svg')) {
     throw new Error('embedSvgInPdf: se esperaba un string <svg>...</svg> válido');
@@ -41,5 +46,13 @@ export function embedSvgInPdf(doc, svgString, x, y, opciones = {}) {
     // interrumpan la generación del PDF completo — un elemento no crítico
     // no debe tumbar todo el reporte certificado.
     warningCallback: () => {},
+    // FIX DoS (PROTOCOLO 5x5, verificado 2026-08-24): sin esto, svg-to-pdfkit
+    // pasa el href de <image> tal cual a pdfkit's PDFImage.open(), que hace
+    // fs.readFileSync(src) síncrono sobre CUALQUIER string que no matchee
+    // data:...;base64, — un <image href="/dev/zero"> (o cualquier archivo
+    // grande) del SVG de un usuario cuelga el único hilo de Node para TODOS
+    // los tenants. Solo se permite un data: URI de imagen ya embebido;
+    // cualquier otro href se descarta antes de llegar al sink.
+    imageCallback: (link) => (HREF_DATA_URI_PERMITIDO.test(link || '') ? link : ''),
   });
 }

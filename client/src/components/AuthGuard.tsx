@@ -51,12 +51,27 @@ export default function AuthGuard({
   const [credTimedOut, setCredTimedOut] = React.useState(false);
   const loc = window.location.pathname;
 
-  // Todos los hooks antes de cualquier retorno condicional
+  // FIX (2026-08-22 — "le oprimo el botón y se resetea y cambia el correo"):
+  // un 401 real (sesión expirada/revocada, ej. al usar "Generar con AI")
+  // limpiaba la sesión (AuthContextNew.tsx → clearSession) y este guard,
+  // en rutas 'public-demo'/'normal' (todo el Formulador — Pilar B), entraba
+  // a modo demo automáticamente igual que un visitante anónimo nuevo: la
+  // cuenta real desaparecía y el usuario quedaba operando como
+  // demo@radar.com sin ningún aviso. AuthContextNew.tsx ya marca
+  // sessionStorage.rf360_session_expired exactamente en ese caso (hoy solo
+  // lo consume LoginPage) — se usa aquí para distinguir "sesión real que
+  // acaba de expirar" (→ pedir login de nuevo) de "visitante nuevo sin
+  // sesión" (→ sigue entrando a modo demo sin fricción, sin cambios).
+  const sesionRealExpiro = mode !== 'require-auth' && !!sessionStorage.getItem('rf360_session_expired');
+
+  // Todos los hooks antes de cualquier retorno condicional (regla de hooks:
+  // sesionRealExpiro NUNCA debe saltarse un hook — antes rompía esto con un
+  // "Rendered fewer hooks than expected" real, confirmado en consola).
   React.useEffect(() => {
-    if (mode !== 'require-auth' && !loading && !isAuthenticated) {
+    if (mode !== 'require-auth' && !sesionRealExpiro && !loading && !isAuthenticated) {
       enterDemoMode();
     }
-  }, [mode, loading, isAuthenticated, enterDemoMode]);
+  }, [mode, sesionRealExpiro, loading, isAuthenticated, enterDemoMode]);
 
   React.useEffect(() => {
     if (mode !== 'normal') return;
@@ -64,6 +79,16 @@ export default function AuthGuard({
     const t = setTimeout(() => setCredTimedOut(true), 5_000);
     return () => clearTimeout(t);
   }, [mode, hasCredentials]);
+
+  if (sesionRealExpiro) {
+    return (
+      <Navigate
+        to="/login"
+        state={{ from: { pathname: loc }, reason: 'session-expired' }}
+        replace
+      />
+    );
+  }
 
   // ── require-auth: Formulador y rutas de pago ─────────────────────────────
   if (mode === 'require-auth') {

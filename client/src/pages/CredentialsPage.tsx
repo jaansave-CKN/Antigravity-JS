@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
+import { http, ApiError } from '../lib/apiClient';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 interface Connector {
@@ -59,6 +60,162 @@ function GoogleIcon({ size = 18 }: { size?: number }) {
       <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
       <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
     </svg>
+  );
+}
+
+// ── BYOK Gemini (migración 045) ──────────────────────────────────────────────
+// Tabla propia (user_gemini_keys), independiente de CONNECTORS/user_credentials
+// de arriba — el Arquitecto encontró ese backend roto para este caso de uso
+// (GET /api/credentials no existe, POST ignora service/label). Hasta 3 slots,
+// nunca se lee/muestra la llave en claro (solo `masked`, ej. AIzaSy...XXXX).
+interface LlaveGemini { key_slot: number; label: string; masked: string; is_valid: boolean; last_validated_at: string | null; }
+interface CredencialesGeminiData { exento: boolean; llaves: LlaveGemini[]; has_active_key: boolean; }
+
+function GeminiByokPanel() {
+  const [data, setData] = useState<CredencialesGeminiData | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [slotEditando, setSlotEditando] = useState<number | null>(null);
+  const [keyInput, setKeyInput] = useState('');
+  const [labelInput, setLabelInput] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState('');
+  const [eliminando, setEliminando] = useState<number | null>(null);
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    try {
+      const r = await http.get<{ success: boolean; data: CredencialesGeminiData }>('/api/credenciales/gemini');
+      setData(r.data);
+    } catch { /* deja el panel en estado vacío si falla — no bloquea el resto de la página */ }
+    finally { setCargando(false); }
+  }, []);
+
+  useEffect(() => { cargar(); }, [cargar]);
+
+  function abrirSlot(slot: number, llave?: LlaveGemini) {
+    setSlotEditando(slot);
+    setKeyInput('');
+    setLabelInput(llave?.label ?? '');
+    setError('');
+  }
+
+  async function guardarSlot(slot: number) {
+    const raw = keyInput.trim();
+    if (!raw) { setError('Pega la llave de Gemini antes de guardar.'); return; }
+    setGuardando(true);
+    setError('');
+    try {
+      await http.post('/api/credenciales/gemini', { key_slot: slot, key: raw, label: labelInput.trim() });
+      setSlotEditando(null);
+      await cargar();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'No se pudo validar la llave.');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  async function eliminarSlot(slot: number) {
+    if (!confirm('¿Eliminar esta llave de Gemini? Las acciones de IA dejarán de funcionar con ella.')) return;
+    setEliminando(slot);
+    try {
+      await http.delete(`/api/credenciales/gemini/${slot}`);
+      await cargar();
+    } finally { setEliminando(null); }
+  }
+
+  if (cargando) return null;
+  if (data?.exento) {
+    return (
+      <div style={{ marginBottom:24, border:'1px solid rgba(5,150,105,0.35)', borderRadius:12, padding:22, background:'white', display:'flex', alignItems:'center', gap:12 }}>
+        <span style={{ fontSize:22 }}>✓</span>
+        <div>
+          <h3 style={{ fontSize:15, fontWeight:700, color:'#191c1e' }}>Llaves de Gemini (BYOK) — Exento</h3>
+          <p style={{ fontSize:12, fontFamily:'monospace', color:'#45464d', marginTop:4 }}>
+            Tu cuenta usa el motor de IA compartido del sistema — no necesitas configurar tu propia llave.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const slots = [1, 2, 3].map(slot => data?.llaves.find(l => l.key_slot === slot));
+
+  return (
+    <div style={{ marginBottom:24, border:'2px solid #0058be33', borderRadius:12, padding:22, background:'white', display:'flex', flexDirection:'column', gap:14 }}>
+      <div>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <h3 style={{ fontSize:16, fontWeight:700, color:'#191c1e' }}>Llaves de Gemini (BYOK)</h3>
+          {data?.has_active_key ? <StatusBadge active /> : <StatusBadge active={false} />}
+        </div>
+        <p style={{ fontSize:12, fontFamily:'monospace', color:'#45464d', marginTop:6, lineHeight:'1.6' }}>
+          Configura al menos una llave propia de Google AI Studio (gratis) para usar las funciones de IA del Formulador.
+          Hasta 3 llaves — el sistema rota automáticamente a la siguiente si una se queda sin cuota.
+        </p>
+      </div>
+
+      {slots.map((llave, idx) => {
+        const slot = idx + 1;
+        const editando = slotEditando === slot;
+        return (
+          <div key={slot} style={{ border:'1px solid #e5e7eb', borderRadius:8, padding:14, display:'flex', flexDirection:'column', gap:8 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                <span style={{ fontSize:10, fontFamily:'monospace', fontWeight:700, color:'#9ca3af', textTransform:'uppercase' }}>Slot {slot}</span>
+                {llave ? (
+                  <>
+                    <code style={{ fontSize:12, fontFamily:'monospace', color:'#191c1e' }}>{llave.masked}</code>
+                    {llave.label && <span style={{ fontSize:11, color:'#6b7280' }}>({llave.label})</span>}
+                  </>
+                ) : (
+                  <span style={{ fontSize:12, color:'#9ca3af', fontFamily:'monospace' }}>Sin configurar</span>
+                )}
+              </div>
+              <div style={{ display:'flex', gap:6 }}>
+                {llave && (
+                  <button onClick={() => eliminarSlot(slot)} disabled={eliminando === slot}
+                    style={{ height:28, padding:'0 10px', border:'1px solid #e5e7eb', borderRadius:6, background:'white', color:'#ba1a1a', fontSize:11, fontFamily:'monospace', cursor:'pointer' }}>
+                    {eliminando === slot ? '…' : 'Eliminar'}
+                  </button>
+                )}
+                {!editando && (
+                  <button onClick={() => abrirSlot(slot, llave)}
+                    style={{ height:28, padding:'0 10px', border:'1px solid #0058be', borderRadius:6, background:'white', color:'#0058be', fontSize:11, fontFamily:'monospace', fontWeight:700, cursor:'pointer' }}>
+                    {llave ? 'Reemplazar' : 'Configurar'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {editando && (
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                <input
+                  type="password" value={keyInput} onChange={e => setKeyInput(e.target.value)}
+                  placeholder="Pega tu llave de Gemini (AIza...)" autoFocus disabled={guardando}
+                  style={{ width:'100%', padding:'9px 12px', fontSize:12, fontFamily:'monospace', background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:7, outline:'none', color:'#191c1e', boxSizing:'border-box' }}
+                />
+                <input
+                  type="text" value={labelInput} onChange={e => setLabelInput(e.target.value)}
+                  placeholder="Etiqueta (opcional)" disabled={guardando}
+                  style={{ width:'100%', padding:'9px 12px', fontSize:12, fontFamily:'monospace', background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:7, outline:'none', color:'#191c1e', boxSizing:'border-box' }}
+                />
+                {error && <p style={{ fontSize:10, color:'#ba1a1a', fontFamily:'monospace' }}>{error}</p>}
+                <div style={{ display:'flex', gap:8 }}>
+                  <button onClick={() => guardarSlot(slot)} disabled={guardando}
+                    style={{ flex:1, height:36, borderRadius:7, border:'none', cursor:'pointer', fontSize:11, fontFamily:'monospace', fontWeight:700, letterSpacing:'0.05em', textTransform:'uppercase', background:'#0058be', color:'white', opacity: guardando ? 0.7 : 1 }}>
+                    {guardando ? 'Validando…' : 'Guardar'}
+                  </button>
+                  <button onClick={() => setSlotEditando(null)} disabled={guardando}
+                    style={{ height:36, padding:'0 12px', border:'1px solid #e5e7eb', borderRadius:7, background:'white', color:'#6b7280', fontSize:11, fontFamily:'monospace', cursor:'pointer' }}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -259,6 +416,8 @@ export default function CredentialsPage({ isOnboarding = false }: { isOnboarding
             Los permisos solicitados son exclusivamente de <strong>lectura de consultas</strong> — sin acceso a datos personales ni historial externo.
           </p>
         </div>
+
+        <GeminiByokPanel />
 
         {/* ── Canal Google · IA Institucional (OAuth 2.0) ── */}
         <div style={{

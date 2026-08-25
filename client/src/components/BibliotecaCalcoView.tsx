@@ -25,6 +25,21 @@ const cacheKeyDe = (proyectoId: string | null) => proyectoId ? `${STORAGE_KEY}_p
 
 interface Documento {
   id: string;
+  // FIX (2026-08-24, "se duplican y pierden datos filas nuevas" — mismo bug
+  // confirmado en AnexosCalcoView.tsx, el clon original de este componente):
+  // `id` empieza como un id temporal de cliente y se REEMPLAZA por el id real
+  // del servidor apenas el primer POST confirma. Antes ese mismo `id` mutable
+  // se usaba también como key de React, clave de la cola `encolar` y para
+  // buscar la fila — un segundo onBlur (otro campo) que ya había capturado el
+  // id VIEJO en su closure dejaba de encontrar la fila tras el swap (esa
+  // edición nunca llega al servidor) o corría con persistido=false otra vez y
+  // creaba una fila nueva duplicada — exactamente el patrón ya documentado en
+  // el comentario de colaGuardadoRef más abajo, pero para el caso en que el
+  // id YA cambió entre un blur y el siguiente. localKey es estable de por
+  // vida para la fila — nunca cambia — y es lo único que se usa para
+  // key/cola/lookup; `id` queda reservado solo para las llamadas reales a la
+  // API (PATCH/DELETE/download).
+  localKey: string;
   descripcion: string;
   texto: string;
   anexo: string;
@@ -43,8 +58,10 @@ interface Carpeta { id: string; nombre: string; orden: number }
 interface CarpetaApi { id: string; nombre: string; orden: number }
 interface CarpetasApiResponse { success: boolean; data?: CarpetaApi[]; message?: string }
 
-const nuevoDocumento = (carpetaId: string | null): Documento =>
-  ({ id: `b${Date.now()}${Math.random().toString(36).slice(2, 6)}`, descripcion: '', texto: '', anexo: '', link: '', carpetaId, persistido: false });
+const nuevoDocumento = (carpetaId: string | null): Documento => {
+  const k = `b${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+  return { id: k, localKey: k, descripcion: '', texto: '', anexo: '', link: '', carpetaId, persistido: false };
+};
 
 export default function BibliotecaCalcoView() {
   const proyectoId = useMemo(() => localStorage.getItem(ACTIVE_PROJECT_KEY), []);
@@ -52,8 +69,15 @@ export default function BibliotecaCalcoView() {
   const [carpetas, setCarpetas] = useState<Carpeta[]>([]);
   const [cargando, setCargando] = useState(!!proyectoId);
   const [errorSync, setErrorSync] = useState<string | null>(null);
-  const [guardado, setGuardado] = useState(false);
   const [limpiado, setLimpiado] = useState(false);
+  // MANDATO (2026-08-24, indicador de cambios sin guardar) — mismo criterio
+  // que AnexosCalcoView.tsx: "sin guardar" = hay una fila con contenido real
+  // que el servidor todavía no confirmó (cada campo autoguarda con onBlur).
+  const sinGuardar = documentos.some(s => !s.persistido && (s.descripcion.trim() || s.texto.trim() || s.link.trim() || s.anexo.trim()));
+  // FIX (2026-08-24, "el botón no da ninguna señal de que el clic se
+  // registró"): guardar() no tenía estado de "en curso" — mismo hallazgo que
+  // en EntradaPage.tsx/AnexosCalcoView.tsx.
+  const [guardando, setGuardando] = useState(false);
   const [creandoCarpeta, setCreandoCarpeta] = useState(false);
   const [nombreNuevaCarpeta, setNombreNuevaCarpeta] = useState('');
   const [editandoCarpetaId, setEditandoCarpetaId] = useState<string | null>(null);
@@ -96,7 +120,12 @@ export default function BibliotecaCalcoView() {
   useEffect(() => {
     if (!proyectoId) {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) { try { const p = JSON.parse(raw); if (Array.isArray(p) && p.length) { setDocumentos(p); return; } } catch { /* ignore */ } }
+      if (raw) {
+        try {
+          const p = JSON.parse(raw);
+          if (Array.isArray(p) && p.length) { setDocumentos(p.map((s: Documento) => ({ ...s, localKey: s.localKey || s.id }))); return; }
+        } catch { /* ignore */ }
+      }
       setDocumentos([nuevoDocumento(null)]);
       return;
     }
@@ -111,7 +140,7 @@ export default function BibliotecaCalcoView() {
         setCarpetas((carpetasBody.data || []).map(c => ({ id: c.id, nombre: c.nombre, orden: c.orden })));
 
         const rows = (docsBody.data || []).map(a => ({
-          id: a.id, descripcion: a.descripcion || '', texto: a.texto || '', link: a.link || '',
+          id: a.id, localKey: a.id, descripcion: a.descripcion || '', texto: a.texto || '', link: a.link || '',
           anexo: a.nombre_archivo || '', carpetaId: a.carpeta_id || null, persistido: true,
         }));
 
@@ -135,10 +164,14 @@ export default function BibliotecaCalcoView() {
                 return r;
               });
               const idsServidor = new Set(rows.map(r => r.id));
-              const soloLocales = cached.filter(c =>
-                !c.persistido && !idsServidor.has(c.id) &&
-                (c.descripcion?.trim() || c.texto?.trim() || c.link?.trim() || c.anexo?.trim())
-              );
+              // .localKey || .id: caché escrita ANTES de este fix (2026-08-24)
+              // no tiene localKey — se usa el id viejo como respaldo.
+              const soloLocales = cached
+                .filter(c =>
+                  !c.persistido && !idsServidor.has(c.id) &&
+                  (c.descripcion?.trim() || c.texto?.trim() || c.link?.trim() || c.anexo?.trim())
+                )
+                .map(c => ({ ...c, localKey: c.localKey || c.id }));
               if (soloLocales.length) merged = [...merged, ...soloLocales];
             }
           }
@@ -166,9 +199,10 @@ export default function BibliotecaCalcoView() {
             fd.append('texto', s.texto || '');
             fd.append('link', s.link || '');
             const resp = await http.upload<{ success: boolean; data?: { id: string; nombre_archivo?: string } }>(`/api/proyectos/${proyectoId}/biblioteca`, fd);
-            migradas.push({ ...s, id: resp.data?.id || s.id, anexo: resp.data?.nombre_archivo || s.anexo, carpetaId: null, persistido: !!resp.data?.id });
+            const idFinal = resp.data?.id || s.id;
+            migradas.push({ ...s, id: idFinal, localKey: s.localKey || idFinal, anexo: resp.data?.nombre_archivo || s.anexo, carpetaId: null, persistido: !!resp.data?.id });
           } catch {
-            migradas.push({ ...s, persistido: false });
+            migradas.push({ ...s, localKey: s.localKey || s.id, persistido: false });
           }
         }
         if (cancelled) return;
@@ -192,7 +226,7 @@ export default function BibliotecaCalcoView() {
           } catch { /* ignore */ }
         }
         if (legacy.length) {
-          setDocumentos(legacy.map(s => ({ ...s, persistido: false })));
+          setDocumentos(legacy.map(s => ({ ...s, localKey: s.localKey || s.id, persistido: false })));
           setErrorSync(
             noAutenticado
               ? 'Tu sesión no es válida o expiró — inicia sesión de nuevo en /login. Estás viendo la copia local de tu biblioteca (aún no sincronizada); nada se ha perdido.'
@@ -223,22 +257,26 @@ export default function BibliotecaCalcoView() {
     localStorage.setItem(cacheKeyDe(proyectoId), JSON.stringify(documentos));
   }, [documentos, proyectoId]);
 
-  const actualizarLocal = (id: string, patch: Partial<Documento>) =>
-    setDocumentos(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+  // FIX (2026-08-24): lookup/actualización SIEMPRE por localKey (estable),
+  // nunca por `id` (que muta de temporal a real del servidor tras el primer
+  // POST) — ver comentario en la interfaz Documento.
+  const actualizarLocal = (localKey: string, patch: Partial<Documento>) =>
+    setDocumentos(prev => prev.map(s => s.localKey === localKey ? { ...s, ...patch } : s));
 
   // Devuelve si la fila quedó realmente persistida — guardar() lo usa para no
-  // mostrar "✓ GUARDADO" cuando en realidad falló. Encolada por id (ver
-  // colaGuardadoRef) para que nunca corra en paralelo con otro guardado de la
-  // misma fila.
-  const guardarEnServidor = (id: string): Promise<boolean> => encolar(id, () => ejecutarGuardado(id));
+  // mostrar "✓ GUARDADO" cuando en realidad falló. Encolada por localKey
+  // (estable) para que nunca corra en paralelo con otro guardado de la misma
+  // fila — encolar por el `id` mutable rompía el serializado apenas la fila
+  // pasaba de temporal a persistida a mitad de una edición.
+  const guardarEnServidor = (localKey: string): Promise<boolean> => encolar(localKey, () => ejecutarGuardado(localKey));
 
-  const ejecutarGuardado = async (id: string): Promise<boolean> => {
+  const ejecutarGuardado = async (localKey: string): Promise<boolean> => {
     if (!proyectoId) return true;
-    const row = documentos.find(s => s.id === id);
+    const row = documentos.find(s => s.localKey === localKey);
     if (!row) return true;
     try {
       if (row.persistido) {
-        await http.patch(`/api/proyectos/${proyectoId}/biblioteca/${id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link });
+        await http.patch(`/api/proyectos/${proyectoId}/biblioteca/${row.id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link });
       } else if (row.descripcion.trim() || row.texto.trim() || row.link.trim()) {
         const fd = new FormData();
         fd.append('descripcion', row.descripcion);
@@ -254,11 +292,11 @@ export default function BibliotecaCalcoView() {
           // reaparece en el próximo F5/GET. eliminadosRef (no un check de
           // setState) es la fuente de verdad — ver comentario en su
           // declaración.
-          if (eliminadosRef.current.has(id)) {
-            eliminadosRef.current.delete(id);
+          if (eliminadosRef.current.has(localKey)) {
+            eliminadosRef.current.delete(localKey);
             http.delete(`/api/proyectos/${proyectoId}/biblioteca/${idServidor}`).catch(() => {});
           } else {
-            actualizarLocal(id, { id: idServidor, persistido: true });
+            actualizarLocal(localKey, { id: idServidor, persistido: true });
           }
         }
       }
@@ -272,19 +310,19 @@ export default function BibliotecaCalcoView() {
 
   // Mueve un documento a otra carpeta (o a "Sin carpeta" con null) — persiste
   // de inmediato si la fila ya existe en el servidor.
-  const moverACarpeta = (id: string, carpetaId: string | null) => {
+  const moverACarpeta = (localKey: string, carpetaId: string | null) => {
     setDocumentos(prev => {
-      const next = prev.map(s => s.id === id ? { ...s, carpetaId } : s);
-      const row = next.find(s => s.id === id);
+      const next = prev.map(s => s.localKey === localKey ? { ...s, carpetaId } : s);
+      const row = next.find(s => s.localKey === localKey);
       if (row?.persistido && proyectoId) {
-        http.patch(`/api/proyectos/${proyectoId}/biblioteca/${id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, carpeta_id: carpetaId })
+        http.patch(`/api/proyectos/${proyectoId}/biblioteca/${row.id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, carpeta_id: carpetaId })
           .catch(() => setErrorSync('No se pudo mover el documento — revisa tu conexión.'));
       }
       return next;
     });
   };
 
-  const actualizar = (id: string, patch: Partial<Documento>) => actualizarLocal(id, patch);
+  const actualizar = (localKey: string, patch: Partial<Documento>) => actualizarLocal(localKey, patch);
 
   const descargar = async (s: Documento) => {
     if (!proyectoId || !s.persistido) return;
@@ -299,20 +337,28 @@ export default function BibliotecaCalcoView() {
     }
   };
 
+  // MANDATO (2026-08-24, "el botón de SAVE en todas las ventanas", verde/rojo
+  // puro sin estado neutral) — mismo fix ya aplicado en AnexosCalcoView.tsx
+  // (el clon original de este componente): el color/texto del botón es 100%
+  // derivado de `sinGuardar`, no hace falta estado local aquí.
   const guardar = async () => {
-    const resultados = await Promise.all(documentos.map(s => guardarEnServidor(s.id)));
-    if (resultados.every(Boolean)) {
-      setGuardado(true);
-      setTimeout(() => setGuardado(false), 2200);
-      // El caché local solo se limpia cuando el servidor confirmó TODOS los
-      // documentos — si algo falló, el borrador se conserva para no perderlo.
-      localStorage.removeItem(cacheKeyDe(proyectoId));
+    if (guardando) return;
+    setGuardando(true);
+    try {
+      const resultados = await Promise.all(documentos.map(s => guardarEnServidor(s.localKey)));
+      if (resultados.every(Boolean)) {
+        // El caché local solo se limpia cuando el servidor confirmó TODOS
+        // los documentos — si algo falló, el borrador se conserva para no
+        // perderlo.
+        localStorage.removeItem(cacheKeyDe(proyectoId));
+      }
+    } finally {
+      setGuardando(false);
     }
   };
 
   const limpiar = () => {
-    const hayNoPersistidas = documentos.some(s => !s.persistido && (s.descripcion.trim() || s.texto.trim() || s.link.trim() || s.anexo.trim()));
-    if (hayNoPersistidas && !window.confirm('Esto va a quitar de la vista los documentos que aún no se han guardado en el servidor. ¿Seguro que quieres continuar?')) {
+    if (sinGuardar && !window.confirm('Esto va a quitar de la vista los documentos que aún no se han guardado en el servidor. ¿Seguro que quieres continuar?')) {
       return;
     }
     if (!proyectoId) localStorage.removeItem(STORAGE_KEY);
@@ -324,15 +370,15 @@ export default function BibliotecaCalcoView() {
     setTimeout(() => setLimpiado(false), 2000);
   };
 
-  const eliminar = async (id: string) => {
-    const row = documentos.find(s => s.id === id);
+  const eliminar = async (localKey: string) => {
+    const row = documentos.find(s => s.localKey === localKey);
     const tieneContenido = row && (row.descripcion.trim() || row.texto.trim() || row.link.trim() || row.anexo.trim());
     if (tieneContenido && !window.confirm('¿Eliminar este documento? Esta acción no se puede deshacer.')) return;
-    eliminadosRef.current.add(id); // marca ANTES de tocar el estado — ver comentario en la declaración del ref
-    setDocumentos(prev => prev.filter(s => s.id !== id));
-    if (!proyectoId) { localStorage.setItem(STORAGE_KEY, JSON.stringify(documentos.filter(s => s.id !== id))); return; }
+    eliminadosRef.current.add(localKey); // marca ANTES de tocar el estado — ver comentario en la declaración del ref
+    setDocumentos(prev => prev.filter(s => s.localKey !== localKey));
+    if (!proyectoId) { localStorage.setItem(STORAGE_KEY, JSON.stringify(documentos.filter(s => s.localKey !== localKey))); return; }
     if (row?.persistido) {
-      try { await http.delete(`/api/proyectos/${proyectoId}/biblioteca/${id}`); }
+      try { await http.delete(`/api/proyectos/${proyectoId}/biblioteca/${row.id}`); }
       catch { setErrorSync('No se pudo eliminar el documento en el servidor.'); }
     }
   };
@@ -353,16 +399,16 @@ export default function BibliotecaCalcoView() {
     setDocumentos(prev => [...prev, nuevoDocumento(carpetaId)]);
   };
 
-  const adjuntar = (id: string) => {
-    targetIdRef.current = id;
+  const adjuntar = (localKey: string) => {
+    targetIdRef.current = localKey;
     fileInputRef.current?.click();
   };
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    const id = targetIdRef.current;
+    const localKey = targetIdRef.current;
     e.target.value = '';
-    if (!f || !id) return;
+    if (!f || !localKey) return;
     // FIX (auditoría 2026-08-17, "subo un PDF y al rato desaparece"): el
     // nombre se mostraba de inmediato (optimista) ANTES de saber si la
     // subida a Storage tuvo éxito, pero si fallaba (p. ej. la clave de
@@ -372,13 +418,14 @@ export default function BibliotecaCalcoView() {
     // NUNCA se guardó, hasta que un F5/recarga futura lo hacía "desaparecer"
     // de golpe. Se captura el valor real anterior aquí para poder revertir
     // al instante si falla, en vez de mentir hasta la próxima recarga.
-    const anexoAnterior = documentos.find(s => s.id === id)?.anexo ?? '';
-    actualizarLocal(id, { anexo: f.name, subiendo: !!proyectoId, progreso: 0 });
+    const anexoAnterior = documentos.find(s => s.localKey === localKey)?.anexo ?? '';
+    actualizarLocal(localKey, { anexo: f.name, subiendo: !!proyectoId, progreso: 0 });
     if (!proyectoId) return;
-    // Encolada por id: si un guardado de texto (descripcion/link) para esta
-    // misma fila sigue en vuelo, este adjunto espera a que termine antes de
-    // decidir crear o reemplazar — evita la carrera con ejecutarGuardado.
-    encolar(id, () => ejecutarAdjuntar(id, f, anexoAnterior));
+    // Encolada por localKey (estable): si un guardado de texto
+    // (descripcion/link) para esta misma fila sigue en vuelo, este adjunto
+    // espera a que termine antes de decidir crear o reemplazar — evita la
+    // carrera con ejecutarGuardado.
+    encolar(localKey, () => ejecutarAdjuntar(localKey, f, anexoAnterior));
   };
 
   // FIX (bug real reportado 2026-08-17, DISTINTO del de eliminadosRef): el
@@ -392,8 +439,8 @@ export default function BibliotecaCalcoView() {
   // estaba persistida, se crea la fila de reemplazo CON el archivo primero
   // y solo si eso tuvo éxito se borra la fila vieja — nunca al revés, para
   // no perder datos si la subida falla.
-  const ejecutarAdjuntar = async (id: string, f: File, anexoAnterior: string): Promise<boolean> => {
-    const row = documentos.find(s => s.id === id);
+  const ejecutarAdjuntar = async (localKey: string, f: File, anexoAnterior: string): Promise<boolean> => {
+    const row = documentos.find(s => s.localKey === localKey);
     if (!row) return true;
     const idAntiguo = row.persistido ? row.id : null;
     try {
@@ -405,7 +452,7 @@ export default function BibliotecaCalcoView() {
       fd.append('link', row.link || '');
       const resp = await http.uploadConProgreso<{ success: boolean; data?: { id: string; nombre_archivo: string }; message?: string }>(
         `/api/proyectos/${proyectoId}/biblioteca`, fd,
-        pct => actualizarLocal(id, { progreso: pct })
+        pct => actualizarLocal(localKey, { progreso: pct })
       );
       if (resp.data) {
         const idServidor = resp.data.id;
@@ -414,11 +461,11 @@ export default function BibliotecaCalcoView() {
         // documento se borró mientras esta subida seguía en vuelo, el
         // archivo real ya quedó guardado en el servidor — eliminadosRef es
         // la fuente de verdad (ver comentario en su declaración).
-        if (eliminadosRef.current.has(id)) {
-          eliminadosRef.current.delete(id);
+        if (eliminadosRef.current.has(localKey)) {
+          eliminadosRef.current.delete(localKey);
           http.delete(`/api/proyectos/${proyectoId}/biblioteca/${idServidor}`).catch(() => {});
         } else {
-          actualizarLocal(id, { id: idServidor, anexo: nombreArchivo, persistido: true, subiendo: false, progreso: undefined });
+          actualizarLocal(localKey, { id: idServidor, anexo: nombreArchivo, persistido: true, subiendo: false, progreso: undefined });
           if (idAntiguo) {
             http.delete(`/api/proyectos/${proyectoId}/biblioteca/${idAntiguo}`)
               .catch(() => setErrorSync('El archivo se adjuntó, pero quedó una fila duplicada sin limpiar — recarga la página e ilumínala para borrarla a mano.'));
@@ -434,7 +481,7 @@ export default function BibliotecaCalcoView() {
       // el próximo reload, donde el nombre fantasma desaparecía de golpe.
       // Ahora se revierte al valor real (lo que había ANTES de este intento)
       // de inmediato, para que el estado visible sea siempre el verdadero.
-      actualizarLocal(id, { subiendo: false, progreso: undefined, anexo: anexoAnterior });
+      actualizarLocal(localKey, { subiendo: false, progreso: undefined, anexo: anexoAnterior });
       // FIX (auditoría 2026-08-17): antes se mostraba siempre el mismo texto
       // genérico sin importar la causa real — eso ocultaba errores como
       // "El archivo supera el tamaño máximo" o una falla de credenciales de
@@ -560,10 +607,13 @@ export default function BibliotecaCalcoView() {
                 {limpiado ? '✓ LIMPIADO' : 'LIMPIAR'}
               </button>
               <button
-                className={`bib__save${guardado ? ' bib__save--saved' : ''}`}
+                className={`bib__save${sinGuardar ? ' bib__save--dirty' : ' bib__save--saved'}`}
                 onClick={guardar}
+                disabled={guardando}
+                style={{ opacity: guardando ? 0.6 : 1, cursor: guardando ? 'not-allowed' : 'pointer' }}
+                title={sinGuardar ? 'Hay cambios sin guardar' : undefined}
               >
-                {guardado ? '✓ GUARDADO' : 'SAVE'}
+                {guardando ? 'Guardando…' : sinGuardar ? 'SAVE' : '✓ GUARDADO'}
               </button>
             </div>
           </header>
@@ -632,28 +682,28 @@ export default function BibliotecaCalcoView() {
                     <div className="bib__bloque-empty">Sin documentos en esta carpeta todavía.</div>
                   )}
                   {!colapsada && items.map((s, idx) => (
-                    <div key={s.id} className="bib__tr bib__grid">
+                    <div key={s.localKey} className="bib__tr bib__grid">
                       <span className="bib__rownum">{idx + 1}</span>
                       <div className="bib__td bib__td--desc">
                         <input className="bib__input" placeholder="Descripcion del documento" value={s.descripcion}
-                          onChange={e => actualizar(s.id, { descripcion: e.target.value })}
-                          onBlur={() => guardarEnServidor(s.id)} />
+                          onChange={e => actualizar(s.localKey, { descripcion: e.target.value })}
+                          onBlur={() => guardarEnServidor(s.localKey)} />
                       </div>
                       <div className="bib__td">
                         <input className="bib__input bib__input--center" placeholder="TEXTO" value={s.texto}
-                          onChange={e => actualizar(s.id, { texto: e.target.value })}
-                          onBlur={() => guardarEnServidor(s.id)} />
+                          onChange={e => actualizar(s.localKey, { texto: e.target.value })}
+                          onBlur={() => guardarEnServidor(s.localKey)} />
                       </div>
                       <div className="bib__td">
                         <div className="bib__attach-wrap">
                           <input className="bib__input bib__input--attach" placeholder="." value={s.anexo}
-                            onChange={e => actualizar(s.id, { anexo: e.target.value })} />
+                            onChange={e => actualizar(s.localKey, { anexo: e.target.value })} />
                           {s.persistido && s.anexo && (
                             <button className="bib__download-btn" title="Descargar documento" onClick={() => descargar(s)}>
                               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                             </button>
                           )}
-                          <button className="bib__attach-btn" title={s.subiendo ? `Subiendo… ${s.progreso ?? 0}%` : 'Adjuntar documento'} disabled={s.subiendo} onClick={() => adjuntar(s.id)}>
+                          <button className="bib__attach-btn" title={s.subiendo ? `Subiendo… ${s.progreso ?? 0}%` : 'Adjuntar documento'} disabled={s.subiendo} onClick={() => adjuntar(s.localKey)}>
                             {s.subiendo
                               ? <span style={{ fontSize: 9, fontWeight: 700 }}>{s.progreso ?? 0}%</span>
                               : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>}
@@ -670,14 +720,14 @@ export default function BibliotecaCalcoView() {
                       </div>
                       <div className="bib__td">
                         <input className="bib__input bib__input--center" placeholder="WWW" value={s.link}
-                          onChange={e => actualizar(s.id, { link: e.target.value })}
-                          onBlur={() => guardarEnServidor(s.id)} />
+                          onChange={e => actualizar(s.localKey, { link: e.target.value })}
+                          onBlur={() => guardarEnServidor(s.localKey)} />
                       </div>
                       <div className="bib__td">
                         <select
                           className="bib__select"
                           value={s.carpetaId ?? SIN_CARPETA}
-                          onChange={e => moverACarpeta(s.id, e.target.value === SIN_CARPETA ? null : e.target.value)}
+                          onChange={e => moverACarpeta(s.localKey, e.target.value === SIN_CARPETA ? null : e.target.value)}
                           title="Mover a otra carpeta"
                         >
                           <option value={SIN_CARPETA}>Sin carpeta</option>
@@ -685,7 +735,7 @@ export default function BibliotecaCalcoView() {
                         </select>
                       </div>
                       <div className="bib__td bib__td--action">
-                        <button className="bib__delete" title="Eliminar documento" onClick={() => eliminar(s.id)}>
+                        <button className="bib__delete" title="Eliminar documento" onClick={() => eliminar(s.localKey)}>
                           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                         </button>
                       </div>

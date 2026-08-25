@@ -13,6 +13,7 @@
  */
 import { supabaseAdmin } from '../config/supabase.config.js';
 import { withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
+import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js';
 import { SMMLV_2026_COP } from './ValorExponencialService.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
@@ -103,30 +104,39 @@ ${snapshotTexto}`;
 // y llamaba a geminiCB directamente; ahora withKeyRotation() prueba cada
 // llave configurada en el pool, rotando solo ante 429 — mismo contrato de
 // retorno (texto o null, nunca lanza) y mismo log de errores no-cuota.
-async function llamarGemini(messages, userId) {
-  try {
-    const { texto, usage } = await withKeyRotation(async (apiKey) => {
-      const upstream = await fetch(GEMINI_URL, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'gemini-3.6-flash', messages, temperature: 0.3, max_tokens: 1024 }),
-      });
-
-      if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');
-      if (!upstream.ok) {
-        // FIX (auditoría SRE Red Team 2026-08-10, Capa 4): antes, cualquier
-        // fallo no-429 (401 clave inválida, 400 malformado, 500/503 caído)
-        // se tragaba en silencio — el usuario siempre veía "cuota agotada"
-        // sin importar la causa real, invisible en logs/monitoreo.
-        const cuerpo = await upstream.text().catch(() => '');
-        throw new Error(`Gemini HTTP ${upstream.status}: ${cuerpo.slice(0, 300)}`);
-      }
-
-      const data = await upstream.json();
-      const texto = data?.choices?.[0]?.message?.content?.trim();
-      if (!texto) throw new Error('Gemini sin contenido en la respuesta');
-      return { texto, usage: data?.usage ?? {} };
+async function llamarGemini(messages, userId, userGeminiKeys) {
+  const intentar = async (apiKey) => {
+    const upstream = await fetch(GEMINI_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'gemini-3.6-flash', messages, temperature: 0.3, max_tokens: 1024 }),
     });
+
+    if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');
+    if (!upstream.ok) {
+      // FIX (auditoría SRE Red Team 2026-08-10, Capa 4): antes, cualquier
+      // fallo no-429 (401 clave inválida, 400 malformado, 500/503 caído)
+      // se tragaba en silencio — el usuario siempre veía "cuota agotada"
+      // sin importar la causa real, invisible en logs/monitoreo.
+      const cuerpo = await upstream.text().catch(() => '');
+      throw new Error(`Gemini HTTP ${upstream.status}: ${cuerpo.slice(0, 300)}`);
+    }
+
+    const data = await upstream.json();
+    const texto = data?.choices?.[0]?.message?.content?.trim();
+    if (!texto) throw new Error('Gemini sin contenido en la respuesta');
+    return { texto, usage: data?.usage ?? {} };
+  };
+
+  try {
+    // BYOK (2026-08-22): usuario no exento → rota SUS propias llaves, nunca
+    // el pool del servidor. Mismo contrato de retorno (texto o null) — si
+    // se agota, cae al "Modo Respaldo" ya existente (respuestaRespaldo),
+    // que ya es honesto (dice explícitamente que no hay análisis nuevo, no
+    // fabrica nada) — no hace falta cambiar esa parte.
+    const { texto, usage } = userGeminiKeys?.length
+      ? await withUserKeyRotation(userGeminiKeys, intentar)
+      : await withKeyRotation(intentar);
 
     // FinOps — fire-and-forget, nunca bloquea ni rompe la respuesta al usuario.
     logTokenUsage({
@@ -136,7 +146,7 @@ async function llamarGemini(messages, userId) {
     }).catch(() => {});
     return texto;
   } catch (err) {
-    if (!(err instanceof GeminiPoolExhaustedError) && !isQuotaError(err)) {
+    if (!(err instanceof GeminiPoolExhaustedError) && !(err instanceof UserKeyPoolExhaustedError) && !isQuotaError(err)) {
       logger.error('[Copiloto] Excepción Gemini no-cuota', { err: err.message });
     }
     return null;
@@ -160,7 +170,7 @@ export async function obtenerHistorial(projectId) {
   return data || [];
 }
 
-export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo }) {
+export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo, userGeminiKeys }) {
   if (!mensaje?.trim()) throw new CopilotoError('mensaje es requerido');
 
   const [snapshot, historialPrevio] = await Promise.all([
@@ -185,7 +195,7 @@ export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo 
     { role: 'user', content: mensaje },
   ];
 
-  const respuestaGemini = await llamarGemini(messages, orgId);
+  const respuestaGemini = await llamarGemini(messages, orgId, userGeminiKeys);
   const respuesta = respuestaGemini || respuestaRespaldo(snapshot);
   const fuente = respuestaGemini ? 'gemini-3.6-flash' : 'heuristica';
 
