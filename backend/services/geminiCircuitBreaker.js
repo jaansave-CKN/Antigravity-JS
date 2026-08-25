@@ -262,7 +262,23 @@ class GeminiCircuitBreaker {
    *  menos una llave ya está disponible ahora mismo. */
   getEarliestRetryAt() {
     this.keyStates.forEach(ks => this._checkDailyReset(ks));
-    const abiertas = this.keyStates.filter(ks => ks.state === 'OPEN');
+    // FIX (2026-08-25, "sigue bloqueado" verificado en vivo): esta función
+    // era una lectura pura que nunca revisaba si el cooldown de una llave
+    // OPEN ya había vencido — solo canCall() hacía esa transición, y
+    // canCall() solo se invoca en un intento REAL. Resultado real observado:
+    // gemini_key_state seguía con state='OPEN' varios minutos después de que
+    // el retryAt calculado ya había quedado en el pasado, porque nadie había
+    // vuelto a intentar una llamada real — este endpoint de solo-lectura
+    // reportaba "todavía agotado" con una hora de reset que ya pasó. Ahora
+    // una llave OPEN cuyo cooldown ya venció cuenta como disponible aquí
+    // también (mismo criterio que canCall(), sin mutar estado — el mutado
+    // real sigue pasando solo en un intento real).
+    const abiertas = this.keyStates.filter(ks => {
+      if (ks.state !== 'OPEN') return false;
+      const cooldown = ks.retryAfterMs ?? HALF_OPEN_PROBE_MS;
+      const vencida = Date.now() - (ks.lastQuotaError?.getTime() ?? 0) >= cooldown;
+      return !vencida;
+    });
     if (abiertas.length < this.keyStates.length) return null; // al menos una llave ya sirve
     if (!abiertas.length) return null;
     const tiempos = abiertas.map(ks => {
