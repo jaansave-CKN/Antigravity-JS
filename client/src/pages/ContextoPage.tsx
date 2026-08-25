@@ -269,10 +269,18 @@ export default function ContextoPage() {
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
   const [limpiadoFlash, setLimpiadoFlash] = useState(false);
 
+  // MANDATO (2026-08-24, "indicador de cambios sin guardar", todas las
+  // ventanas del Formulador) — dirty-tracking real por comparación de
+  // snapshot, mismo patrón que EntradaPage.tsx: evita el falso positivo de
+  // pintar el botón en rojo apenas carga la página (antes `guardado` sólo
+  // arrancaba en `false` sin saber si `campos` YA era lo último guardado).
+  const ultimoGuardadoRef = useRef<string | null>(null);
+  if (ultimoGuardadoRef.current === null) ultimoGuardadoRef.current = JSON.stringify(campos);
+  const sinGuardar = JSON.stringify(campos) !== ultimoGuardadoRef.current;
+
   const setCampo = useCallback((key: keyof ContextoProblema, val: string) => {
     setCampos(prev => ({ ...prev, [key]: val }));
     setAuditado(false);
-    setGuardado(false);
   }, []);
 
   const handleAudit = useCallback(() => {
@@ -290,7 +298,7 @@ export default function ContextoPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(campos));
 
     const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
-    if (!proyectoId) { setGuardado(true); return; } // sin proyecto activo — solo cache local
+    if (!proyectoId) { ultimoGuardadoRef.current = JSON.stringify(campos); setGuardado(true); return; } // sin proyecto activo — solo cache local
 
     setGuardando(true);
     setErrorGuardar(null);
@@ -301,6 +309,7 @@ export default function ContextoPage() {
       // durante toda la sesión de edición, acortando la ventana de carrera
       // si el mismo proyecto se edita desde dos pestañas a la vez.
       await http.patch(`/api/proyectos/${proyectoId}/ficha-tecnica-merge`, { key: 'contexto_narrativo', value: campos });
+      ultimoGuardadoRef.current = JSON.stringify(campos);
       setGuardado(true);
     } catch {
       setErrorGuardar('No se pudo guardar el contexto en el servidor — se guardó localmente.');
@@ -356,13 +365,13 @@ export default function ContextoPage() {
               {limpiadoFlash ? '✓ LIMPIADO' : 'LIMPIAR'}
             </button>
             <button
-              className={`ctx__save${guardado ? ' ctx__save--saved' : ''}`}
+              className={`ctx__save${sinGuardar ? ' ctx__save--dirty' : ' ctx__save--saved'}`}
               onClick={handleGuardar}
               disabled={!resultado?.aprobado || guardando}
-              title={!resultado?.aprobado ? 'Audita y aprueba el contexto (botón "Auditar consistencia" más abajo) antes de guardar' : undefined}
+              title={!resultado?.aprobado ? 'Audita y aprueba el contexto (botón "Auditar consistencia" más abajo) antes de guardar' : sinGuardar ? 'Hay cambios sin guardar' : undefined}
               type="button"
             >
-              {guardando ? 'Guardando…' : guardado ? '✓ GUARDADO' : 'SAVE'}
+              {guardando ? 'Guardando…' : sinGuardar ? 'SAVE' : '✓ GUARDADO'}
             </button>
           </div>
           <div className="ctx__radford-badge">

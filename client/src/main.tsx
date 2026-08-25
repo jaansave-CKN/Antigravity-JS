@@ -12,6 +12,7 @@ import { RadarProvider } from './contexts/RadarContext';
 import { SearchProvider } from './contexts/SearchContext';
 import FormuladorLayout from './components/FormuladorLayout';
 import AppLeftNav from './components/AppLeftNav';
+import ByokRequiredModal from './components/ByokRequiredModal';
 import './index.css';
 
 // ── Code-splitting: cada página (y sus dependencias pesadas — leaflet, xlsx,
@@ -31,6 +32,7 @@ const TerminosPage           = lazy(() => import('./pages/TerminosPage'));
 const PrivacidadPage         = lazy(() => import('./pages/PrivacidadPage'));
 const ChecklistPage          = lazy(() => import('./pages/ChecklistPage'));
 const FichaTecnicaPage       = lazy(() => import('./pages/FichaTecnicaPage'));
+const MatrizRaciPage         = lazy(() => import('./pages/MatrizRaciPage'));
 const PlanesPage             = lazy(() => import('./pages/PlanesPage'));
 const FavoritosPage          = lazy(() => import('./pages/FavoritosPage'));
 const AnexosPage             = lazy(() => import('./pages/AnexosPage'));
@@ -391,6 +393,9 @@ function AppRoutes() {
           <Route path="/ficha"      element={
             <PlanGate require="formulador"><FichaTecnicaPage /></PlanGate>
           } />
+          <Route path="/matriz-raci" element={
+            <PlanGate require="formulador"><MatrizRaciPage /></PlanGate>
+          } />
         </Route>
       </Route>
 
@@ -454,6 +459,7 @@ if (!rootEl) {
           <SubscriptionProvider>
             <LanguageProvider>
               <OAuthParamCleaner />
+              <ByokRequiredModal />
               <Suspense fallback={<RouteLoadingFallback />}>
                 <AppRoutes />
               </Suspense>

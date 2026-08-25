@@ -346,8 +346,21 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     // estándar Zero-Trust. link usa sanitizeUrl (no sanitizeTechnicalText):
     // su regex on\w+= no ancla a inicio de palabra y corrompería query
     // strings legítimos como "?ocupacion_id=1".
+    // FIX (auditoría 2026-08-23, "Campo A da ND pese a tener investigación
+    // real pegada"): texto truncaba en silencio a 500 caracteres — un
+    // usuario que pega una conversación de investigación completa (el caso
+    // de uso real y esperado de este campo, ver EntradaIAService.js) perdía
+    // todo menos el primer párrafo, sin ningún aviso de guardado parcial.
+    // Confirmado en vivo contra BD real: 4/4 anexos de "Investigación" de un
+    // proyecto quedaron en exactamente 500 caracteres, todos cortados en
+    // medio de una oración. Elevado a MAX_CHARS_POR_ANEXO (20000, mismo tope
+    // que ya usa EntradaIAService.js al leer este campo para la IA) — antes
+    // el límite de escritura (500) era 40x más chico que el de lectura
+    // (20000), contradicción que confirma que 500 fue un descuido, no una
+    // regla de negocio. descripcion/link (campos cortos por diseño) quedan
+    // igual en 500.
     const descripcion = sanitizeTechnicalText(String(req.body?.descripcion || ''), 500);
-    const texto       = sanitizeTechnicalText(String(req.body?.texto || ''), 500);
+    const texto       = sanitizeTechnicalText(String(req.body?.texto || ''), 20000);
     const link        = sanitizeUrl(String(req.body?.link || ''), 500);
 
     if (!req.file && !descripcion.trim() && !texto.trim() && !link.trim()) {
@@ -621,8 +634,10 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     );
     if (!existente) return res.status(404).json({ success: false, message: 'Anexo no encontrado' });
 
+    // FIX (auditoría 2026-08-23): mismo límite que en el POST de arriba —
+    // 20000, no 500 (ver comentario completo en el POST).
     const descripcion = req.body?.descripcion !== undefined ? sanitizeTechnicalText(String(req.body.descripcion), 500) : existente.descripcion;
-    const texto        = req.body?.texto !== undefined ? sanitizeTechnicalText(String(req.body.texto), 500) : existente.texto;
+    const texto        = req.body?.texto !== undefined ? sanitizeTechnicalText(String(req.body.texto), 20000) : existente.texto;
     const link          = req.body?.link !== undefined ? sanitizeUrl(String(req.body.link), 500) : existente.link;
 
     // carpeta_id — mover el anexo a otra carpeta (o a null = sin carpeta).

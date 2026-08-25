@@ -91,6 +91,8 @@
 }
 .bib__save:hover { background: #003482; }
 .bib__save--saved { background: #15803d; }
+.bib__save--dirty { background: #dc2626; }
+.bib__save--dirty:hover { background: #b91c1c; }
 
 .bib__clear {
   background: #ffffff;

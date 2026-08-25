@@ -5,6 +5,7 @@
  * POST /api/proyectos/:id/copiloto/chat      — envía un mensaje, recibe respuesta de Gemini/Modo Respaldo
  */
 import { obtenerHistorial, chatConCopiloto } from '../services/CopilotoService.js';
+import { requireByokOrExento } from '../middlewares/byokGate.js';
 import { captureError } from '../config/sentry.config.js';
 
 function wrap(fn) {
@@ -22,7 +23,9 @@ function wrap(fn) {
   };
 }
 
-export async function registerCopilotoRoutes(app, { authenticateToken, getRow, aiLimiter }) {
+export async function registerCopilotoRoutes(app, { authenticateToken, getRow, getRows, aiLimiter }) {
+  const byokGate = requireByokOrExento({ getRow, getRows });
+
   async function checkOwnership(proyectoId, userId) {
     return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
@@ -42,12 +45,12 @@ export async function registerCopilotoRoutes(app, { authenticateToken, getRow, a
   // Confirmado en vivo: bloqueo exacto en el mensaje #21 de 25 disparados,
   // 4x más laxo que aiLimiter (20/hora), el limiter real usado en los otros
   // ~12 endpoints de IA del sistema.
-  app.post('/api/proyectos/:id/copiloto/chat', authenticateToken, aiLimiter, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/copiloto/chat', authenticateToken, aiLimiter, byokGate, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
     const { mensaje, moduloActivo } = req.body || {};
-    const resultado = await chatConCopiloto(req.params.id, req.userId, { mensaje, moduloActivo });
+    const resultado = await chatConCopiloto(req.params.id, req.userId, { mensaje, moduloActivo, userGeminiKeys: req.userGeminiKeys });
     res.status(201).json({ success: true, data: resultado });
   }));
 }

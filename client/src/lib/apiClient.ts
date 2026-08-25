@@ -99,6 +99,14 @@ async function parseResponse<T>(resp: Response): Promise<T> {
       window.dispatchEvent(new CustomEvent('auth-session-expired', { detail: { code: parsed.code, message: parsed.message } }));
     }
 
+    // BYOK (migración 045): las 7 acciones interactivas de IA cortan con 428
+    // antes de tocar Gemini si el usuario no exento no tiene llave propia
+    // válida (backend/middlewares/byokGate.js). Modal global, NUNCA redirect
+    // — evita el bucle de redirección que ya existe entre AuthGuard→/apis.
+    if (resp.status === 428 && parsed.code === 'BYOK_REQUIRED') {
+      window.dispatchEvent(new CustomEvent('byok-required', { detail: { message: parsed.message } }));
+    }
+
     throw new ApiError(
       parsed.message || parsed.error || `HTTP ${resp.status}`,
       resp.status,
@@ -125,7 +133,13 @@ function backoffMs(attempt: number, baseMs: number): number {
   return Math.min(baseMs * 2 ** attempt, 8000);
 }
 
-async function fetchWithRetry(url: string, init: RequestInit, retries = 3): Promise<Response> {
+// Exportada para AuthContextNew.tsx: login()/completeMfaLogin() usaban
+// fetch() crudo de un solo intento — un restart del propio dev server (Vite)
+// o un cold-start del backend en el instante exacto del clic mostraba
+// "No se pudo conectar con el servidor" sin ningún reintento, con el
+// backend sano un segundo después. Mismo backoff ya probado en producción
+// para el resto de la app, ninguna lógica nueva.
+export async function fetchWithRetry(url: string, init: RequestInit, retries = 3): Promise<Response> {
   let lastError: Error = new Error('Network error');
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {

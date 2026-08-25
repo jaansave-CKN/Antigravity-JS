@@ -33,9 +33,21 @@ function verifyToken(token) {
   }
 }
 
+// Logging de cada rechazo 401 con su motivo exacto (auditoría 2026-08-22):
+// antes de esto, un 401 no dejaba ningún rastro server-side — encontrar la
+// causa real de un "Sesión revocada" espurio (usuarios.tokens_invalidated_at
+// con un valor futuro anómalo, ver migración de ese incidente) requirió
+// instrumentar esto desde cero. Se queda como observabilidad permanente.
+function logAuthRejection(req, motivo, extra) {
+  logger.warn('[auth] Rechazo 401', { path: req.path, method: req.method, motivo, ...extra });
+}
+
 export async function authenticateToken(req, res, next) {
   const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ success: false, message: 'Token requerido' });
+  if (!auth || !auth.startsWith('Bearer ')) {
+    logAuthRejection(req, 'sin_header_o_sin_bearer', { authPresente: !!auth, authPrefijo: auth ? auth.slice(0, 15) : null });
+    return res.status(401).json({ success: false, message: 'Token requerido' });
+  }
   const token = auth.slice(7);
 
   // DEV: demo-mode-token es aceptado en entorno local para no bloquear el trabajo de desarrollo.
@@ -50,10 +62,16 @@ export async function authenticateToken(req, res, next) {
   }
 
   const payload = verifyToken(token);
-  if (!payload) return res.status(401).json({ success: false, message: 'Token invalido' });
+  if (!payload) {
+    logAuthRejection(req, 'jwt_verify_fallo', { tokenPrefijo: token.slice(0, 12) });
+    return res.status(401).json({ success: false, message: 'Token invalido' });
+  }
 
   // Sesión revocada: blacklist por-token (logout) o invalidación bulk (Stripe/admin)
-  if (isRevoked(token) || !(await checkSessionValid(payload.sub, payload.iat, getRow))) {
+  const revocado = isRevoked(token);
+  const sesionValida = await checkSessionValid(payload.sub, payload.iat, getRow);
+  if (revocado || !sesionValida) {
+    logAuthRejection(req, 'sesion_revocada', { userId: payload.sub, revocadoPorBlacklist: revocado, sesionValida, iat: payload.iat });
     return res.status(401).json({ success: false, message: 'Sesión revocada' });
   }
 
@@ -62,6 +80,7 @@ export async function authenticateToken(req, res, next) {
   // todavía válido) se corta de inmediato si un admin la bloquea o expira.
   const accountStatus = await checkAccountStatus(payload.sub, payload.role, getRow);
   if (!accountStatus.ok) {
+    logAuthRejection(req, 'account_status', { userId: payload.sub, code: accountStatus.code, roleEnToken: payload.role });
     return res.status(401).json({ success: false, code: accountStatus.code, message: accountStatus.message });
   }
 

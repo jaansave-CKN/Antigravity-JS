@@ -22,17 +22,26 @@
 
 /* ── Header — margen/estructura estandarizados 1:1 con EntradaPage
    (.entr__topbar/.entr__h1) para que todas las ventanas del Formulador se
-   vean como una sola aplicación coherente. */
+   vean como una sola aplicación coherente. FIX (2026-08-24, pedido explícito
+   "misma ubicación perfecta que Entrada, estrictamente"): align-items ya
+   estaba en center, pero `padding: 14px 32px` (sin height fija) dejaba la
+   barra en ~88px de alto (32px título + 4px margen + ~18px breadcrumb + 28px
+   de padding vertical) contra los 72px EXACTOS de .entr__topbar — el botón
+   quedaba centrado DENTRO de su propia barra, pero la barra en sí era más
+   alta, así que el botón caía en un Y distinto al comparar con Entrada.
+   `height: 72px` fuerza el mismo alto exacto; el contenido (32px de título +
+   breadcrumb, ~60px) entra sobrado y queda centrado por align-items. */
 .logx__header {
   position: sticky;
   top: 0;
   z-index: 50;
   background: #ffffff;
   border-bottom: 1px solid #e0e3e5;
-  padding: 14px 32px;
+  height: 72px;
+  padding: 0 32px;
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   gap: 16px;
   flex-shrink: 0;
 }
@@ -67,6 +76,8 @@
 }
 .logx__save:hover { background: #003482; }
 .logx__save--saved { background: #15803d; }
+.logx__save--dirty { background: #dc2626; }
+.logx__save--dirty:hover { background: #b91c1c; }
 
 .logx__clear {
   background: #ffffff;

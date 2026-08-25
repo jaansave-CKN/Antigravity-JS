@@ -28,7 +28,15 @@ CREATE TABLE IF NOT EXISTS trial_sessions (
   data         JSONB       NOT NULL    DEFAULT '{}',
   size_bytes   INTEGER     GENERATED ALWAYS AS (octet_length(data::TEXT)) STORED,
   created_at   TIMESTAMPTZ NOT NULL    DEFAULT NOW(),
-  expires_at   TIMESTAMPTZ NOT NULL    GENERATED ALWAYS AS (NOW() + INTERVAL '30 minutes') STORED,
+  -- FIX (2026-08-24, verificado en vivo — este archivo nunca se había
+  -- ejecutado con éxito): la suma timestamptz + interval en Postgres está
+  -- marcada STABLE, no IMMUTABLE (depende del timezone de sesión) — ninguna
+  -- variante de esta expresión sirve dentro de GENERATED ALWAYS ... STORED,
+  -- ni siquiera referenciando una columna ya almacenada (se probó en vivo:
+  -- "generation expression is not immutable" persiste). DEFAULT sí acepta
+  -- expresiones STABLE/VOLATILE — cambiado de GENERATED a DEFAULT, mismo
+  -- efecto práctico (se fija una sola vez, al insertar).
+  expires_at   TIMESTAMPTZ NOT NULL    DEFAULT (NOW() + INTERVAL '30 minutes'),
   ip_hash      TEXT,                  -- SHA-256 de IP del visitante (para rate limiting)
   user_agent   TEXT
 );
@@ -71,8 +79,15 @@ BEGIN
   ) THEN
     CREATE EXTENSION IF NOT EXISTS pg_cron;
 
-    -- Evitar duplicado si ya existe el job
-    PERFORM cron.unschedule('cleanup-trial-sessions');
+    -- Evitar duplicado si ya existe el job. FIX (2026-08-24, verificado en
+    -- vivo): cron.unschedule() de pg_cron lanza error real ("could not find
+    -- valid entry for job") si el job NO existe todavía — pasaba siempre en
+    -- la primera corrida de este archivo, nunca se había probado en vivo.
+    BEGIN
+      PERFORM cron.unschedule('cleanup-trial-sessions');
+    EXCEPTION WHEN OTHERS THEN
+      NULL; -- primera corrida: el job todavía no existe, se ignora
+    END;
     PERFORM cron.schedule(
       'cleanup-trial-sessions',
       '*/5 * * * *',
@@ -129,9 +144,19 @@ CREATE INDEX IF NOT EXISTS idx_stripe_events_processed_at
 ALTER TABLE usuarios
   ADD COLUMN IF NOT EXISTS tokens_invalidated_at TIMESTAMPTZ DEFAULT NULL;
 
--- Aplica también a tabla canonical 'users' (migración 003)
-ALTER TABLE users
-  ADD COLUMN IF NOT EXISTS tokens_invalidated_at TIMESTAMPTZ DEFAULT NULL;
+-- Aplica también a tabla canonical 'users' (migración 003) — FIX (2026-08-24,
+-- verificado en vivo): la tabla 'users' NO existe en esta BD real (solo
+-- existen 'usuarios'/'proyectos', las legacy en español — migración 003
+-- describe un plan que nunca se aplicó tal cual). Envuelto en DO/IF EXISTS
+-- para que esta línea no rompa el resto del archivo si 'users' sigue sin
+-- existir, y se active sola si algún día sí se crea.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='users') THEN
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_invalidated_at TIMESTAMPTZ DEFAULT NULL;
+  END IF;
+END;
+$$;
 
 -- Índice: solo usuarios con revocación activa (parcial, bajo overhead)
 CREATE INDEX IF NOT EXISTS idx_usuarios_tokens_invalidated
@@ -144,28 +169,30 @@ CREATE INDEX IF NOT EXISTS idx_usuarios_tokens_invalidated
 --    cuándo se bloqueó, y cuál fue el score final de auditoría.
 -- =============================================================================
 
--- Tabla 'projects' (canónica inglesa — migración 003)
-ALTER TABLE projects
-  ADD COLUMN IF NOT EXISTS audit_score       NUMERIC(5,2),
-  ADD COLUMN IF NOT EXISTS audit_cycles      SMALLINT    DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS audit_result      JSONB,
-  ADD COLUMN IF NOT EXISTS audit_approved_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS audit_blocked_at  TIMESTAMPTZ;
-
--- Estado adicional para revisión humana
--- El CHECK existente en 'status' puede necesitar actualizarse:
--- (Si la columna ya tiene CHECK constraint, este ALTER puede fallar — ejecutar manualmente)
+-- Tabla 'projects' (canónica inglesa — migración 003) — FIX (2026-08-24,
+-- verificado en vivo): igual que 'users' arriba, 'projects' NO existe en
+-- esta BD real (solo 'proyectos'). Todo este bloque envuelto en IF EXISTS
+-- para no romper el resto del archivo; se activa solo si algún día se crea.
 DO $$
 BEGIN
-  BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='projects') THEN
     ALTER TABLE projects
-      ADD CONSTRAINT chk_projects_status_extended
-      CHECK (status IN ('Borrador','En_Validacion','Finalizado','BLOQUEADO',
-                        'in_review','formulado','needs_human_review',
-                        'processing','draft'));
-  EXCEPTION WHEN duplicate_object THEN
-    NULL; -- Ya existe, no falla
-  END;
+      ADD COLUMN IF NOT EXISTS audit_score       NUMERIC(5,2),
+      ADD COLUMN IF NOT EXISTS audit_cycles      SMALLINT    DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS audit_result      JSONB,
+      ADD COLUMN IF NOT EXISTS audit_approved_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS audit_blocked_at  TIMESTAMPTZ;
+
+    BEGIN
+      ALTER TABLE projects
+        ADD CONSTRAINT chk_projects_status_extended
+        CHECK (status IN ('Borrador','En_Validacion','Finalizado','BLOQUEADO',
+                          'in_review','formulado','needs_human_review',
+                          'processing','draft'));
+    EXCEPTION WHEN duplicate_object THEN
+      NULL; -- Ya existe, no falla
+    END;
+  END IF;
 END;
 $$;
 
@@ -192,9 +219,11 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
 CREATE INDEX IF NOT EXISTS idx_revoked_tokens_user_id
   ON revoked_tokens (user_id);
 
+-- FIX (2026-08-24, verificado en vivo): "functions in index predicate must
+-- be marked IMMUTABLE" — NOW() tampoco es válido en el predicado de un
+-- índice parcial. Índice simple (sin filtro parcial) en vez de partial index.
 CREATE INDEX IF NOT EXISTS idx_revoked_tokens_expires_at
-  ON revoked_tokens (expires_at)
-  WHERE expires_at > NOW();
+  ON revoked_tokens (expires_at);
 
 -- =============================================================================
 -- VERIFICACIÓN POST-MIGRACIÓN

@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { runCrossCheck } from '../validators/crossCheckValidator.js';
 import { sanitizeFormuladorBody } from '../middlewares/SecurityMiddleware.js';
 import { calcularViabilidadIA, recolectarContextoViabilidad, calcularPuntoEquilibrio } from '../services/viabilidadAgent.js';
+import { requireByokOrExento } from '../middlewares/byokGate.js';
 import { auditarViabilidadFinancieraIncompleta } from '../services/AuditorForenseService.js';
 import { supabaseAdmin } from '../config/supabase.config.js';
 import { captureError } from '../config/sentry.config.js';
@@ -39,6 +40,7 @@ export function contieneMonedaNoCOP(obj) {
  * @param {{ authenticateToken: Function, requireAccess: Function, runSql: Function, getRow: Function, getRows: Function, verifyPassword: Function }} deps
  */
 export function registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, runTransaction, getRow, getRows, verifyPassword, aiLimiter }) {
+  const byokGate = requireByokOrExento({ getRow, getRows });
 
   /**
    * POST /api/proyectos
@@ -50,15 +52,24 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    *   presupuesto    object  { fasesNegra:[], fasesGris:[], fasesBlanca:[] } — Módulo 4
    */
   app.post('/api/proyectos', authenticateToken, requireAccess('formulador'), sanitizeFormuladorBody, wrap(async (req, res) => {
-    const { nombre, fichaTecnica = {}, presupuesto = {} } = req.body;
+    const { nombre, nombreArchivo, fichaTecnica = {}, presupuesto = {} } = req.body;
 
     if (contieneMonedaNoCOP(fichaTecnica) || contieneMonedaNoCOP(presupuesto)) {
       return res.status(422).json({ success: false, message: 'Todos los montos deben estar en Pesos Colombianos (COP) — se detectó otra moneda en la solicitud.' });
     }
 
-    if (!nombre || typeof nombre !== 'string' || !nombre.trim()) {
-      return res.status(400).json({ success: false, message: 'nombre es requerido' });
+    const nombreTrim = typeof nombre === 'string' ? nombre.trim() : '';
+    const nombreArchivoTrim = typeof nombreArchivo === 'string' ? nombreArchivo.trim() : '';
+    if (!nombreTrim && !nombreArchivoTrim) {
+      return res.status(400).json({ success: false, message: 'nombre o nombreArchivo es requerido' });
     }
+    // "Nombre del Proyecto" (texto largo/descriptivo, Entrada M1) y "Nombre
+    // del Archivo" (identificador corto, selector de proyectos) son campos
+    // independientes — pero si solo llega uno, el otro se deriva truncando a
+    // 60 chars (mismo criterio que el backfill en server.js:initDb) para que
+    // nunca quede NULL en un flujo que solo conoce uno de los dos.
+    const nombreFinal = nombreTrim || nombreArchivoTrim.slice(0, 200);
+    const nombreArchivoFinal = nombreArchivoTrim || nombreTrim.slice(0, 60);
 
     // Cross-check en tiempo real si se proveen datos financieros completos
     const hasFaseItems = [
@@ -84,13 +95,14 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
 
     await runSql(
       `INSERT INTO proyectos
-         (id, user_id, org_id, nombre, ficha_tecnica, presupuesto, estado)
-       VALUES (?, ?, ?, ?, ?, ?, 'Borrador')`,
+         (id, user_id, org_id, nombre, nombre_archivo, ficha_tecnica, presupuesto, estado)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'Borrador')`,
       [
         id,
         req.userId,
         orgId,
-        nombre.trim(),
+        nombreFinal,
+        nombreArchivoFinal,
         JSON.stringify(fichaTecnica),
         JSON.stringify(presupuesto),
       ]
@@ -101,6 +113,8 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       message: 'Proyecto creado',
       id,          // id real generado por la BD — contrato canónico
       proyectoId: id, // alias retrocompatible (consumido por rutas existentes)
+      nombre: nombreFinal,
+      nombreArchivo: nombreArchivoFinal,
       estado: 'Borrador',
     });
   }));
@@ -111,7 +125,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    */
   app.get('/api/proyectos', authenticateToken, wrap(async (req, res) => {
     const rows = await getRows(
-      `SELECT id, nombre, estado, bloqueo_razon, created_at, updated_at
+      `SELECT id, nombre, nombre_archivo, estado, bloqueo_razon, created_at, updated_at
          FROM proyectos
         WHERE org_id = ?
         ORDER BY created_at DESC`,
@@ -127,7 +141,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    */
   app.get('/api/proyectos/:id', authenticateToken, wrap(async (req, res) => {
     const proyecto = await getRow(
-      `SELECT id, nombre, estado, bloqueo_razon,
+      `SELECT id, nombre, nombre_archivo, estado, bloqueo_razon,
               ficha_tecnica, presupuesto, crosscheck_sello,
               created_at, updated_at
          FROM proyectos
@@ -160,7 +174,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    */
   app.post('/api/proyectos/:id/duplicar', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const original = await getRow(
-      'SELECT nombre, ficha_tecnica, presupuesto FROM proyectos WHERE id = ? AND org_id = ?',
+      'SELECT nombre, nombre_archivo, ficha_tecnica, presupuesto FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]
     );
     if (!original) {
@@ -171,14 +185,17 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     if (!nombreNuevo) {
       return res.status(400).json({ success: false, message: 'nombre es requerido' });
     }
+    const nombreArchivoNuevo = String(
+      req.body?.nombreArchivo || (original.nombre_archivo ? `${original.nombre_archivo} (copia)` : nombreNuevo)
+    ).trim().slice(0, 60);
 
     const orgId = req.userId;
     const id    = crypto.randomUUID();
     await runSql(
       `INSERT INTO proyectos
-         (id, user_id, org_id, nombre, ficha_tecnica, presupuesto, estado)
-       VALUES (?, ?, ?, ?, ?, ?, 'Borrador')`,
-      [id, req.userId, orgId, nombreNuevo, original.ficha_tecnica, original.presupuesto]
+         (id, user_id, org_id, nombre, nombre_archivo, ficha_tecnica, presupuesto, estado)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'Borrador')`,
+      [id, req.userId, orgId, nombreNuevo, nombreArchivoNuevo, original.ficha_tecnica, original.presupuesto]
     );
 
     return res.status(201).json({ success: true, message: 'Proyecto duplicado', id, nombre: nombreNuevo });
@@ -205,7 +222,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       });
     }
 
-    const { nombre, fichaTecnica, presupuesto } = req.body;
+    const { nombre, nombreArchivo, fichaTecnica, presupuesto } = req.body;
 
     // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10, Capa 4): antes se aceptaba
     // cualquier tipo JSON-serializable (array, string, número) sin validar
@@ -230,6 +247,10 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     if (nombre !== undefined) {
       updates.push('nombre = ?');
       params.push(String(nombre).trim());
+    }
+    if (nombreArchivo !== undefined) {
+      updates.push('nombre_archivo = ?');
+      params.push(String(nombreArchivo).trim().slice(0, 60));
     }
     if (fichaTecnica !== undefined) {
       updates.push('ficha_tecnica = ?');
@@ -446,7 +467,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    *
    * Body: { delta: { ...campos de ficha_tecnica corregidos } }
    */
-  app.post('/api/proyectos/:id/continuar-formulacion', authenticateToken, requireAccess('formulador'), aiLimiter, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/continuar-formulacion', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, wrap(async (req, res) => {
     const proyectoId = req.params.id;
     const { delta } = req.body;
 
@@ -469,7 +490,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     // Reprocesa viabilidad con el delta ya fusionado — mismo motor que
     // POST /api/proyectos/:id/viabilidad-ia, sin duplicar su lógica.
     const { ctx, fichaTecnica } = await recolectarContextoViabilidad(proyecto, req.userId, { getRow, getRows }, delta);
-    const resultado = await calcularViabilidadIA(ctx);
+    const resultado = await calcularViabilidadIA(ctx, req.userGeminiKeys);
     const fichaActualizada = { ...fichaTecnica, viabilidad_ia: resultado };
     const fichaJson = JSON.stringify(fichaActualizada);
     const ahora = new Date().toISOString();

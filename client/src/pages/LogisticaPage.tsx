@@ -119,6 +119,29 @@ export default function LogisticaPage() {
   const [guardando, setGuardando] = useState(false);
   const [errorSync, setErrorSync] = useState<string | null>(null);
   const hidratado = useRef(false);
+  // FIX (2026-08-24, INCIDENTE REAL DE PÉRDIDA DE DATOS — 2 tramos reales del
+  // proyecto quedaron borrados en el servidor): `cargando` pasaba a `false`
+  // en el `finally` del fetch de hidratación SIN IMPORTAR si la petición tuvo
+  // éxito o falló (red caída, backend reiniciando, etc.) — el guard
+  // `if (cargando) return` del efecto de auto-sync de abajo creía entonces
+  // que ya se sabía la verdad del servidor cuando en realidad la petición
+  // había fallado y `tramos` seguía en su `[]` inicial. El auto-sync debounced
+  // (sin ningún check de "esto es intencional") tomaba ese `[]` como si el
+  // usuario hubiera querido vaciar todo y lo posteaba — y el endpoint hace
+  // DELETE+INSERT incondicional (ver configLogistica.routes.js), así que
+  // borró en serio los tramos reales que sí existían en el servidor. Este
+  // ref SOLO se pone en `true` cuando la hidratación termina con éxito
+  // confirmado — nunca en el catch — y el auto-sync automático (NO el botón
+  // SAVE manual, que sigue funcionando siempre) ahora exige que sea `true`.
+  const hidratacionOkRef = useRef(false);
+  // MANDATO (2026-08-24, "indicador de cambios sin guardar", todas las
+  // ventanas del Formulador) — dirty-tracking por snapshot de `tramos` (lo
+  // único que persiste `sincronizar()` al backend; `observaciones` es
+  // puramente local/exportable, nunca viaja a `/logistica-tramos`, así que
+  // no cuenta para "necesita guardarse").
+  const ultimoGuardadoRef = useRef<string | null>(null);
+  if (ultimoGuardadoRef.current === null) ultimoGuardadoRef.current = JSON.stringify(tramos);
+  const sinGuardar = JSON.stringify(tramos) !== ultimoGuardadoRef.current;
 
   // Hidrata desde el backend real (fuente de verdad) si hay un proyecto activo.
   useEffect(() => {
@@ -128,13 +151,42 @@ export default function LogisticaPage() {
       try {
         const body = await http.get<TramosApiResponse>(`/api/proyectos/${proyectoId}/logistica-tramos`);
         if (cancelled) return;
+        // La petición SÍ llegó a responder — a partir de aquí ya conocemos la
+        // verdad real del servidor, con datos o sin ellos. Solo aquí es
+        // seguro dejar que el auto-sync automático (no el botón SAVE manual)
+        // vuelva a escribir al servidor.
+        hidratacionOkRef.current = true;
         if (body.data && body.data.length > 0) {
-          setTramos(body.data.map(t => ({
+          const nuevosTramos = body.data.map(t => ({
             id: t.id, numero: String(t.numero).padStart(2, '0'), origen: t.origen, destino: t.destino,
             duracion: t.duracion, distancia_km: Number(t.distancia_km), medio: t.medio,
             estado_via: t.estado_via as EstadoVia, calidad: t.calidad as CalidadVia,
             tipo_transporte: t.tipo_transporte, orden_publico: t.orden_publico, seleccionado: false,
-          })));
+          }));
+          setTramos(nuevosTramos);
+          ultimoGuardadoRef.current = JSON.stringify(nuevosTramos);
+        } else {
+          // FIX (2026-08-24, blindaje antipérdida — mismo bug reportado que
+          // motivó el fix del efecto de caché de arriba): el servidor no
+          // tiene tramos para este proyecto, pero eso pudo pasar porque un
+          // sync previo falló en silencio (red, pestaña cerrada antes de que
+          // el debounce de 600ms disparara, etc.) — el caché local todavía
+          // puede tener el borrador real. Se restaura como borrador SIN
+          // GUARDAR (no se toca ultimoGuardadoRef) para que el usuario lo
+          // vea, lo revise y confirme con SAVE — nunca se asume que el
+          // servidor vacío es la verdad si el caché local dice lo contrario.
+          try {
+            const cachedRaw = localStorage.getItem(STORAGE_KEY);
+            if (cachedRaw) {
+              const cached = JSON.parse(cachedRaw);
+              const cachedTramos: Tramo[] = Array.isArray(cached?.tramos) ? cached.tramos : [];
+              const tieneContenidoReal = cachedTramos.some(t => t.origen?.trim() || t.destino?.trim());
+              if (tieneContenidoReal) {
+                setTramos(cachedTramos);
+                setErrorSync('Se recuperó un borrador guardado localmente que el servidor no tenía — revísalo y presiona SAVE para confirmarlo.');
+              }
+            }
+          } catch { /* caché corrupto — se ignora, se queda vacío como antes */ }
         }
       } catch (e) {
         console.error('[Logística] Error cargando tramos:', e);
@@ -156,18 +208,34 @@ export default function LogisticaPage() {
   }, [proyectoId]);
 
   // Cache local instantánea (sigue funcionando sin conexión / sin proyecto activo).
+  // FIX (2026-08-24, bug real reportado — pérdida de datos): faltaba el guard
+  // `if (cargando) return` que sí tiene AnexosCalcoView.tsx/BibliotecaCalcoView.tsx
+  // (mismo patrón, comentario histórico ahí). Sin él, este efecto corría en el
+  // primer render con proyectoId activo, cuando `tramos` todavía vale `[]` a
+  // propósito (arranca vacío para hidratarse del servidor, ver arriba) —
+  // sobrescribía el caché local con tramos:[] ANTES de que la respuesta del
+  // servidor llegara, borrando el único respaldo si el servidor por lo que
+  // sea no tenía los datos (falló un sync previo, etc.).
   useEffect(() => {
+    if (cargando) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ tramos, observaciones }));
-  }, [tramos, observaciones]);
+  }, [tramos, observaciones, cargando]);
 
   // Sincronización real al backend — extraída para reusarse tanto en el
   // debounce automático como en el botón SAVE manual.
   const sincronizar = useCallback(async () => {
-    if (!proyectoId) return;
+    // FIX (2026-08-24, "SAVE se queda en rojo sin ningún aviso" — mismo
+    // hallazgo en EntradaPage.tsx/DialecticaPage.tsx): antes esto era un
+    // `return` mudo.
+    if (!proyectoId) { setErrorSync('No hay proyecto activo — no se pudo sincronizar.'); return; }
     setGuardando(true);
     setErrorSync(null);
     try {
       await http.post(`/api/proyectos/${proyectoId}/logistica-tramos`, { tramos });
+      // El debounce automático (efecto de abajo) también pasa por aquí — un
+      // sync exitoso, disparado a mano o solo, actualiza la línea base por
+      // igual (sinGuardar, derivado más abajo, pasa a false solo).
+      ultimoGuardadoRef.current = JSON.stringify(tramos);
     } catch (e) {
       console.error('[Logística] Error sincronizando tramos:', e);
       setErrorSync(mensajeSyncError(e, 'sincronizar'));
@@ -177,20 +245,23 @@ export default function LogisticaPage() {
   }, [proyectoId, tramos]);
 
   // Sincronización automática al backend (debounced) — reemplaza el array completo.
+  // FIX (2026-08-24, incidente real de pérdida de datos — ver comentario en
+  // hidratacionOkRef arriba): `cargando` por sí solo NO garantiza que la
+  // hidratación haya tenido éxito (pasaba a false también si la petición
+  // fallaba) — exigir además `hidratacionOkRef.current` cierra la ventana en
+  // la que un `tramos:[]` fantasma (por una carga fallida, no por acción real
+  // del usuario) podía disparar un DELETE+INSERT vacío contra datos reales.
   useEffect(() => {
-    if (!proyectoId || cargando) return; // no sincronizar antes de hidratar (evita sobreescribir con [])
+    if (!proyectoId || cargando || !hidratacionOkRef.current) return;
     const t = setTimeout(sincronizar, 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tramos, proyectoId, cargando]);
 
-  const [guardado, setGuardado] = useState(false);
   const [limpiado, setLimpiado] = useState(false);
 
   const guardar = async () => {
-    await sincronizar();
-    setGuardado(true);
-    setTimeout(() => setGuardado(false), 2200);
+    await sincronizar(); // marca ultimoGuardadoRef al terminar con éxito
   };
 
   const limpiar = () => {
@@ -288,10 +359,13 @@ export default function LogisticaPage() {
             {limpiado ? '✓ LIMPIADO' : 'LIMPIAR'}
           </button>
           <button
-            className={`logx__save${guardado ? ' logx__save--saved' : ''}`}
+            className={`logx__save${sinGuardar ? ' logx__save--dirty' : ' logx__save--saved'}`}
             onClick={guardar}
+            disabled={guardando}
+            style={{ opacity: guardando ? 0.6 : 1, cursor: guardando ? 'not-allowed' : 'pointer' }}
+            title={sinGuardar ? 'Hay cambios sin guardar' : undefined}
           >
-            {guardado ? '✓ GUARDADO' : 'SAVE'}
+            {guardando ? 'Guardando…' : sinGuardar ? 'SAVE' : '✓ GUARDADO'}
           </button>
         </div>
       </header>

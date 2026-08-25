@@ -27,6 +27,18 @@ const BOLD   = 'Helvetica-Bold';
 const MONO   = 'Courier';
 const BORDER_WIDTH = 1;   // Protocol Precision: 1px borders
 
+// Mismos ids/labels que CONTEXTO_LABELS en FichaTecnicaPage.tsx (a su vez
+// calcados de CONTEXTO_CAMPOS en EntradaPage.tsx) — Campo C se maneja aparte
+// arriba porque es un objeto estructurado, no un string plano.
+const CONTEXTO_LABELS = {
+  situacion_actual: 'A. Situación Actual sin Proyecto',
+  linea_base: 'B. Indicador de Línea Base Cuantificable',
+  justificacion: 'D. Justificación de Prioridad',
+  sociocultural: 'E. Análisis Sociocultural para la Pertinencia',
+  problema_urgente: 'F. ¿Qué Problema Percibe como Más Urgente?',
+  incertidumbre: 'G. Condición Crítica de Incertidumbre Logística',
+};
+
 // ── Utils ─────────────────────────────────────────────────────────────────────
 
 function safeJson(v, fallback = {}) {
@@ -87,9 +99,14 @@ export function generarHashCertificacion(proyectoId, auditId, timestamp) {
  *   vía <DiagramaMermaid>) — se recibe el <svg>.outerHTML real, este generador
  *   NO renderiza nada por su cuenta (ver backend/services/svgEmbed.js). Opcional
  *   — si se omite, el reporte se genera exactamente igual que antes.
+ * @param {{dialectico?: object, tramos?: object[], anexos?: object[]}} [modulos]
+ *   — Motor Dialéctico (motor_dialectico), tramos de Logística
+ *   (logistica_tramos) y Anexos (project_anexos) — consultados aparte por el
+ *   caller (reporte.routes.js) porque viven en tablas propias, no dentro de
+ *   proyecto.ficha_tecnica.
  * @returns {Promise<Buffer>}
  */
-export function generarReportePDF(proyecto, graficos = []) {
+export function generarReportePDF(proyecto, graficos = [], modulos = {}) {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({
@@ -116,6 +133,19 @@ export function generarReportePDF(proyecto, graficos = []) {
       const ft    = safeJson(proyecto.ficha_tecnica);
       const pre   = safeJson(proyecto.presupuesto);
       const sello = safeJson(proyecto.crosscheck_sello, null);
+      // FIX (2026-08-23, "que se vea como un proyecto formulado"): ft.sector/
+      // .municipio/.convocatoria/.descripcion (esquema plano viejo) ya no
+      // existen — todo Entrada vive anidado en ft.entrada_completa desde la
+      // migración a JSONB nativo. Confirmado en vivo: sin este cambio esos
+      // campos salían SIEMPRE vacíos en el PDF, sin importar qué tuviera el
+      // proyecto realmente cargado.
+      const entrada = ft.entrada_completa || {};
+      const contexto = entrada.contexto || {};
+      const contextoMeta = entrada.contextoMeta || {};
+      const dialectico = modulos.dialectico || {};
+      const tramos = modulos.tramos || [];
+      const anexos = modulos.anexos || [];
+      const raciResumen = modulos.raciResumen || null;
 
       const auditId   = sello?.auditId   || 'N/A';
       const timestamp = sello?.pasado_en || new Date().toISOString();
@@ -135,8 +165,8 @@ export function generarReportePDF(proyecto, graficos = []) {
       const isOk = proyecto.estado === 'Finalizado';
       doc.font(BOLD).fontSize(9).fillColor(isOk ? C.green : C.red)
          .text(
-           isOk ? '● PROYECTO FINALIZADO — SELLO DE AUDITORÍA EMITIDO'
-                : `● ESTADO: ${proyecto.estado}`,
+           isOk ? 'PROYECTO FINALIZADO — SELLO DE AUDITORÍA EMITIDO'
+                : `ESTADO: ${proyecto.estado}`,
            { width: W, align: 'center' }
          );
       doc.moveDown(0.7);
@@ -150,20 +180,127 @@ export function generarReportePDF(proyecto, graficos = []) {
       kv(doc, ML, W, 'Estado',               proyecto.estado);
       kv(doc, ML, W, 'Creado',               fmtDate(proyecto.created_at));
       kv(doc, ML, W, 'Última Actualización', fmtDate(proyecto.updated_at));
-      if (ft.descripcion) kv(doc, ML, W, 'Descripción', ft.descripcion);
       doc.moveDown(0.9);
 
-      // ── S2: FICHA TÉCNICA ────────────────────────────────────────────────
-      sTitle(doc, ML, W, '2.  FICHA TÉCNICA (Módulo 3b)');
-      kv(doc, ML, W, 'Meta Física Total', fmt(ft.metaFisicaTotal || 0));
-      if (ft.sector)       kv(doc, ML, W, 'Sector',       ft.sector);
-      if (ft.municipio)    kv(doc, ML, W, 'Municipio',    ft.municipio);
-      if (ft.departamento) kv(doc, ML, W, 'Departamento', ft.departamento);
-      if (ft.convocatoria) kv(doc, ML, W, 'Convocatoria', ft.convocatoria);
+      // ── S2: ENTRADA (Módulo 1) ───────────────────────────────────────────
+      checkPageBreak(doc, 140);
+      sTitle(doc, ML, W, '2.  ENTRADA (Módulo 1)');
+      kv(doc, ML, W, 'Municipio',              entrada.municipio || '—');
+      kv(doc, ML, W, 'Vereda',                 entrada.vereda || '—');
+      kv(doc, ML, W, 'Cobertura Geográfica',   entrada.coberturaGeografica || '—');
+      kv(doc, ML, W, 'Número de Beneficiarios',entrada.numeroBeneficiarios || '—');
+      kv(doc, ML, W, 'Tipo de Proyecto',       entrada.enfoque || '—');
+      kv(doc, ML, W, 'Fuente de Financiación', entrada.tipoConvocatoria || '—');
+      kv(doc, ML, W, 'Nivel del Proyecto',     entrada.nivelProyecto || '—');
+      kv(doc, ML, W, 'Formato del Financiador',entrada.formatoFinanciador || '—');
+      kv(doc, ML, W, 'Metodologías',           (entrada.metodologias || []).join(', ') || '—');
+      kv(doc, ML, W, 'Sectores',               (entrada.sectores || []).join(', ') || '—');
       doc.moveDown(0.9);
 
-      // ── S3: PRESUPUESTO POR FASES ────────────────────────────────────────
-      sTitle(doc, ML, W, '3.  PRESUPUESTO POR FASES (Módulo 4)');
+      // ── S3: CONTEXTO DEL PROBLEMA (Sección 11 de Entrada) ────────────────
+      // Mismos ids de campo que EntradaPage.tsx/CONTEXTO_CAMPOS — el usuario
+      // confirmó explícitamente (2026-08-23) que ficha_tecnica.contexto_narrativo
+      // (ContextoPage/"/contexto") es un módulo viejo sin uso; el Contexto del
+      // Problema real vive en entrada_completa.contexto/.contextoMeta.
+      checkPageBreak(doc, 100);
+      sTitle(doc, ML, W, '3.  CONTEXTO DEL PROBLEMA');
+      const problematicaSel = (contextoMeta.problematicas || []).find(p => p.problema === contextoMeta.problemaSeleccionado);
+      kv(doc, ML, W, 'C. Problemática (Meta Esperada)', contextoMeta.problemaSeleccionado || '—');
+      kv(doc, ML, W, 'C. Déficit Asociado', problematicaSel?.deficit_valor != null ? `${problematicaSel.deficit_valor} ${problematicaSel.deficit_unidad || ''}`.trim() : '—');
+      kv(doc, ML, W, 'C. Beneficiarios', contextoMeta.beneficiarios || '—');
+      kv(doc, ML, W, 'C. Tipo de Formulación', contextoMeta.tipoFormulacion || '—');
+      doc.moveDown(0.5);
+      for (const [id, label] of Object.entries(CONTEXTO_LABELS)) {
+        checkPageBreak(doc, 60);
+        kvStacked(doc, ML, W, label, contexto[id]);
+      }
+      doc.moveDown(0.5);
+
+      // ── S4: MOTOR DIALÉCTICO (Módulo 4) ──────────────────────────────────
+      checkPageBreak(doc, 100);
+      sTitle(doc, ML, W, '4.  MOTOR DIALÉCTICO');
+      kv(doc, ML, W, 'Interlocutor',  dialectico.interlocutor || '—');
+      kv(doc, ML, W, 'Tono',          dialectico.tono || '—');
+      kv(doc, ML, W, 'Enfoque',       dialectico.enfoque || '—');
+      kv(doc, ML, W, 'Humanización',  dialectico.humanizacion || '—');
+      doc.moveDown(0.9);
+
+      // MANDATO (2026-08-24, "mismo orden en que se encuentran las
+      // ventanas"): reordenado para calzar con TopNavBar.tsx (Entrada ·
+      // Dialéctica · Anexos · Biblioteca · Logística · Matriz RACI · ...) —
+      // Anexos antes que Logística.
+      // ── S5: ANEXOS ────────────────────────────────────────────────────────
+      checkPageBreak(doc, 100);
+      sTitle(doc, ML, W, '5.  ANEXOS — SOPORTES DOCUMENTALES');
+      const anexosValidos = anexos.filter(a => a.descripcion && (a.nombre_archivo || a.link));
+      if (anexosValidos.length === 0) {
+        doc.font(NORMAL).fontSize(8.5).fillColor(C.muted).text('Sin soportes cargados.', ML, doc.y, { width: W });
+        doc.moveDown(0.4);
+      } else {
+        for (const a of anexosValidos) {
+          checkPageBreak(doc, 20);
+          doc.font(NORMAL).fontSize(8.5).fillColor(C.body)
+             .text(`• ${a.descripcion}  —  ${a.nombre_archivo || a.link}`, ML, doc.y, { width: W });
+          doc.moveDown(0.2);
+        }
+      }
+      doc.moveDown(0.7);
+
+      // ── S6: LOGÍSTICA (Módulo de tramos) ─────────────────────────────────
+      checkPageBreak(doc, 100);
+      sTitle(doc, ML, W, '6.  LOGÍSTICA — TRAMOS DE EJECUCIÓN');
+      const tramosValidos = tramos.filter(t => t.origen && t.destino && t.duracion);
+      if (tramosValidos.length === 0) {
+        doc.font(NORMAL).fontSize(8.5).fillColor(C.muted).text('Sin tramos registrados.', ML, doc.y, { width: W });
+        doc.moveDown(0.4);
+      } else {
+        for (const t of tramosValidos) {
+          checkPageBreak(doc, 20);
+          doc.font(NORMAL).fontSize(8.5).fillColor(C.body)
+             .text(`• ${t.origen} — ${t.destino}  ·  ${t.duracion}${t.medio ? `  ·  ${t.medio}` : ''}`, ML, doc.y, { width: W });
+          doc.moveDown(0.2);
+        }
+      }
+      doc.moveDown(0.7);
+
+      // ── S7: MATRIZ RACI ────────────────────────────────────────────────────
+      // MANDATO (2026-08-24, "para que también al generar PDF, aparezca") —
+      // resumen de validación, misma función que GET /raci/resumen (ver nota
+      // junto a la extracción de raciResumen arriba).
+      checkPageBreak(doc, 120);
+      sTitle(doc, ML, W, '7.  MATRIZ RACI');
+      if (!raciResumen || raciResumen.totalTareas === 0 || raciResumen.totalRoles === 0) {
+        doc.font(NORMAL).fontSize(8.5).fillColor(C.muted).text('Sin tareas/roles registrados en la Matriz RACI.', ML, doc.y, { width: W });
+        doc.moveDown(0.4);
+      } else {
+        kv(doc, ML, W, 'Tareas registradas', String(raciResumen.totalTareas));
+        kv(doc, ML, W, 'Roles registrados', String(raciResumen.totalRoles));
+        kv(doc, ML, W, 'Completitud de la matriz', `${raciResumen.porcentajeCompletitud}% (${raciResumen.totalAsignaciones} de ${raciResumen.celdasPosibles} celdas)`);
+        doc.moveDown(0.4);
+        const listaORinguna = (titulo, items) => {
+          checkPageBreak(doc, 30);
+          doc.font(BOLD).fontSize(8.5).fillColor(items.length ? C.red : C.green).text(`${titulo} (${items.length})`, ML, doc.y, { width: W });
+          doc.moveDown(0.15);
+          if (items.length === 0) {
+            doc.font(NORMAL).fontSize(8.5).fillColor(C.muted).text('Ninguna.', ML, doc.y, { width: W });
+          } else {
+            for (const it of items) {
+              checkPageBreak(doc, 16);
+              doc.font(NORMAL).fontSize(8.5).fillColor(C.body).text(`• ${it.nombre}`, ML, doc.y, { width: W });
+            }
+          }
+          doc.moveDown(0.4);
+        };
+        listaORinguna('Tareas sin Aprobador (A)', raciResumen.tareasSinA);
+        listaORinguna('Tareas con más de un Aprobador (A)', raciResumen.tareasConMultiplesA);
+        listaORinguna('Tareas sin Responsable (R)', raciResumen.tareasSinR);
+        listaORinguna('Roles sin ninguna asignación', raciResumen.rolesSinAsignacion);
+      }
+      doc.moveDown(0.5);
+
+      // ── S8: PRESUPUESTO POR FASES (Módulo 4) ──────────────────────────────
+      checkPageBreak(doc, 100);
+      sTitle(doc, ML, W, '8.  PRESUPUESTO POR FASES');
 
       const fN = pre.fasesNegra  || [];
       const fG = pre.fasesGris   || [];
@@ -187,8 +324,9 @@ export function generarReportePDF(proyecto, graficos = []) {
       doc.y = totY + 16;
       doc.moveDown(0.9);
 
-      // ── S4: SELLO CROSS-CHECK ────────────────────────────────────────────
-      sTitle(doc, ML, W, '4.  SELLO DE AUDITORÍA CROSS-CHECK (F5-01)');
+      // ── S9: SELLO CROSS-CHECK ────────────────────────────────────────────
+      checkPageBreak(doc, 120);
+      sTitle(doc, ML, W, '9.  SELLO DE AUDITORÍA CROSS-CHECK (F5-01)');
 
       if (sello) {
         const bY = doc.y;
@@ -197,7 +335,7 @@ export function generarReportePDF(proyecto, graficos = []) {
 
         let lineY = bY + 10;
         doc.font(BOLD).fontSize(10).fillColor(C.green)
-           .text('✓  CROSS-CHECK APROBADO · DISCREPANCIA $0.00',
+           .text('CROSS-CHECK APROBADO · DISCREPANCIA $0.00',
                  ML + 12, lineY, { width: W - 24 });
         lineY += 16;
 
@@ -219,7 +357,7 @@ export function generarReportePDF(proyecto, graficos = []) {
         doc.y = bY + bH + 8;
       } else {
         doc.font(NORMAL).fontSize(9).fillColor(C.red)
-           .text('⚠  Sello de auditoría no disponible. El proyecto no ha sido radicado aún.');
+           .text('Sello de auditoría no disponible. El proyecto no ha sido radicado aún.');
       }
       doc.moveDown(1);
 
@@ -250,8 +388,9 @@ export function generarReportePDF(proyecto, graficos = []) {
         }
       }
 
-      // ── S5: HASH DE CERTIFICACIÓN ────────────────────────────────────────
-      sTitle(doc, ML, W, '5.  HASH DE CERTIFICACIÓN SHA-256');
+      // ── S10: HASH DE CERTIFICACIÓN ───────────────────────────────────────
+      checkPageBreak(doc, 100);
+      sTitle(doc, ML, W, '10.  HASH DE CERTIFICACIÓN SHA-256');
 
       const hashY = doc.y;
       doc.rect(ML, hashY, W, 44).fill(C.monoBg);
@@ -323,6 +462,29 @@ function kv(doc, ml, w, label, value) {
   doc.font(NORMAL).fontSize(8.5).fillColor(C.body)
      .text(String(value || '—'), ml + w * 0.36, y, { width: w * 0.64 });
   doc.y += 1;
+}
+
+// Variante apilada (etiqueta arriba, valor abajo a todo el ancho) para
+// campos de texto largo (Contexto del Problema, A. Situación Actual, etc.)
+// — kv() de dos columnas queda demasiado angosto (64% de W) para un párrafo
+// completo; aquí el valor usa el ancho completo de la sección.
+function kvStacked(doc, ml, w, label, value) {
+  doc.font(BOLD).fontSize(8.5).fillColor(C.muted)
+     .text(label, ml, doc.y, { width: w });
+  doc.moveDown(0.15);
+  const vacio = !value || value === 'ND (No Disponible en la investigación)';
+  doc.font(NORMAL).fontSize(8.5).fillColor(vacio ? C.muted : C.body)
+     .text(vacio ? (value || '— Sin definir —') : value, ml, doc.y, { width: w, lineGap: 1.5 });
+  doc.moveDown(0.5);
+}
+
+// Salto de página proactivo si no queda suficiente espacio vertical para el
+// próximo bloque — mismo criterio ya usado para los gráficos (línea ~237 de
+// la versión anterior), extendido a todas las secciones nuevas para que un
+// título de sección o un párrafo largo de Contexto nunca quede cortado a la
+// mitad entre dos páginas.
+function checkPageBreak(doc, neededHeight) {
+  if (doc.y > doc.page.height - doc.page.margins.bottom - neededHeight) doc.addPage();
 }
 
 function faseBlock(doc, ml, w, title, items, total) {

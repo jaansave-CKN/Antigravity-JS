@@ -8,6 +8,11 @@ const ACTIVE_PROJECT_NAME_KEY = 'rf360_proyecto_nombre';
 interface ProyectoRow {
   id: string;
   nombre: string;
+  // "Nombre del Proyecto" (nombre, largo/descriptivo, se edita en Entrada
+  // M1) vs "Nombre del Archivo" (nombre_archivo, identificador corto, se
+  // edita SOLO desde este modal — mandato 2026-08-24). null en proyectos
+  // creados antes de la migración 047 hasta que corra el backfill.
+  nombre_archivo: string | null;
   estado: string;
   bloqueo_razon: string | null;
   created_at: string;
@@ -68,14 +73,14 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
 
   const abrir = (p: ProyectoRow) => {
     localStorage.setItem(ACTIVE_PROJECT_KEY, p.id);
-    localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, p.nombre);
+    localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, p.nombre_archivo || p.nombre);
     notificarCambioProyecto();
     onClose();
   };
 
   const crearNuevo = async () => {
-    const nombre = nombreNuevo.trim();
-    if (!nombre || creando) return;
+    const nombreArchivo = nombreNuevo.trim();
+    if (!nombreArchivo || creando) return;
     setCreando(true);
     setError(null);
     try {
@@ -83,12 +88,12 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         credentials: 'include',
-        body: JSON.stringify({ nombre }),
+        body: JSON.stringify({ nombreArchivo }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body?.success) throw new Error(body?.message ?? 'No se pudo crear el proyecto.');
       localStorage.setItem(ACTIVE_PROJECT_KEY, body.id);
-      localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, nombre);
+      localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, body.nombreArchivo || nombreArchivo);
       notificarCambioProyecto();
       onClose();
     } catch (e) {
@@ -102,7 +107,7 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
     e.stopPropagation();
     setBorrandoId(null);
     setEditandoId(p.id);
-    setNombreEdit(p.nombre);
+    setNombreEdit(p.nombre_archivo || p.nombre);
   };
 
   const cancelarEdicion = (e: React.MouseEvent) => {
@@ -113,8 +118,8 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
   const guardarNombre = async (id: string, e: React.MouseEvent | React.FormEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    const nombre = nombreEdit.trim();
-    if (!nombre || guardandoNombre) return;
+    const nombreArchivo = nombreEdit.trim();
+    if (!nombreArchivo || guardandoNombre) return;
     setGuardandoNombre(true);
     setError(null);
     try {
@@ -122,12 +127,12 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         credentials: 'include',
-        body: JSON.stringify({ nombre }),
+        body: JSON.stringify({ nombreArchivo }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body?.success) throw new Error(body?.message ?? 'No se pudo renombrar el proyecto.');
-      setProyectos(prev => prev.map(p => (p.id === id ? { ...p, nombre } : p)));
-      if (id === activoId) localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, nombre);
+      setProyectos(prev => prev.map(p => (p.id === id ? { ...p, nombre_archivo: nombreArchivo } : p)));
+      if (id === activoId) localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, nombreArchivo);
       setEditandoId(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al renombrar el proyecto.');
@@ -232,6 +237,7 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
                 <div
                   key={p.id}
                   onClick={() => !editando && !confirmandoBorrado && abrir(p)}
+                  title={p.nombre}
                   style={{
                     textAlign: 'left', padding: 14, borderRadius: 10,
                     cursor: editando || confirmandoBorrado ? 'default' : 'pointer',
@@ -291,7 +297,7 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
                     </form>
                   ) : (
                     <div style={{ fontSize: 13, fontWeight: 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.nombre}
+                      {p.nombre_archivo || p.nombre}
                     </div>
                   )}
 
@@ -335,7 +341,7 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
             <input
               value={nombreNuevo}
               onChange={e => setNombreNuevo(e.target.value)}
-              placeholder="Nombre del nuevo proyecto"
+              placeholder="Nombre del archivo (identificador corto)"
               onKeyDown={e => e.key === 'Enter' && crearNuevo()}
               style={{
                 flex: 1, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.border}`,

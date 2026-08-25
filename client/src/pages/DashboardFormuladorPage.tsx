@@ -9,7 +9,7 @@ import {
   List, Grid, CheckSquare, Download, ChevronDown,
   ChevronRight, ChevronUp, Leaf, Users, TrendingUp,
   Scale, Cog, HelpCircle, AlertTriangle,
-  Clock, CheckCircle2, Heart, Globe, Network,
+  Clock, CheckCircle2, Circle, Heart, Globe, Network,
   BookOpen, Building2, Waves, Equal, Utensils,
 } from 'lucide-react';
 
@@ -44,10 +44,23 @@ interface ImpactSection {
   fuente?: string | null;
   color: string;
   icon: React.ReactNode;
+  // Etiquetas estáticas de las fuentes que alimentan esta dimensión — SOLO
+  // se usan como fallback visual antes de que responda el fetch (evita un
+  // parpadeo en blanco). Deben coincidir 1:1 con los `label` que ya devuelve
+  // el backend en `items` — la fuente de verdad del estado real (cumplido
+  // true/false) es siempre `items`, nunca esto.
+  criterios: string[];
+  // Estado real por criterio — mergeScoring() lo llena desde
+  // DimensionScore.items (backend/services/scoringDinamico.js). Mandato
+  // 2026-08-24 "que quede funcional aunque esté en ceros": cada criterio
+  // muestra su propio cumplido/pendiente, no solo el score agregado de la
+  // dimensión.
+  items: CriterioItem[];
 }
 
 // ── Scoring dinámico — GET /api/proyectos/:id/scoring-dinamico ──────────────
-interface DimensionScore { score: number | null; pendiente: boolean; fuente: string | null }
+interface CriterioItem { label: string; cumplido: boolean }
+interface DimensionScore { score: number | null; pendiente: boolean; fuente: string | null; items?: CriterioItem[] }
 interface ScoringDinamico {
   proyectoId: string;
   calculadoEn: string;
@@ -70,11 +83,16 @@ interface LogEntry{ date: string; time: string; user: string; action: string }
 // de que mergeScoring reemplace con el dato real (o con 0/pendiente si el
 // proyecto todavía no tiene datos suficientes para esa dimensión).
 const SECTIONS: ImpactSection[] = [
-  { id: 'ambiental',  roman: 'I',   title: 'IMPACTO AMBIENTAL',  weight: 25, score: 0, color: '#22c55e', icon: <Leaf size={15}/> },
-  { id: 'social',     roman: 'II',  title: 'IMPACTO SOCIAL',     weight: 20, score: 0, color: '#3b82f6', icon: <Users size={15}/> },
-  { id: 'economico',  roman: 'III', title: 'IMPACTO ECONÓMICO',  weight: 25, score: 0, color: '#f59e0b', icon: <BarChart2 size={15}/> },
-  { id: 'normativo',  roman: 'IV',  title: 'IMPACTO NORMATIVO',  weight: 15, score: 0, color: '#a855f7', icon: <Scale size={15}/> },
-  { id: 'operativo',  roman: 'V',   title: 'IMPACTO OPERATIVO',  weight: 15, score: 0, color: '#ef4444', icon: <Cog size={15}/> },
+  { id: 'ambiental',  roman: 'I',   title: 'IMPACTO AMBIENTAL',  weight: 25, score: 0, color: '#22c55e', icon: <Leaf size={15}/>,
+    criterios: ['Sostenibilidad Ambiental (Módulo 10 — Compliance)'], items: [] },
+  { id: 'social',     roman: 'II',  title: 'IMPACTO SOCIAL',     weight: 20, score: 0, color: '#3b82f6', icon: <Users size={15}/>,
+    criterios: ['Sostenibilidad Social (Módulo 10 — Compliance)', 'Enfoque de Género (Módulo 10 — Compliance)'], items: [] },
+  { id: 'economico',  roman: 'III', title: 'IMPACTO ECONÓMICO',  weight: 25, score: 0, color: '#f59e0b', icon: <BarChart2 size={15}/>,
+    criterios: ['Suficiencia Presupuestal (auditoría del Módulo 9)', 'Completitud del Presupuesto — APU (Módulo 4)'], items: [] },
+  { id: 'normativo',  roman: 'IV',  title: 'IMPACTO NORMATIVO',  weight: 15, score: 0, color: '#a855f7', icon: <Scale size={15}/>,
+    criterios: ['Pertinencia Normativa (auditoría del Módulo 9)', 'Normas Aplicables y Citas Bibliográficas (Marco Normativo)'], items: [] },
+  { id: 'operativo',  roman: 'V',   title: 'IMPACTO OPERATIVO',  weight: 15, score: 0, color: '#ef4444', icon: <Cog size={15}/>,
+    criterios: ['Viabilidad Técnica (auditoría del Módulo 9)', 'Completitud de Indicadores MGA/BPIN'], items: [] },
 ];
 
 // ── ODS — íconos oficiales recortados de FOTOS PROY3/arq radar formulador 360/ODS.webp
@@ -216,11 +234,13 @@ function ImpactBlock({ section, compact = false }: { section:ImpactSection; comp
         </span>
       </button>
 
-      {/* Estado real de la dimensión — sin indicadores individuales inventados:
-          no existe todavía una fuente de verdad backend por indicador atómico
-          (ver backend/services/scoringDinamico.js), así que se muestra
-          exactamente lo que sí es real: el puntaje calculado y su fuente, o
-          un estado vacío honesto si el proyecto aún no tiene datos. */}
+      {/* Estado real de la dimensión — nunca se inventa un puntaje/indicador
+          atómico por criterio: cada `cumplido` de section.items viene 1:1 de
+          una condición booleana real que ya usa el backend para calcular el
+          score de esta dimensión (backend/services/scoringDinamico.js), no
+          es un checklist decorativo. MANDATO 2026-08-24 "que quede funcional
+          aunque esté en ceros": la lista de criterios y su estado real
+          siempre se muestra, incluso antes de que la dimensión tenga score. */}
       {open && (
         <div style={{
           padding: compact ? '10px 12px 12px' : '12px 16px 16px',
@@ -228,11 +248,11 @@ function ImpactBlock({ section, compact = false }: { section:ImpactSection; comp
           borderTop:`1px solid ${C.border}`,
         }}>
           {section.pendiente ? (
-            <p style={{ fontSize:11, color:C.textMuted, fontStyle:'italic', margin:0 }}>
+            <p style={{ fontSize:11, color:C.textMuted, fontStyle:'italic', margin:'0 0 10px' }}>
               Sin datos ingresados aún — este puntaje se calcula automáticamente al completar la información correspondiente en el Formulador.
             </p>
           ) : (
-            <div style={{ display:'flex', alignItems:'baseline', gap:10, flexWrap:'wrap' }}>
+            <div style={{ display:'flex', alignItems:'baseline', gap:10, flexWrap:'wrap', marginBottom:10 }}>
               <span style={{ fontSize: compact ? 20 : 28, fontWeight:700, color:section.color, lineHeight:1 }}>
                 {section.score}<span style={{ fontSize:11, fontWeight:400, color:C.textMuted }}>/100</span>
               </span>
@@ -241,6 +261,20 @@ function ImpactBlock({ section, compact = false }: { section:ImpactSection; comp
               )}
             </div>
           )}
+
+          <p style={{ fontSize:10, fontWeight:700, color:C.textDim, textTransform:'uppercase', letterSpacing:'0.04em', margin:'0 0 6px' }}>
+            {section.items.filter(i => i.cumplido).length}/{section.items.length} fuentes con datos
+          </p>
+          <ul style={{ margin:0, padding:0, listStyle:'none', display:'flex', flexDirection:'column', gap:5 }}>
+            {section.items.map(item => (
+              <li key={item.label} style={{ display:'flex', alignItems:'center', gap:6 }}>
+                {item.cumplido
+                  ? <CheckCircle2 size={13} color={section.color} style={{ flexShrink:0 }}/>
+                  : <Circle size={13} color={C.textDim} style={{ flexShrink:0 }}/>}
+                <span style={{ fontSize:11, color: item.cumplido ? C.text : C.textMuted }}>{item.label}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
@@ -355,8 +389,12 @@ function RightPanel({ compact = false, riesgos, acciones, bitacora, resumen, pro
         </div>
       </section>
 
-      {/* Contenido scrollable — todo lo de abajo de Estado de Salud */}
-      <div style={{ flex:1, overflowY:'auto', minHeight:0 }}>
+      {/* Contenido scrollable — todo lo de abajo de Estado de Salud.
+          overflowY:'scroll' (no 'auto') a propósito: reserva y muestra la
+          barra siempre, aunque el contenido no alcance a desbordar, para que
+          no aparezca/desaparezca según cuánta data tenga cada proyecto —
+          eso es lo que el usuario reportó como "salto" entre ventanas. */}
+      <div style={{ flex:1, overflowY:'scroll', minHeight:0 }}>
 
       {/* RESUMEN GENERAL */}
       <section style={{ padding:'14px 14px 12px', borderBottom:`1px solid ${C.border}` }}>
@@ -528,6 +566,31 @@ function useProyectoActivo(proyectoIdProp?: string) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proyectoIdProp, params.proyectoId]);
 
+  // FIX (2026-08-24, "el header vuelve a mostrar el nombre viejo/dañado"):
+  // ACTIVE_PROJECT_NAME_KEY es un caché local que puede quedar desactualizado
+  // (ej. dañado por el bug ya corregido de EntradaPage pisándolo con el
+  // nombre largo, o simplemente nunca refrescado en una sesión de navegador
+  // vieja). El servidor (`proyectos.nombre_archivo`) es la fuente de verdad
+  // — se refresca el caché desde ahí cada vez que cambia el proyecto activo,
+  // en vez de confiar en lo que quedó guardado de antes.
+  useEffect(() => {
+    if (!state.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/proyectos/${state.id}`, { headers: getAuthHeaders(), credentials: 'include' });
+        const body = await res.json().catch(() => ({}));
+        if (cancelled || !res.ok || !body?.success) return;
+        const nombreReal = body.data?.nombre_archivo || body.data?.nombre;
+        if (nombreReal && nombreReal !== localStorage.getItem(ACTIVE_PROJECT_NAME_KEY)) {
+          localStorage.setItem(ACTIVE_PROJECT_NAME_KEY, nombreReal);
+          setState(s => ({ ...s, nombre: nombreReal }));
+        }
+      } catch { /* sin red: se queda con el caché local, no rompe la pantalla */ }
+    })();
+    return () => { cancelled = true; };
+  }, [state.id]);
+
   return state;
 }
 
@@ -567,17 +630,24 @@ function useScoringDinamico(proyectoId: string | undefined) {
   return { data, loading, error };
 }
 
+// Fallback antes de que responda el fetch (o si el backend, por lo que sea,
+// no trae `items` todavía) — mismas etiquetas que `criterios`, todas sin
+// cumplir. Nunca se usa para decidir el score, solo para no dejar la lista
+// en blanco un instante.
+const itemsFallback = (s: ImpactSection): CriterioItem[] => s.criterios.map(label => ({ label, cumplido: false }));
+
 /** Combina SECTIONS (pesos + indicadores de UI) con los puntajes reales del backend. */
 function mergeScoring(sections: ImpactSection[], scoring: ScoringDinamico | null): ImpactSection[] {
   if (!scoring) {
-    return sections.map(s => ({ ...s, pendiente: true, score: 0, fuente: null }));
+    return sections.map(s => ({ ...s, pendiente: true, score: 0, fuente: null, items: itemsFallback(s) }));
   }
   return sections.map(s => {
     const dim = (scoring.dimensiones as Record<string, DimensionScore>)[s.id];
+    const items = dim?.items?.length ? dim.items : itemsFallback(s);
     if (!dim || dim.pendiente || dim.score === null) {
-      return { ...s, pendiente: true, score: 0, fuente: dim?.fuente ?? null };
+      return { ...s, pendiente: true, score: 0, fuente: dim?.fuente ?? null, items };
     }
-    return { ...s, pendiente: false, score: dim.score, fuente: dim.fuente };
+    return { ...s, pendiente: false, score: dim.score, fuente: dim.fuente, items };
   });
 }
 
@@ -752,7 +822,7 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
           height:46, flexShrink:0,
           background:C.bgHeader, borderBottom:`1px solid ${C.border}`,
         }}>
-          <span style={{ fontSize:11, color:C.textMuted, flexShrink:0 }}>Proyecto:</span>
+          <span style={{ fontSize:11, color:C.textMuted, flexShrink:0 }}>Archivo:</span>
           <button onClick={() => setSelectorAbierto(true)} style={{
             display:'flex', alignItems:'center', gap:5, minWidth:0, flex:1,
             background:C.bgSection, border:`1px solid ${C.border}`,
@@ -767,9 +837,17 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
           </button>
 
           {/* Soft-Lock predial (F-Legal-01) — informativo, nunca deshabilita el
-              formulario técnico. Solo 'condicionado' muestra el badge; el
-              Hard-Lock real vive en el servidor (POST /api/m12/ficha/:id). */}
-          {estadoLegal === 'condicionado' && (
+              formulario técnico. FIX (2026-08-23, auditoría "por qué no
+              genera el PDF"): antes solo 'condicionado' mostraba el badge,
+              pero el Hard-Lock real del servidor (fichaTecnica.routes.js:48)
+              bloquea IGUAL con 'sin_evaluar' (el default de cualquier
+              proyecto que nunca pasó por M10 Compliance — verificado en BD:
+              compliance_data sin fila para el proyecto de prueba). Con la
+              condición vieja, un proyecto así llegaba a un callejón sin
+              salida: bloqueado en el servidor, sin botón visible en ningún
+              lado para desbloquearlo. Ahora el badge cubre ambos estados que
+              realmente bloquean. */}
+          {estadoLegal !== 'despejado' && (
             <div style={{
               display:'flex', alignItems:'center', gap:6, flexShrink:0,
               padding:'4px 10px', borderRadius:999,
@@ -777,7 +855,7 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
             }}>
               <ShieldAlert size={12} color="#b45309" />
               <span style={{ fontSize:10, fontWeight:700, color:'#b45309', textTransform:'uppercase', letterSpacing:'0.03em', whiteSpace:'nowrap' }}>
-                Bajo Riesgo Jurídico
+                {estadoLegal === 'condicionado' ? 'Bajo Riesgo Jurídico' : 'Predio Sin Evaluar'}
               </span>
               <button
                 onClick={saneamientoAprobado}
@@ -802,7 +880,10 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
 
           {/* Contenido central desplazable */}
           <main style={{ flex:1, display:'grid', gridTemplateRows:'1fr auto', overflow:'hidden', minWidth:0, minHeight:0 }}>
-            <div style={{ overflowY:'auto', padding:'16px 18px', display:'flex', flexDirection:'column', gap:12, minHeight:0 }}>
+            {/* overflowY:'scroll' (no 'auto'): misma razón que en RightPanel —
+                barra siempre visible, no depende de cuánto contenido tenga
+                el proyecto actual. */}
+            <div style={{ overflowY:'scroll', padding:'16px 18px', display:'flex', flexDirection:'column', gap:12, minHeight:0 }}>
 
               {/* ODS */}
               <div style={{ background:C.bgSection, borderRadius:10, padding: embedded ? '8px 10px' : '12px 16px', border:`1px solid ${C.border}`, flexShrink:0 }}>

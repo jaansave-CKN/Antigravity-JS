@@ -169,8 +169,23 @@ export default function DialecticaPage() {
   const [cargando, setCargando]   = useState(!!proyectoId);
   const [guardando, setGuardando] = useState(false);
   const [errorSync, setErrorSync] = useState<string | null>(null);
-  const [guardado, setGuardado]   = useState(false);
   const [limpiado, setLimpiado]   = useState(false);
+  // ORDEN (2026-08-24, "no se puede perder ningún dato después de guardar" —
+  // mismo bug real ya corregido en LogisticaPage.tsx): `cargando` pasaba a
+  // `false` en el `finally` de la hidratación SIN IMPORTAR si la petición al
+  // servidor tuvo éxito o falló. Si un usuario nuevo (sin caché local todavía)
+  // sufre una falla de red justo en esa carga, `st` se queda en su default
+  // en blanco y el auto-sync automático de abajo lo tomaría como bueno y lo
+  // postearía, pisando una configuración real que sí existiera en el
+  // servidor. Solo se pone en `true` tras una hidratación confirmada.
+  const hidratacionOkRef = useRef(false);
+  // MANDATO (2026-08-24, "indicador de cambios sin guardar", todas las
+  // ventanas del Formulador) — dirty-tracking por snapshot de `st` completo
+  // (selecciones+adicionales+listaOro+listaNegra), que es exactamente lo que
+  // `sincronizar()` envía al backend.
+  const ultimoGuardadoRef = useRef<string | null>(null);
+  if (ultimoGuardadoRef.current === null) ultimoGuardadoRef.current = JSON.stringify(st);
+  const sinGuardar = JSON.stringify(st) !== ultimoGuardadoRef.current;
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -195,6 +210,12 @@ export default function DialecticaPage() {
           listaNegra: esGrupos(saved.listaNegra) ? saved.listaNegra : NEGRA_DEFAULT,
         };
         setSt(base);
+        // Este `useEffect` (a diferencia de EntradaPage/ContextoPage) hidrata
+        // desde localStorage DESPUÉS del primer render, no en el initializer
+        // de useState — sin esto, ultimoGuardadoRef se quedaría con el
+        // ESTADO_INICIAL del primer render y `base` marcaría sinGuardar=true
+        // (rojo) apenas carga, sin que el usuario haya tocado nada.
+        ultimoGuardadoRef.current = JSON.stringify(base);
       } catch { /* ignore */ }
     }
 
@@ -205,21 +226,29 @@ export default function DialecticaPage() {
     (async () => {
       try {
         const body = await http.get<{ success: boolean; data?: MotorDialecticoApi }>(`/api/m4/config/${proyectoId}`);
+        // La petición SÍ respondió — a partir de aquí ya conocemos la verdad
+        // real del servidor. Solo aquí es seguro dejar que el auto-sync
+        // automático (no el botón SAVE manual) vuelva a escribir al servidor.
+        if (!cancelled) hidratacionOkRef.current = true;
         const row = body.data;
         if (!cancelled && row) {
           const parseArr = (v?: string) => { try { return JSON.parse(v || '[]'); } catch { return []; } };
-          setSt(prev => ({
-            selecciones: {
-              ...prev.selecciones,
-              tono: row.tono || prev.selecciones.tono,
-              interlocutor: row.interlocutor || prev.selecciones.interlocutor,
-              enfoque: row.enfoque || prev.selecciones.enfoque,
-              humanizacion: row.humanizacion || prev.selecciones.humanizacion,
-            },
-            adicionales: row.adicionales ? parseArr(row.adicionales) : prev.adicionales,
-            listaOro:   row.lista_oro   ? parseArr(row.lista_oro)   : prev.listaOro,
-            listaNegra: row.lista_negra ? parseArr(row.lista_negra) : prev.listaNegra,
-          }));
+          setSt(prev => {
+            const merged = {
+              selecciones: {
+                ...prev.selecciones,
+                tono: row.tono || prev.selecciones.tono,
+                interlocutor: row.interlocutor || prev.selecciones.interlocutor,
+                enfoque: row.enfoque || prev.selecciones.enfoque,
+                humanizacion: row.humanizacion || prev.selecciones.humanizacion,
+              },
+              adicionales: row.adicionales ? parseArr(row.adicionales) : prev.adicionales,
+              listaOro:   row.lista_oro   ? parseArr(row.lista_oro)   : prev.listaOro,
+              listaNegra: row.lista_negra ? parseArr(row.lista_negra) : prev.listaNegra,
+            };
+            ultimoGuardadoRef.current = JSON.stringify(merged);
+            return merged;
+          });
         }
       } catch {
         setErrorSync('No se pudo cargar la configuración guardada del servidor — se muestra el cache local.');
@@ -245,7 +274,9 @@ export default function DialecticaPage() {
   // (setGuardando(false) prematuro, o un error viejo mostrado tarde).
   const syncSeqRef = useRef(0);
   const sincronizar = useCallback(async () => {
-    if (!proyectoId) return;
+    // FIX (2026-08-24, "SAVE se queda en rojo sin ningún aviso" — mismo
+    // hallazgo en EntradaPage.tsx): antes esto era un `return` mudo.
+    if (!proyectoId) { setErrorSync('No hay proyecto activo — no se pudo sincronizar.'); return; }
     const mySeq = ++syncSeqRef.current;
     setGuardando(true);
     setErrorSync(null);
@@ -256,6 +287,7 @@ export default function DialecticaPage() {
         humanizacion: st.selecciones.humanizacion, adicionales: st.adicionales,
       });
       if (mySeq !== syncSeqRef.current) return; // ya hay una sincronización más nueva en curso
+      ultimoGuardadoRef.current = JSON.stringify(st);
     } catch {
       if (mySeq !== syncSeqRef.current) return;
       setErrorSync('No se pudo sincronizar la configuración dialéctica con el servidor.');
@@ -267,16 +299,14 @@ export default function DialecticaPage() {
   // Sincronización automática al backend (debounced) — antes esta pantalla
   // era 100% localStorage pese a que /api/m4/config/:proyectoId ya existía.
   useEffect(() => {
-    if (!proyectoId || cargando) return;
+    if (!proyectoId || cargando || !hidratacionOkRef.current) return;
     const t = setTimeout(sincronizar, 700);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [st, proyectoId, cargando]);
 
   const guardar = async () => {
-    await sincronizar();
-    setGuardado(true);
-    setTimeout(() => setGuardado(false), 2200);
+    await sincronizar(); // marca guardado/ultimoGuardadoRef al terminar con éxito
   };
 
   // Estado realmente en blanco — a diferencia de ESTADO_INICIAL (que usa
@@ -380,10 +410,13 @@ export default function DialecticaPage() {
             {limpiado ? '✓ LIMPIADO' : 'LIMPIAR'}
           </button>
           <button
-            className={`diax__save${guardado ? ' diax__save--saved' : ''}`}
+            className={`diax__save${sinGuardar ? ' diax__save--dirty' : ' diax__save--saved'}`}
             onClick={guardar}
+            disabled={guardando}
+            style={{ opacity: guardando ? 0.6 : 1, cursor: guardando ? 'not-allowed' : 'pointer' }}
+            title={sinGuardar ? 'Hay cambios sin guardar' : undefined}
           >
-            {guardado ? '✓ GUARDADO' : 'SAVE'}
+            {guardando ? 'Guardando…' : sinGuardar ? 'SAVE' : '✓ GUARDADO'}
           </button>
         </div>
       </header>

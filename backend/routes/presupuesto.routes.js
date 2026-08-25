@@ -79,48 +79,61 @@ export function registerPresupuestoRoutes(app, { authenticateToken, runSql, getR
       console.warn('[presupuesto] Alertas de rendimiento:', JSON.stringify(resultado.alertas));
     }
 
-    // FIX 4.3: DELETE + N INSERTs + UPDATE envueltos en una transacción atómica
-    const resumenPresupuesto = JSON.stringify({
-      porFase: resultado.porFase, total: resultado.total, alertas: resultado.alertas,
-    });
-
-    const queries = [
-      { sql: 'DELETE FROM project_budgets WHERE proyecto_id = ?', params: [proyectoId] },
-      ...resultado.items.map(it => ({
-        sql: `INSERT INTO project_budgets
-               (id, proyecto_id, org_id, fase, capitulo, item, unidad, cantidad,
-                rendimiento_std, rendimiento_real, rendimiento_ref,
-                costo_jornal_dia, materiales, equipos,
-                costo_mano_obra, costo_materiales, costo_equipos,
-                costo_directo, aiu, valor_total,
-                tipo_contrato, aiu_administracion, aiu_imprevistos, aiu_utilidad, valor_iva)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        params: [
-          crypto.randomUUID(), proyectoId, req.userId,
-          it.fase, it.capitulo || '', it.item || '', it.unidad || 'm2', it.cantidad,
-          it.rendimiento_std || '', it.rendimiento_real, it.rendimiento_ref,
-          it.costo_jornal_dia, JSON.stringify(it.materiales || []), JSON.stringify(it.equipos || []),
-          it.costo_mano_obra, it.costo_materiales, it.costo_equipos,
-          it.costo_directo, it.aiu ?? 0.28, it.valor_total,
-          it.tipo_contrato ?? 'construccion', it.aiu_administracion ?? 0.20,
-          it.aiu_imprevistos ?? 0.03, it.aiu_utilidad ?? 0.05, it.valor_iva ?? 0,
-        ],
-      })),
-      {
-        sql: 'UPDATE proyectos SET presupuesto = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
-        params: [resumenPresupuesto, proyectoId, req.userId],
-      },
-    ];
+    // FIX (2026-08-24, ORDEN — "no se puede perder ningún dato después de
+    // guardar"): esto ANTES hacía DELETE FROM project_budgets + reinsertaba
+    // SOLO el lote recién enviado — el frontend (PresupuestoPage.tsx `guardar()`)
+    // manda únicamente las filas nuevas del borrador, nunca los ítems ya
+    // guardados en sesiones anteriores. Con el DELETE, cada "Agregar fila +
+    // SAVE" borraba TODO el presupuesto previo del proyecto y lo dejaba solo
+    // con el lote nuevo. Ahora es aditivo — nunca borra filas existentes — y
+    // el resumen (porFase/total) se recalcula desde TODAS las filas reales
+    // en la tabla después del insert, igual que ya hace GET más abajo, para
+    // no reportar un total que solo refleje el lote recién guardado.
+    const queries = resultado.items.map(it => ({
+      sql: `INSERT INTO project_budgets
+             (id, proyecto_id, org_id, fase, capitulo, item, unidad, cantidad,
+              rendimiento_std, rendimiento_real, rendimiento_ref,
+              costo_jornal_dia, materiales, equipos,
+              costo_mano_obra, costo_materiales, costo_equipos,
+              costo_directo, aiu, valor_total,
+              tipo_contrato, aiu_administracion, aiu_imprevistos, aiu_utilidad, valor_iva)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      params: [
+        crypto.randomUUID(), proyectoId, req.userId,
+        it.fase, it.capitulo || '', it.item || '', it.unidad || 'm2', it.cantidad,
+        it.rendimiento_std || '', it.rendimiento_real, it.rendimiento_ref,
+        it.costo_jornal_dia, JSON.stringify(it.materiales || []), JSON.stringify(it.equipos || []),
+        it.costo_mano_obra, it.costo_materiales, it.costo_equipos,
+        it.costo_directo, it.aiu ?? 0.28, it.valor_total,
+        it.tipo_contrato ?? 'construccion', it.aiu_administracion ?? 0.20,
+        it.aiu_imprevistos ?? 0.03, it.aiu_utilidad ?? 0.05, it.valor_iva ?? 0,
+      ],
+    }));
 
     await runTransaction(queries);
+
+    // Recalculo desde la tabla real (existentes + recién insertadas) — nunca
+    // desde `resultado`, que solo conoce el lote de esta petición.
+    const todasLasFilas = await getRows('SELECT fase, valor_total FROM project_budgets WHERE proyecto_id = ?', [proyectoId]);
+    const porFaseTotal = { NEGRA: 0, GRIS: 0, BLANCA: 0 };
+    for (const it of todasLasFilas) {
+      const f = String(it.fase || '').toUpperCase();
+      if (f in porFaseTotal) porFaseTotal[f] = Math.round((porFaseTotal[f] + Number(it.valor_total || 0)) * 100) / 100;
+    }
+    const totalGeneral = Math.round(Object.values(porFaseTotal).reduce((s, v) => s + v, 0) * 100) / 100;
+    const resumenPresupuesto = JSON.stringify({ porFase: porFaseTotal, total: totalGeneral, alertas: resultado.alertas });
+    await runSql(
+      'UPDATE proyectos SET presupuesto = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
+      [resumenPresupuesto, proyectoId, req.userId]
+    );
 
     return res.status(resultado.alertas.length > 0 ? 207 : 200).json({
       success: true,
       message: resultado.alertas.length > 0
         ? 'Presupuesto guardado con alertas de rendimiento'
         : 'Presupuesto calculado y guardado correctamente',
-      porFase:  resultado.porFase,
-      total:    resultado.total,
+      porFase:  porFaseTotal,
+      total:    totalGeneral,
       alertas:  resultado.alertas,
       items:    resultado.items.length,
     });

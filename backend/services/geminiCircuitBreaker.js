@@ -65,40 +65,47 @@ function nextMidnightUTC() {
   ));
 }
 
-// FIX (2026-08-22, hallazgo real verificado): la versión anterior escaneaba
-// GEMINI_API_KEY_1, _2, _3... deteniéndose en el primer índice AUSENTE o
-// VACÍO. Causaba una falla silenciosa real: el usuario agregó
-// GEMINI_API_KEY_2="" en .env (nombre presente, valor vacío) SIN
-// GEMINI_API_KEY_1 — el loop cortaba en i=1 (ni siquiera existía) y el
-// pool caía siempre a la única legacy GOOGLE_API_KEY, sin ningún aviso de
-// que "_2" estaba siendo ignorada. Ahora escanea un rango acotado (1-10),
-// solo exige que el VALOR no esté vacío, no la contigüidad de índices, y
-// loguea un aviso si detecta un hueco (ej. _1 ausente pero _2 presente) —
-// nunca loguea el valor de la llave, solo su presencia/índice.
+// FIX (2026-08-22, hallazgo real #2 verificado): la versión anterior de
+// este fix arreglaba el caso de huecos (ej. _1 ausente, _2 presente), pero
+// introdujo uno nuevo: si CUALQUIER GEMINI_API_KEY_N estaba presente,
+// devolvía SOLO el array `explicit` — ignorando GOOGLE_API_KEY por
+// completo. La convención real de este .env (verificada en vivo, nunca
+// cambiada) es GOOGLE_API_KEY = llave #1 SIEMPRE, GEMINI_API_KEY_2/_3 =
+// llaves adicionales — nunca se renombra la primera a GEMINI_API_KEY_1.
+// Al agregar una GEMINI_API_KEY_2 real, el pool se redujo de 1 a 1 (la
+// original desapareció en silencio, reemplazada por la nueva) — la
+// rotación entre 2 llaves nunca existió pese a estar "configurada".
+// Ahora: legacy (GOOGLE_API_KEY/GEMINI_API_KEY) es SIEMPRE la llave #1 si
+// existe; GEMINI_API_KEY_1..10 explícitas se suman como adicionales —
+// GEMINI_API_KEY_1, si alguna vez se usa, sería entonces una llave EXTRA,
+// no un alias de la legacy (evita duplicar la misma llave dos veces solo
+// si su valor es idéntico al de GOOGLE_API_KEY).
 const MAX_KEYS_ESCANEADAS = 10;
 function resolveKeyPool() {
-  const explicit = [];
+  const pool = [];
+  const legacy = (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '').trim();
+  if (legacy) pool.push(legacy);
+
   const huecos = [];
   let ultimoPresente = 0;
   for (let i = 1; i <= MAX_KEYS_ESCANEADAS; i++) {
-    const k = process.env[`GEMINI_API_KEY_${i}`];
-    if (k && k.trim()) {
+    const k = (process.env[`GEMINI_API_KEY_${i}`] || '').trim();
+    if (k) {
       if (i > ultimoPresente + 1) huecos.push(...Array.from({ length: i - ultimoPresente - 1 }, (_, n) => ultimoPresente + 1 + n));
-      explicit.push(k.trim());
+      if (k !== legacy) pool.push(k); // evita duplicar si _N repite el valor de la legacy
       ultimoPresente = i;
     }
   }
   if (huecos.length) {
     console.warn(`[GeminiCB] GEMINI_API_KEY_${huecos.join(', GEMINI_API_KEY_')} tienen nombre en .env pero están vacías o ausentes — se omiten del pool, no bloquean a las llaves posteriores.`);
   }
-  if (explicit.length) {
-    console.log(`[GeminiCB] Pool de llaves: ${explicit.length} configurada(s) explícitamente (GEMINI_API_KEY_N).`);
-    return explicit;
+
+  if (pool.length) {
+    console.log(`[GeminiCB] Pool de llaves: ${pool.length} (${legacy ? '1 legacy GOOGLE_API_KEY' : '0 legacy'} + ${pool.length - (legacy ? 1 : 0)} explícita(s) GEMINI_API_KEY_N).`);
+  } else {
+    console.warn('[GeminiCB] Pool de llaves: VACÍO — ni GOOGLE_API_KEY ni GEMINI_API_KEY_N configuradas. La IA real quedará siempre inactiva.');
   }
-  const legacy = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
-  if (legacy) console.log('[GeminiCB] Pool de llaves: 1 (legacy GOOGLE_API_KEY, sin GEMINI_API_KEY_N configuradas).');
-  else console.warn('[GeminiCB] Pool de llaves: VACÍO — ni GEMINI_API_KEY_N ni GOOGLE_API_KEY configuradas. La IA real quedará siempre inactiva.');
-  return legacy ? [legacy] : [];
+  return pool;
 }
 
 class KeyState {
@@ -109,6 +116,13 @@ class KeyState {
     this.lastQuotaError   = null;
     this.lastHalfOpenAt   = 0;
     this.dailyResetAt     = nextMidnightUTC();
+    // FIX (2026-08-24, "cuándo la cuota está al 100%" — verificado con la
+    // respuesta real de Google): el 429 del free tier de Gemini casi siempre
+    // es un throttle de RPM (requests-por-minuto) que Google mismo reporta
+    // como "Please retry in ~45s" — un cooldown fijo de 5 min (abajo) es
+    // varias veces más largo de lo necesario. Si el caller sabe cuánto pidió
+    // Google (retryDelayMs), se usa ESE valor en vez del fijo.
+    this.retryAfterMs     = null;
   }
 }
 
@@ -154,7 +168,10 @@ class GeminiCircuitBreaker {
     // re-probar" — nunca estaba conectado a esta transición.
     if (ks.state === 'OPEN') {
       const msDesdeError = Date.now() - (ks.lastQuotaError?.getTime() ?? 0);
-      if (msDesdeError < HALF_OPEN_PROBE_MS) return false;
+      // FIX (2026-08-24): usa el retryDelay real que Google reportó (si lo
+      // tenemos) en vez del fijo de 5 min — ver comentario en KeyState.
+      const cooldown = ks.retryAfterMs ?? HALF_OPEN_PROBE_MS;
+      if (msDesdeError < cooldown) return false;
       ks.state = 'HALF_OPEN';
       ks.lastHalfOpenAt = Date.now();
       console.log(`[GeminiCB] Llave #${i + 1} — ${Math.round(HALF_OPEN_PROBE_MS / 60_000)} min sin nuevo error → HALF_OPEN para sondeo.`);
@@ -189,6 +206,10 @@ class GeminiCircuitBreaker {
       daily_count:       ks.dailyCount,
       daily_reset_at:    ks.dailyResetAt.toISOString(),
       last_quota_error:  ks.lastQuotaError ? ks.lastQuotaError.toISOString() : null,
+      // FIX (2026-08-24, migración 048): sin esto, un restart con la llave
+      // OPEN perdía el cooldown REAL de Google y caía al fijo de 5 min — ver
+      // comentario de la migración.
+      retry_after_ms:    ks.retryAfterMs,
       updated_at:        new Date().toISOString(),
     }, { onConflict: 'key_index' }).then(
       ({ error }) => { if (error) console.warn('[GeminiCB] No se pudo persistir estado (se omite, no bloqueante):', error.message); },
@@ -209,14 +230,18 @@ class GeminiCircuitBreaker {
     this._persistir(i);
   }
 
-  /** Registrar error 429 con la llave #i — abre el circuito de ESA llave */
-  recordQuotaError(i = 0) {
+  /** Registrar error 429 con la llave #i — abre el circuito de ESA llave.
+   *  `retryAfterMs` (opcional): cuánto pidió Google esperar realmente (ver
+   *  comentario en KeyState) — si no se pasa, cae al fijo de 5 min. */
+  recordQuotaError(i = 0, retryAfterMs = null) {
     const ks = this.keyStates[i];
     if (!ks) return;
     ks.lastQuotaError = new Date();
+    ks.retryAfterMs = typeof retryAfterMs === 'number' && retryAfterMs > 0 ? retryAfterMs : null;
     const eraCerrado = ks.state !== 'OPEN';
     ks.state = 'OPEN';
-    console.warn(`[GeminiCB] Llave #${i + 1} — cuota agotada → OPEN.`);
+    const cooldownInfo = ks.retryAfterMs ? `${Math.round(ks.retryAfterMs / 1000)}s (real, reportado por Google)` : `${Math.round(HALF_OPEN_PROBE_MS / 1000)}s (fijo, sin dato real de Google)`;
+    console.warn(`[GeminiCB] Llave #${i + 1} — cuota agotada → OPEN. Cooldown: ${cooldownInfo}`);
     this._persistir(i);
     // Solo alerta cuando la transición deja a TODAS las llaves sin cuota —
     // antes alertaba en cada transición de una sola llave compartida; con
@@ -226,6 +251,25 @@ class GeminiCircuitBreaker {
         keys: this.keyStates.length,
       });
     }
+  }
+
+  /** FIX (2026-08-24, "coloca un reloj con cuenta regresiva y la hora exacta
+   *  de reset en todo RADFOR-360 donde aparezca este mensaje"): momento real
+   *  en que la PRIMERA llave del pool vuelve a estar disponible — usa el
+   *  retryAfterMs real reportado por Google si lo tenemos (ver KeyState),
+   *  nunca el reset diario (dailyResetAt), que no es la causa real de este
+   *  tipo de 429 (RPM del free tier, no cuota diaria). Devuelve `null` si al
+   *  menos una llave ya está disponible ahora mismo. */
+  getEarliestRetryAt() {
+    this.keyStates.forEach(ks => this._checkDailyReset(ks));
+    const abiertas = this.keyStates.filter(ks => ks.state === 'OPEN');
+    if (abiertas.length < this.keyStates.length) return null; // al menos una llave ya sirve
+    if (!abiertas.length) return null;
+    const tiempos = abiertas.map(ks => {
+      const cooldown = ks.retryAfterMs ?? HALF_OPEN_PROBE_MS;
+      return (ks.lastQuotaError?.getTime() ?? Date.now()) + cooldown;
+    });
+    return new Date(Math.min(...tiempos));
   }
 
   /** Retorna el estado completo para el endpoint /api/admin/quota-status.
@@ -308,6 +352,9 @@ export async function loadPersistedKeyState() {
       ks.dailyCount       = row.daily_count || 0;
       ks.dailyResetAt     = row.daily_reset_at ? new Date(row.daily_reset_at) : nextMidnightUTC();
       ks.lastQuotaError   = row.last_quota_error ? new Date(row.last_quota_error) : null;
+      // FIX (2026-08-24, migración 048): sin esto, canCall() caía al fallback
+      // fijo de 5 min tras cada restart en vez del cooldown real de Google.
+      ks.retryAfterMs     = typeof row.retry_after_ms === 'number' && row.retry_after_ms > 0 ? row.retry_after_ms : null;
     }
     console.log(`[GeminiCB] Estado persistido cargado: ${data.length} llave(s) restauradas desde gemini_key_state.`);
   } catch (e) {
@@ -330,12 +377,15 @@ export function isQuotaError(err) {
   return /429|quota|rate.?limit/i.test(msg);
 }
 
-/** Se lanza cuando TODAS las llaves del pool fallaron/están en cooldown. */
+/** Se lanza cuando TODAS las llaves del pool fallaron/están en cooldown.
+ *  `retryAt` (opcional, Date): momento real en que la primera llave vuelve
+ *  a estar disponible — ver GeminiCircuitBreaker.getEarliestRetryAt(). */
 export class GeminiPoolExhaustedError extends Error {
-  constructor(message = 'Límite de IA agotado en todas las llaves configuradas — intenta de nuevo en unos minutos.') {
+  constructor(message = 'Límite de IA agotado en todas las llaves configuradas — intenta de nuevo en unos minutos.', retryAt = null) {
     super(message);
     this.name = 'GeminiPoolExhaustedError';
     this.status = 429;
+    this.retryAt = retryAt;
   }
 }
 
@@ -366,12 +416,15 @@ export async function withKeyRotation(attemptFn) {
       return result;
     } catch (err) {
       if (isQuotaError(err)) {
-        geminiCB.recordQuotaError(i);
+        // err.retryDelayMs (opcional): si el caller parseó el retryDelay
+        // real que Google reportó en el 429, se usa para el cooldown en vez
+        // del fijo de 5 min — ver EntradaIAService.js::llamarGemini.
+        geminiCB.recordQuotaError(i, typeof err.retryDelayMs === 'number' ? err.retryDelayMs : null);
         continue; // rota a la siguiente llave del pool, sin esperar
       }
       throw err; // error real (no de cuota) — se propaga tal cual, el caller decide
     }
   }
 
-  throw new GeminiPoolExhaustedError();
+  throw new GeminiPoolExhaustedError(undefined, geminiCB.getEarliestRetryAt());
 }

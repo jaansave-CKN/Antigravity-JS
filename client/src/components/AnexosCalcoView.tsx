@@ -37,6 +37,19 @@ const cacheKeyDe = (proyectoId: string | null) => proyectoId ? `${STORAGE_KEY}_p
 
 interface Soporte {
   id: string;
+  // FIX (2026-08-24, "se duplican y pierden datos filas nuevas"): `id`
+  // empieza como un id temporal de cliente y se REEMPLAZA por el id real del
+  // servidor apenas el primer POST confirma (ver ejecutarGuardado/
+  // ejecutarAdjuntar). Antes ese mismo `id` mutable se usaba también como
+  // key de React, como clave de la cola `encolar` y para buscar la fila —
+  // un segundo onBlur (otro campo) que ya había capturado el id VIEJO en su
+  // closure dejaba de encontrar la fila tras el swap (lookup silenciosamente
+  // vacío → esa edición nunca llega al servidor) o, peor, corría con
+  // persistido=false otra vez y creaba una fila nueva duplicada. localKey es
+  // estable de por vida para la fila — nunca cambia — y es lo único que se
+  // usa para key/cola/lookup; `id` queda reservado solo para las llamadas
+  // reales a la API (PATCH/DELETE/download).
+  localKey: string;
   descripcion: string;
   texto: string;
   anexo: string;
@@ -69,8 +82,10 @@ const categoriaDe = (s: Pick<Soporte, 'esTecnico' | 'anexo'>): string => {
   return /\.(xlsx|xls)$/i.test(s.anexo) ? 'presupuesto_apu' : 'tecnico';
 };
 
-const nuevoSoporte = (carpetaId: string | null): Soporte =>
-  ({ id: `s${Date.now()}${Math.random().toString(36).slice(2, 6)}`, descripcion: '', texto: '', anexo: '', link: '', esTecnico: false, carpetaId, persistido: false });
+const nuevoSoporte = (carpetaId: string | null): Soporte => {
+  const k = `s${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+  return { id: k, localKey: k, descripcion: '', texto: '', anexo: '', link: '', esTecnico: false, carpetaId, persistido: false };
+};
 
 export default function AnexosCalcoView() {
   const proyectoId = useMemo(() => localStorage.getItem(ACTIVE_PROJECT_KEY), []);
@@ -78,8 +93,17 @@ export default function AnexosCalcoView() {
   const [carpetas, setCarpetas] = useState<Carpeta[]>([]);
   const [cargando, setCargando] = useState(!!proyectoId);
   const [errorSync, setErrorSync] = useState<string | null>(null);
-  const [guardado, setGuardado] = useState(false);
   const [limpiado, setLimpiado] = useState(false);
+  // MANDATO (2026-08-24, indicador de cambios sin guardar) — cada fila ya
+  // autoguarda con onBlur, así que "sin guardar" aquí significa "hay una fila
+  // con contenido real que el servidor todavía no confirmó" — misma
+  // condición ya usada en limpiar() (hayNoPersistidas), reusada aquí como
+  // derivado en vez de duplicar la lógica.
+  const sinGuardar = soportes.some(s => !s.persistido && (s.descripcion.trim() || s.texto.trim() || s.link.trim() || s.anexo.trim()));
+  // FIX (2026-08-24, "el botón no da ninguna señal de que el clic se
+  // registró"): guardar() no tenía estado de "en curso" — mismo hallazgo que
+  // en EntradaPage.tsx.
+  const [guardando, setGuardando] = useState(false);
   const [creandoCarpeta, setCreandoCarpeta] = useState(false);
   const [nombreNuevaCarpeta, setNombreNuevaCarpeta] = useState('');
   const [editandoCarpetaId, setEditandoCarpetaId] = useState<string | null>(null);
@@ -106,7 +130,12 @@ export default function AnexosCalcoView() {
   useEffect(() => {
     if (!proyectoId) {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) { try { const p = JSON.parse(raw); if (Array.isArray(p) && p.length) { setSoportes(p); return; } } catch { /* ignore */ } }
+      if (raw) {
+        try {
+          const p = JSON.parse(raw);
+          if (Array.isArray(p) && p.length) { setSoportes(p.map((s: Soporte) => ({ ...s, localKey: s.localKey || s.id }))); return; }
+        } catch { /* ignore */ }
+      }
       setSoportes([nuevoSoporte(null)]);
       return;
     }
@@ -121,7 +150,7 @@ export default function AnexosCalcoView() {
         setCarpetas((carpetasBody.data || []).map(c => ({ id: c.id, nombre: c.nombre, orden: c.orden })));
 
         const rows = (body.data || []).map(a => ({
-          id: a.id, descripcion: a.descripcion || '', texto: a.texto || '', link: a.link || '',
+          id: a.id, localKey: a.id, descripcion: a.descripcion || '', texto: a.texto || '', link: a.link || '',
           anexo: a.nombre_archivo || '', esTecnico: esCategoriaTecnica(a.categoria), carpetaId: a.carpeta_id || null, persistido: true,
         }));
 
@@ -145,10 +174,14 @@ export default function AnexosCalcoView() {
                 return r;
               });
               const idsServidor = new Set(rows.map(r => r.id));
-              const soloLocales = cached.filter(c =>
-                !c.persistido && !idsServidor.has(c.id) &&
-                (c.descripcion?.trim() || c.texto?.trim() || c.link?.trim() || c.anexo?.trim())
-              );
+              // .localKey || .id: caché escrita ANTES de este fix (2026-08-24)
+              // no tiene localKey — se usa el id viejo como respaldo.
+              const soloLocales = cached
+                .filter(c =>
+                  !c.persistido && !idsServidor.has(c.id) &&
+                  (c.descripcion?.trim() || c.texto?.trim() || c.link?.trim() || c.anexo?.trim())
+                )
+                .map(c => ({ ...c, localKey: c.localKey || c.id }));
               if (soloLocales.length) merged = [...merged, ...soloLocales];
             }
           }
@@ -181,9 +214,10 @@ export default function AnexosCalcoView() {
             fd.append('link', s.link || '');
             fd.append('categoria', categoriaDe(s)); // s.esTecnico es undefined en borradores viejos (localStorage previo al toggle) -> categoriaDe trata undefined como falsy -> 'otro'
             const resp = await http.upload<{ success: boolean; data?: { id: string; nombre_archivo?: string } }>(`/api/proyectos/${proyectoId}/anexos`, fd);
-            migradas.push({ ...s, id: resp.data?.id || s.id, anexo: resp.data?.nombre_archivo || s.anexo, carpetaId: null, persistido: !!resp.data?.id });
+            const idFinal = resp.data?.id || s.id;
+            migradas.push({ ...s, id: idFinal, localKey: s.localKey || idFinal, anexo: resp.data?.nombre_archivo || s.anexo, carpetaId: null, persistido: !!resp.data?.id });
           } catch {
-            migradas.push({ ...s, persistido: false }); // se conserva visible aunque falle esta fila — no se descarta
+            migradas.push({ ...s, localKey: s.localKey || s.id, persistido: false }); // se conserva visible aunque falle esta fila — no se descarta
           }
         }
         if (cancelled) return;
@@ -212,7 +246,7 @@ export default function AnexosCalcoView() {
           } catch { /* ignore */ }
         }
         if (legacy.length) {
-          setSoportes(legacy.map(s => ({ ...s, persistido: false })));
+          setSoportes(legacy.map(s => ({ ...s, localKey: s.localKey || s.id, persistido: false })));
           setErrorSync(
             noAutenticado
               ? 'Tu sesión no es válida o expiró — inicia sesión de nuevo en /login. Estás viendo la copia local de tus anexos (aún no sincronizada); nada se ha perdido.'
@@ -237,23 +271,28 @@ export default function AnexosCalcoView() {
     localStorage.setItem(cacheKeyDe(proyectoId), JSON.stringify(soportes));
   }, [soportes, proyectoId]);
 
-  const actualizarLocal = (id: string, patch: Partial<Soporte>) =>
-    setSoportes(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
+  // FIX (2026-08-24): lookup/actualización SIEMPRE por localKey (estable),
+  // nunca por `id` (que muta de temporal a real del servidor tras el primer
+  // POST) — ver comentario en la interfaz Soporte.
+  const actualizarLocal = (localKey: string, patch: Partial<Soporte>) =>
+    setSoportes(prev => prev.map(s => s.localKey === localKey ? { ...s, ...patch } : s));
 
   // Guarda en el servidor al perder foco (onBlur) — crea la fila si aún no
   // existe (POST) o actualiza los campos narrativos si ya existe (PATCH).
   // Devuelve si la fila quedó realmente persistida — guardar() lo usa para no
-  // mostrar "✓ GUARDADO" cuando en realidad falló. Encolada por id para que
-  // nunca corra en paralelo con otro guardado de la misma fila.
-  const guardarEnServidor = (id: string): Promise<boolean> => encolar(id, () => ejecutarGuardado(id));
+  // mostrar "✓ GUARDADO" cuando en realidad falló. Encolada por localKey
+  // (estable) para que nunca corra en paralelo con otro guardado de la misma
+  // fila — encolar por el `id` mutable rompía el serializado apenas la fila
+  // pasaba de temporal a persistida a mitad de una edición.
+  const guardarEnServidor = (localKey: string): Promise<boolean> => encolar(localKey, () => ejecutarGuardado(localKey));
 
-  const ejecutarGuardado = async (id: string): Promise<boolean> => {
+  const ejecutarGuardado = async (localKey: string): Promise<boolean> => {
     if (!proyectoId) return true;
-    const row = soportes.find(s => s.id === id);
+    const row = soportes.find(s => s.localKey === localKey);
     if (!row) return true;
     try {
       if (row.persistido) {
-        await http.patch(`/api/proyectos/${proyectoId}/anexos/${id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, categoria: categoriaDe(row) });
+        await http.patch(`/api/proyectos/${proyectoId}/anexos/${row.id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, categoria: categoriaDe(row) });
       } else if (row.descripcion.trim() || row.texto.trim() || row.link.trim()) {
         const fd = new FormData();
         fd.append('descripcion', row.descripcion);
@@ -269,11 +308,11 @@ export default function AnexosCalcoView() {
           // igual la crea — queda un huérfano invisible en esta sesión que
           // reaparece intacto en el próximo F5/GET. eliminadosRef es la
           // fuente de verdad de si esto pasó.
-          if (eliminadosRef.current.has(id)) {
-            eliminadosRef.current.delete(id);
+          if (eliminadosRef.current.has(localKey)) {
+            eliminadosRef.current.delete(localKey);
             http.delete(`/api/proyectos/${proyectoId}/anexos/${idServidor}`).catch(() => {});
           } else {
-            actualizarLocal(id, { id: idServidor, persistido: true });
+            actualizarLocal(localKey, { id: idServidor, persistido: true });
           }
         }
       }
@@ -290,12 +329,12 @@ export default function AnexosCalcoView() {
   // persiste la nueva categoria ya mismo (no espera a un blur en otro campo).
   // Ya NO afecta a qué carpeta pertenece la fila — carpeta y técnico son
   // ejes independientes desde el mandato de carpetas dinámicas 2026-08-17.
-  const toggleTecnico = (id: string) => {
+  const toggleTecnico = (localKey: string) => {
     setSoportes(prev => {
-      const next = prev.map(s => s.id === id ? { ...s, esTecnico: !s.esTecnico } : s);
-      const row = next.find(s => s.id === id);
+      const next = prev.map(s => s.localKey === localKey ? { ...s, esTecnico: !s.esTecnico } : s);
+      const row = next.find(s => s.localKey === localKey);
       if (row?.persistido && proyectoId) {
-        http.patch(`/api/proyectos/${proyectoId}/anexos/${id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, categoria: categoriaDe(row) })
+        http.patch(`/api/proyectos/${proyectoId}/anexos/${row.id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, categoria: categoriaDe(row) })
           .catch(() => setErrorSync('No se pudo guardar la reclasificación — revisa tu conexión.'));
       }
       return next;
@@ -304,19 +343,19 @@ export default function AnexosCalcoView() {
 
   // Mueve un soporte a otra carpeta (o a "Sin carpeta" con null) — persiste
   // de inmediato si la fila ya existe en el servidor. No toca categoria.
-  const moverACarpeta = (id: string, carpetaId: string | null) => {
+  const moverACarpeta = (localKey: string, carpetaId: string | null) => {
     setSoportes(prev => {
-      const next = prev.map(s => s.id === id ? { ...s, carpetaId } : s);
-      const row = next.find(s => s.id === id);
+      const next = prev.map(s => s.localKey === localKey ? { ...s, carpetaId } : s);
+      const row = next.find(s => s.localKey === localKey);
       if (row?.persistido && proyectoId) {
-        http.patch(`/api/proyectos/${proyectoId}/anexos/${id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, carpeta_id: carpetaId })
+        http.patch(`/api/proyectos/${proyectoId}/anexos/${row.id}`, { descripcion: row.descripcion, texto: row.texto, link: row.link, carpeta_id: carpetaId })
           .catch(() => setErrorSync('No se pudo mover el soporte — revisa tu conexión.'));
       }
       return next;
     });
   };
 
-  const actualizar = (id: string, patch: Partial<Soporte>) => actualizarLocal(id, patch);
+  const actualizar = (localKey: string, patch: Partial<Soporte>) => actualizarLocal(localKey, patch);
 
   // Descarga real vía Supabase Storage — el backend genera una URL firmada de
   // corta duración (5 min); el bucket es privado, así que no hay otra forma
@@ -337,14 +376,27 @@ export default function AnexosCalcoView() {
   // SAVE manual — fuerza la persistencia de todas las filas ahora mismo (cada
   // campo ya autoguarda con onBlur; este botón es una confirmación explícita
   // por si el usuario navega sin disparar blur, p. ej. en móvil).
+  //
+  // MANDATO (2026-08-24, "el botón de SAVE en todas las ventanas", verde/rojo
+  // puro sin estado neutral): esta pantalla (AnexosCalcoView, la real detrás
+  // de AnexosPage.tsx, verificado: AnexosPage.tsx solo hace `return
+  // <AnexosCalcoView />`) se había quedado fuera del barrido original porque
+  // vive en client/src/components/, no en client/src/pages/. El color/texto
+  // del botón es 100% derivado de `sinGuardar` — no hace falta ningún estado
+  // local aquí, solo confirmar el guardado y limpiar el caché.
   const guardar = async () => {
-    const resultados = await Promise.all(soportes.map(s => guardarEnServidor(s.id)));
-    if (resultados.every(Boolean)) {
-      setGuardado(true);
-      setTimeout(() => setGuardado(false), 2200);
-      // El caché local solo se limpia cuando el servidor confirmó TODAS las
-      // filas — si algo falló, el borrador se conserva para no perderlo.
-      localStorage.removeItem(cacheKeyDe(proyectoId));
+    if (guardando) return;
+    setGuardando(true);
+    try {
+      const resultados = await Promise.all(soportes.map(s => guardarEnServidor(s.localKey)));
+      if (resultados.every(Boolean)) {
+        // El caché local solo se limpia cuando el servidor confirmó TODAS
+        // las filas — si algo falló, el borrador se conserva para no
+        // perderlo.
+        localStorage.removeItem(cacheKeyDe(proyectoId));
+      }
+    } finally {
+      setGuardando(false);
     }
   };
 
@@ -352,8 +404,7 @@ export default function AnexosCalcoView() {
   // los anexos ya persistidos en el servidor; para eliminar un anexo guardado
   // se usa el botón de eliminar por fila.
   const limpiar = () => {
-    const hayNoPersistidas = soportes.some(s => !s.persistido && (s.descripcion.trim() || s.texto.trim() || s.link.trim() || s.anexo.trim()));
-    if (hayNoPersistidas && !window.confirm('Esto va a quitar de la vista los soportes que aún no se han guardado en el servidor. ¿Seguro que quieres continuar?')) {
+    if (sinGuardar && !window.confirm('Esto va a quitar de la vista los soportes que aún no se han guardado en el servidor. ¿Seguro que quieres continuar?')) {
       return;
     }
     if (!proyectoId) localStorage.removeItem(STORAGE_KEY);
@@ -365,15 +416,15 @@ export default function AnexosCalcoView() {
     setTimeout(() => setLimpiado(false), 2000);
   };
 
-  const eliminar = async (id: string) => {
-    const row = soportes.find(s => s.id === id);
+  const eliminar = async (localKey: string) => {
+    const row = soportes.find(s => s.localKey === localKey);
     const tieneContenido = row && (row.descripcion.trim() || row.texto.trim() || row.link.trim() || row.anexo.trim());
     if (tieneContenido && !window.confirm('¿Eliminar este soporte documental? Esta acción no se puede deshacer.')) return;
-    eliminadosRef.current.add(id); // marca ANTES de tocar el estado
-    setSoportes(prev => prev.filter(s => s.id !== id));
-    if (!proyectoId) { localStorage.setItem(STORAGE_KEY, JSON.stringify(soportes.filter(s => s.id !== id))); return; }
+    eliminadosRef.current.add(localKey); // marca ANTES de tocar el estado
+    setSoportes(prev => prev.filter(s => s.localKey !== localKey));
+    if (!proyectoId) { localStorage.setItem(STORAGE_KEY, JSON.stringify(soportes.filter(s => s.localKey !== localKey))); return; }
     if (row?.persistido) {
-      try { await http.delete(`/api/proyectos/${proyectoId}/anexos/${id}`); }
+      try { await http.delete(`/api/proyectos/${proyectoId}/anexos/${row.id}`); }
       catch { setErrorSync('No se pudo eliminar el anexo en el servidor.'); }
     }
   };
@@ -391,35 +442,36 @@ export default function AnexosCalcoView() {
     setSoportes(prev => [...prev, nuevoSoporte(carpetaId)]);
   };
 
-  const adjuntar = (id: string) => {
-    targetIdRef.current = id;
+  const adjuntar = (localKey: string) => {
+    targetIdRef.current = localKey;
     fileInputRef.current?.click();
   };
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    const id = targetIdRef.current;
+    const localKey = targetIdRef.current;
     e.target.value = '';
-    if (!f || !id) return;
+    if (!f || !localKey) return;
     // FIX (auditoría 2026-08-17, "subo un PDF y al rato desaparece"): el
     // nombre se mostraba de inmediato (optimista) ANTES de saber si la
     // subida a Storage tuvo éxito — se captura el valor real anterior aquí
     // para poder revertir al instante si falla.
-    const anexoAnterior = soportes.find(s => s.id === id)?.anexo ?? '';
-    actualizarLocal(id, { anexo: f.name, subiendo: !!proyectoId, progreso: 0 });
+    const anexoAnterior = soportes.find(s => s.localKey === localKey)?.anexo ?? '';
+    actualizarLocal(localKey, { anexo: f.name, subiendo: !!proyectoId, progreso: 0 });
     if (!proyectoId) return; // modo demo/offline — solo se guarda el nombre localmente
-    // Encolada por id: si un guardado de texto (descripcion/link) para esta
-    // misma fila sigue en vuelo, este adjunto espera a que termine antes de
-    // decidir crear o reemplazar — evita la carrera con ejecutarGuardado.
-    encolar(id, () => ejecutarAdjuntar(id, f, anexoAnterior));
+    // Encolada por localKey (estable): si un guardado de texto
+    // (descripcion/link) para esta misma fila sigue en vuelo, este adjunto
+    // espera a que termine antes de decidir crear o reemplazar — evita la
+    // carrera con ejecutarGuardado.
+    encolar(localKey, () => ejecutarAdjuntar(localKey, f, anexoAnterior));
   };
 
   // El backend no soporta adjuntar un archivo a una fila que YA existe en el
   // servidor vía PATCH (solo POST crea filas con archivo) — si la fila ya
   // estaba persistida, se crea la fila de reemplazo CON el archivo primero
   // y solo si eso tuvo éxito se borra la fila vieja.
-  const ejecutarAdjuntar = async (id: string, f: File, anexoAnterior: string): Promise<boolean> => {
-    const row = soportes.find(s => s.id === id);
+  const ejecutarAdjuntar = async (localKey: string, f: File, anexoAnterior: string): Promise<boolean> => {
+    const row = soportes.find(s => s.localKey === localKey);
     if (!row) return true;
     const idAntiguo = row.persistido ? row.id : null;
     try {
@@ -432,16 +484,16 @@ export default function AnexosCalcoView() {
       fd.append('link', row.link || '');
       const resp = await http.uploadConProgreso<{ success: boolean; data?: { id: string; nombre_archivo: string }; message?: string }>(
         `/api/proyectos/${proyectoId}/anexos`, fd,
-        pct => actualizarLocal(id, { progreso: pct })
+        pct => actualizarLocal(localKey, { progreso: pct })
       );
       if (resp.data) {
         const idServidor = resp.data.id;
         const nombreArchivo = resp.data.nombre_archivo;
-        if (eliminadosRef.current.has(id)) {
-          eliminadosRef.current.delete(id);
+        if (eliminadosRef.current.has(localKey)) {
+          eliminadosRef.current.delete(localKey);
           http.delete(`/api/proyectos/${proyectoId}/anexos/${idServidor}`).catch(() => {});
         } else {
-          actualizarLocal(id, { id: idServidor, anexo: nombreArchivo, persistido: true, subiendo: false, progreso: undefined });
+          actualizarLocal(localKey, { id: idServidor, anexo: nombreArchivo, persistido: true, subiendo: false, progreso: undefined });
           if (idAntiguo) {
             http.delete(`/api/proyectos/${proyectoId}/anexos/${idAntiguo}`)
               .catch(() => setErrorSync('El archivo se adjuntó, pero quedó una fila duplicada sin limpiar — recarga la página e ilumínala para borrarla a mano.'));
@@ -451,7 +503,7 @@ export default function AnexosCalcoView() {
       setErrorSync(null);
       return true;
     } catch (e) {
-      actualizarLocal(id, { subiendo: false, progreso: undefined, anexo: anexoAnterior });
+      actualizarLocal(localKey, { subiendo: false, progreso: undefined, anexo: anexoAnterior });
       setErrorSync(e instanceof Error && e.message ? e.message : 'No se pudo subir el archivo — inténtalo de nuevo.');
       return false;
     }
@@ -543,6 +595,20 @@ export default function AnexosCalcoView() {
   const normalizar = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const esCarpetaProtegida = (nombre: string) => normalizar(nombre).includes('investigacion');
 
+  // Aviso de link no rastreable (auditoría 2026-08-22, "REQUERIDO: FALTA
+  // INFORMACIÓN EN ANEXOS" pese a tener 4 links reales): estos dominios
+  // renderizan la conversación por JavaScript del lado del cliente — el
+  // fetch sin navegador de EntradaIAService.js (extraerTextoDeLink, ya
+  // verificado en vivo) solo ve un cascarón vacío, nunca el contenido real.
+  // Solo `title` (tooltip nativo) — CERO cambio de CSS/layout del calco
+  // Stitch de esta pantalla, regla de fidelidad absoluta de CLAUDE.md.
+  const DOMINIOS_NO_RASTREABLES = ['chatgpt.com/share', 'share.gemini.google', 'gemini.google.com/share', 'perplexity.ai', 'claude.ai/share', 'poe.com/s/'];
+  const esLinkNoRastreable = (url: string) => !!url && DOMINIOS_NO_RASTREABLES.some(d => url.includes(d));
+  const tituloLink = (url: string) =>
+    esLinkNoRastreable(url)
+      ? '⚠ Este tipo de link (conversación de IA compartida) no se puede leer automáticamente — pega el texto real en la columna TEXTO o sube un PDF en ANEXO.'
+      : undefined;
+
   const bloques = [
     ...carpetas
       .map(c => ({ id: c.id, titulo: c.nombre, esCarpetaReal: true as const, esProtegida: esCarpetaProtegida(c.nombre) }))
@@ -585,10 +651,13 @@ export default function AnexosCalcoView() {
                 {limpiado ? '✓ LIMPIADO' : 'LIMPIAR'}
               </button>
               <button
-                className={`anx__save${guardado ? ' anx__save--saved' : ''}`}
+                className={`anx__save${sinGuardar ? ' anx__save--dirty' : ' anx__save--saved'}`}
                 onClick={guardar}
+                disabled={guardando}
+                style={{ opacity: guardando ? 0.6 : 1, cursor: guardando ? 'not-allowed' : 'pointer' }}
+                title={sinGuardar ? 'Hay cambios sin guardar' : undefined}
               >
-                {guardado ? '✓ GUARDADO' : 'SAVE'}
+                {guardando ? 'Guardando…' : sinGuardar ? 'SAVE' : '✓ GUARDADO'}
               </button>
             </div>
           </header>
@@ -665,7 +734,7 @@ export default function AnexosCalcoView() {
                     <div className="anx__bloque-empty">Sin soportes en esta carpeta todavía.</div>
                   )}
                   {!colapsada && items.map((s, idx) => (
-                    <div key={s.id} className="anx__tr anx__grid">
+                    <div key={s.localKey} className="anx__tr anx__grid">
                       <span className="anx__rownum" title={s.esTecnico ? 'Documento técnico' : 'Anexo general'}>
                         {s.esTecnico
                           ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0041a3" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -673,24 +742,24 @@ export default function AnexosCalcoView() {
                       </span>
                       <div className="anx__td anx__td--desc">
                         <input className="anx__input" placeholder="Descripcion del soporte" value={s.descripcion}
-                          onChange={e => actualizar(s.id, { descripcion: e.target.value })}
-                          onBlur={() => guardarEnServidor(s.id)} />
+                          onChange={e => actualizar(s.localKey, { descripcion: e.target.value })}
+                          onBlur={() => guardarEnServidor(s.localKey)} />
                       </div>
                       <div className="anx__td">
                         <input className="anx__input anx__input--center" placeholder="TEXTO" value={s.texto}
-                          onChange={e => actualizar(s.id, { texto: e.target.value })}
-                          onBlur={() => guardarEnServidor(s.id)} />
+                          onChange={e => actualizar(s.localKey, { texto: e.target.value })}
+                          onBlur={() => guardarEnServidor(s.localKey)} />
                       </div>
                       <div className="anx__td">
                         <div className="anx__attach-wrap">
                           <input className="anx__input anx__input--attach" placeholder="." value={s.anexo}
-                            onChange={e => actualizar(s.id, { anexo: e.target.value })} />
+                            onChange={e => actualizar(s.localKey, { anexo: e.target.value })} />
                           {s.persistido && s.anexo && (
                             <button className="anx__download-btn" title="Descargar anexo" onClick={() => descargar(s)}>
                               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                             </button>
                           )}
-                          <button className="anx__attach-btn" title={s.subiendo ? `Subiendo… ${s.progreso ?? 0}%` : 'Adjuntar anexo'} disabled={s.subiendo} onClick={() => adjuntar(s.id)}>
+                          <button className="anx__attach-btn" title={s.subiendo ? `Subiendo… ${s.progreso ?? 0}%` : 'Adjuntar anexo'} disabled={s.subiendo} onClick={() => adjuntar(s.localKey)}>
                             {s.subiendo
                               ? <span style={{ fontSize: 9, fontWeight: 700 }}>{s.progreso ?? 0}%</span>
                               : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>}
@@ -708,14 +777,15 @@ export default function AnexosCalcoView() {
                       </div>
                       <div className="anx__td">
                         <input className="anx__input anx__input--center" placeholder="WWW" value={s.link}
-                          onChange={e => actualizar(s.id, { link: e.target.value })}
-                          onBlur={() => guardarEnServidor(s.id)} />
+                          title={tituloLink(s.link)}
+                          onChange={e => actualizar(s.localKey, { link: e.target.value })}
+                          onBlur={() => guardarEnServidor(s.localKey)} />
                       </div>
                       <div className="anx__td">
                         <select
                           className="anx__select"
                           value={s.carpetaId ?? SIN_CARPETA}
-                          onChange={e => moverACarpeta(s.id, e.target.value === SIN_CARPETA ? null : e.target.value)}
+                          onChange={e => moverACarpeta(s.localKey, e.target.value === SIN_CARPETA ? null : e.target.value)}
                           title="Mover a otra carpeta"
                         >
                           <option value={SIN_CARPETA}>Sin carpeta</option>
@@ -728,13 +798,13 @@ export default function AnexosCalcoView() {
                           role="switch"
                           aria-checked={s.esTecnico}
                           title="Marcar como Documento Técnico"
-                          onClick={() => toggleTecnico(s.id)}
+                          onClick={() => toggleTecnico(s.localKey)}
                         >
                           <span className="anx__toggle-thumb" />
                         </button>
                       </div>
                       <div className="anx__td anx__td--action">
-                        <button className="anx__delete" title="Eliminar soporte" onClick={() => eliminar(s.id)}>
+                        <button className="anx__delete" title="Eliminar soporte" onClick={() => eliminar(s.localKey)}>
                           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                         </button>
                       </div>

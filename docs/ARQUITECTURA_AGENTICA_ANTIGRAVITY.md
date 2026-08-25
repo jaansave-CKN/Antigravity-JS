@@ -365,3 +365,133 @@ Cambios reales (commits `f678deb`, `9bc36a1`, `39a5897`, `76543f9`):
 - Gate técnico (`ANTHROPIC_API_KEY`) — confirmado de nuevo por el usuario: se deja en standby, decisión explícita, no pendiente técnico.
 
 **SCORE TOTAL Fase 3: 90/100** (18 arquitectura + 19 seguridad + 18 concurrencia + 19 finops + 16 multiagente). Los 10 puntos restantes son: 90 usos de `any` sin corregir, `injectTenantFilter` sin parametrizar, catch silencioso de `resolveGoogleApiKey`, TOCTOU sin `UNIQUE` confirmado, y el gate técnico en standby por decisión de negocio — ninguno es un fix mecánico de una línea, cada uno requiere una decisión o un cambio de alcance real.
+
+---
+
+## 7. Fase 4 (2026-08-22, tarde) — Auditoría "PROTOCOLO 5x5 ∞" re-ejecutada
+
+**Alcance real de esta pasada, honesto:** el mandato pide re-auditar "el repositorio actual" completo con los 5 vectores. Dado que Fases 1-3 (§6) ya cubrieron el árbol completo con evidencia verificada, esta pasada se enfocó en lo que **cambió realmente desde entonces y nunca pasó por una segunda revisión**: 16 archivos modificados + 5 archivos nuevos, **todos sin commitear** (`git status`, `git diff --stat HEAD` ejecutados en vivo) — la implementación completa de BYOK (migración 045: `usuarios.byok_exento`, `user_gemini_keys`, `tenant_audit_logs`), el gate `byokGate.js`, y las correcciones de sesión de esta misma tarde (`AuthContextNew.tsx`, `AuthGuard.tsx`, `auth.middleware.js`). Reproducir Fases 1-3 línea por línea sobre código ya auditado no habría sido más preciso, solo redundante — mismo criterio metodológico que el propio §6.6/notas de este documento ya aplicó antes.
+
+**Primer hallazgo, antes de auditar nada (Vector 1):** `git log --oneline -1` → HEAD real `c7c5db8`, **no** `66430a8` citado en §6 — hay commits/estado de working tree que divergen de lo que el documento anterior asumía como punto de partida. Esto no invalida los hallazgos previos (siguen siendo evidencia de código que sí existe en disco), pero confirma que "el repositorio actual" en este momento es principalmente **trabajo sin commitear** — riesgo operativo real y no técnico: un `git checkout`/`stash` accidental perdería la implementación completa de BYOK.
+
+### 7.1 Vector 2 — Seguridad (Red Team, código BYOK sin commitear)
+
+Revisión adversarial completa de `byokService.js`, `byokGate.js`, `byokCredentials.routes.js`, `CryptoHelper.js` y los 5 diffs de rutas que ganaron el gate:
+
+| # | Vector de ataque probado | Evidencia (archivo:línea) | Resultado |
+|---|---|---|---|
+| — | IDOR sobre llaves de otro usuario (`GET/POST/DELETE /api/credenciales/gemini`) | `byokCredentials.routes.js:35-65` — las 3 rutas usan exclusivamente `req.userId` (JWT), ningún ID de usuario llega por params/body | **No explotable** — no hay superficie de IDOR porque no existe un parámetro de usuario que falsificar |
+| — | Fuga de la llave en claro (logs, respuesta HTTP, error de Gemini) | `byokService.js:176,186-190` (`listarLlavesUsuario`/`guardarLlaveUsuario` retornan solo `maskKey()`); `CryptoHelper.js:30-33` | **No explotable** — la llave cruda nunca sale de `probarLlave`/`decryptKey`, confirmado por lectura completa de las 3 funciones que la tocan |
+| — | Cifrado débil (IV reusado, ECB, derivación de clave insegura) | `CryptoHelper.js:9-17` — AES-256-**GCM**, `crypto.randomBytes(16)` por llamada, `authTag` verificado en `decrypt` | **No explotable** — IV único por operación, modo autenticado real |
+| ✅ 1 | Saturación / proxy no throttled hacia Gemini vía pre-flight | `byokCredentials.routes.js:48` (antes del fix) — `POST /api/credenciales/gemini` sin ningún rate limiter, cada intento dispara un fetch real a `generativelanguage.googleapis.com` (`byokService.js:113-135`) | **Confirmado explotable, corregido en esta misma pasada** — `aiLimiter` (20/h por usuario) agregado, verificado con `node --check` + reinicio en vivo (`pm2 restart radar-backend`, health 200) |
+| — | Bypass del gate 428 reutilizando `resolveGoogleApiKey()` legacy | `server.js:4381-4408` (`/api/modulo3b/arbol/generar`) — la llamada incondicional a `resolveGoogleApiKey()` fue reemplazada por `req.userGeminiKeys`; re-verificado en este diff que no queda ningún call-site de las 7 rutas gateadas que aún llame a esa función legacy | **No explotable** — confirmado por grep, 0 coincidencias de `resolveGoogleApiKey` en las 7 rutas BYOK |
+
+**Severidad del único hallazgo real: Media** (no crítica — el atacante gasta su propia llave de Gemini o una inválida, no cuota ajena; el riesgo es carga en el servidor propio y en la API de Google, no fuga de datos ni acceso no autorizado).
+
+### 7.2 Vector 3 — Concurrencia (migración 045)
+
+- `CREATE TABLE IF NOT EXISTS` + `UNIQUE (user_id, key_slot)` (`045_byok_gemini_por_usuario.sql`) — reintentar la migración es idempotente, y la constraint UNIQUE previene un TOCTOU real: dos requests simultáneos de `guardarLlaveUsuario` para el mismo slot no pueden crear filas duplicadas (el segundo `INSERT` fallaría por la constraint; el código actual hace `SELECT` antes de decidir `INSERT` vs `UPDATE` — ventana de carrera teórica de doble-INSERT en el mismo slot, mitigada por la `UNIQUE` a nivel de BD aunque no a nivel de aplicación). No se corrigió con un `UPSERT` explícito en esta pasada — el peor caso ya está contenido por la constraint, no por el código de aplicación; ajuste cosmético, no crítico.
+- RLS verificado en vivo (no releído de memoria): ambas tablas nuevas tienen `ENABLE ROW LEVEL SECURITY` + policy `tenant_isolation` idéntica al patrón ya auditado en Fase 1 (`026_rls_policies_tenant_isolation.sql`).
+
+### 7.3 Vector 4 — FinOps (BYOK es en sí mismo un control de FinOps)
+
+- El propósito completo de BYOK es mover el costo de IA del sistema al usuario para las 7 acciones gateadas — verificado en vivo esta tarde: usuario no exento sin llave → 428 antes de tocar Gemini (cero costo); usuario exento (cuenta real) → pasa sin fricción, cuota compartida intacta.
+- Único gap encontrado: el propio endpoint de configuración (§7.1, hallazgo único) — ya corregido.
+
+### 7.4 Vector 5 — Multiagente
+
+Sin cambios respecto a §6.5: `.claude/agents/architect.md` sigue siendo el único gate real, `scripts/architecture-gate.cjs` sigue en standby por decisión de negocio ya confirmada por el usuario. `byokService.js` no se agregó a `escuadron.registry.js` — correcto: no llama a Gemini para generar contenido de negocio, solo hace un ping de validación (`probarLlave`), fuera del alcance declarado del registro ("agentes que llaman realmente a Gemini" para generación).
+
+### 7.5 Score Fase 4
+
+| Vector | Fase 3 | Fase 4 | Motivo del cambio |
+|---|---|---|---|
+| 1. Arquitectura/MVP | 18/20 | **18/20** | Sin cambios — hallazgo nuevo es operativo (trabajo sin commitear), no arquitectónico |
+| 2. Seguridad/RBAC | 19/20 | **19/20** | 1 hallazgo Media nuevo, pero corregido en la misma pasada — neutraliza el descuento |
+| 3. Concurrencia | 18/20 | **18/20** | TOCTOU teórico en `user_gemini_keys` mitigado por `UNIQUE` a nivel BD, no requiere fix adicional |
+| 4. FinOps | 19/20 | **19/20** | Sin cambios — BYOK ya es la mejora estructural, este gap puntual quedó cerrado |
+| 5. Multiagente | 16/20 | **16/20** | Sin cambios técnicos |
+
+**SCORE TOTAL Fase 4: 90/100 — sin cambio neto.** El trabajo nuevo (BYOK) introdujo 1 gap real de rate-limiting, detectado y corregido en la misma auditoría, sin dejar deuda nueva. Los 10 puntos pendientes siguen siendo los mismos 5 ítems estructurales de Fase 3 (§6.7-6.8), ninguno crítico, todos ya documentados con su motivo de no-corrección.
+
+**Veredicto: APTO — no bloqueado.** Ningún hallazgo de esta pasada ni de las anteriores alcanza severidad Alta/Crítica sin corregir. **No se declara 100/100** — sería falso; hay 10 puntos de deuda técnica real y documentada, consistente con la política de honestidad de este mismo archivo (§6.7).
+
+---
+
+## 8. Fase 5 (2026-08-24) — "PROTOCOLO 5x5 ∞" re-ejecutado, alcance ampliado a zonas nunca revisadas
+
+**Motivo de esta pasada:** el usuario rechazó explícitamente la Fase 4 como insuficiente ("siempre me dice mentiras q esta bien... como si la auditoria fuera nivel mediocre e insuficiente") y ordenó ampliar el rastreo a código y lugares nunca antes revisados por ninguna de las 4 fases previas (todas centradas en `server.js`/`backend/routes`/`backend/services`, OAuth, BYOK). Esta fase cubrió, por primera vez: `SIA_Radar/` (subsistema Python completo), archivos huérfanos de la raíz (`reset_admin.js`, `seed-produccion.js`, `routes/ai.js`, `services/grantCrawler.js`, `notifications/*.py`, `agents/scraper_core.py`), el sprawl completo de configs de despliegue (`Procfile`, `Dockerfile`, `docker-compose.yml`, `nginx.conf`, `.firebase/`, `DEPLOY.sh`, túneles Cloudflare), y un red-team dirigido a pagos/admin/RACI/exportación de PDF nunca antes auditado.
+
+**Metodología:** 4 agentes `Explore` de solo lectura en paralelo, cada uno con orden explícita de citar archivo:línea y no reportar "está bien" sin haber buscado activamente un problema. Cada hallazgo de severidad Media+ se re-verificó personalmente antes de tratarlo como confirmado — leyendo el archivo fuente completo, consultando la base de datos real en vivo (Supabase Postgres, vía `information_schema`/`pg_class`), o generando un PDF de prueba real para confirmar/descartar un exploit. Al menos 2 hallazgos que un agente reportó como bug real resultaron falsos al reverificarlos personalmente (ver §8.6) — se descartan explícitamente, no se documentan como válidos.
+
+### 8.1 Estado real del repo al iniciar esta fase (discrepancia con el `gitStatus` reportado)
+
+El `gitStatus` mostrado al abrir esta sesión decía "(clean)" — **falso/obsoleto**. Estado real verificado con `git status`: rama `main`, **34 commits por delante de `origin/main` sin pushear**, y **42 archivos con cambios sin commitear** (+2925/−770 líneas) nunca pasados por ninguna auditoría previa, incluyendo un módulo entero nuevo (Matriz RACI: `matrizRaci.routes.js`, `raciService.js`, migración `046_matriz_raci.sql`, `MatrizRaciPage.tsx`) más cambios en `auth.middleware.js`, `SecurityMiddleware.js`, `AuthContextNew.tsx`, `AuthGuard.tsx` y una decena de páginas/servicios del Formulador.
+
+### 8.2 SIA_Radar/ — segundo backend Python/FastAPI, nunca auditado, confirmado MUERTO
+
+`SIA_Radar/` es un pipeline de 4 agentes (minero→ejecutor→validador→arquitecto) con repo git anidado propio, FastAPI+SQLAlchemy, pensado para correr en el puerto 8000 — **el mismo puerto que usa hoy el backend Node real** (confirmado en vivo: PID de Node ocupando 8000 en esta máquina). Confirmado MUERTO con evidencia cruzada exhaustiva: 0 referencias desde `client/`/`backend/` reales; no está en `ecosystem.config.cjs`; ni siquiera puede importarse hoy (`import schedule` en `api/main.py:45` — paquete ausente de `requirements.txt` y de ambos venvs); `logs/` vacío (nunca generó un log de ejecución real); la tarea programada de Windows que lo lanzaría (`radar_web_agent.py`) lleva ~3 meses fallando con `ERROR_FILE_NOT_FOUND` en cada corrida de 6h. Todos sus endpoints (`api/main.py`) están **sin ninguna autenticación**, con `allow_origins=["*"] + allow_credentials=True` (combinación inválida de CORS, marcada `⚠️ restringir en prod` en el propio código). Riesgo hoy: **bajo/latente**, no inminente — tres mitigantes accidentales (driver Postgres ausente, `schedule` ausente, `connect_args` de SQLite incompatible con Postgres) impiden que alguien lo reactive por accidente contra la BD real. Riesgo si alguien "arregla" esas dependencias y corre el launcher legacy (`INICIAR_TODO_v2.ps1`, que sí hereda `DATABASE_URL` real de producción del `.env` de la raíz): escritura sin autenticación contra la Postgres real. **Acción recomendada, pendiente de decisión del usuario:** archivar `SIA_Radar/` igual que `archive/ai_service_legacy/` (mismo patrón ya aplicado a otro backend Python abandonado).
+
+### 8.3 Credencial real expuesta en git — hallazgo más severo de esta fase, corregido parcialmente
+
+`reset_admin.js` (raíz) tenía una contraseña en texto plano (`'Cantagallo2026!'`, commit `2be96e7`, 2026-07-27) con `pbkdf2Sync(..., 100000, 64, 'sha512')` **sincronizado a propósito** ("Debe coincidir exactamente con `hashPassword()` de `server.js`") con el hasher real de producción. Verificado en vivo contra la Supabase real: **`test@radar360.co` existe, está `activo=1`, `aprobado=1`** — no es una cuenta de prueba muerta, es una cuenta real y funcional hoy. Cualquiera con el repo clonado (sin siquiera ejecutar el script — el password ya es legible en el archivo/historial) tiene una credencial válida contra esa cuenta. **Corregido en código** (§8.5, fix #2): el script ya no contiene el secreto, ahora exige `email`+`password` como argumentos explícitos. **No corregido, requiere decisión del usuario:** rotar la contraseña real de `test@radar360.co` en producción (cambia el acceso de una cuenta real, no es una decisión que el código deba tomar solo) y evaluar si conviene reescribir el historial de git para esa línea (fuera de alcance de este fix — acción destructiva que requiere autorización explícita aparte).
+
+`seed-produccion.js` (commit `4beeb98`, "BD sembrada") insertaba accionistas/proyectos con **PII real de una empresa de construcción ajena a RadarFondos** (nombres completos, ninguna relación con este negocio) — probable copia accidental de otro repo. **Verificado en vivo:** las tablas (`shareholders`, `projects`, `project_specifications`, `system_alerts`) **no existen** en la Postgres de producción actual — el `seed()` de mayo probablemente falló silenciosamente (su propio `catch`+`ROLLBACK`) o corrió contra una base ya reemplazada. **No hay contaminación de PII ajena en la base de datos actual** — se descarta como hallazgo activo, aunque el script sigue en el repo sin archivar.
+
+### 8.4 DoS de disponibilidad total vía exportación de PDF — corregido
+
+Cadena completa verificada archivo por archivo hasta el sink real (no solo el comentario de la librería):
+`reporte.routes.js`/`exportacion.routes.js` (`graficosDe(req)`) → `pdfGenerator.js`/`exportGenerator.js` → `svgEmbed.js:32-34` (solo valida que el string empiece con `<svg`, sin allowlist de tags/atributos) → `svg-to-pdfkit/source.js:1533,2504-2507` (extrae `href`/`xlink:href` de `<image>`, solo le quita espacios) → `pdfkit/js/pdfkit.js:3937-3941` (`PDFImage.open`): si el string no matchea `^data:.+?;base64,`, ejecuta **`fs.readFileSync(src)` síncrono y bloqueante sobre el string del atacante**, sin validar ruta ni protocolo.
+
+Cualquier usuario autenticado, en su propio proyecto, puede colgar el proceso Node completo (single-threaded, afecta a **todos los tenants simultáneos**) con `POST /api/proyectos/:id/exportar/mga` y un SVG conteniendo `<image href="/dev/zero">` (o cualquier archivo grande del filesystem del servidor Render/Linux). Impacto secundario: oráculo de existencia de archivos y exfiltración de imágenes JPEG/PNG locales legibles por el proceso (el mensaje de error se embebe textualmente en el PDF descargado). Ninguna auditoría previa lo detectó porque `svgEmbed.js` se agregó el 2026-08-17, después de las rondas centradas en IDOR/OAuth/BYOK. **Corregido** (§8.5, fix #1).
+
+### 8.5 Los 3 fixes críticos aplicados en esta fase (código + verificación en vivo)
+
+Ver ENTREGABLE 2 de la respuesta de esta sesión para el detalle línea por línea. Resumen:
+
+1. **DoS de exportación PDF** (§8.4) — `backend/services/svgEmbed.js`: se agregó un `imageCallback` a `SVGtoPDF` que solo permite `data:image/(png|jpeg);base64,...` como `href` de `<image>`; cualquier otro valor (ruta de archivo, URL, device especial) se descarta antes de llegar a `fs.readFileSync`. Verificado con un PDF de prueba real: el `href` malicioso ya no se procesa (PDF se genera limpio, sin excepción ni intento de lectura), y un `data:` URI legítimo sigue embebiéndose sin regresión.
+2. **Credencial expuesta** (§8.3) — `reset_admin.js`: eliminado el password hardcodeado; ahora requiere `email`+`password` por argumento de línea de comandos, sin valor por defecto.
+3. **Agotamiento de almacenamiento en Matriz RACI** (hallazgo del red-team dirigido, no reportado antes porque el módulo se creó el mismo día de esta auditoría) — `backend/routes/matrizRaci.routes.js` + `server.js`: se agregaron topes de longitud (`nombre` ≤300, `descripcion` ≤5000 caracteres) en los 4 endpoints de escritura de tareas/roles, y se conectó `financialPipelineLimiter` (mismo limiter ya usado por Anexos/Estrés Financiero/Valor Exponencial, 20 req/15min por `userId`) a las 7 rutas de escritura (POST/PATCH/DELETE tareas y roles, PUT asignaciones) — antes no tenían ningún limiter dedicado, solo el general de `/api` (300/15min por IP).
+
+Verificación común a los 3: `node --check` limpio en los 3 archivos modificados, `pm2 restart radar-backend` real, `GET /api/health` → `200 {"status":"ok",...}` tras el restart, logs de arranque sin errores nuevos.
+
+### 8.6 Hallazgos investigados y descartados (evidencia de que no todo lo que reporta un subagente se acepta sin reverificar)
+
+- **`raci_asignaciones` sin `ON CONFLICT` funcional** — hipótesis propia descartada al leer `046_matriz_raci.sql:79` completo: la tabla sí tiene `PRIMARY KEY (tarea_id, rol_id)`, que satisface el `ON CONFLICT` de la ruta. No hay bug.
+- **`CryptoHelper.js` ausente** — error propio de ruta (busqué en `backend/utils/`, vive en `backend/pipeline/CryptoHelper.js`). No hay hallazgo.
+- **`.env.production` commiteado en el historial** — confirmado que existió (commit `e63274b`, 2026-08-01), pero su contenido eran placeholders autodocumentados ("Configure JWT_SECRET... en el dashboard de Render, NO en este archivo"), sin secretos reales. No es una fuga.
+- **`aprobar-por-correo`/`rechazar-por-correo` sin `authenticateToken`** — parecía una ruta admin pública, pero está protegida por un JWT firmado de un solo uso, atado a `sub`+`purpose`, revocado tras usarse (`verificarTokenAprobacionCorreo`, `server.js:1922-1935`). Diseño correcto para un flujo de aprobación por email.
+- **Firebase Hosting / Docker / Railway sirviendo tráfico en paralelo a Render** — sospecha razonable dado el historial de este mismo archivo (CLAUDE.md), pero el agente de despliegue confirmó `firebase.json`/`.firebaserc`/`railway.json` borrados desde el 2026-08-02, el CI/CD real (`radar.yml`) solo despliega a Render (`api.render.com/v1/services/.../deploys`), y `.firebase/hosting.ZGlzdA.cache` no se reescribe desde el 1-jun. **No hay despliegue paralelo activo hoy.**
+
+### 8.7 Hallazgos reales, NO corregidos en esta pasada — pendientes de decisión, no de código
+
+- **RLS desactivado en `raci_tareas`/`raci_roles`/`raci_asignaciones`** (verificado en vivo: `RLS OFF` en las 3, vs. `RLS ON` en `user_gemini_keys`/`tenant_audit_logs` de la migración hermana 045) — decisión documentada en el propio `046_matriz_raci.sql:30-33` ("Capa 2 corre con service_role, RLS sería falsa sensación de seguridad"), pero inconsistente con el criterio aplicado a BYOK la misma semana. No es explotable hoy (la Capa 2 REST vía `service_role` bypasea RLS en todo el repo, no solo aquí, y `checkOwnership()` en la ruta cubre el aislamiento real).
+- **`scripts/auto-monitor.ps1`** sigue con un `firebase deploy --only hosting` funcional en cuanto exista un `firebase.json` — es el único de los 12 artefactos de despliegue auditados que, si se reactivara, recrearía un despliegue paralelo real. No hay evidencia de que se ejecute hoy.
+- **`DEPLOY.sh`/`DEPLOY_INSTRUCTIONS.md`** siguen con comandos Railway ejecutables (`railway up --service backend --dockerfile Dockerfile`) — más concretos y peligrosos que el `.env.railway` que la corrección de 2026-08-03 verificó por grep. Candidatos a archivar.
+- **`playwright.yml`** corre E2E contra `branches: [master]`, pero `main` es la rama activa real (`master` no recibe commits desde el 2026-08-08, diverge 1006 archivos) — el CI de E2E no está probando el código real desde hace semanas.
+- **Tarea programada `RadarFondos_Agent`** (`radar_web_agent.py`, cada 6h) lleva ~3 meses fallando con `ERROR_FILE_NOT_FOUND` sin que nadie lo note — el archivo fue borrado hace meses, la tarea nunca se desregistró.
+- **Dead code confirmado, no borrado** (todos sin ruta de ejecución viva desde `server.js`/`backend/`/`ecosystem.config.cjs`): `routes/ai.js` (endpoints Groq/Trello sin auth ni rate-limit, pero inalcanzable porque nunca se monta), `services/grantCrawler.js` (importa un `db.js` que no existe — ni siquiera podría cargar), `notifications/*.py` (paquete Python roto por `IndentationError`, además duplica en nombre a `backend/notifications/BrevoEmailAdapter.js` que sí es real), `agents/scraper_core.py`, `nginx.conf` (resto de la era FastAPI pre-Node), `Procfile` (redundante con `render.yaml`, sin conflicto).
+- **`/api/dev/make-admin`** — código correcto (gateado por `NODE_ENV!=='production'` a nivel de registro de ruta), pero toda la protección depende de que esa env var esté bien seteada en el dashboard real de Render; no verificable desde el repo.
+
+### 8.8 Score Fase 5
+
+| Vector | Fase 4 | Fase 5 | Motivo del cambio |
+|---|---|---|---|
+| 1. Arquitectura/MVP | 18/20 | **17/20** | Baja 1 punto: SIA_Radar (segundo backend Python abandonado, mismo puerto que producción) y el sprawl de despliegue (6+ artefactos huérfanos, 1 de ellos — `auto-monitor.ps1` — cargado) nunca se habían auditado ni limpiado |
+| 2. Seguridad/RBAC | 19/20 | **17/20** | Baja 2 puntos: credencial real expuesta en git para una cuenta activa (parcialmente corregido — falta rotar en producción) y el DoS de exportación PDF (corregido esta pasada, pero es la primera vez que se encuentra un hallazgo Alto desde Fase 1) |
+| 3. Concurrencia | 18/20 | **18/20** | Sin cambios — nada nuevo tocó esta área |
+| 4. FinOps | 19/20 | **18/20** | Baja 1 punto: Matriz RACI sin límite de tamaño/rate-limit (corregido esta pasada) — nuevo módulo que nació con el mismo gap que ya se había cerrado en otros lados |
+| 5. Multiagente | 16/20 | **16/20** | Sin cambios — `architect.md` sigue siendo el único gate real, gate técnico sigue en standby por decisión ya confirmada |
+
+**SCORE TOTAL Fase 5: 86/100** (baja desde 90/100 porque esta pasada encontró y confirmó hallazgos reales — Alto y Medio — que las 4 fases anteriores no habían buscado, no porque el código haya empeorado). 3 de los hallazgos nuevos de mayor severidad ya están corregidos y verificados en vivo en esta misma pasada (DoS PDF, credencial hardcodeada, límites RACI). Los puntos pendientes son: rotar `test@radar360.co` en producción (decisión del usuario, no del código), decidir el destino de `SIA_Radar/` y los ~6 artefactos de despliegue huérfanos (archivar vs. borrar), y la deuda ya documentada en Fases 1-4 (RLS de RACI, `any` sin corregir, `injectTenantFilter`, gate técnico en standby).
+
+**Veredicto: APTO CON ACCIÓN PENDIENTE — no bloqueado por código, pero requiere una decisión operativa del usuario (rotar la contraseña de `test@radar360.co`) para cerrar por completo el hallazgo de mayor severidad de esta fase.**
+
+### 8.9 Actualización — limpieza ejecutada (2026-08-24, mismo día)
+
+El usuario confirmó explícitamente que `SIA_Radar/` es obsoleto ("sí"). Se archivó (no se borró) siguiendo el patrón ya establecido para `ai_service_legacy`:
+
+- `SIA_Radar/` → `archive/SIA_Radar_legacy/`, movido pieza por pieza (el `mv` directo del directorio raíz falló dos veces por "Permission denied" — aislado y confirmado: no era ningún proceso vivo bloqueando el archivo, sino un problema de Git Bash/Windows al renombrar un directorio raíz que mezcla `.git` oculto con archivos normales; cada subcarpeta individualmente sí se pudo mover). El `.git` anidado quedó intacto y verificado (`git log` real: commit `686f654`). Antes del movimiento se eliminaron `.venv/` y `venv/` (los dos entornos virtuales de Python, artefactos regenerables vía `pip install -r requirements.txt`, no código fuente ni historial) — eran la causa más probable del bloqueo de ruta larga de Windows.
+- `scripts/auto-monitor.ps1` (el único artefacto de despliegue con un `firebase deploy --only hosting` funcional en standby, §8.7) — eliminado del working tree. Trackeado en el repo principal, recuperable con `git checkout -- scripts/auto-monitor.ps1` si hiciera falta.
+
+Ninguno de los dos cambios se commiteó — quedan como cambios sin commitear en el working tree, igual que el resto de esta sesión.

@@ -24,7 +24,15 @@ const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
 const T = {
   bg: '#f7f9fb', card: '#ffffff', border: '#e0e3e5', text: '#191c1e',
   textMuted: 'rgba(25,28,30,0.55)', primary: '#0058be', primarySoft: 'rgba(0,88,190,0.08)',
-  error: '#ba1a1a', success: '#2e7d32', warn: '#b45309', font: "'Manrope', sans-serif",
+  error: '#ba1a1a', warn: '#b45309',
+  // FIX (2026-08-24, "salto visual" del botón SAVE al cambiar de ventana):
+  // 'Manrope' nunca se cargó en la app — caía al sans-serif genérico del
+  // sistema, con métricas de line-height distintas a 'Public Sans' (la
+  // fuente real de las otras 6 ventanas), desplazando la altura real del
+  // botón dentro de la barra de 72px aunque el padding fuera igual.
+  // success también se alinea al mismo verde exacto que usan las demás
+  // ventanas (antes #2e7d32, ahora #15803d).
+  success: '#15803d', font: "'Public Sans', sans-serif",
 };
 
 type Fase = 'NEGRA' | 'GRIS' | 'BLANCA';
@@ -79,6 +87,7 @@ export default function PresupuestoPage() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
+  const [limpiado, setLimpiado] = useState(false);
 
   const cargar = useCallback(async () => {
     if (!proyectoId) { setCargando(false); return; }
@@ -108,11 +117,37 @@ export default function PresupuestoPage() {
 
   useEffect(() => { cargar(); }, [cargar]);
 
+  // MANDATO (2026-08-24, "indicador de cambios sin guardar", verde/rojo puro
+  // en TODAS las ventanas sin excepción, sin estado neutral) — esta página
+  // no encaja 1:1 en el patrón "editar estado persistente y volver a
+  // guardarlo" de Entrada/Contexto/Logística/Dialéctica: aquí SAVE es
+  // "confirmar el borrador" (lo envía y el borrador vuelve a una fila en
+  // blanco). Igual se aplica la misma regla de dos estados: rojo mientras el
+  // borrador tiene contenido sin confirmar, verde cuando está vacío (nada
+  // pendiente) — nunca el azul neutral de antes.
+  const hayBorradorSinGuardar = borrador.some(r =>
+    r.capitulo.trim() || r.item.trim() || r.cantidad || r.rendimiento_std || r.rendimiento_real || r.costo_jornal_dia
+  );
+
   const actualizarFila = (idx: number, campo: keyof ItemForm, valor: string) => {
     setBorrador(rows => rows.map((r, i) => i === idx ? { ...r, [campo]: valor } : r));
   };
   const agregarFila = () => setBorrador(rows => [...rows, { ...NUEVO_VACIO }]);
   const quitarFila = (idx: number) => setBorrador(rows => rows.filter((_, i) => i !== idx));
+
+  // LIMPIAR — mismo botón que ya tienen las demás ventanas del Formulador,
+  // agregado aquí (2026-08-24, "misma ubicación perfecta que Entrada") junto
+  // con SAVE, que antes vivía abajo pegado a "+ Agregar fila". Solo resetea
+  // el borrador visible a una fila en blanco — nunca borra ítems ya
+  // guardados en el servidor (eso ya se hace fila por fila con "✕").
+  const limpiar = () => {
+    if (hayBorradorSinGuardar && !window.confirm('Esto va a borrar las filas del borrador que aún no has guardado. ¿Seguro que quieres continuar?')) {
+      return;
+    }
+    setBorrador([{ ...NUEVO_VACIO }]);
+    setLimpiado(true);
+    setTimeout(() => setLimpiado(false), 2000);
+  };
 
   const guardar = async () => {
     if (!proyectoId) { setSelectorAbierto(true); return; }
@@ -158,19 +193,53 @@ export default function PresupuestoPage() {
   }
 
   return (
-    <div style={{ background: T.bg, color: T.text, fontFamily: T.font, minHeight: 'calc(100vh - 48px)', padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>Presupuesto — Análisis de Precios Unitarios</h1>
-          <p style={{ margin: '4px 0 0', fontSize: 12.5, color: T.textMuted, maxWidth: 680 }}>
-            Costos en Pesos Colombianos (COP). El servidor calcula mano de obra, AIU y el total por fase
-            (Negra/Gris/Blanca) a partir de cantidad, rendimiento real y jornal — nunca se fabrica una cifra en el cliente.
-          </p>
+    <div style={{ background: T.bg, color: T.text, fontFamily: T.font, minHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column' }}>
+      {/* ── Topbar — misma barra sticky que EntradaPage.tsx (.entr__topbar):
+          72px, padding 0 32px, centrado vertical (pedido explícito 2026-08-24,
+          "misma ubicación perfecta que Entrada en todas las páginas"). Esta
+          página no tiene archivo .css propio (todo inline vía el objeto T,
+          diseño original de PresupuestoPage) — se replica la MISMA receta de
+          valores en línea en vez de crear una hoja de estilos nueva solo
+          para esto. Título a 28px (no 32 como Entrada) porque ya era así
+          desde el diseño original — es más largo que "Datos de Entrada" y
+          32px lo desbordaría junto a 3 botones en una sola fila. */}
+      <header style={{
+        position: 'sticky', top: 0, zIndex: 50,
+        background: '#ffffff', borderBottom: `1px solid ${T.border}`,
+        height: 72, padding: '0 32px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        gap: 16, flexShrink: 0,
+      }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0, color: T.text, letterSpacing: '-0.02em', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          Presupuesto — Análisis de Precios Unitarios
+        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+          <button onClick={() => setSelectorAbierto(true)} style={{ fontSize: 12, color: T.primary, background: T.primarySoft, border: `1px solid ${T.primary}33`, borderRadius: 8, padding: '9px 14px', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: T.font, fontWeight: 700 }}>
+            Cambiar proyecto
+          </button>
+          <button
+            onClick={limpiar}
+            style={{ padding: '10px 20px', background: '#fff', color: '#64748b', border: '1px solid #c6c6cd', borderRadius: 8, fontSize: 13, fontWeight: 700, letterSpacing: '0.02em', fontFamily: T.font, cursor: 'pointer', whiteSpace: 'nowrap' }}
+          >
+            {limpiado ? '✓ LIMPIADO' : 'LIMPIAR'}
+          </button>
+          <button
+            onClick={guardar}
+            disabled={guardando}
+            title={hayBorradorSinGuardar ? 'Hay cambios sin guardar' : undefined}
+            style={{ padding: '10px 28px', background: hayBorradorSinGuardar ? T.error : T.success, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, letterSpacing: '0.06em', fontFamily: T.font, cursor: guardando ? 'not-allowed' : 'pointer', opacity: guardando ? 0.6 : 1, whiteSpace: 'nowrap' }}
+          >
+            {guardando ? 'Guardando…' : hayBorradorSinGuardar ? 'SAVE' : '✓ GUARDADO'}
+          </button>
         </div>
-        <button onClick={() => setSelectorAbierto(true)} style={{ fontSize: 12, color: T.primary, background: T.primarySoft, border: `1px solid ${T.primary}33`, borderRadius: 8, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          Cambiar proyecto
-        </button>
-      </div>
+      </header>
+
+      <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      <p style={{ margin: 0, fontSize: 12.5, color: T.textMuted, maxWidth: 680 }}>
+        Costos en Pesos Colombianos (COP). El servidor calcula mano de obra, AIU y el total por fase
+        (Negra/Gris/Blanca) a partir de cantidad, rendimiento real y jornal — nunca se fabrica una cifra en el cliente.
+      </p>
 
       {error && <div style={{ background: 'rgba(186,26,26,0.08)', border: '1px solid rgba(186,26,26,0.3)', borderRadius: 8, padding: '10px 14px', fontSize: 12.5, color: T.error }} role="alert">{error}</div>}
       {mensaje && <div style={{ background: 'rgba(46,125,50,0.08)', border: '1px solid rgba(46,125,50,0.3)', borderRadius: 8, padding: '10px 14px', fontSize: 12.5, color: T.success }}>{mensaje}</div>}
@@ -252,13 +321,14 @@ export default function PresupuestoPage() {
           <button onClick={agregarFila} style={{ padding: '8px 14px', background: T.primarySoft, color: T.primary, border: `1px solid ${T.primary}33`, borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
             + Agregar fila
           </button>
-          <button onClick={guardar} disabled={guardando} style={{ padding: '8px 18px', background: T.primary, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: guardando ? 'not-allowed' : 'pointer', opacity: guardando ? 0.6 : 1, marginLeft: 'auto' }}>
-            {guardando ? 'Calculando y guardando…' : 'Calcular y guardar presupuesto'}
-          </button>
+          <span style={{ marginLeft: 'auto', fontSize: 11.5, color: T.textMuted, alignSelf: 'center' }}>
+            Usa el botón SAVE de la barra superior para calcular y guardar el presupuesto.
+          </span>
         </div>
       </section>
 
       {selectorAbierto && <ProyectoSelectorModal onClose={() => setSelectorAbierto(false)} />}
+      </div>
     </div>
   );
 }

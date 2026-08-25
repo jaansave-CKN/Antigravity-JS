@@ -65,6 +65,8 @@
 }
 .diax__save:hover { background: #003482; }
 .diax__save--saved { background: #15803d; }
+.diax__save--dirty { background: #dc2626; }
+.diax__save--dirty:hover { background: #b91c1c; }
 
 .diax__clear {
   background: #ffffff;

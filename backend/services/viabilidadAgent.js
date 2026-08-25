@@ -25,6 +25,7 @@
  * un resultado real utilizable, con el MISMO esquema en ambos casos.
  */
 import { withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
+import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
 
@@ -231,9 +232,17 @@ function calcularViabilidadHeuristica({ problema, metaEsperada, poblacionAfectad
 // REFACTOR (2026-08-19, pool de llaves): withKeyRotation() prueba cada
 // llave del pool ante 429 — mismo contrato (nunca lanza, siempre cae a
 // calcularViabilidadHeuristica ante cualquier fallo real o pool agotado).
-export async function calcularViabilidadIA(ctx) {
+// REFACTOR (2026-08-22, BYOK migración 045): si el caller pasa
+// userGeminiKeys (usuario no exento, ya resuelto por requireByokOrExento),
+// se rota sobre SU pool personal (withUserKeyRotation) en vez del pool
+// compartido del servidor — mismo contrato de nunca lanzar: cualquier
+// agotamiento (propio o del servidor) sigue cayendo al mismo cálculo
+// heurístico ya etiquetado `fuente: 'heuristica'` (real, determinista sobre
+// datos del proyecto — no es la fabricación narrativa ya rechazada para
+// EntradaIAService, así que no aplica aquí la regla de "nunca degradar").
+export async function calcularViabilidadIA(ctx, userGeminiKeys = null) {
   try {
-    const { parsed, usage } = await withKeyRotation(async (apiKey) => {
+    const intentar = async (apiKey) => {
       const upstream = await fetch(
         'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
         {
@@ -272,7 +281,11 @@ export async function calcularViabilidadIA(ctx) {
         throw new Error('Respuesta de Gemini con esquema inválido');
       }
       return { parsed: parsedLocal, usage: data?.usage ?? {} };
-    });
+    };
+
+    const { parsed, usage } = userGeminiKeys?.length
+      ? await withUserKeyRotation(userGeminiKeys, intentar)
+      : await withKeyRotation(intentar);
 
     logTokenUsage({
       userId: ctx.userId, agentName: 'viabilidad',
@@ -300,7 +313,7 @@ export async function calcularViabilidadIA(ctx) {
       calculadoEn: new Date().toISOString(),
     };
   } catch (err) {
-    if (!(err instanceof GeminiPoolExhaustedError) && !isQuotaError(err)) {
+    if (!(err instanceof GeminiPoolExhaustedError) && !(err instanceof UserKeyPoolExhaustedError) && !isQuotaError(err)) {
       logger.error('[ViabilidadAgent] Excepción Gemini no-cuota', { err: err.message });
     }
     return calcularViabilidadHeuristica(ctx);

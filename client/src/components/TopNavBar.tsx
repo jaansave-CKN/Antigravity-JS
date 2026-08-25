@@ -5,7 +5,7 @@
  *   Radar · Panel · Directorio · Favoritos · Calendario
  *
  * PILAR DERECHO (Ejecución IA 7.0):
- *   Entrada · Anexos · Biblioteca · Logística · Dialéctica · Ficha Técnica · Viabilidad · Check-List
+ *   Entrada · Dialéctica · Anexos · Biblioteca · Logística · Matriz RACI · Ficha Técnica · Viabilidad · Check-List
  *
  * Centro: Brand GGIE · RadarFondos + indicador ROOT ONLINE/OFFLINE
  */
@@ -34,6 +34,7 @@ const RIGHT_LINKS = [
   { to: '/anexos',     label: 'Anexos',           icon: '⊕', requireAuth: true  },
   { to: '/biblioteca', label: 'Biblioteca',       icon: '⊡', requireAuth: true  },
   { to: '/logistica',  label: 'Logística',        icon: '◧', requireAuth: true  },
+  { to: '/matriz-raci',label: 'Matriz RACI',      icon: '▦', requireAuth: true  },
   { to: '/ficha',      label: 'Ficha Técnica',    icon: '◫', requireAuth: true  },
   { to: '/viabilidad', label: 'Viabilidad',       icon: '◈', requireAuth: true  },
   { to: '/checklist',  label: 'Check-List',       icon: '☑', requireAuth: true  },
@@ -230,7 +231,7 @@ function Divider() {
 
 // ── Rutas de cada pilar ───────────────────────────────────────────────────────
 const PILAR_A_PATHS = ['/radar', '/panel', '/directorio', '/favoritos', '/calendario'];
-const PILAR_B_PATHS = ['/checklist', '/entrada', '/anexos', '/biblioteca', '/logistica', '/dialectica', '/ficha', '/viabilidad'];
+const PILAR_B_PATHS = ['/checklist', '/entrada', '/anexos', '/biblioteca', '/logistica', '/dialectica', '/ficha', '/matriz-raci', '/viabilidad'];
 
 // ── TOPNAVBAR PRINCIPAL ───────────────────────────────────────────────────────
 export default function TopNavBar() {

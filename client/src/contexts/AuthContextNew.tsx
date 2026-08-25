@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
+import { fetchWithRetry } from '../lib/apiClient';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface UserProfile {
@@ -120,7 +121,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: { Authorization: `Bearer ${storedToken}` },
       });
       if (!response.ok) {
-        // Token rechazado. En dev, cambiar a demo-mode-token para no bloquear el trabajo local.
+        // FIX (2026-08-22, causa raíz real de "Token requerido" en Generar con
+        // AI): 502/503 = backend/proxy todavía no disponible (reinicio de PM2,
+        // cold start — vite.config.ts devuelve 503 sintético en ECONNREFUSED),
+        // NO un rechazo real del token. Antes esto entraba a la MISMA rama que
+        // un 401 genuino y, en dev, reemplazaba la sesión real por
+        // demo-mode-token de forma silenciosa y PERMANENTE ante cualquier
+        // reinicio momentáneo — apiClient.ts nunca envía 'demo-mode-token'
+        // como Authorization real, así que el siguiente request salía sin
+        // header y el backend respondía "Token requerido" (nada que ver con
+        // BYOK/byokGate.js, que nunca llegaba a ejecutarse). Se trata igual
+        // que el bloque de red de abajo: mantener la sesión real y marcar
+        // reconectando, sin tocar localStorage.
+        if (response.status === 502 || response.status === 503) {
+          const storedUser = localStorage.getItem('auth_user');
+          if (storedUser) {
+            try {
+              const parsed = JSON.parse(storedUser);
+              setToken(storedToken);
+              setUser(parsed);
+              setIsReconnecting(true);
+              console.warn('[Auth] Backend no disponible (', response.status, ') — manteniendo sesión local (reconectando)');
+            } catch { clearSession(); }
+          } else { clearSession(); }
+          setLoading(false);
+          return;
+        }
+        // Token rechazado por el backend (backend UP, respuesta explícita: 401/403).
+        // En dev, cambiar a demo-mode-token para no bloquear el trabajo local.
         if (import.meta.env.DEV) {
           const devUser = { id: 'dev-user-001', email: 'dev@antigravity.local', nombre: 'Desarrollador Local', role: 'admin' as const, plan: 'suite', created_at: new Date().toISOString(), is_active: true };
           localStorage.setItem('auth_token', 'demo-mode-token');
@@ -158,16 +186,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         (err instanceof DOMException && err.name === 'AbortError');
 
       if (isNetworkError) {
-        // En dev, si el backend no estaba listo al arrancar, evitar propagar un JWT stale
-        // que fallará en los endpoints cuando el backend sí esté disponible.
-        if (import.meta.env.DEV) {
-          const devUser = { id: 'dev-user-001', email: 'dev@antigravity.local', nombre: 'Desarrollador Local', role: 'admin' as const, plan: 'suite', created_at: new Date().toISOString(), is_active: true };
-          localStorage.setItem('auth_token', 'demo-mode-token');
-          localStorage.setItem('auth_user', JSON.stringify(devUser));
-          setToken('demo-mode-token');
-          setUser(devUser);
-          console.warn('[Auth] Backend no disponible — modo dev activo con demo-mode-token');
-        } else {
+        // FIX (2026-08-22): unificado con la rama 502/503 de arriba — un
+        // backend caído momentáneamente (reinicio de PM2, cold start) NUNCA
+        // debe destruir una sesión real, ni en dev ni en prod. La rama dev
+        // anterior sobreescribía localStorage.auth_token con el string
+        // literal 'demo-mode-token' ante cualquier blip de red — permanente
+        // hasta un re-login manual, y la causa raíz real del "Token
+        // requerido" reportado en Generar con AI.
         const storedUser = localStorage.getItem('auth_user');
         if (storedUser) {
           try {
@@ -178,7 +203,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.warn('[Auth] Backend no disponible — manteniendo sesión local (reconectando)');
           } catch { clearSession(); }
         } else { clearSession(); }
-        }
       } else {
         // Error inesperado no relacionado con la red → cerrar sesión por seguridad
         console.warn('[Auth] Error inesperado en verificación de token, cerrando sesión:', err);
@@ -211,7 +235,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function login(email: string, password: string): Promise<LoginSubscription | undefined | MfaRequiredResult> {
     let response: Response;
     try {
-      response = await fetch(`${API_BASE}/auth/login`, {
+      // FIX (2026-08-22, "ALERTA DE SEGURIDAD: No se pudo conectar" con el
+      // backend sano un instante después): antes un solo intento crudo — un
+      // blip de red/reinicio del propio dev server en el instante exacto del
+      // clic bastaba para fallar el login sin ningún reintento. Mismo
+      // backoff exponencial ya probado en apiClient.ts para el resto de la
+      // app (502/503 y errores de red), reutilizado tal cual.
+      response = await fetchWithRetry(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
@@ -244,7 +274,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function completeMfaLogin(preAuthToken: string, code: string): Promise<LoginSubscription | undefined> {
     let response: Response;
     try {
-      response = await fetch(`${API_BASE}/auth/mfa/challenge`, {
+      // Mismo fix que login() — segundo paso del mismo flujo, mismo riesgo.
+      response = await fetchWithRetry(`${API_BASE}/auth/mfa/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preAuthToken, code: code.trim() }),

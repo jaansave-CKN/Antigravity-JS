@@ -1,0 +1,13 @@
+-- 048_gemini_retry_after_ms.sql
+--
+-- Bug real encontrado el 2026-08-24 mientras se auditaba "el reloj de cuenta
+-- regresiva dice la verdad o es una farsa": KeyState.retryAfterMs (el
+-- cooldown REAL que Google reporta en el 429, ej. "Please retry in 24.5s")
+-- se guardaba en memoria pero _persistir()/loadPersistedKeyState() nunca lo
+-- escribían ni leían de `gemini_key_state` — solo state/dailyCount/
+-- lastQuotaError sobrevivían un restart. Consecuencia real observada en
+-- logs: tras un `pm2 restart` con una llave todavía OPEN, canCall() caía al
+-- fallback fijo HALF_OPEN_PROBE_MS (5 min) en vez del ~25s real que Google
+-- ya había dicho — el cronómetro de la UI mostraba un número inventado
+-- (conservador, pero no el real) hasta el próximo 429 real.
+ALTER TABLE gemini_key_state ADD COLUMN IF NOT EXISTS retry_after_ms INTEGER;
