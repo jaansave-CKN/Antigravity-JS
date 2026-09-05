@@ -498,6 +498,7 @@ export default function ControlPanel() {
                         onMouseDown={() => setShowPwd(true)}
                         onMouseUp={() => setShowPwd(false)}
                         onMouseLeave={() => setShowPwd(false)}
+                        aria-label={showPwd ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-[#76777d]"
                         tabIndex={-1}
                       >

@@ -476,7 +476,7 @@ function RightPanel({ compact = false, riesgos, acciones, bitacora, resumen, pro
         <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
           {acciones.map((a) => (
             <div key={`${a.title}-${a.section}`} style={{ display:'flex', gap:8 }}>
-              <input type="checkbox" readOnly style={{ marginTop:3, flexShrink:0, accentColor:C.cyan }}/>
+              <input type="checkbox" readOnly aria-label={`Acción: ${a.title}`} style={{ marginTop:3, flexShrink:0, accentColor:C.cyan }}/>
               <div style={{ flex:1, display:'flex', flexDirection:'column', gap:4 }}>
                 <span style={{ fontSize:11, color:C.text, lineHeight:1.4 }}>{a.title}</span>
                 <div style={{ display:'flex', alignItems:'center', gap:5 }}>

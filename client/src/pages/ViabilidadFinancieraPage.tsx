@@ -255,7 +255,7 @@ export default function ViabilidadFinancieraPage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 24, marginBottom: 24 }}>
               <span style={{ fontSize: 14, color: T.text }}>Etapa de Construcción Finalizada</span>
               <label style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', cursor: 'pointer', width: 44, height: 24 }}>
-                <input type="checkbox" checked={etapaFinalizada} onChange={e => cambiarEtapaFinalizada(e.target.checked)}
+                <input type="checkbox" checked={etapaFinalizada} onChange={e => cambiarEtapaFinalizada(e.target.checked)} aria-label="Etapa de construcción finalizada"
                   style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', margin: 0, opacity: 0, cursor: 'pointer', zIndex: 1 }} />
                 <span style={{ position: 'absolute', inset: 0, background: etapaFinalizada ? T.primary : '#e1e2eb', borderRadius: 999, transition: 'background 0.15s', pointerEvents: 'none' }} />
                 <span style={{ position: 'absolute', top: 2, left: etapaFinalizada ? 22 : 2, width: 20, height: 20, background: '#ffffff', borderRadius: '50%', transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)', pointerEvents: 'none' }} />

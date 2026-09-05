@@ -605,6 +605,7 @@ export default function CredentialsPage({ isOnboarding = false }: { isOnboarding
                           <button
                             type="button"
                             onClick={() => setShowToken(p => ({ ...p, [connector.id]: !p[connector.id] }))}
+                            aria-label={showToken[connector.id] ? 'Ocultar token' : 'Mostrar token'}
                             style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', border:'none', background:'transparent', cursor:'pointer', color:'#9ca3af', padding:0, fontSize:13 }}
                             tabIndex={-1}
                           >

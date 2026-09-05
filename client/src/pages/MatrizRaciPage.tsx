@@ -300,6 +300,7 @@ function TabMatriz({ proyectoId, tareas, roles, asignaciones, onChange }: { proy
                 return (
                   <td key={r.id} style={{ padding: '6px', borderBottom: `1px solid ${T.border}`, textAlign: 'center' }}>
                     <select
+                      aria-label={`Rol de ${r.nombre} en ${t.nombre}`}
                       value={sigla}
                       onChange={e => cambiarCelda(t.id, r.id, e.target.value)}
                       style={{
