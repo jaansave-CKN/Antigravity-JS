@@ -222,14 +222,7 @@ const SectorDropdown = React.memo(function SectorDropdown({
               <div key={sector.nombre} className="radx__sector-sect" style={cssColor}>
                 <div
                   className="radx__sector-sect-hdr"
-                  role="button"
-                  tabIndex={0}
-                  aria-expanded={isExpanded}
                   onClick={() => toggleExpand(sector.nombre)}
-                  onKeyDown={e => {
-                    if (e.target !== e.currentTarget) return;
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(sector.nombre); }
-                  }}
                 >
                   <input
                     type="checkbox"
@@ -240,9 +233,25 @@ const SectorDropdown = React.memo(function SectorDropdown({
                     style={{ accentColor: sector.color }}
                   />
                   <span>{sector.nombre}</span>
-                  <svg className={isExpanded ? 'open' : ''} width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
-                    <path d="M9 18l6-6-6-6"/>
-                  </svg>
+                  {/* <button> real en vez de role="button" en la fila: la fila ya
+                      envuelve el checkbox de arriba, y un role="button" en el
+                      contenedor habría anidado un control interactivo dentro de
+                      otro (react-doctor/html-no-nested-interactive). Este botón es
+                      un hermano del checkbox, no un padre — sin conflicto — y da
+                      acceso real por teclado a expandir/contraer que antes no
+                      existía. stopPropagation evita el doble toggle vía el onClick
+                      de la fila. */}
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    aria-label={isExpanded ? `Contraer ${sector.nombre}` : `Expandir ${sector.nombre}`}
+                    onClick={e => { e.stopPropagation(); toggleExpand(sector.nombre); }}
+                    style={{ background: 'none', border: 'none', padding: 0, margin: 0, cursor: 'pointer', display: 'inline-flex', color: 'inherit' }}
+                  >
+                    <svg className={isExpanded ? 'open' : ''} width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
+                      <path d="M9 18l6-6-6-6"/>
+                    </svg>
+                  </button>
                 </div>
                 {isExpanded && (
                   <div className="radx__sector-subs">
@@ -307,7 +316,7 @@ function rangoPaginas(pagina: number, totalPaginas: number): (number | '…')[] 
 const Paginador = React.memo(function Paginador({ pagina, totalPaginas, onChange }: PaginadorProps) {
   if (totalPaginas <= 1) return null;
   return (
-    <div className="radx__paginador" role="navigation" aria-label="Paginación de convocatorias">
+    <nav className="radx__paginador" aria-label="Paginación de convocatorias">
       <button
         className="radx__pag-btn"
         onClick={() => onChange(pagina - 1)}
@@ -335,7 +344,7 @@ const Paginador = React.memo(function Paginador({ pagina, totalPaginas, onChange
       <span className="radx__pag-total">
         Vista <strong className="radx__pag-actual">{pagina}</strong> de {totalPaginas}
       </span>
-    </div>
+    </nav>
   );
 });
 
