@@ -7,7 +7,7 @@
  * Sin fuente Stitch — página nueva, paleta consistente con el resto del
  * Formulador (primary #0058be, bg #f7f9fb, card #ffffff, border #e0e3e5).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { http, ApiError } from '../lib/apiClient';
 
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
@@ -42,8 +42,16 @@ export default function ArbolObjetivosPage() {
   const [nodos, setNodos] = useState<Nodo[]>([]);
   const [indicadores, setIndicadores] = useState<Indicador[]>([]);
   const [generando, setGenerando] = useState(false);
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): generar/agregarIndicador/confirmarCoherencia no tenían
+  // guarda síncrona contra un segundo disparo mientras el request anterior
+  // seguía en vuelo — `disabled={generando}` solo se aplica al DOM tras el
+  // re-render.
+  const generandoRef = useRef(false);
+  const agregandoIndRef = useRef(false);
   const [cargando, setCargando] = useState(!!proyectoId);
   const [confirmando, setConfirmando] = useState(false);
+  const confirmandoRef = useRef(false);
   const [confirmResult, setConfirmResult] = useState<ConfirmResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,7 +76,8 @@ export default function ArbolObjetivosPage() {
   }, [proyectoId]);
 
   const generar = async () => {
-    if (!proyectoId || !objetivoCentral.trim()) return;
+    if (!proyectoId || !objetivoCentral.trim() || generandoRef.current) return;
+    generandoRef.current = true;
     setGenerando(true);
     setError(null);
     setConfirmResult(null);
@@ -80,12 +89,14 @@ export default function ArbolObjetivosPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo generar el árbol de objetivos');
     } finally {
+      generandoRef.current = false;
       setGenerando(false);
     }
   };
 
   const agregarIndicador = async () => {
-    if (!proyectoId || !nuevoInd.nombre.trim() || !nuevoInd.meta_total || !nuevoInd.unidad_medida.trim()) return;
+    if (!proyectoId || !nuevoInd.nombre.trim() || !nuevoInd.meta_total || !nuevoInd.unidad_medida.trim() || agregandoIndRef.current) return;
+    agregandoIndRef.current = true;
     try {
       const resp = await http.post<{ success: boolean; data?: { id: string } }>(`/api/proyectos/${proyectoId}/indicadores`, {
         nombre: nuevoInd.nombre.trim(), tipo: nuevoInd.tipo,
@@ -98,6 +109,8 @@ export default function ArbolObjetivosPage() {
       }
     } catch {
       setError('No se pudo guardar el indicador');
+    } finally {
+      agregandoIndRef.current = false;
     }
   };
 
@@ -108,7 +121,8 @@ export default function ArbolObjetivosPage() {
   };
 
   const confirmarCoherencia = async () => {
-    if (!proyectoId) return;
+    if (!proyectoId || confirmandoRef.current) return;
+    confirmandoRef.current = true;
     setConfirmando(true);
     setConfirmResult(null);
     try {
@@ -122,6 +136,7 @@ export default function ArbolObjetivosPage() {
         setConfirmResult({ ok: false, detail: [e instanceof Error ? e.message : 'Error al confirmar coherencia'] });
       }
     } finally {
+      confirmandoRef.current = false;
       setConfirmando(false);
     }
   };

@@ -125,8 +125,9 @@ export default function CalendarioPage() {
                 c.fuera ? 'calpage__cell--out' : '',
                 today ? 'calpage__cell--today' : '',
               ].filter(Boolean).join(' ');
+              const celdaKey = `${anio}-${mes}-${c.dia}-${c.fuera ? 'x' : 'm'}`;
               return (
-                <div key={i} className={cls}>
+                <div key={celdaKey} className={cls}>
                   {today && <div className="calpage__today-bar" />}
                   <span className={c.fuera ? 'calpage__daynum calpage__daynum--out' : today ? 'calpage__daynum calpage__daynum--today' : 'calpage__daynum'}>
                     {c.dia}

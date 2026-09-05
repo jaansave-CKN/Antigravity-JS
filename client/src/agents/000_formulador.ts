@@ -43,7 +43,11 @@ export interface ProyectoSnapshot {
   config:         ConfigViabilidad;
 }
 
-const PORTAFOLIO_KEY   = 'radar360_portafolio';
+// FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
+// versionada — leerPortafolio() migra la clave vieja sin perder proyectos ya
+// guardados.
+const PORTAFOLIO_KEY   = 'radar360_portafolio:v1';
+const PORTAFOLIO_KEY_LEGACY = 'radar360_portafolio';
 const LIMITE_PROYECTOS = 30;
 
 const METADATOS_DEFAULT: MetadatosAuditoria = {
@@ -54,7 +58,15 @@ const METADATOS_DEFAULT: MetadatosAuditoria = {
 
 function leerPortafolio(): ProyectoSnapshot[] {
   try {
-    const raw = localStorage.getItem(PORTAFOLIO_KEY);
+    let raw = localStorage.getItem(PORTAFOLIO_KEY);
+    if (!raw) {
+      const legado = localStorage.getItem(PORTAFOLIO_KEY_LEGACY);
+      if (legado) {
+        localStorage.setItem(PORTAFOLIO_KEY, legado);
+        localStorage.removeItem(PORTAFOLIO_KEY_LEGACY);
+        raw = legado;
+      }
+    }
     return raw ? (JSON.parse(raw) as ProyectoSnapshot[]) : [];
   } catch { return []; }
 }

@@ -27,7 +27,21 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import './AnexosCalcoView.css';
 import { http, ApiError, isAuthenticated } from '../lib/apiClient';
 
-const STORAGE_KEY = 'radar360_anexos_calco';
+// FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
+// versionada — NUNCA un renombre ciego (esta caché es parte del blindaje
+// antipérdida de Anexos): leerAnexosStorage() migra la clave vieja.
+const STORAGE_KEY = 'radar360_anexos_calco:v1';
+const STORAGE_KEY_LEGACY = 'radar360_anexos_calco';
+function leerAnexosStorage(): string | null {
+  const actual = localStorage.getItem(STORAGE_KEY);
+  if (actual) return actual;
+  const legado = localStorage.getItem(STORAGE_KEY_LEGACY);
+  if (legado) {
+    localStorage.setItem(STORAGE_KEY, legado);
+    localStorage.removeItem(STORAGE_KEY_LEGACY);
+  }
+  return legado;
+}
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
 const SIN_CARPETA = '__sin_carpeta__'; // id sintético para el bloque de soportes sin carpeta_id
 // Caché por proyecto (blindaje antipérdida 2026-08-17): antes solo se
@@ -129,7 +143,7 @@ export default function AnexosCalcoView() {
 
   useEffect(() => {
     if (!proyectoId) {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = leerAnexosStorage();
       if (raw) {
         try {
           const p = JSON.parse(raw);
@@ -193,7 +207,7 @@ export default function AnexosCalcoView() {
         // borrador guardado en modo "sin proyecto activo" (STORAGE_KEY), se migra
         // ahora a filas reales en project_anexos en vez de descartarlo — evita que
         // el usuario vea "desaparecer" soportes que ya había capturado localmente.
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const raw = leerAnexosStorage();
         let legacy: Soporte[] = [];
         if (raw) {
           try {
@@ -223,6 +237,7 @@ export default function AnexosCalcoView() {
         if (cancelled) return;
         setSoportes(migradas.length ? migradas : [nuevoSoporte(null)]);
         localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(STORAGE_KEY_LEGACY);
         const conNombreArchivo = legacy.some(s => s.anexo?.trim());
         setErrorSync(
           conNombreArchivo
@@ -237,7 +252,7 @@ export default function AnexosCalcoView() {
         // navegador. Estas filas NO quedan marcadas como persistidas: siguen
         // pendientes de sincronizar en cuanto el servidor vuelva a responder.
         const noAutenticado = (err instanceof ApiError && err.status === 401) || !isAuthenticated();
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const raw = leerAnexosStorage();
         let legacy: Soporte[] = [];
         if (raw) {
           try {
@@ -269,7 +284,7 @@ export default function AnexosCalcoView() {
   useEffect(() => {
     if (cargando) return;
     localStorage.setItem(cacheKeyDe(proyectoId), JSON.stringify(soportes));
-  }, [soportes, proyectoId]);
+  }, [soportes, proyectoId, cargando]);
 
   // FIX (2026-08-24): lookup/actualización SIEMPRE por localKey (estable),
   // nunca por `id` (que muta de temporal a real del servidor tras el primer
@@ -407,7 +422,7 @@ export default function AnexosCalcoView() {
     if (sinGuardar && !window.confirm('Esto va a quitar de la vista los soportes que aún no se han guardado en el servidor. ¿Seguro que quieres continuar?')) {
       return;
     }
-    if (!proyectoId) localStorage.removeItem(STORAGE_KEY);
+    if (!proyectoId) { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(STORAGE_KEY_LEGACY); }
     setSoportes(prev => {
       const persistidos = prev.filter(s => s.persistido);
       return persistidos.length ? persistidos : [nuevoSoporte(null)];

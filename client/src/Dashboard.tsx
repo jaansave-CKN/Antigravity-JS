@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowUp, AlertCircle, Star, Loader2, ArrowRight } from 'lucide-react';
 import RadarDashboard, { type Donor, type DonorType, type TagColor } from './components/RadarDashboard';
 import FavoritosView from './components/FavoritosView';
 import { useFavoritos } from './contexts/FavoritosContext';
 import { useSubscription } from './contexts/SubscriptionContext';
+import { leerAuthToken } from './lib/authStorage';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 const WS_URL = (API_URL || 'ws://localhost:8000').replace(/^http/, 'ws') + '/ws/live_radar';
@@ -53,7 +54,7 @@ function useRadarStatus() {
   useEffect(() => {
     const load = async () => {
       try {
-        const token = localStorage.getItem('auth_token');
+        const token = leerAuthToken();
         const r = await fetch('/api/radar/status', {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
@@ -324,6 +325,12 @@ export default function Dashboard() {
   const [searchMode, setSearchMode] = useState<'texto'|'semantica'>('texto');
   const [semanticResults, setSemanticResults] = useState<Convocatoria[] | null>(null);
   const [searchingIA, setSearchingIA] = useState(false);
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): `disabled={searchingIA}` en el botón solo se aplica al DOM
+  // tras el re-render — un segundo clic/evento antes de eso todavía puede
+  // disparar el handler de nuevo. Guarda síncrona compartida por las dos
+  // acciones que usan searchingIA (búsqueda semántica y barrido masivo).
+  const searchingIARef = useRef(false);
   const radarStatus = useRadarStatus();
 
   const connectWebSocket = useCallback(() => {
@@ -483,7 +490,7 @@ export default function Dashboard() {
   // M2 — Puente: transfiere convocatoria al Formulador si el usuario tiene acceso
   const handleFormular = useCallback(async (conv: Convocatoria) => {
     if (!hasFormulador) { navigate('/planes'); return; }
-    const token = localStorage.getItem('auth_token');
+    const token = leerAuthToken();
     if (!token || token === 'demo-mode-token') { navigate('/login'); return; }
     try {
       const r = await fetch('/api/bridge/transfer', {
@@ -513,11 +520,12 @@ export default function Dashboard() {
 
   // ── Búsqueda semántica con pgvector (POST /api/radar/buscar-masivo) ──────────
   const handleBusquedaSemantica = useCallback(async () => {
-    if (!search.trim()) return;
+    if (!search.trim() || searchingIARef.current) return;
+    searchingIARef.current = true;
     setSearchingIA(true);
     setSemanticResults(null);
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = leerAuthToken();
       const r = await fetch('/api/radar/buscar-masivo', {
         method: 'POST',
         headers: {
@@ -554,17 +562,19 @@ export default function Dashboard() {
     } catch {
       setSemanticResults([]);
     } finally {
+      searchingIARef.current = false;
       setSearchingIA(false);
     }
   }, [search]);
 
   // ── Barrido masivo por proyecto (POST /api/radar/barrido-masivo) ─────────────
   const handleBarridoMasivo = useCallback(async () => {
-    if (!search.trim()) return;
+    if (!search.trim() || searchingIARef.current) return;
+    searchingIARef.current = true;
     setSearchingIA(true);
     setSemanticResults(null);
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = leerAuthToken();
       const r = await fetch('/api/radar/barrido-masivo', {
         method: 'POST',
         headers: {
@@ -601,6 +611,7 @@ export default function Dashboard() {
     } catch {
       setSemanticResults([]);
     } finally {
+      searchingIARef.current = false;
       setSearchingIA(false);
     }
   }, [search]);

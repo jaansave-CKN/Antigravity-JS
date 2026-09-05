@@ -286,15 +286,20 @@ export default function CredentialsPage({ isOnboarding = false }: { isOnboarding
     window.location.href = '/api/auth/google';
   }, []);
 
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): handleGoogleRevoke no tenía ninguna guarda contra un
+  // segundo disparo mientras el DELETE anterior seguía en vuelo.
+  const revocandoGoogleRef = useRef(false);
   const handleGoogleRevoke = useCallback(async () => {
-    if (!token) return;
+    if (!token || revocandoGoogleRef.current) return;
+    revocandoGoogleRef.current = true;
     setGError('');
     try {
       const r = await fetch('/api/auth/google/revoke', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json().catch(() => ({ success: false }));
       if (d.success) { setGConnectedAt(null); setGSynced(false); await refreshCredentialsStatus(); }
       else setGError(d.message || 'Error al desvincular.');
-    } catch { setGError('Error de red al desvincular.'); }
+    } catch { setGError('Error de red al desvincular.'); } finally { revocandoGoogleRef.current = false; }
   }, [token, refreshCredentialsStatus]);
 
   // ── Connector handlers ────────────────────────────────────────────────────

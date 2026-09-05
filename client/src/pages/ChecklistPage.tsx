@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { http, ApiError } from '../lib/apiClient';
 
@@ -156,9 +156,14 @@ export default function ChecklistPage() {
   const [radicando, setRadicando] = useState(false);
   const [radicarError, setRadicarError] = useState<string | null>(null);
   const [radicarOk, setRadicarOk] = useState<RadicarResponse | null>(null);
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): radicar es una acción formal irreversible — sin guarda
+  // síncrona, un doble clic podía radicar el proyecto dos veces.
+  const radicandoRef = useRef(false);
 
   const radicarProyecto = async () => {
-    if (!proyectoId) return;
+    if (!proyectoId || radicandoRef.current) return;
+    radicandoRef.current = true;
     setRadicando(true);
     setRadicarError(null);
     try {
@@ -184,6 +189,7 @@ export default function ChecklistPage() {
         setRadicarError('No se pudo radicar el proyecto — intenta de nuevo.');
       }
     } finally {
+      radicandoRef.current = false;
       setRadicando(false);
     }
   };

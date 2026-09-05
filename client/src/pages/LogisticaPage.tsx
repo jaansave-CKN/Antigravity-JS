@@ -28,7 +28,21 @@ function mensajeSyncError(e: unknown, contexto: 'cargar' | 'sincronizar'): strin
   return `${base} (sin conexión con el servidor)`;
 }
 
-const STORAGE_KEY = 'radar360_logistica_tramos';
+// FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
+// versionada — NUNCA un renombre ciego (mandato de cero pérdida de datos):
+// leerLogisticaStorage() migra la clave vieja de forma transparente.
+const STORAGE_KEY = 'radar360_logistica_tramos:v1';
+const STORAGE_KEY_LEGACY = 'radar360_logistica_tramos';
+function leerLogisticaStorage(): string | null {
+  const actual = localStorage.getItem(STORAGE_KEY);
+  if (actual) return actual;
+  const legado = localStorage.getItem(STORAGE_KEY_LEGACY);
+  if (legado) {
+    localStorage.setItem(STORAGE_KEY, legado);
+    localStorage.removeItem(STORAGE_KEY_LEGACY);
+  }
+  return legado;
+}
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
 
 interface TramoApi {
@@ -80,9 +94,11 @@ const CALIDAD_EFICIENCIA: Record<CalidadVia, number> = {
   'Crítico': 30,
 };
 
-export default function LogisticaPage() {
-  const NUEVO_VACIO = { origen: '', destino: '', duracion: '', distancia: '', medio: 'Camión Turbo', estado_via: 'Pavimentada' as EstadoVia, calidad: 'Óptimo' as CalidadVia, tipo_transporte: 'Carga Pesada', orden_publico: 'No' };
+// Valor estático (sin props/estado) — a nivel de módulo para que cerrarModal
+// pueda depender de una referencia estable en su useCallback.
+const NUEVO_VACIO = { origen: '', destino: '', duracion: '', distancia: '', medio: 'Camión Turbo', estado_via: 'Pavimentada' as EstadoVia, calidad: 'Óptimo' as CalidadVia, tipo_transporte: 'Carga Pesada', orden_publico: 'No' };
 
+export default function LogisticaPage() {
   // Reactivo a ProyectoSelectorModal (dispara un evento 'storage' al cambiar
   // de proyecto) — mismo patrón que useProyectoActivo() en
   // DashboardFormuladorPage.tsx. Con useMemo (versión anterior) el valor
@@ -100,14 +116,14 @@ export default function LogisticaPage() {
   const [tramos, setTramos] = useState<Tramo[]>(() => {
     if (proyectoId) return []; // se hidrata desde el servidor abajo
     try {
-      const s = localStorage.getItem(STORAGE_KEY);
+      const s = leerLogisticaStorage();
       if (s) { const p = JSON.parse(s); return p.tramos ?? TRAMOS_INICIALES; }
     } catch { /* ignore */ }
     return TRAMOS_INICIALES;
   });
   const [observaciones, setObservaciones] = useState<string>(() => {
     try {
-      const s = localStorage.getItem(STORAGE_KEY);
+      const s = leerLogisticaStorage();
       if (s) { const p = JSON.parse(s); return p.observaciones ?? ''; }
     } catch { /* ignore */ }
     return '';
@@ -176,7 +192,7 @@ export default function LogisticaPage() {
           // vea, lo revise y confirme con SAVE — nunca se asume que el
           // servidor vacío es la verdad si el caché local dice lo contrario.
           try {
-            const cachedRaw = localStorage.getItem(STORAGE_KEY);
+            const cachedRaw = leerLogisticaStorage();
             if (cachedRaw) {
               const cached = JSON.parse(cachedRaw);
               const cachedTramos: Tramo[] = Array.isArray(cached?.tramos) ? cached.tramos : [];
@@ -266,6 +282,7 @@ export default function LogisticaPage() {
 
   const limpiar = () => {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_KEY_LEGACY);
     setTramos([]);
     setObservaciones('');
     setLimpiado(true);
@@ -297,7 +314,7 @@ export default function LogisticaPage() {
     setModalAbierto(true);
   };
 
-  const cerrarModal = () => { setModalAbierto(false); setEditandoId(null); setNuevo(NUEVO_VACIO); };
+  const cerrarModal = useCallback(() => { setModalAbierto(false); setEditandoId(null); setNuevo(NUEVO_VACIO); }, []);
 
   const guardarTramo = useCallback(() => {
     if (!nuevo.origen.trim() || !nuevo.destino.trim() || !nuevo.distancia) return;
@@ -308,7 +325,7 @@ export default function LogisticaPage() {
       setTramos(ts => [...ts, t]);
     }
     cerrarModal();
-  }, [nuevo, tramos.length, editandoId]);
+  }, [nuevo, tramos.length, editandoId, cerrarModal]);
 
   const exportarReporte = () => {
     const payload = {

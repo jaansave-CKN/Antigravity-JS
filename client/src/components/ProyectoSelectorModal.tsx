@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { getAuthHeaders } from '../lib/apiClient';
 import { C } from '../pages/DashboardFormuladorPage';
 
@@ -42,6 +42,11 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
 
   const [nombreNuevo, setNombreNuevo] = useState('');
   const [creando, setCreando]         = useState(false);
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): el guard `if (creando) return` leía estado de React, que no
+  // se actualiza sincrónicamente entre 2 invocaciones en el mismo tick (antes
+  // del primer re-render) — un ref sí protege contra eso.
+  const creandoRef = useRef(false);
 
   // ── Renombrar ────────────────────────────────────────────────────────────
   const [editandoId, setEditandoId]       = useState<string | null>(null);
@@ -80,7 +85,8 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
 
   const crearNuevo = async () => {
     const nombreArchivo = nombreNuevo.trim();
-    if (!nombreArchivo || creando) return;
+    if (!nombreArchivo || creandoRef.current) return;
+    creandoRef.current = true;
     setCreando(true);
     setError(null);
     try {
@@ -99,6 +105,7 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al crear el proyecto.');
     } finally {
+      creandoRef.current = false;
       setCreando(false);
     }
   };

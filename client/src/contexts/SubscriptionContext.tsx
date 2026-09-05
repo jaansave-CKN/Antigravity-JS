@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { leerAuthToken, esEventoDeSesion } from '../lib/authStorage';
 
 export type PlanId = 'free' | 'radar' | 'formulador' | 'suite';
 
@@ -35,7 +36,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading]           = useState(false);
 
   const loadSubscription = useCallback(async () => {
-    const token = localStorage.getItem('auth_token');
+    const token = leerAuthToken();
     if (!token || token === 'demo-mode-token') { setSubscription(DEFAULT_SUB); return; }
     setLoading(true);
     try {
@@ -64,7 +65,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const activatePlan = useCallback(async (plan: PlanId) => {
-    const token = localStorage.getItem('auth_token');
+    const token = leerAuthToken();
     if (!token || token === 'demo-mode-token') throw new Error('Debes iniciar sesión para cambiar de plan');
     const r = await fetch(`${API_BASE}/subscription/activate`, {
       method: 'POST',
@@ -99,7 +100,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     loadSubscription();
     // storage event solo dispara en *otras* pestañas; auth-login cubre el tab actual
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'auth_token') loadSubscription();
+      if (esEventoDeSesion(e)) loadSubscription();
     };
     const onAuthLogin = () => loadSubscription();
     window.addEventListener('storage', onStorage);

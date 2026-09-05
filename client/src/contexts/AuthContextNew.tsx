@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { fetchWithRetry } from '../lib/apiClient';
+import { leerAuthToken, leerAuthUser, escribirAuthToken, escribirAuthUser, borrarAuthSession } from '../lib/authStorage';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface UserProfile {
@@ -64,8 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isReconnecting, setIsReconnecting] = useState(false);
 
   useEffect(() => {
-    const storedToken = localStorage.getItem('auth_token');
-    const storedUser  = localStorage.getItem('auth_user');
+    const storedToken = leerAuthToken();
+    const storedUser  = leerAuthUser();
 
     if (!storedToken) { setLoading(false); return; }
 
@@ -100,8 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   function clearSession() {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_user');
+    borrarAuthSession();
     setToken(null);
     setUser(null);
     setHasCreds(null);
@@ -109,8 +109,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function persistSession(t: string, u: UserProfile) {
-    localStorage.setItem('auth_token', t);
-    localStorage.setItem('auth_user', JSON.stringify(u));
+    escribirAuthToken(t);
+    escribirAuthUser(u);
     setToken(t);
     setUser(u);
   }
@@ -134,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // que el bloque de red de abajo: mantener la sesión real y marcar
         // reconectando, sin tocar localStorage.
         if (response.status === 502 || response.status === 503) {
-          const storedUser = localStorage.getItem('auth_user');
+          const storedUser = leerAuthUser();
           if (storedUser) {
             try {
               const parsed = JSON.parse(storedUser);
@@ -151,8 +151,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // En dev, cambiar a demo-mode-token para no bloquear el trabajo local.
         if (import.meta.env.DEV) {
           const devUser = { id: 'dev-user-001', email: 'dev@antigravity.local', nombre: 'Desarrollador Local', role: 'admin' as const, plan: 'suite', created_at: new Date().toISOString(), is_active: true };
-          localStorage.setItem('auth_token', 'demo-mode-token');
-          localStorage.setItem('auth_user', JSON.stringify(devUser));
+          escribirAuthToken('demo-mode-token');
+          escribirAuthUser(devUser);
           setToken('demo-mode-token');
           setUser(devUser);
         } else {
@@ -193,7 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // literal 'demo-mode-token' ante cualquier blip de red — permanente
         // hasta un re-login manual, y la causa raíz real del "Token
         // requerido" reportado en Generar con AI.
-        const storedUser = localStorage.getItem('auth_user');
+        const storedUser = leerAuthUser();
         if (storedUser) {
           try {
             const parsed = JSON.parse(storedUser);
@@ -340,8 +340,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionStorage.setItem('trial_token', trialToken);
     sessionStorage.setItem('trial_user', JSON.stringify(trialUser));
     // También persistir en auth para que el contexto lo detecte
-    localStorage.setItem('auth_token', trialToken);
-    localStorage.setItem('auth_user', JSON.stringify(trialUser));
+    escribirAuthToken(trialToken);
+    escribirAuthUser(trialUser);
     setToken(trialToken);
     setUser(trialUser);
     setHasCreds(false);
@@ -354,8 +354,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       nombre: 'Demo Usuario', role: 'user',
       created_at: new Date().toISOString(), is_active: true,
     };
-    localStorage.setItem('auth_token', 'demo-mode-token');
-    localStorage.setItem('auth_user', JSON.stringify(demoUser));
+    escribirAuthToken('demo-mode-token');
+    escribirAuthUser(demoUser);
     setToken('demo-mode-token');
     setUser(demoUser);
     setHasCreds(false);
@@ -401,8 +401,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // 2. Limpieza selectiva de localStorage (solo claves de sesión conocidas)
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_user');
+    borrarAuthSession();
     localStorage.removeItem('trial_token');
     localStorage.removeItem('trial_user');
 
@@ -418,7 +417,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token) return;
     if (token === 'demo-mode-token') {
       const updated = user ? { ...user, ...data } : null;
-      if (updated) { setUser(updated); localStorage.setItem('auth_user', JSON.stringify(updated)); }
+      if (updated) { setUser(updated); escribirAuthUser(updated); }
       return;
     }
     const response = await fetch(`${API_BASE}/auth/me`, {

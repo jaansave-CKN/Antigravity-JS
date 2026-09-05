@@ -10,7 +10,21 @@ import {
 } from '../agents/Radford360_Agent';
 import { http } from '../lib/apiClient';
 
-const STORAGE_KEY = 'radar360_contexto_problema';
+// FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
+// versionada — NUNCA un renombre ciego (mandato de cero pérdida de datos):
+// leerContextoStorage() migra la clave vieja de forma transparente.
+const STORAGE_KEY = 'radar360_contexto_problema:v1';
+const STORAGE_KEY_LEGACY = 'radar360_contexto_problema';
+function leerContextoStorage(): string | null {
+  const actual = localStorage.getItem(STORAGE_KEY);
+  if (actual) return actual;
+  const legado = localStorage.getItem(STORAGE_KEY_LEGACY);
+  if (legado) {
+    localStorage.setItem(STORAGE_KEY, legado);
+    localStorage.removeItem(STORAGE_KEY_LEGACY);
+  }
+  return legado;
+}
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
 
 const CAMPOS_CONFIG: Array<{
@@ -228,8 +242,8 @@ function AuditPanel({ resultado, auditado }: AuditPanelProps) {
         {/* Alertas detalladas */}
         {resultado.alertas.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-            {resultado.alertas.map((alerta, i) => (
-              <div key={i} className={`ctx__alerta ctx__alerta--${alerta.nivel}`}>
+            {resultado.alertas.map((alerta) => (
+              <div key={`${alerta.codigo}-${alerta.campo}`} className={`ctx__alerta ctx__alerta--${alerta.nivel}`}>
                 <span className="material-symbols-outlined ctx__alerta-icon">
                   {alerta.nivel === 'bloqueo' ? 'block' : alerta.nivel === 'advertencia' ? 'warning' : 'info'}
                 </span>
@@ -256,7 +270,7 @@ const VACIO: ContextoProblema = {
 export default function ContextoPage() {
   const [campos, setCampos] = useState<ContextoProblema>(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = leerContextoStorage();
       return stored ? JSON.parse(stored) : VACIO;
     } catch { return VACIO; }
   });
@@ -266,6 +280,10 @@ export default function ContextoPage() {
   const [guardado,  setGuardado]    = useState(false);
   const [auditando, setAuditando]   = useState(false);
   const [guardando, setGuardando]   = useState(false);
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): handleGuardar no tenía ninguna guarda contra un segundo
+  // disparo mientras el PATCH anterior seguía en vuelo.
+  const guardandoRef = useRef(false);
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
   const [limpiadoFlash, setLimpiadoFlash] = useState(false);
 
@@ -294,12 +312,13 @@ export default function ContextoPage() {
   }, [campos]);
 
   const handleGuardar = useCallback(async () => {
-    if (!resultado?.aprobado) return;
+    if (!resultado?.aprobado || guardandoRef.current) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(campos));
 
     const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
     if (!proyectoId) { ultimoGuardadoRef.current = JSON.stringify(campos); setGuardado(true); return; } // sin proyecto activo — solo cache local
 
+    guardandoRef.current = true;
     setGuardando(true);
     setErrorGuardar(null);
     try {
@@ -314,6 +333,7 @@ export default function ContextoPage() {
     } catch {
       setErrorGuardar('No se pudo guardar el contexto en el servidor — se guardó localmente.');
     } finally {
+      guardandoRef.current = false;
       setGuardando(false);
     }
   }, [campos, resultado]);
@@ -325,6 +345,7 @@ export default function ContextoPage() {
     setAuditado(false);
     setGuardado(false);
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_KEY_LEGACY);
     setLimpiadoFlash(true);
     setTimeout(() => setLimpiadoFlash(false), 2000);
   }, []);

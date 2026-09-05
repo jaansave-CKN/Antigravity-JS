@@ -13,7 +13,7 @@
  * consume el cálculo de validación real del backend (nunca reimplementado
  * aquí — ver backend/services/raciService.js).
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { http } from '../lib/apiClient';
 
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
@@ -149,10 +149,15 @@ function TabRegistros({ proyectoId, tareas, roles, onChange }: { proyectoId: str
   const [nuevoRol, setNuevoRol] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): ninguna de las dos acciones revisaba `guardando` antes de
+  // proceder — guarda compartida, igual que comparten el estado `guardando`.
+  const guardandoRef = useRef(false);
 
   const agregarTarea = async () => {
     const nombre = nuevaTarea.trim();
-    if (!nombre) return;
+    if (!nombre || guardandoRef.current) return;
+    guardandoRef.current = true;
     setGuardando(true);
     setError(null);
     try {
@@ -160,12 +165,13 @@ function TabRegistros({ proyectoId, tareas, roles, onChange }: { proyectoId: str
       setNuevaTarea('');
       onChange();
     } catch { setError('No se pudo agregar la tarea.'); }
-    finally { setGuardando(false); }
+    finally { guardandoRef.current = false; setGuardando(false); }
   };
 
   const agregarRol = async () => {
     const nombre = nuevoRol.trim();
-    if (!nombre) return;
+    if (!nombre || guardandoRef.current) return;
+    guardandoRef.current = true;
     setGuardando(true);
     setError(null);
     try {
@@ -173,7 +179,7 @@ function TabRegistros({ proyectoId, tareas, roles, onChange }: { proyectoId: str
       setNuevoRol('');
       onChange();
     } catch { setError('No se pudo agregar el rol.'); }
-    finally { setGuardando(false); }
+    finally { guardandoRef.current = false; setGuardando(false); }
   };
 
   const borrarTarea = async (id: string) => {

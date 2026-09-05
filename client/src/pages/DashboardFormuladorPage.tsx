@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { getAuthHeaders } from '../lib/apiClient';
 import ProyectoSelectorModal from '../components/ProyectoSelectorModal';
@@ -299,8 +299,8 @@ function LeftSidebar() {
 
       {/* Navegación */}
       <nav style={{ padding:'6px 0' }}>
-        {NAV_ITEMS.map((item, i) => (
-          <div key={i} style={{
+        {NAV_ITEMS.map((item) => (
+          <div key={item.label} style={{
             display:'flex', alignItems:'center', gap:9, padding:'8px 14px',
             cursor:'pointer',
             borderLeft: item.active ? `3px solid ${C.cyan}` : '3px solid transparent',
@@ -316,8 +316,8 @@ function LeftSidebar() {
         <div style={{ padding:'10px 14px 4px', fontSize:9, fontWeight:700, color:C.textDim, textTransform:'uppercase', letterSpacing:'0.09em' }}>
           Accesos Rápidos
         </div>
-        {QUICK_ACCESS.map((item, i) => (
-          <div key={i} style={{
+        {QUICK_ACCESS.map((item) => (
+          <div key={item.label} style={{
             display:'flex', alignItems:'center', gap:8, padding:'6px 14px',
             cursor:'pointer', color:C.textDim, fontSize:11,
           }}>
@@ -441,8 +441,8 @@ function RightPanel({ compact = false, riesgos, acciones, bitacora, resumen, pro
           <p style={{ fontSize:10, color:C.textDim, fontStyle:'italic', margin:0 }}>Sin riesgos identificados por ahora.</p>
         ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
-          {riesgos.map((r, i) => (
-            <div key={i} style={{
+          {riesgos.map((r) => (
+            <div key={`${r.title}-${r.section}`} style={{
               borderLeft:`3px solid ${RISK_COLOR[r.level]}`,
               paddingLeft:9, display:'flex', flexDirection:'column', gap:3,
               background:C.bgRightRow, borderRadius:'0 6px 6px 0', padding:'7px 8px 7px 9px',
@@ -474,8 +474,8 @@ function RightPanel({ compact = false, riesgos, acciones, bitacora, resumen, pro
           <p style={{ fontSize:10, color:C.textDim, fontStyle:'italic', margin:0 }}>Registra riesgos y medidas de mitigación en el módulo M10 — Compliance.</p>
         ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
-          {acciones.map((a, i) => (
-            <div key={i} style={{ display:'flex', gap:8 }}>
+          {acciones.map((a) => (
+            <div key={`${a.title}-${a.section}`} style={{ display:'flex', gap:8 }}>
               <input type="checkbox" readOnly style={{ marginTop:3, flexShrink:0, accentColor:C.cyan }}/>
               <div style={{ flex:1, display:'flex', flexDirection:'column', gap:4 }}>
                 <span style={{ fontSize:11, color:C.text, lineHeight:1.4 }}>{a.title}</span>
@@ -758,9 +758,14 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
   const { global: viabilidadGlobal, pendientes: pendientesCount } = calcularSaludGlobal(sections);
   const { riesgo: riesgoCompliance, estadoLegal, refetch: refetchEstadoLegal } = useComplianceRiesgo(proyectoId);
   const [saneando, setSaneando] = useState(false);
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): `if (saneando) return` leía estado de React, que no se
+  // actualiza sincrónicamente entre 2 invocaciones en el mismo tick.
+  const saneandoRef = useRef(false);
 
   async function saneamientoAprobado() {
-    if (!proyectoId || saneando) return;
+    if (!proyectoId || saneandoRef.current) return;
+    saneandoRef.current = true;
     setSaneando(true);
     try {
       const res = await fetch(`/api/proyectos/${proyectoId}/estado-legal`, {
@@ -771,6 +776,7 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
       });
       if (res.ok) refetchEstadoLegal();
     } finally {
+      saneandoRef.current = false;
       setSaneando(false);
     }
   }
@@ -950,8 +956,8 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
                       { icon:<CheckSquare size={10} color={C.cyan}/>,  label:'Indic.',  value: String(resumen.indicadores), color:C.cyan    },
                       { icon:<Paperclip size={10} color={C.textDim}/>, label:'Evid.',   value: String(resumen.anexos), color:C.text    },
                       { icon:<Clock size={10} color="#f59e0b"/>,        label:'Pend.',   value: String(resumen.pendientes),     color:'#f59e0b' },
-                    ].map((item, i) => (
-                      <div key={i} style={{ display:'flex', alignItems:'center', gap:2, flexShrink:0 }}>
+                    ].map((item) => (
+                      <div key={item.label} style={{ display:'flex', alignItems:'center', gap:2, flexShrink:0 }}>
                         {item.icon}
                         <span style={{ fontSize:9, color:C.textMuted, whiteSpace:'nowrap' }}>{item.label}</span>
                         <span style={{ fontSize:10, fontWeight:700, color:item.color }}>{item.value}</span>
@@ -971,8 +977,8 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
                       { icon:<Paperclip size={13} color={C.textDim}/>, label:'Evidencias',          value: String(resumen.anexos),   color:C.text      },
                       { icon:<Clock size={13} color="#f59e0b"/>,        label:'Pendientes',          value: String(resumen.pendientes),         color:'#f59e0b'   },
                       { icon:<FileText size={13} color={C.textDim}/>,  label:'Última Modif.',       value: ultimaModifLabel,color:C.textMuted },
-                    ].map((item, i) => (
-                      <div key={i} style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
+                    ].map((item) => (
+                      <div key={item.label} style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
                         {item.icon}
                         <span style={{ fontSize:11, color:C.textMuted }}>{item.label}</span>
                         <span style={{ fontSize:11, fontWeight:700, color:item.color }}>{item.value}</span>

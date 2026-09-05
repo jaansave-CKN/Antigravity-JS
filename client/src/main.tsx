@@ -13,6 +13,7 @@ import { SearchProvider } from './contexts/SearchContext';
 import FormuladorLayout from './components/FormuladorLayout';
 import AppLeftNav from './components/AppLeftNav';
 import ByokRequiredModal from './components/ByokRequiredModal';
+import { leerAuthToken, borrarAuthSession } from './lib/authStorage';
 import './index.css';
 
 // ── Code-splitting: cada página (y sus dependencias pesadas — leaflet, xlsx,
@@ -80,9 +81,8 @@ if (!localStorage.getItem('rf360_proyecto_activo') && !localStorage.getItem('rf3
 // localStorage (nunca reintenta el login real) — quedó así por un bug de CSP
 // ya corregido (VITE_API_URL apuntaba a "localhost" en vez de "127.0.0.1").
 // Sin este bootstrap, ningún reload futuro volvería a probar el backend real.
-if (localStorage.getItem('auth_token') === 'demo-mode-token' && !localStorage.getItem('rf360_bootstrap_demofix')) {
-  localStorage.removeItem('auth_token');
-  localStorage.removeItem('auth_user');
+if (leerAuthToken() === 'demo-mode-token' && !localStorage.getItem('rf360_bootstrap_demofix')) {
+  borrarAuthSession();
   localStorage.setItem('rf360_bootstrap_demofix', '1');
 }
 
@@ -296,7 +296,7 @@ function AppRoutes() {
   // Guard: si React cree que hay sesión pero localStorage ya no tiene token
   // (purgado por otra pestaña, extensión o Clear-Site-Data), forzar logout local.
   React.useEffect(() => {
-    if (isAuthenticated && token !== 'demo-mode-token' && !localStorage.getItem('auth_token')) {
+    if (isAuthenticated && token !== 'demo-mode-token' && !leerAuthToken()) {
       logout();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

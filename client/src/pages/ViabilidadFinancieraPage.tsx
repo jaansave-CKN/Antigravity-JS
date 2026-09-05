@@ -15,7 +15,7 @@
  *
  * AXIOMA COP: todo formateo de moneda usa Intl.NumberFormat('es-CO', { currency: 'COP' }).
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { http, ApiError } from '../lib/apiClient';
 import ProyectoSelectorModal from '../components/ProyectoSelectorModal';
 import { cop as COP } from '../lib/currencyFormat';
@@ -80,6 +80,10 @@ export default function ViabilidadFinancieraPage() {
 
   const [cargando, setCargando] = useState(true);
   const [calculando, setCalculando] = useState(false);
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): calcular() no tenía ninguna guarda contra un segundo
+  // disparo mientras el POST anterior seguía en vuelo.
+  const calculandoRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
@@ -114,6 +118,8 @@ export default function ViabilidadFinancieraPage() {
 
   const calcular = async () => {
     if (!proyectoId) { setSelectorAbierto(true); return; }
+    if (calculandoRef.current) return;
+    calculandoRef.current = true;
     setCalculando(true);
     setError(null);
     try {
@@ -129,6 +135,7 @@ export default function ViabilidadFinancieraPage() {
       console.error('[ViabilidadFinanciera] Error calculando:', e);
       setError(mensajeError(e));
     } finally {
+      calculandoRef.current = false;
       setCalculando(false);
     }
   };
