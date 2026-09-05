@@ -220,6 +220,10 @@ const SectorDropdown = React.memo(function SectorDropdown({
             const cssColor = { '--sector-color': sector.color } as React.CSSProperties;
             return (
               <div key={sector.nombre} className="radx__sector-sect" style={cssColor}>
+                {/* react-doctor/no-static-element-interactions omitido a propósito en
+                    este div: el <button> real de abajo (ver su comentario) ya da acceso
+                    de teclado completo a expandir/contraer; este onClick es solo un área
+                    de clic más grande para mouse, redundante con ese botón. */}
                 <div
                   className="radx__sector-sect-hdr"
                   onClick={() => toggleExpand(sector.nombre)}
