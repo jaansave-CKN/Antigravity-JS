@@ -207,6 +207,7 @@ function MfaSettingsCard() {
                 value={pwdDesactivar}
                 onChange={e => setPwdDesactivar(e.target.value)}
                 placeholder="CONTRASEÑA ACTUAL"
+                aria-label="Contraseña actual para desactivar MFA"
                 required
                 autoComplete="current-password"
                 className="w-full px-3 py-2 bg-[#f7f9fb] border border-[#c6c6cd] rounded-lg text-[#191c1e] text-sm font-mono placeholder-[#76777d] focus:outline-none focus:border-[#191c1e] focus:ring-1 focus:ring-[#191c1e] transition-colors"
@@ -262,6 +263,7 @@ function MfaSettingsCard() {
                 value={confirmCode}
                 onChange={e => setConfirmCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="CÓDIGO DE 6 DÍGITOS"
+                aria-label="Código de verificación de 6 dígitos"
                 required
                 className="w-full px-3 py-2 bg-white border border-[#c6c6cd] rounded-lg text-[#191c1e] text-sm font-mono text-center tracking-[0.3em] placeholder-[#76777d] focus:outline-none focus:border-[#191c1e] focus:ring-1 focus:ring-[#191c1e] transition-colors"
               />

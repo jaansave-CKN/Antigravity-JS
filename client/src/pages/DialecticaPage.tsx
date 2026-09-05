@@ -547,6 +547,7 @@ export default function DialecticaPage() {
                           <input
                             className="diax__add-input"
                             placeholder="+ Agregar término..."
+                            aria-label="Agregar término a lista de oro"
                             value={inputMap[inputKey] ?? ''}
                             onChange={e => setInputMap(m => ({ ...m, [inputKey]: e.target.value }))}
                             onKeyDown={e => {
@@ -603,6 +604,7 @@ export default function DialecticaPage() {
                           <input
                             className="diax__add-input"
                             placeholder="+ Agregar término..."
+                            aria-label="Agregar término a lista negra"
                             value={inputMap[inputKey] ?? ''}
                             onChange={e => setInputMap(m => ({ ...m, [inputKey]: e.target.value }))}
                             onKeyDown={e => {
@@ -639,8 +641,9 @@ export default function DialecticaPage() {
                   : 'Esta acción eliminará el grupo y todos sus términos. No se puede deshacer.'}
               </p>
               <div className="diax__modal-pin-wrap">
-                <label className="diax__modal-pin-label">Clave de acceso</label>
+                <label className="diax__modal-pin-label" htmlFor="diax-modal-pin">Clave de acceso</label>
                 <input
+                  id="diax-modal-pin"
                   className={`diax__modal-pin-input${pinError ? ' diax__modal-pin-input--error' : ''}`}
                   type="password"
                   maxLength={8}

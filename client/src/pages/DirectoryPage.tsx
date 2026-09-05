@@ -703,6 +703,7 @@ export default function DirectoryPage() {
                   className="dirx__link-input"
                   type="url"
                   placeholder="Agregar link..."
+                  aria-label="Agregar link"
                   value={linkInput}
                   onChange={e => {
                     setLinkInput(e.target.value);
@@ -916,6 +917,7 @@ export default function DirectoryPage() {
                     <input
                       type="url"
                       placeholder="Pega aquí la URL exacta de convocatorias/grants y vuelve a Buscar"
+                      aria-label="URL exacta de convocatorias para re-evaluar"
                       value={urlConvInput}
                       onChange={e => setUrlConvInput(e.target.value)}
                       style={{ flex: 1, fontSize: 12, padding: '4px 8px', border: '1px solid #d97706', borderRadius: 6, outline: 'none', background: '#fffbeb', color: '#92400e' }}
@@ -960,6 +962,7 @@ export default function DirectoryPage() {
               className="dirx__search-input"
               type="text"
               placeholder="Buscar por nombre, sigla, categoría o país…"
+              aria-label="Buscar entidades por nombre, sigla, categoría o país"
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
             />
