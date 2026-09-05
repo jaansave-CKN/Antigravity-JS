@@ -106,13 +106,14 @@ function ReportErrorButton({ token }: { token: string | null }) {
          <button onClick={send} disabled={!message.trim()} style={btnStyle('#60c9ff', '#003f58')}>
            OK
          </button>
-        <button onClick={() => setState('idle')} style={{ background: 'none', border: 'none', color: '#557997', cursor: 'pointer', fontSize: 14 }}>✕</button>
+        <button onClick={() => setState('idle')} aria-label="Cerrar" style={{ background: 'none', border: 'none', color: '#557997', cursor: 'pointer', fontSize: 14 }}>✕</button>
       </div>
     );
   }
 
   return (
     <button onClick={() => state === 'sent' ? setState('idle') : setState('open')}
+      aria-label={state === 'sent' ? 'Reporte enviado' : 'Reportar un problema'}
       style={{
         background: 'none', border: '1px solid transparent', borderRadius: 3,
         padding: '3px 4px', flexShrink: 0,
