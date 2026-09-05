@@ -6,7 +6,13 @@ services:
     buildCommand: npm install && npm run build
     startCommand: node server.js
     healthCheckPath: /api/health
-    autoDeploy: true
+    # false a propósito (2026-09-05): con true, Render desplegaba en cuanto
+    # detectaba el push, sin esperar a que el job `ci` de radar.yml corriera
+    # tsc/build — el gate `needs: ci` del job `deploy` era cosmético, el
+    # código roto ya estaba en producción antes de que CI terminara de fallar.
+    # Ahora el único disparador de deploy es la llamada a la API de Render en
+    # radar.yml, que sí espera a que tsc/build pasen.
+    autoDeploy: false
     disk:
       name: radar-sqlite
       mountPath: /app/backend             # radar.db persiste aquí si no hay DATABASE_URL
