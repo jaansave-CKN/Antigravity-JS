@@ -2,6 +2,16 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 
+// Pura, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+function validatePassword(pw: string): string | null {
+  if (pw.length < 8) return 'La contraseña debe tener al menos 8 caracteres.';
+  if (!/[A-Z]/.test(pw)) return 'Debe contener al menos una letra mayúscula.';
+  if (!/[0-9]/.test(pw)) return 'Debe contener al menos un número.';
+  if (!/[^a-zA-Z0-9\s]/.test(pw)) return 'Debe contener al menos un carácter especial (@, #, $, etc.).';
+  return null;
+}
+
 export default function RegisterPage() {
   const { register } = useAuth();
   const navigate = useNavigate();
@@ -15,14 +25,6 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [aceptaTerminos, setAceptaTerminos] = useState(false);
-
-  function validatePassword(pw: string): string | null {
-    if (pw.length < 8) return 'La contraseña debe tener al menos 8 caracteres.';
-    if (!/[A-Z]/.test(pw)) return 'Debe contener al menos una letra mayúscula.';
-    if (!/[0-9]/.test(pw)) return 'Debe contener al menos un número.';
-    if (!/[^a-zA-Z0-9\s]/.test(pw)) return 'Debe contener al menos un carácter especial (@, #, $, etc.).';
-    return null;
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

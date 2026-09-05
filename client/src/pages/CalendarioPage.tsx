@@ -24,13 +24,29 @@ const EVENTOS: EventoCal[] = [
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const DIAS = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+const HOY = { dia: 6, mes: 2, anio: 2024 }; // Today indicator de la fuente
+
+// Pura, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+function exportarICS() {
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//RadarFormulador360//Calendario//ES'];
+  EVENTOS.forEach((e, i) => {
+    const dt = `${e.anio}${String(e.mes + 1).padStart(2, '0')}${String(e.dia).padStart(2, '0')}`;
+    lines.push('BEGIN:VEVENT', `UID:rf360-${i}@radarformulador`, `DTSTART;VALUE=DATE:${dt}`, `SUMMARY:${e.titulo}`, 'END:VEVENT');
+  });
+  lines.push('END:VCALENDAR');
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'calendario_convocatorias.ics';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 export default function CalendarioPage() {
   const [anio, setAnio] = useState(2024);
   const [mes, setMes] = useState(2); // Marzo 2024 — mes de la fuente Stitch
   const [vista, setVista] = useState<'mes' | 'semana'>('mes');
-
-  const hoy = { dia: 6, mes: 2, anio: 2024 }; // Today indicator de la fuente
 
   const celdas = useMemo(() => {
     const primerDia = new Date(anio, mes, 1).getDay();
@@ -53,22 +69,7 @@ export default function CalendarioPage() {
   const eventosDe = (dia: number) =>
     EVENTOS.filter(e => e.dia === dia && e.mes === mes && e.anio === anio);
 
-  const esHoy = (dia: number) => dia === hoy.dia && mes === hoy.mes && anio === hoy.anio;
-
-  const exportarICS = () => {
-    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//RadarFormulador360//Calendario//ES'];
-    EVENTOS.forEach((e, i) => {
-      const dt = `${e.anio}${String(e.mes + 1).padStart(2, '0')}${String(e.dia).padStart(2, '0')}`;
-      lines.push('BEGIN:VEVENT', `UID:rf360-${i}@radarformulador`, `DTSTART;VALUE=DATE:${dt}`, `SUMMARY:${e.titulo}`, 'END:VEVENT');
-    });
-    lines.push('END:VCALENDAR');
-    const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'calendario_convocatorias.ics';
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
+  const esHoy = (dia: number) => dia === HOY.dia && mes === HOY.mes && anio === HOY.anio;
 
   return (
     <div className="calpage">

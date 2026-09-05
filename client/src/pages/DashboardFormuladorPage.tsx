@@ -342,14 +342,18 @@ function LeftSidebar() {
   );
 }
 
+// Puras, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+const actionColor = (p?: string) => p==='Alta' ? '#dc2626' : p==='Media' ? '#d97706' : '#16a34a';
+const priorityColor = (p?: string) => p==='Alta' ? '#dc2626' : p==='Media' ? '#d97706' : '#16a34a';
+const colorSalud = (v: number | null) => v === null ? '#94a3b8' : v >= 80 ? '#22c55e' : v >= 60 ? '#3b82f6' : v >= 40 ? '#f59e0b' : '#ef4444';
+
 // ── Panel derecho ─────────────────────────────────────────────────────────────
 interface ResumenProyecto { indicadores: number; anexos: number; pendientes: number; totalDimensiones: number; viabilidadGlobal: number | null }
 
 function RightPanel({ compact = false, riesgos, acciones, bitacora, resumen, proyectoId }: {
   compact?: boolean; riesgos: Risk[]; acciones: Action[]; bitacora: LogEntry[]; resumen: ResumenProyecto; proyectoId?: string;
 }) {
-  const actionColor = (p?:string) => p==='Alta' ? '#dc2626' : p==='Media' ? '#d97706' : '#16a34a';
-  const priorityColor = (p?:string) => p==='Alta' ? '#dc2626' : p==='Media' ? '#d97706' : '#16a34a';
   const w = compact ? 220 : 300;
   const salud = resumen.viabilidadGlobal;
   const saludColor = salud === null ? '#94a3b8' : salud >= 80 ? '#22c55e' : salud >= 60 ? '#3b82f6' : salud >= 40 ? '#f59e0b' : '#ef4444';
@@ -814,7 +818,6 @@ export default function DashboardFormuladorPage({ embedded = false, proyectoId: 
     totalDimensiones: sections.length,
     viabilidadGlobal,
   };
-  const colorSalud = (v: number | null) => v === null ? '#94a3b8' : v >= 80 ? '#22c55e' : v >= 60 ? '#3b82f6' : v >= 40 ? '#f59e0b' : '#ef4444';
   const ultimaModifLabel = bitacora[0] ? `${bitacora[0].date} ${bitacora[0].time}` : 'Sin actividad';
 
   return (

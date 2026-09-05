@@ -22,6 +22,23 @@ const STORAGE_KEY_LEGACY = 'radar_directory_entries';
 const FAV_KEY = 'radar_directory_favoritos:v1';
 const FAV_KEY_LEGACY = 'radar_directory_favoritos';
 
+// Puras, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+
+// Extrae hostname normalizado de una URL (para comparación de duplicados)
+function extractHost(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./i, '').toLowerCase(); }
+  catch { return url.toLowerCase().replace(/^www\./i, ''); }
+}
+
+// Normaliza una URL a su hostname sin protocolo, sin www., sin path ni trailing slash.
+// Cubre todos los formatos: https://www.x.co/ → x.co | www.x.co → x.co | x.co → x.co
+function bareHost(u: string): string {
+  if (!u) return '';
+  try { return new URL(u).hostname.replace(/^www\./i, ''); }
+  catch { return u.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split(/[/?#]/)[0]; }
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface DirectoryEntry {
   id: string;
@@ -339,12 +356,6 @@ export default function DirectoryPage() {
     }
   }
 
-  // Extrae hostname normalizado de una URL (para comparación de duplicados)
-  function extractHost(url: string): string {
-    try { return new URL(url).hostname.replace(/^www\./i, '').toLowerCase(); }
-    catch { return url.toLowerCase().replace(/^www\./i, ''); }
-  }
-
   // ── Selección múltiple ────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -620,14 +631,6 @@ export default function DirectoryPage() {
     localStorage.setItem(FAV_KEY, JSON.stringify([...next]));
     setFavoritos(next);
   }
-
-  // Normaliza una URL a su hostname sin protocolo, sin www., sin path ni trailing slash.
-  // Cubre todos los formatos: https://www.x.co/ → x.co | www.x.co → x.co | x.co → x.co
-  const bareHost = (u: string): string => {
-    if (!u) return '';
-    try { return new URL(u).hostname.replace(/^www\./i, ''); }
-    catch { return u.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split(/[/?#]/)[0]; }
-  };
 
   const filtradas = useMemo(() => {
     // Normalizar palabras del query: URLs → hostname bare (sin protocolo/www./path)

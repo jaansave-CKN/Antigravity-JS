@@ -2,6 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { http, ApiError } from '../lib/apiClient';
 
+// Pura, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+function fmt(iso: string) {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleString('es-CO');
+}
+
 interface UsuarioAdmin {
   id: string;
   email: string;
@@ -99,11 +106,6 @@ export default function AdminPermisosPage() {
       setGuardandoId(null);
     }
   }
-
-  const fmt = (iso: string) => {
-    const d = new Date(iso);
-    return isNaN(d.getTime()) ? iso : d.toLocaleString('es-CO');
-  };
 
   return (
     <div style={{ minHeight: '100%', background: '#f7f9fb' }}>

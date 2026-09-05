@@ -18,6 +18,10 @@ import LanguageToggle from './LanguageToggle';
 // ── Estado de traducción (espejo del CHECK en SQL) ────────────────────────────
 export type TranslationStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'skipped';
 
+// Pura, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+const fmt = (n?: number) => n != null ? `$${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—';
+
 // ── Tipos del payload bilingüe ────────────────────────────────────────────────
 interface ObjectiveNode {
   tipo?:        string;
@@ -219,7 +223,6 @@ function BudgetTable({ items, lang }: { items: BudgetItem[]; lang: string }) {
       {lang === 'en' ? 'No budget items yet.' : 'Sin ítems de presupuesto.'}
     </p>;
   }
-  const fmt = (n?: number) => n != null ? `$${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}` : '—';
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'monospace' }}>

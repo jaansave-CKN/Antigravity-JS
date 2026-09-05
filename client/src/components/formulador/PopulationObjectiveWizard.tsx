@@ -18,6 +18,14 @@
 
 import { useState, useCallback, useId } from 'react';
 
+// Pura, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+function resolveItems(set: Set<string>, otroText: string): string[] {
+  const items = Array.from(set).filter(i => i !== 'Otro');
+  if (set.has('Otro') && otroText.trim()) items.push(otroText.trim());
+  return items;
+}
+
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
 interface PoblacionPayload {
@@ -281,13 +289,6 @@ export default function PopulationObjectiveWizard({ initialData, onSubmit, onBac
   const toggleA = toggleSet(setInstitucional);
   const toggleB = toggleSet(setComunitaria);
   const toggleC = toggleSet(setProductiva);
-
-  // ── Resolver items con "Otro" ─────────────────────────────────────────────
-  const resolveItems = (set: Set<string>, otroText: string): string[] => {
-    const items = Array.from(set).filter(i => i !== 'Otro');
-    if (set.has('Otro') && otroText.trim()) items.push(otroText.trim());
-    return items;
-  };
 
   // ── Conteos para badges ───────────────────────────────────────────────────
   const countA = institucional.size - (institucional.has('Otro') ? 1 : 0) + (institucional.has('Otro') && otroInstitucional.trim() ? 1 : 0);

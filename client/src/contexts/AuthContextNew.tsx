@@ -56,6 +56,18 @@ const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : '/api';
 
+// Pura, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+async function sendPasswordReset(email: string) {
+  try {
+    await fetch(`${API_BASE}/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+  } catch {}
+}
+
 // ── Provider ──────────────────────────────────────────────────────────────────
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]               = useState<UserProfile | null>(null);
@@ -441,17 +453,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let data: any;
     try { data = JSON.parse(text); } catch { throw new Error('Error al cambiar la contraseña.'); }
     if (!response.ok) throw new Error(data?.message || 'Error al cambiar la contraseña.');
-  }
-
-  // ── sendPasswordReset ──────────────────────────────────────────────────────
-  async function sendPasswordReset(email: string) {
-    try {
-      await fetch(`${API_BASE}/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-    } catch {}
   }
 
   // ── validateSessionAction ──────────────────────────────────────────────────
