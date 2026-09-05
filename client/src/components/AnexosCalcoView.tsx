@@ -646,6 +646,7 @@ export default function AnexosCalcoView() {
                   <input
                     className="anx__newcarpeta-input"
                     autoFocus
+                    aria-label="Nombre de la carpeta"
                     placeholder="Nombre de la carpeta"
                     value={nombreNuevaCarpeta}
                     onChange={e => setNombreNuevaCarpeta(e.target.value)}
@@ -756,18 +757,18 @@ export default function AnexosCalcoView() {
                           : idx + 1}
                       </span>
                       <div className="anx__td anx__td--desc">
-                        <input className="anx__input" placeholder="Descripcion del soporte" value={s.descripcion}
+                        <input className="anx__input" aria-label="Descripción del soporte" placeholder="Descripcion del soporte" value={s.descripcion}
                           onChange={e => actualizar(s.localKey, { descripcion: e.target.value })}
                           onBlur={() => guardarEnServidor(s.localKey)} />
                       </div>
                       <div className="anx__td">
-                        <input className="anx__input anx__input--center" placeholder="TEXTO" value={s.texto}
+                        <input className="anx__input anx__input--center" aria-label="Texto del soporte" placeholder="TEXTO" value={s.texto}
                           onChange={e => actualizar(s.localKey, { texto: e.target.value })}
                           onBlur={() => guardarEnServidor(s.localKey)} />
                       </div>
                       <div className="anx__td">
                         <div className="anx__attach-wrap">
-                          <input className="anx__input anx__input--attach" placeholder="." value={s.anexo}
+                          <input className="anx__input anx__input--attach" aria-label="Nombre del anexo adjunto" placeholder="." value={s.anexo}
                             onChange={e => actualizar(s.localKey, { anexo: e.target.value })} />
                           {s.persistido && s.anexo && (
                             <button className="anx__download-btn" title="Descargar anexo" onClick={() => descargar(s)}>
@@ -791,7 +792,7 @@ export default function AnexosCalcoView() {
                         </div>
                       </div>
                       <div className="anx__td">
-                        <input className="anx__input anx__input--center" placeholder="WWW" value={s.link}
+                        <input className="anx__input anx__input--center" aria-label="Enlace (URL) del soporte" placeholder="WWW" value={s.link}
                           title={tituloLink(s.link)}
                           onChange={e => actualizar(s.localKey, { link: e.target.value })}
                           onBlur={() => guardarEnServidor(s.localKey)} />

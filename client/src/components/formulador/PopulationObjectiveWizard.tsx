@@ -398,6 +398,7 @@ export default function PopulationObjectiveWizard({ initialData, onSubmit, onBac
                   <input
                     type="text"
                     placeholder="Especifica la entidad..."
+                    aria-label="Especifica la entidad institucional"
                     value={otroInstitucional}
                     onChange={e => setOtroInstitucional(e.target.value)}
                     style={{
@@ -439,6 +440,7 @@ export default function PopulationObjectiveWizard({ initialData, onSubmit, onBac
                   <input
                     type="text"
                     placeholder="Especifica la organización..."
+                    aria-label="Especifica la organización comunitaria"
                     value={otroComunitaria}
                     onChange={e => setOtroComunitaria(e.target.value)}
                     style={{
@@ -480,6 +482,7 @@ export default function PopulationObjectiveWizard({ initialData, onSubmit, onBac
                   <input
                     type="text"
                     placeholder="Especifica el sector..."
+                    aria-label="Especifica el sector productivo"
                     value={otroProductiva}
                     onChange={e => setOtroProductiva(e.target.value)}
                     style={{

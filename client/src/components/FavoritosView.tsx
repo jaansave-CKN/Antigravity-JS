@@ -216,6 +216,7 @@ export default function FavoritosView() {
                       <input
                         type="text"
                         placeholder="Nueva tarea…"
+                        aria-label="Nueva tarea"
                         value={nuevaTarea[convId] || ''}
                         onChange={e => setNuevaTarea(prev => ({ ...prev, [convId]: e.target.value }))}
                         onKeyDown={e => e.key === 'Enter' && agregarTarea(convId)}

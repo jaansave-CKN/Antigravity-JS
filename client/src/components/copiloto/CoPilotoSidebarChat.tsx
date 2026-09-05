@@ -172,6 +172,7 @@ export default function CoPilotoSidebarChat({ proyectoId }: { proyectoId: string
           onChange={e => setInput(e.target.value)}
           disabled={!proyectoId || loading}
           placeholder="Escribe tu consulta..."
+          aria-label="Escribe tu consulta al Copiloto"
           style={{
             flex: 1, fontSize: 10, padding: '6px 8px', borderRadius: 6,
             border: `1px solid ${C.border}`, background: C.bgCard, color: C.text, outline: 'none',

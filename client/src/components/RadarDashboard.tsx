@@ -368,6 +368,7 @@ function FilterPanel({
                     value={temp.customSectores[macro.id] ?? ''}
                     onChange={e => setCustomSector(macro.id, e.target.value)}
                     placeholder="Otro: Especifique..."
+                    aria-label="Otro sector, especifique"
                     className="w-full text-xs text-[#475569] placeholder-[#94a3b8] bg-transparent border-none outline-none"
                   />
                 </div>
@@ -422,6 +423,7 @@ function FilterPanel({
                       value={temp.customPoblaciones[grupo.id] ?? ''}
                       onChange={e => setCustomPoblacion(grupo.id, e.target.value)}
                       placeholder="Otros: Escribir aquí..."
+                      aria-label="Otra población objetivo, especifique"
                       className="flex-1 text-xs text-[#475569] placeholder-[#94a3b8] bg-transparent border-none outline-none"
                       onClick={e => e.stopPropagation()}
                     />
@@ -544,6 +546,7 @@ export default function RadarDashboard({ onDonorSelect, onFiltersChange, childre
               <input
                 className="w-full bg-surface-container border border-outline-variant text-onSurface text-sm rounded-full pl-10 p-2.5 placeholder-outline-variant focus:ring-secondary focus:border-secondary outline-none"
                 placeholder="Buscar organizaciones..."
+                aria-label="Buscar organizaciones"
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
