@@ -220,6 +220,7 @@ const SectorDropdown = React.memo(function SectorDropdown({
                 <div className="radx__sector-sect-hdr" onClick={() => toggleExpand(sector.nombre)}>
                   <input
                     type="checkbox"
+                    aria-label={sector.nombre}
                     checked={isSectorChecked}
                     onChange={() => {}}
                     onClick={e => toggle(sector.nombre, e)}
@@ -241,6 +242,7 @@ const SectorDropdown = React.memo(function SectorDropdown({
                       >
                         <input
                           type="checkbox"
+                          aria-label={sg.nombre}
                           checked={active.includes(sg.nombre)}
                           onChange={() => {}}
                           style={{ accentColor: sg.color }}
@@ -435,13 +437,13 @@ const RadarHeader = React.memo(function RadarHeader({
       {/* Barra de filtros */}
       <div className="radx__filters">
         <div className="radx__filter-group">
-          <label className="radx__filter-label">
+          <label className="radx__filter-label" htmlFor="radx-filtro-pais">
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
               <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
             </svg>
             País
           </label>
-          <select className="radx__filter-select" value={filtroPais} onChange={e => onPais(e.target.value)}>
+          <select id="radx-filtro-pais" className="radx__filter-select" value={filtroPais} onChange={e => onPais(e.target.value)}>
             <option value="Todos">Todos</option>
             <option value="Colombia">Colombia</option>
             <option value="Internacional">Internacional</option>
@@ -462,13 +464,13 @@ const RadarHeader = React.memo(function RadarHeader({
         </div>
 
         <div className="radx__filter-group">
-          <label className="radx__filter-label">
+          <label className="radx__filter-label" htmlFor="radx-filtro-estado">
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
               <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
             </svg>
             Estado
           </label>
-          <select className="radx__filter-select" value={filtroEstado} onChange={e => onEstado(e.target.value)}>
+          <select id="radx-filtro-estado" className="radx__filter-select" value={filtroEstado} onChange={e => onEstado(e.target.value)}>
             <option value="todos">Todos</option>
             <option value="abierta">Abierta</option>
             <option value="nueva">Nueva</option>
@@ -476,13 +478,13 @@ const RadarHeader = React.memo(function RadarHeader({
         </div>
 
         <div className="radx__filter-group">
-          <label className="radx__filter-label">
+          <label className="radx__filter-label" htmlFor="radx-filtro-orden">
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
               <line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/>
             </svg>
             Ordenar
           </label>
-          <select className="radx__filter-select" value={sortBy} onChange={e => onSortBy(e.target.value)}>
+          <select id="radx-filtro-orden" className="radx__filter-select" value={sortBy} onChange={e => onSortBy(e.target.value)}>
             <option value="relevancia">Relevancia</option>
             <option value="alfabetico">Alfabético</option>
             <option value="ascendente">Ascendente</option>

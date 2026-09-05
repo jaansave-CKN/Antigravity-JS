@@ -311,14 +311,14 @@ export default function PresupuestoPage() {
         <div style={{ fontWeight: 700, fontSize: 14 }}>Agregar ítems APU</div>
         {borrador.map((row, idx) => (
           <div key={row._localKey} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 1fr 70px 90px 1fr 90px 90px 70px 28px', gap: 6, alignItems: 'center' }}>
-            <select value={row.fase} onChange={e => actualizarFila(idx, 'fase', e.target.value)} style={campoStyle}>
+            <select aria-label="Fase" value={row.fase} onChange={e => actualizarFila(idx, 'fase', e.target.value)} style={campoStyle}>
               {FASES.map(f => <option key={f} value={f}>{f}</option>)}
             </select>
             <input aria-label="Capítulo" placeholder="Capítulo" value={row.capitulo} onChange={e => actualizarFila(idx, 'capitulo', e.target.value)} style={campoStyle} />
             <input aria-label="Ítem" placeholder="Ítem" value={row.item} onChange={e => actualizarFila(idx, 'item', e.target.value)} style={campoStyle} />
             <input aria-label="Unidad" placeholder="Unidad" value={row.unidad} onChange={e => actualizarFila(idx, 'unidad', e.target.value)} style={campoStyle} />
             <input aria-label="Cantidad" placeholder="Cantidad" type="number" value={row.cantidad} onChange={e => actualizarFila(idx, 'cantidad', e.target.value)} style={campoStyle} />
-            <select value={row.rendimiento_std} onChange={e => actualizarFila(idx, 'rendimiento_std', e.target.value)} style={campoStyle}>
+            <select aria-label="Rendimiento estándar" value={row.rendimiento_std} onChange={e => actualizarFila(idx, 'rendimiento_std', e.target.value)} style={campoStyle}>
               <option value="">Rend. estándar (opcional)</option>
               {rendimientos.map(r => <option key={r.clave} value={r.clave}>{r.descripcion || r.clave} ({r.valor}/{r.unidad})</option>)}
             </select>

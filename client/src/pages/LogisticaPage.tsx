@@ -453,7 +453,7 @@ export default function LogisticaPage() {
             <thead>
               <tr>
                 <th className="logx__th logx__th--check">
-                  <input type="checkbox" checked={todosSel} onChange={toggleTodos} className="logx__checkbox" />
+                  <input type="checkbox" aria-label="Seleccionar todos los tramos" checked={todosSel} onChange={toggleTodos} className="logx__checkbox" />
                 </th>
                 <th className="logx__th">Tramo</th>
                 <th className="logx__th">Recorrido</th>
@@ -468,7 +468,7 @@ export default function LogisticaPage() {
             <tbody>
               {tramos.map(t => (
                 <tr key={t.id} className="logx__tr">
-                  <td className="logx__td"><input type="checkbox" checked={t.seleccionado} onChange={() => toggleUno(t.id)} className="logx__checkbox" /></td>
+                  <td className="logx__td"><input type="checkbox" aria-label={`Seleccionar tramo ${t.origen} – ${t.destino}`} checked={t.seleccionado} onChange={() => toggleUno(t.id)} className="logx__checkbox" /></td>
                   <td className="logx__td"><span className="logx__pill-num">{t.numero}</span></td>
                   <td className="logx__td">
                     <div className="logx__route">
@@ -603,8 +603,9 @@ export default function LogisticaPage() {
                 <input id="logx-distancia" type="number" value={nuevo.distancia} onChange={e => setNuevo(n => ({ ...n, distancia: e.target.value }))} placeholder="121.5" />
               </div>
               <div className="logx__field">
-                <label>Medio Transp.</label>
+                <label htmlFor="logx-medio">Medio Transp.</label>
                 <select
+                  id="logx-medio"
                   value={nuevo.medio}
                   onChange={e => {
                     const medio = e.target.value;
@@ -628,8 +629,8 @@ export default function LogisticaPage() {
                 </select>
               </div>
               <div className="logx__field">
-                <label>Estado / Tipo Vía</label>
-                <select value={nuevo.estado_via} onChange={e => setNuevo(n => ({ ...n, estado_via: e.target.value as EstadoVia }))}>
+                <label htmlFor="logx-estado-via">Estado / Tipo Vía</label>
+                <select id="logx-estado-via" value={nuevo.estado_via} onChange={e => setNuevo(n => ({ ...n, estado_via: e.target.value as EstadoVia }))}>
                   {(() => {
                     const opciones = nuevo.medio === MEDIO_FLUVIAL ? VIAS_FLUVIALES : VIAS_TERRESTRES;
                     // Si el valor actual (cargado de un tramo ya guardado) no
@@ -648,14 +649,14 @@ export default function LogisticaPage() {
                 </select>
               </div>
               <div className="logx__field">
-                <label>Calidad</label>
-                <select value={nuevo.calidad} onChange={e => setNuevo(n => ({ ...n, calidad: e.target.value as CalidadVia }))}>
+                <label htmlFor="logx-calidad">Calidad</label>
+                <select id="logx-calidad" value={nuevo.calidad} onChange={e => setNuevo(n => ({ ...n, calidad: e.target.value as CalidadVia }))}>
                   <option>Óptimo</option><option>Regular</option><option>Crítico</option>
                 </select>
               </div>
               <div className="logx__field">
-                <label>Tipo Transp.</label>
-                <select value={nuevo.tipo_transporte} onChange={e => setNuevo(n => ({ ...n, tipo_transporte: e.target.value }))}>
+                <label htmlFor="logx-tipo-transporte">Tipo Transp.</label>
+                <select id="logx-tipo-transporte" value={nuevo.tipo_transporte} onChange={e => setNuevo(n => ({ ...n, tipo_transporte: e.target.value }))}>
                   <option>Carga Pesada</option><option>Granel Líquido</option><option>Carga Refrigerada</option><option>Pasajeros</option>
                 </select>
               </div>
