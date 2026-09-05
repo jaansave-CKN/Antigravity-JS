@@ -7,6 +7,26 @@
  *
  * Cuando el usuario habilite el pooler en Supabase dashboard,
  * la Capa 1 entra en operación automáticamente. Sin acción de código.
+ *
+ * ── Pool RLS-escopado dedicado (005_INGENIERO_BACKEND, 2026-09-04) ──────────
+ * `DATABASE_URL` (pool principal, `_pgPool`) se conecta como el rol "postgres",
+ * que tiene BYPASSRLS=true (verificado en vivo: `SELECT rolbypassrls FROM
+ * pg_roles WHERE rolname=current_user` → true). Los ~430 sitios reales que
+ * llaman a getRow/getRows/runSql/pool.query en server.js y backend/routes/*.js
+ * NUNCA hacen `SET LOCAL app.org_id` — dependen de un WHERE explícito por
+ * request, no de RLS. Repuntar `DATABASE_URL` a un rol sin BYPASSRLS rompería
+ * esos ~430 call sites de forma silenciosa (RLS sin `app.org_id` seteado
+ * deniega todo por defecto) — confirmado por conteo real, no supuesto.
+ *
+ * Por eso `withTenant()` usa un SEGUNDO pool, `_pgScopedPool`, construido
+ * desde `DATABASE_URL_TENANT_SCOPED` (rol `rf360_rls_scoped`, migración
+ * 053_rls_scoped_role.sql — sin BYPASSRLS, sin SUPERUSER, GRANT DML mínimo
+ * sobre las 7 tablas que antes se leían/escribían vía supabaseAdmin/
+ * service_role bypaseando RLS por completo). Esto es aditivo: no toca el
+ * pool principal ni el rol "postgres". Si `DATABASE_URL_TENANT_SCOPED` no
+ * está configurada (entorno viejo, aún no migrado), `withTenant()` degrada
+ * al pool principal con una advertencia explícita en logs — mismo
+ * comportamiento que existía antes de este cambio, nunca peor.
  */
 
 import pg from 'pg';
@@ -17,6 +37,12 @@ let _pgReady   = false;
 let _pgPool    = null;
 let _lastRetry = 0;
 const RETRY_INTERVAL_MS = 60_000; // reintentar cada 60s
+
+// ── Estado del pool RLS-escopado (rf360_rls_scoped, sin BYPASSRLS) ───────────
+let _pgScopedReady    = false;
+let _pgScopedPool     = null;
+let _lastScopedRetry  = 0;
+let _scopedWarnLogged = false;
 
 // Códigos que SÍ indican que la conexión/pool está realmente caída — solo
 // estos deben abrir el circuito (_pgReady=false). ECONNREFUSED/ETIMEDOUT son
@@ -93,6 +119,57 @@ setInterval(async () => {
 probePg().then(ok => {
   if (!ok) console.warn('[DB] Capa 1 no disponible — usando Capa 2 (REST). Activa el pooler en Supabase dashboard para máximo rendimiento.');
 });
+
+// ── Pool RLS-escopado (rol rf360_rls_scoped, sin BYPASSRLS) ──────────────────
+function buildScopedPool() {
+  const url = process.env.DATABASE_URL_TENANT_SCOPED;
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    u.searchParams.delete('sslmode');
+    const isLocal = /localhost|127\.0\.0\.1/.test(url);
+    return new Pool({
+      connectionString: u.toString(),
+      ssl: isLocal ? false : { rejectUnauthorized: false },
+      options: '-c search_path=public -c lock_timeout=5000 -c statement_timeout=30000',
+      // 10, no 5: CopilotoService.construirSnapshot() por sí solo abre 5
+      // withTenant() concurrentes en un Promise.all — un pool de 5 se
+      // saturaría con una sola request concurrente de ese endpoint.
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 8_000,
+      keepAlive: true,
+    });
+  } catch { return null; }
+}
+
+async function probeScopedPg() {
+  if (!_pgScopedPool) _pgScopedPool = buildScopedPool();
+  if (!_pgScopedPool) return false;
+  try {
+    await _pgScopedPool.query('SELECT 1');
+    if (!_pgScopedReady) console.log('[DB] Pool RLS-escopado (rf360_rls_scoped) ACTIVO ✅ — withTenant() ahora aplica RLS real.');
+    _pgScopedReady = true;
+    return true;
+  } catch (err) {
+    _pgScopedReady = false;
+    if (!_scopedWarnLogged) {
+      console.warn('[DB] Pool RLS-escopado no disponible (' + err.message.substring(0, 120) + ') — withTenant() degrada al pool principal (BYPASSRLS). Revisar DATABASE_URL_TENANT_SCOPED.');
+      _scopedWarnLogged = true;
+    }
+    return false;
+  }
+}
+
+setInterval(async () => {
+  if (!_pgScopedReady) await probeScopedPg();
+}, RETRY_INTERVAL_MS);
+
+if (process.env.DATABASE_URL_TENANT_SCOPED) {
+  probeScopedPg();
+} else {
+  console.warn('[DB] DATABASE_URL_TENANT_SCOPED no configurada — withTenant() degrada al pool principal (BYPASSRLS), sin enforcement real de RLS. Ver migración 053_rls_scoped_role.sql.');
+}
 
 // ── Pool exportado (compatibilidad con código existente) ─────────────────────
 export const pool = {
@@ -407,10 +484,37 @@ async function restDelete(sql, params) {
 }
 
 // ── withTenant ─────────────────────────────────────────────────────────────────
+// FIX (005_INGENIERO_BACKEND, 2026-09-04): antes conectaba SIEMPRE por
+// `_pgPool` (rol "postgres", BYPASSRLS=true) — el `SET LOCAL app.org_id` de
+// abajo se ejecutaba, pero como el rol bypasea RLS incondicionalmente, las
+// políticas `tenant_isolation` (026_rls_policies_tenant_isolation.sql) NUNCA
+// se evaluaban de verdad; la única protección real era el WHERE explícito de
+// cada caller. Ahora usa `_pgScopedPool` (rol rf360_rls_scoped, sin
+// BYPASSRLS, migración 053) cuando está disponible — RLS real, verificado en
+// vivo (aislamiento cross-tenant confirmado por prueba directa contra la BD).
+// Si el pool escopado no está configurado/disponible, degrada al pool
+// principal con advertencia explícita (comportamiento anterior, nunca peor).
 export async function withTenant(tenantId, callback) {
-  if (_pgReady) {
-    // Capa 1: pg con set_config para RLS real
-    const client = await _pgPool.connect();
+  // Gate por RETRY_INTERVAL_MS (mismo patrón que pgOrRest/_lastRetry): si el
+  // pool escopado está caído, NO reintenta conectar (con su timeout de 8s)
+  // en cada llamada — eso volvería lentísima cada request de withTenant()
+  // durante una caída. Reintenta como máximo 1 vez por minuto en background.
+  if (!_pgScopedReady && process.env.DATABASE_URL_TENANT_SCOPED) {
+    const now = Date.now();
+    if (now - _lastScopedRetry > RETRY_INTERVAL_MS) {
+      _lastScopedRetry = now;
+      await probeScopedPg().catch(() => {});
+    }
+  }
+  const pool = _pgScopedReady ? _pgScopedPool : (_pgReady ? _pgPool : null);
+
+  if (pool) {
+    if (pool === _pgPool && !_scopedWarnLogged) {
+      console.warn('[withTenant] Degradado al pool principal (BYPASSRLS) — DATABASE_URL_TENANT_SCOPED no disponible. RLS no aplicado en esta llamada.');
+    }
+    // Capa 1: pg con set_config para RLS real (rol rf360_rls_scoped) o,
+    // en degradación, el pool principal sin RLS real (ver advertencia arriba).
+    const client = await pool.connect();
     try {
       await client.query('BEGIN');
       await client.query("SELECT set_config('app.org_id', $1, TRUE)", [String(tenantId)]);
@@ -547,6 +651,12 @@ export function dbStatus() {
     layer: _pgReady ? 1 : 2,
     engine: _pgReady ? 'pg-pool (Session Pooler)' : 'Supabase REST API',
     pgReady: _pgReady,
+    // rlsScopedReady=false con withTenantConfigured=true significa: la app SÍ
+    // tiene DATABASE_URL_TENANT_SCOPED configurada pero el pool no logró
+    // conectar (revisar credenciales/rol) — degradando withTenant() al pool
+    // principal (BYPASSRLS) hasta que se resuelva.
+    rlsScopedReady: _pgScopedReady,
+    withTenantConfigured: !!process.env.DATABASE_URL_TENANT_SCOPED,
     supabaseUrl: SB_URL,
     message: _pgReady
       ? 'Base de datos OK — pg Pool conectado'

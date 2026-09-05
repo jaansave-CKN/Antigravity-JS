@@ -495,3 +495,24 @@ El usuario confirmó explícitamente que `SIA_Radar/` es obsoleto ("sí"). Se ar
 - `scripts/auto-monitor.ps1` (el único artefacto de despliegue con un `firebase deploy --only hosting` funcional en standby, §8.7) — eliminado del working tree. Trackeado en el repo principal, recuperable con `git checkout -- scripts/auto-monitor.ps1` si hiciera falta.
 
 Ninguno de los dos cambios se commiteó — quedan como cambios sin commitear en el working tree, igual que el resto de esta sesión.
+
+---
+
+## 9. Hallazgo cerrado (2026-09-04) — BYOK en `localStorage` sin cifrar
+
+**Origen del hallazgo:** `RADFOR360_REPORTE_TECNICO.md`, fechado 2026-07-21/22, §5.1 (línea 332): la API key de Gemini del usuario (BYOK, función "Barrido Masivo") se guardaba sin cifrar en `localStorage` (`rf360_credentials_v1` → campo `googleGeminiToken`, leído en `geminiScanner.ts:142-144`) y se enviaba como query-string directo al navegador a `generativelanguage.googleapis.com` — marcado en ese reporte como riesgo real de seguridad (XSS/devtools/logs de proxy), no solo deuda técnica.
+
+**Verificación de hoy (agente `006-devsecops-infraestructura`, re-verificada de forma independiente por este agente leyendo el código real, no de memoria ni por herencia de lo que reportó `006`):**
+
+| Comprobación | Evidencia (archivo:línea) | Resultado |
+|---|---|---|
+| ¿Dónde vive la llave hoy en el panel de configuración? | `client/src/pages/CredentialsPage.tsx:74-220` (`GeminiByokPanel`) — la llave vive solo en `useState` (`keyInput`), se envía por `http.post('/api/credenciales/gemini', ...)`, nunca se persiste en el navegador | Cerrado |
+| ¿Mismo patrón en el modal de rescate cuando falta la llave? | `client/src/components/ByokRequiredModal.tsx:55-105` — mismo `useState` + `http.post('/api/credenciales/gemini', ...)`, sin `localStorage` | Cerrado |
+| ¿Queda algún rastro de `localStorage` con una API key de IA en el cliente? | Grep completo de `localStorage` en `client/src` (188 coincidencias revisadas) — ninguna corresponde a una API key de IA; el único remanente del nombre `rf360_credentials_v1` es `client/src/pages/PanelPage.tsx:48,323-334` y ya **no contiene `googleGeminiToken`** — solo persiste un booleano de feature flag (`isGeminiEnabled`) que activa/desactiva el uso de Gemini vía el proxy del backend (línea 589: *"el barrido autónomo usará Google Search Grounding vía el proxy del backend"*) | Cerrado — nombre de clave legado, contenido ya no sensible |
+| ¿Qué pasó con el archivo original que tenía el hallazgo? | `geminiScanner.ts` (citado en el reporte original como `client/src/services/geminiScanner.ts:103-144`) ya no existe en `client/src` — se movió a `archive/frontend_legacy/client/src/services/geminiScanner.ts` (confirmado por glob, ruta de archivo muerto) | El código exacto que originó el hallazgo ya no está en la ruta viva |
+| ¿Cifrado del lado servidor es real o solo declarado? | `backend/services/byokService.js` (funciones `listarLlavesUsuario`/`guardarLlaveUsuario`, líneas 176 y 186-190) solo retornan `maskKey()`, nunca la llave en claro; `backend/pipeline/CryptoHelper.js:3,9-19` — AES-256-**GCM** real, `crypto.randomBytes(16)` por operación (IV único), `authTag` verificado en `decryptKey` (confirmado por lectura completa del archivo, 34 líneas) | Cerrado |
+| ¿Aislamiento multi-tenant a nivel de BD? | `backend/migrations/045_byok_gemini_por_usuario.sql:35-38` — `ALTER TABLE user_gemini_keys ENABLE ROW LEVEL SECURITY` + `CREATE POLICY tenant_isolation ... USING (user_id = current_setting('app.org_id', true))` (confirmado por lectura directa de la migración) | Cerrado |
+
+**Cuándo se corrigió:** el commit que introdujo este rediseño (`byokService.js`, `CredentialsPage.tsx`, migración 045) es `173a07e` (2026-08-24) — citado por `006`, no re-verificado por este agente (sin acceso a `git log` en este rol), ~33 días posterior al reporte original de 2026-07-21/22. Coincide en fecha con el red-team ya documentado en §7.1 de este mismo documento (Fase 4, mismo día 2026-08-24), que auditó el mismo código BYOK desde un ángulo distinto (IDOR, fuga de llave, cifrado, rate-limiting) y llegó a la misma conclusión de "No explotable" para cifrado/fuga — este cierre de §9 es la confirmación específica del hallazgo puntual de `localStorage` sin cifrar que §7.1 no nombraba de forma explícita por su origen (el reporte de julio).
+
+**Veredicto: CERRADO — remediado en producción, verificado con evidencia de archivo:línea de dos fuentes independientes (auditoría `006` del 2026-09-04 + relectura de este agente).** No requiere ninguna acción adicional. Ver también la nota equivalente agregada directamente en `RADFOR360_REPORTE_TECNICO.md` §5.1 (línea 332), documento donde nació el hallazgo, para que quien lo lea ahí no lo persiga de nuevo.

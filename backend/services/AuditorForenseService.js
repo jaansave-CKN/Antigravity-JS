@@ -16,30 +16,38 @@
  * una ejecución previa antes de re-evaluar, así si el usuario resube un Excel
  * corregido, las alertas viejas desaparecen solas.
  */
-import { supabaseAdmin } from '../config/supabase.config.js';
+// FIX (005_INGENIERO_BACKEND, 2026-09-04): antes usaba supabaseAdmin
+// (service_role vía REST, bypasea RLS por completo por diseño de Supabase)
+// para leer/escribir project_hallazgos/project_apu_lineas — precisamente las
+// tablas que sí tienen políticas RLS reales (026_rls_policies_tenant_
+// isolation.sql) pero que nunca se evaluaban por esta vía. Ahora usa
+// withTenant(orgId, ...), que abre una transacción sobre el rol
+// rf360_rls_scoped (sin BYPASSRLS, migración 053_rls_scoped_role.sql) — RLS
+// real, verificado en vivo (aislamiento cross-tenant confirmado por prueba
+// directa). Mismo contrato de retorno que antes (boolean/count), cero cambio
+// de comportamiento para los callers.
+import { withTenant } from '../config/database.config.js';
 
 const TOLERANCIA_COP = 50;
 const CATEGORIAS_HSEQ = ['EPP', 'SST', 'SEÑALIZACION'];
 const CATEGORIAS_SGC = ['SGC'];
 
-async function limpiarHallazgosPrevios(projectId, anexoId) {
-  await supabaseAdmin.from('project_hallazgos')
-    .delete()
-    .eq('project_id', projectId)
-    .eq('anexo_id', anexoId)
-    .eq('resuelto', false);
+async function limpiarHallazgosPrevios(projectId, anexoId, orgId) {
+  await withTenant(orgId, client => client.query(
+    'DELETE FROM project_hallazgos WHERE project_id = $1 AND anexo_id = $2 AND resuelto = false',
+    [projectId, anexoId]
+  ));
 }
 
 // Limpieza keyed por project_id + tipo (no por anexo_id, que aquí no aplica —
 // es un hallazgo de PROYECTO, no de un anexo puntual). Sin esto, cada llamada
 // a POST /viabilidad-financiera mientras el formulador ajusta cifras
 // duplicaría filas en project_hallazgos — exigencia del Agente Arquitecto.
-async function limpiarHallazgoViabilidadPrevio(projectId) {
-  await supabaseAdmin.from('project_hallazgos')
-    .delete()
-    .eq('project_id', projectId)
-    .eq('tipo', 'VIABILIDAD_FINANCIERA_SIN_PRESUPUESTO')
-    .eq('resuelto', false);
+async function limpiarHallazgoViabilidadPrevio(projectId, orgId) {
+  await withTenant(orgId, client => client.query(
+    "DELETE FROM project_hallazgos WHERE project_id = $1 AND tipo = 'VIABILIDAD_FINANCIERA_SIN_PRESUPUESTO' AND resuelto = false",
+    [projectId]
+  ));
 }
 
 async function auditarHSEQ(projectId, anexoId, orgId, lineas) {
@@ -48,20 +56,22 @@ async function auditarHSEQ(projectId, anexoId, orgId, lineas) {
     .reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
   if (totalHSEQ > 0) return false;
 
-  const { error } = await supabaseAdmin.from('project_hallazgos').insert({
-    project_id: projectId,
-    anexo_id: anexoId,
-    org_id: orgId,
-    fase_phva: 'ACTUAR',
-    tipo: 'HSEQ_AUSENTE',
-    tipo_hallazgo: 'HSEQ_AUSENTE',
-    severidad: 'CRITICA',
-    titulo: 'Ausencia de partidas presupuestales para seguridad industrial (HSEQ/SST)',
-    detalle: 'Se analizó el 100% de las partidas del presupuesto/APU adjunto y no se identificaron asignaciones financieras en Pesos Colombianos destinadas a Elementos de Protección Personal (EPP), señalización preventiva o gestión de Seguridad y Salud en el Trabajo. Esta es una alerta técnica de coherencia presupuestal — no es una certificación legal ni cita normativa.',
-    accion_recomendada: 'Revisar con el equipo formulador si los costos de HSEQ fueron diluidos en el porcentaje de Administración (AIU), o si se requiere adjuntar el anexo técnico específico de Seguridad Industrial y Salud Ocupacional antes de radicar.',
-    resuelto: false,
-  });
-  return !error;
+  try {
+    await withTenant(orgId, client => client.query(
+      `INSERT INTO project_hallazgos
+        (project_id, anexo_id, org_id, fase_phva, tipo, tipo_hallazgo, severidad, titulo, detalle, accion_recomendada, resuelto)
+       VALUES ($1, $2, $3, 'ACTUAR', 'HSEQ_AUSENTE', 'HSEQ_AUSENTE', 'CRITICA', $4, $5, $6, false)`,
+      [
+        projectId, anexoId, orgId,
+        'Ausencia de partidas presupuestales para seguridad industrial (HSEQ/SST)',
+        'Se analizó el 100% de las partidas del presupuesto/APU adjunto y no se identificaron asignaciones financieras en Pesos Colombianos destinadas a Elementos de Protección Personal (EPP), señalización preventiva o gestión de Seguridad y Salud en el Trabajo. Esta es una alerta técnica de coherencia presupuestal — no es una certificación legal ni cita normativa.',
+        'Revisar con el equipo formulador si los costos de HSEQ fueron diluidos en el porcentaje de Administración (AIU), o si se requiere adjuntar el anexo técnico específico de Seguridad Industrial y Salud Ocupacional antes de radicar.',
+      ]
+    ));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -78,20 +88,22 @@ async function auditarSGC(projectId, anexoId, orgId, lineas) {
     .reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
   if (totalSGC > 0) return false;
 
-  const { error } = await supabaseAdmin.from('project_hallazgos').insert({
-    project_id: projectId,
-    anexo_id: anexoId,
-    org_id: orgId,
-    fase_phva: 'ACTUAR',
-    tipo: 'SGC_AUSENTE',
-    tipo_hallazgo: 'SGC_AUSENTE',
-    severidad: 'ALTA',
-    titulo: 'Ausencia de partidas presupuestales para control/aseguramiento de calidad (SGC)',
-    detalle: 'Se analizó el 100% de las partidas del presupuesto/APU adjunto y no se identificaron asignaciones financieras en Pesos Colombianos destinadas a control de calidad, ensayos de laboratorio o interventoría de calidad. Esta es una alerta técnica de coherencia presupuestal — no es una auditoría de cumplimiento contra ISO 9001 ni una certificación normativa.',
-    accion_recomendada: 'Revisar si los costos de aseguramiento de calidad fueron diluidos en el porcentaje de Administración (AIU), o si se requiere adjuntar el plan de calidad del proyecto antes de radicar.',
-    resuelto: false,
-  });
-  return !error;
+  try {
+    await withTenant(orgId, client => client.query(
+      `INSERT INTO project_hallazgos
+        (project_id, anexo_id, org_id, fase_phva, tipo, tipo_hallazgo, severidad, titulo, detalle, accion_recomendada, resuelto)
+       VALUES ($1, $2, $3, 'ACTUAR', 'SGC_AUSENTE', 'SGC_AUSENTE', 'ALTA', $4, $5, $6, false)`,
+      [
+        projectId, anexoId, orgId,
+        'Ausencia de partidas presupuestales para control/aseguramiento de calidad (SGC)',
+        'Se analizó el 100% de las partidas del presupuesto/APU adjunto y no se identificaron asignaciones financieras en Pesos Colombianos destinadas a control de calidad, ensayos de laboratorio o interventoría de calidad. Esta es una alerta técnica de coherencia presupuestal — no es una auditoría de cumplimiento contra ISO 9001 ni una certificación normativa.',
+        'Revisar si los costos de aseguramiento de calidad fueron diluidos en el porcentaje de Administración (AIU), o si se requiere adjuntar el plan de calidad del proyecto antes de radicar.',
+      ]
+    ));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function auditarDescuadres(projectId, anexoId, orgId, lineas) {
@@ -106,22 +118,32 @@ async function auditarDescuadres(projectId, anexoId, orgId, lineas) {
     const esperado = Number(l.cantidad) * Number(l.valor_unitario_cop);
     const diferencia = Math.abs(esperado - Number(l.valor_total_cop));
     return {
-      project_id: projectId,
-      anexo_id: anexoId,
-      org_id: orgId,
-      fase_phva: 'VERIFICAR',
-      tipo: 'DESCUADRE_FINANCIERO',
-      tipo_hallazgo: 'DESCUADRE_FINANCIERO',
-      severidad: 'ALTA',
       titulo: `Descuadre aritmético en "${(l.codigo_item || l.descripcion || '').slice(0, 60)}"`,
       detalle: `Cantidad (${l.cantidad}) × Valor Unitario ($${fmt(l.valor_unitario_cop)} COP) = $${fmt(esperado)} COP, pero el Valor Total registrado es $${fmt(l.valor_total_cop)} COP — diferencia de $${fmt(diferencia)} COP (tolerancia: $${TOLERANCIA_COP} COP).`,
-      accion_recomendada: 'Corregir la fórmula o el valor en el Excel de origen y volver a subir el presupuesto.',
-      resuelto: false,
     };
   });
 
-  const { error } = await supabaseAdmin.from('project_hallazgos').insert(rows);
-  return error ? 0 : rows.length;
+  // INSERT multi-fila parametrizado ($1,$2,$3... por fila) — misma
+  // transacción/rol RLS-escopado que el resto de este servicio.
+  const values = [];
+  const params = [];
+  rows.forEach((r, i) => {
+    const base = i * 6;
+    values.push(`($${base + 1}, $${base + 2}, $${base + 3}, 'VERIFICAR', 'DESCUADRE_FINANCIERO', 'DESCUADRE_FINANCIERO', 'ALTA', $${base + 4}, $${base + 5}, $${base + 6}, false)`);
+    params.push(projectId, anexoId, orgId, r.titulo, r.detalle, 'Corregir la fórmula o el valor en el Excel de origen y volver a subir el presupuesto.');
+  });
+
+  try {
+    await withTenant(orgId, client => client.query(
+      `INSERT INTO project_hallazgos
+        (project_id, anexo_id, org_id, fase_phva, tipo, tipo_hallazgo, severidad, titulo, detalle, accion_recomendada, resuelto)
+       VALUES ${values.join(', ')}`,
+      params
+    ));
+    return rows.length;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -133,29 +155,36 @@ async function auditarDescuadres(projectId, anexoId, orgId, lineas) {
  * seguro de llamar en cada POST /api/proyectos/:id/viabilidad-financiera.
  */
 export async function auditarViabilidadFinancieraIncompleta(projectId, orgId) {
-  await limpiarHallazgoViabilidadPrevio(projectId);
+  await limpiarHallazgoViabilidadPrevio(projectId, orgId);
 
-  const { count, error: countError } = await supabaseAdmin
-    .from('project_apu_lineas')
-    .select('id', { count: 'exact', head: true })
-    .eq('project_id', projectId);
-  if (countError) return false; // no bloqueante — fallo de lectura no debe tumbar el cálculo de equilibrio
-  if (count > 0) return false;  // sí hay presupuesto real ingerido — nada que reportar
+  let count = 0;
+  try {
+    const res = await withTenant(orgId, client => client.query(
+      'SELECT COUNT(*)::int AS cnt FROM project_apu_lineas WHERE project_id = $1',
+      [projectId]
+    ));
+    count = res.rows?.[0]?.cnt ?? 0;
+  } catch {
+    return false; // no bloqueante — fallo de lectura no debe tumbar el cálculo de equilibrio
+  }
+  if (count > 0) return false; // sí hay presupuesto real ingerido — nada que reportar
 
-  const { error } = await supabaseAdmin.from('project_hallazgos').insert({
-    project_id: projectId,
-    anexo_id: null,
-    org_id: orgId,
-    fase_phva: 'ACTUAR',
-    tipo: 'VIABILIDAD_FINANCIERA_SIN_PRESUPUESTO',
-    tipo_hallazgo: 'VIABILIDAD_FINANCIERA_SIN_PRESUPUESTO',
-    severidad: 'ALTA',
-    titulo: 'Punto de equilibrio calculado sin presupuesto/APU real adjunto',
-    detalle: 'Se calculó el punto de equilibrio financiero pero el proyecto no tiene ningún presupuesto/APU ingerido en Anexos (project_apu_lineas vacío) — los costos variables totales fueron ingresados manualmente sin un documento real que los respalde.',
-    accion_recomendada: 'Adjuntar el presupuesto/APU real del proyecto en Anexos (categoría "presupuesto_apu", formato Excel) para que los costos variables se calculen automáticamente sobre datos verificables.',
-    resuelto: false,
-  });
-  return !error;
+  try {
+    await withTenant(orgId, client => client.query(
+      `INSERT INTO project_hallazgos
+        (project_id, anexo_id, org_id, fase_phva, tipo, tipo_hallazgo, severidad, titulo, detalle, accion_recomendada, resuelto)
+       VALUES ($1, NULL, $2, 'ACTUAR', 'VIABILIDAD_FINANCIERA_SIN_PRESUPUESTO', 'VIABILIDAD_FINANCIERA_SIN_PRESUPUESTO', 'ALTA', $3, $4, $5, false)`,
+      [
+        projectId, orgId,
+        'Punto de equilibrio calculado sin presupuesto/APU real adjunto',
+        'Se calculó el punto de equilibrio financiero pero el proyecto no tiene ningún presupuesto/APU ingerido en Anexos (project_apu_lineas vacío) — los costos variables totales fueron ingresados manualmente sin un documento real que los respalde.',
+        'Adjuntar el presupuesto/APU real del proyecto en Anexos (categoría "presupuesto_apu", formato Excel) para que los costos variables se calculen automáticamente sobre datos verificables.',
+      ]
+    ));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -164,7 +193,7 @@ export async function auditarViabilidadFinancieraIncompleta(projectId, orgId) {
  * (evita una relectura innecesaria a la base de datos).
  */
 export async function ejecutarAuditoriaCompleta(projectId, anexoId, orgId, lineas) {
-  await limpiarHallazgosPrevios(projectId, anexoId);
+  await limpiarHallazgosPrevios(projectId, anexoId, orgId);
   const hallazgoHSEQ = await auditarHSEQ(projectId, anexoId, orgId, lineas);
   const hallazgoSGC = await auditarSGC(projectId, anexoId, orgId, lineas);
   const descuadresDetectados = await auditarDescuadres(projectId, anexoId, orgId, lineas);

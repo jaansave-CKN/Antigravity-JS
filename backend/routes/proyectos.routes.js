@@ -10,7 +10,11 @@ import { sanitizeFormuladorBody } from '../middlewares/SecurityMiddleware.js';
 import { calcularViabilidadIA, recolectarContextoViabilidad, calcularPuntoEquilibrio } from '../services/viabilidadAgent.js';
 import { requireByokOrExento } from '../middlewares/byokGate.js';
 import { auditarViabilidadFinancieraIncompleta } from '../services/AuditorForenseService.js';
-import { supabaseAdmin } from '../config/supabase.config.js';
+// withTenant() (005_INGENIERO_BACKEND, 2026-09-04): reemplaza el único uso de
+// supabaseAdmin que tenía este archivo (línea ~607, lectura de
+// project_apu_lineas para el cálculo de punto de equilibrio) — ver nota
+// completa en ese punto.
+import { withTenant } from '../config/database.config.js';
 import { captureError } from '../config/sentry.config.js';
 
 function wrap(fn) {
@@ -602,14 +606,21 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     // project_apu_lineas tiene RLS (tenant_isolation USING org_id =
     // current_setting('app.org_id')) que getRow/runSql no fija por request —
     // un SELECT por esa vía devuelve 0 filas siempre, silenciosamente
-    // (verificado en vivo). supabaseAdmin (service_role) bypasea RLS, mismo
-    // cliente que ya usan EstresadoFinancieroService.js/ValorExponencialService.js.
-    const { data: lineasApu, error: sumError } = await supabaseAdmin
-      .from('project_apu_lineas')
-      .select('valor_total_cop')
-      .eq('project_id', proyectoId);
-    if (sumError) return res.status(500).json({ success: false, message: `No se pudo leer el presupuesto/APU real: ${sumError.message}` });
-    const costosVariablesAuto = (lineasApu || []).reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
+    // (verificado en vivo). FIX (005_INGENIERO_BACKEND, 2026-09-04): antes
+    // usaba supabaseAdmin (service_role, bypasea RLS por completo) — ahora
+    // usa withTenant() con el rol rf360_rls_scoped (sin BYPASSRLS, migración
+    // 053_rls_scoped_role.sql), RLS real.
+    let lineasApu;
+    try {
+      const lineasApuRes = await withTenant(req.userId, client => client.query(
+        'SELECT valor_total_cop FROM project_apu_lineas WHERE project_id = $1',
+        [proyectoId]
+      ));
+      lineasApu = lineasApuRes.rows || [];
+    } catch (sumError) {
+      return res.status(500).json({ success: false, message: `No se pudo leer el presupuesto/APU real: ${sumError.message}` });
+    }
+    const costosVariablesAuto = lineasApu.reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
     const sobrescrituraManual = costos_variables_totales !== undefined && costos_variables_totales !== null && costos_variables_totales !== '';
     const costosVariablesEfectivos = sobrescrituraManual ? costos_variables_totales : costosVariablesAuto;
     const costosVariablesFuente    = sobrescrituraManual ? 'manual' : 'auto_extraido_project_apu_lineas';

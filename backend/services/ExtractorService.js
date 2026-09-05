@@ -14,7 +14,11 @@
  *     — no requiere configuración especial de xlsx.
  */
 import * as XLSX from 'xlsx';
-import { supabaseAdmin } from '../config/supabase.config.js';
+// FIX (005_INGENIERO_BACKEND, 2026-09-04): supabaseAdmin (service_role)
+// bypaseaba RLS por completo — ver AuditorForenseService.js para el detalle
+// completo del hallazgo/fix. withTenant() usa rf360_rls_scoped (migración
+// 053_rls_scoped_role.sql), sin BYPASSRLS.
+import { withTenant } from '../config/database.config.js';
 
 const CHUNK_SIZE = 500;
 const MAX_HEADER_SCAN_ROWS = 30;
@@ -183,19 +187,35 @@ export async function parseAndSanitizeExcel(buffer, { projectId, orgId, anexoId,
   // previos con el mismo nombre de archivo en este proyecto) para que la
   // limpieza alcance también esas versiones antiguas.
   const idsABorrar = [anexoId, ...anexoIdsAnteriores];
-  const { error: delErr } = await supabaseAdmin
-    .from('project_apu_lineas')
-    .delete()
-    .eq('project_id', projectId)
-    .in('anexo_id', idsABorrar);
-  if (delErr) throw new Error(`No se pudo limpiar la versión anterior del presupuesto: ${delErr.message}`);
+  try {
+    await withTenant(orgId, client => client.query(
+      'DELETE FROM project_apu_lineas WHERE project_id = $1 AND anexo_id = ANY($2::text[])',
+      [projectId, idsABorrar]
+    ));
+  } catch (err) {
+    throw new Error(`No se pudo limpiar la versión anterior del presupuesto: ${err.message}`);
+  }
 
   // Chunking: nunca un INSERT masivo único — protege memoria/timeout con
   // presupuestos de miles de filas (acueductos, colegios, vías).
+  const COLS = ['project_id', 'anexo_id', 'org_id', 'codigo_item', 'descripcion', 'unidad', 'cantidad', 'valor_unitario_cop', 'valor_total_cop', 'categoria_hseq'];
   for (let i = 0; i < lineas.length; i += CHUNK_SIZE) {
     const chunk = lineas.slice(i, i + CHUNK_SIZE);
-    const { error } = await supabaseAdmin.from('project_apu_lineas').insert(chunk);
-    if (error) throw new Error(`Error insertando líneas de presupuesto (lote ${i}-${i + chunk.length}): ${error.message}`);
+    const values = [];
+    const params = [];
+    chunk.forEach((l, idx) => {
+      const base = idx * COLS.length;
+      values.push(`(${COLS.map((_, j) => `$${base + j + 1}`).join(', ')})`);
+      params.push(...COLS.map(c => l[c] ?? null));
+    });
+    try {
+      await withTenant(orgId, client => client.query(
+        `INSERT INTO project_apu_lineas (${COLS.join(', ')}) VALUES ${values.join(', ')}`,
+        params
+      ));
+    } catch (err) {
+      throw new Error(`Error insertando líneas de presupuesto (lote ${i}-${i + chunk.length}): ${err.message}`);
+    }
   }
 
   // Los hallazgos de auditoría (HSEQ ausente, descuadres aritméticos) ya NO

@@ -22,16 +22,30 @@
  * FIX 2026-08-17 (regresión real detectada y corregida en la misma sesión):
  * un primer intento de arreglo hizo que supabaseAdmin usara
  * SUPABASE_STORAGE_KEY (legacy JWT) por error, asumiendo sin verificar que
- * "supabaseAdmin se usa solo para Storage" — FALSO: aiTokenLogger.js,
- * AuditorForenseService.js, CopilotoService.js, EstresadoFinancieroService.js,
- * ExtractorService.js, ValorExponencialService.js y proyectos.routes.js
- * también lo usan para PostgREST normal (.from('tabla')...), que este
- * proyecto de Supabase RECHAZA con claves legacy ("Legacy API keys are
- * disabled") — rompió el historial del Co-Piloto en vivo. SUPABASE_SERVICE_KEY
- * (formato nuevo sb_secret_...) es la única que sirve para PostgREST aquí;
- * Storage es la única superficie que necesita la legacy — de ahí el cliente
+ * "supabaseAdmin se usa solo para Storage" — FALSO en ese momento:
+ * aiTokenLogger.js, AuditorForenseService.js, CopilotoService.js,
+ * EstresadoFinancieroService.js, ExtractorService.js,
+ * ValorExponencialService.js y proyectos.routes.js también lo usaban para
+ * PostgREST normal (.from('tabla')...), que este proyecto de Supabase
+ * RECHAZA con claves legacy ("Legacy API keys are disabled") — rompió el
+ * historial del Co-Piloto en vivo. SUPABASE_SERVICE_KEY (formato nuevo
+ * sb_secret_...) es la única que sirve para PostgREST aquí; Storage es la
+ * única superficie que necesita la legacy — de ahí el cliente
  * `supabaseStorage` separado, usado EXCLUSIVAMENTE por
  * anexos.routes.js/biblioteca.routes.js.
+ *
+ * ACTUALIZACIÓN 2026-09-04 (005_INGENIERO_BACKEND): de los 7 archivos
+ * listados arriba, 6 (todos menos aiTokenLogger.js) migraron de
+ * supabaseAdmin a withTenant() (backend/config/database.config.js) — el
+ * problema de fondo no era la key legacy, era que supabaseAdmin/service_role
+ * BYPASEA RLS incondicionalmente por diseño de Supabase, y esas tablas
+ * (project_apu_lineas, project_hallazgos, etc.) sí tienen políticas RLS
+ * reales (026_rls_policies_tenant_isolation.sql) que nunca se evaluaban por
+ * esa vía. Ver migración 053_rls_scoped_role.sql. aiTokenLogger.js y
+ * geminiCircuitBreaker.js (gemini_key_state) siguen en supabaseAdmin
+ * deliberadamente: el primero solo escribe con el user_id propio (bajo
+ * riesgo), el segundo es estado GLOBAL de rotación de llaves, no dato
+ * por-tenant.
  */
 
 import { createClient } from '@supabase/supabase-js';

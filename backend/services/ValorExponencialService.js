@@ -16,7 +16,11 @@
  * El mapeo ODS es una sugerencia heurística por palabras clave (igual
  * criterio que el etiquetado HSEQ) — no es una certificación oficial.
  */
-import { supabaseAdmin } from '../config/supabase.config.js';
+// FIX (005_INGENIERO_BACKEND, 2026-09-04): supabaseAdmin (service_role)
+// bypaseaba RLS por completo — ver AuditorForenseService.js para el detalle
+// completo del hallazgo/fix. withTenant() usa rf360_rls_scoped (migración
+// 053_rls_scoped_role.sql), sin BYPASSRLS.
+import { withTenant } from '../config/database.config.js';
 
 // Decretos 1469/1470 del 29 de diciembre de 2025 — actualizar cuando cambie el año.
 export const SMMLV_2026_COP = 1750905;
@@ -34,13 +38,16 @@ const ODS_RULES = [
   { ods: 11, meta: 'Ciudades y comunidades sostenibles',        regex: /urbano|vivienda|espacio p(u|ú)blico|and(e|é)n|parque|equipamiento comunitario/i },
 ];
 
-async function obtenerLineas(projectId) {
-  const { data, error } = await supabaseAdmin
-    .from('project_apu_lineas')
-    .select('descripcion, valor_total_cop')
-    .eq('project_id', projectId);
-  if (error) throw new Error(`No se pudo leer el presupuesto: ${error.message}`);
-  return data || [];
+async function obtenerLineas(projectId, orgId) {
+  try {
+    const res = await withTenant(orgId, client => client.query(
+      'SELECT descripcion, valor_total_cop FROM project_apu_lineas WHERE project_id = $1',
+      [projectId]
+    ));
+    return res.rows || [];
+  } catch (err) {
+    throw new Error(`No se pudo leer el presupuesto: ${err.message}`);
+  }
 }
 
 /**
@@ -53,7 +60,7 @@ export async function calcularSROI(projectId, orgId, { ratioConversion }) {
     throw new ValorExponencialError('ratioConversion es requerido y debe ser un número > 0 (indica cuántos COP de valor social se generan por cada COP invertido, según tus propios estudios/lineamientos).');
   }
 
-  const lineas = await obtenerLineas(projectId);
+  const lineas = await obtenerLineas(projectId, orgId);
   if (!lineas.length) {
     throw new ValorExponencialError('El proyecto no tiene líneas de presupuesto ingeridas — sube primero un presupuesto/APU en Anexos antes de calcular el SROI.');
   }
@@ -66,19 +73,18 @@ export async function calcularSROI(projectId, orgId, { ratioConversion }) {
   const valorSocialGenerado = inversionTotal * ratio;
   const empleosPersonaMes = Math.round(costoManoObra / SMMLV_2026_COP);
 
-  const { data, error } = await supabaseAdmin.from('project_sroi_metrics').insert({
-    project_id: projectId,
-    org_id: orgId,
-    inversion_total_cop: inversionTotal,
-    ratio_conversion: ratio,
-    valor_social_generado_cop: valorSocialGenerado,
-    costo_mano_obra_detectado_cop: costoManoObra,
-    smmlv_referencia_cop: SMMLV_2026_COP,
-    empleos_persona_mes_estimados: empleosPersonaMes,
-  }).select().single();
-  if (error) throw new Error(`No se pudo guardar la métrica SROI: ${error.message}`);
-
-  return data;
+  try {
+    const res = await withTenant(orgId, client => client.query(
+      `INSERT INTO project_sroi_metrics
+        (project_id, org_id, inversion_total_cop, ratio_conversion, valor_social_generado_cop, costo_mano_obra_detectado_cop, smmlv_referencia_cop, empleos_persona_mes_estimados)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [projectId, orgId, inversionTotal, ratio, valorSocialGenerado, costoManoObra, SMMLV_2026_COP, empleosPersonaMes]
+    ));
+    return res.rows?.[0];
+  } catch (err) {
+    throw new Error(`No se pudo guardar la métrica SROI: ${err.message}`);
+  }
 }
 
 /**
@@ -86,14 +92,17 @@ export async function calcularSROI(projectId, orgId, { ratioConversion }) {
  * Idempotente: reemplaza el mapeo anterior del proyecto en cada corrida.
  */
 export async function calcularMapeoODS(projectId, orgId) {
-  const lineas = await obtenerLineas(projectId);
+  const lineas = await obtenerLineas(projectId, orgId);
   if (!lineas.length) {
     throw new ValorExponencialError('El proyecto no tiene líneas de presupuesto ingeridas — sube primero un presupuesto/APU en Anexos.');
   }
 
   const inversionTotal = lineas.reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
 
-  await supabaseAdmin.from('project_ods_mapping').delete().eq('project_id', projectId);
+  await withTenant(orgId, client => client.query(
+    'DELETE FROM project_ods_mapping WHERE project_id = $1',
+    [projectId]
+  ));
 
   const filas = [];
   for (const regla of ODS_RULES) {
@@ -102,8 +111,6 @@ export async function calcularMapeoODS(projectId, orgId) {
       .reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
     if (monto === 0) continue;
     filas.push({
-      project_id: projectId,
-      org_id: orgId,
       ods_numero: regla.ods,
       meta_asociada: regla.meta,
       monto_asociado_cop: monto,
@@ -113,15 +120,37 @@ export async function calcularMapeoODS(projectId, orgId) {
 
   if (!filas.length) return [];
 
-  const { data, error } = await supabaseAdmin.from('project_ods_mapping').insert(filas).select();
-  if (error) throw new Error(`No se pudo guardar el mapeo ODS: ${error.message}`);
-  return data;
+  const values = [];
+  const params = [];
+  filas.forEach((f, i) => {
+    const base = i * 6;
+    values.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`);
+    params.push(projectId, orgId, f.ods_numero, f.meta_asociada, f.monto_asociado_cop, f.porcentaje_contribucion);
+  });
+
+  try {
+    const res = await withTenant(orgId, client => client.query(
+      `INSERT INTO project_ods_mapping (project_id, org_id, ods_numero, meta_asociada, monto_asociado_cop, porcentaje_contribucion)
+       VALUES ${values.join(', ')}
+       RETURNING *`,
+      params
+    ));
+    return res.rows || [];
+  } catch (err) {
+    throw new Error(`No se pudo guardar el mapeo ODS: ${err.message}`);
+  }
 }
 
-export async function obtenerImpactoSocial(projectId) {
-  const [{ data: sroi }, { data: ods }] = await Promise.all([
-    supabaseAdmin.from('project_sroi_metrics').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1),
-    supabaseAdmin.from('project_ods_mapping').select('*').eq('project_id', projectId).order('ods_numero'),
+export async function obtenerImpactoSocial(projectId, orgId) {
+  const [sroiRes, odsRes] = await Promise.all([
+    withTenant(orgId, client => client.query(
+      'SELECT * FROM project_sroi_metrics WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [projectId]
+    )),
+    withTenant(orgId, client => client.query(
+      'SELECT * FROM project_ods_mapping WHERE project_id = $1 ORDER BY ods_numero',
+      [projectId]
+    )),
   ]);
-  return { sroi: sroi?.[0] || null, ods: ods || [] };
+  return { sroi: sroiRes.rows?.[0] || null, ods: odsRes.rows || [] };
 }
