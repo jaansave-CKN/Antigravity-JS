@@ -314,17 +314,17 @@ export default function PresupuestoPage() {
             <select value={row.fase} onChange={e => actualizarFila(idx, 'fase', e.target.value)} style={campoStyle}>
               {FASES.map(f => <option key={f} value={f}>{f}</option>)}
             </select>
-            <input placeholder="Capítulo" value={row.capitulo} onChange={e => actualizarFila(idx, 'capitulo', e.target.value)} style={campoStyle} />
-            <input placeholder="Ítem" value={row.item} onChange={e => actualizarFila(idx, 'item', e.target.value)} style={campoStyle} />
-            <input placeholder="Unidad" value={row.unidad} onChange={e => actualizarFila(idx, 'unidad', e.target.value)} style={campoStyle} />
-            <input placeholder="Cantidad" type="number" value={row.cantidad} onChange={e => actualizarFila(idx, 'cantidad', e.target.value)} style={campoStyle} />
+            <input aria-label="Capítulo" placeholder="Capítulo" value={row.capitulo} onChange={e => actualizarFila(idx, 'capitulo', e.target.value)} style={campoStyle} />
+            <input aria-label="Ítem" placeholder="Ítem" value={row.item} onChange={e => actualizarFila(idx, 'item', e.target.value)} style={campoStyle} />
+            <input aria-label="Unidad" placeholder="Unidad" value={row.unidad} onChange={e => actualizarFila(idx, 'unidad', e.target.value)} style={campoStyle} />
+            <input aria-label="Cantidad" placeholder="Cantidad" type="number" value={row.cantidad} onChange={e => actualizarFila(idx, 'cantidad', e.target.value)} style={campoStyle} />
             <select value={row.rendimiento_std} onChange={e => actualizarFila(idx, 'rendimiento_std', e.target.value)} style={campoStyle}>
               <option value="">Rend. estándar (opcional)</option>
               {rendimientos.map(r => <option key={r.clave} value={r.clave}>{r.descripcion || r.clave} ({r.valor}/{r.unidad})</option>)}
             </select>
-            <input placeholder="Rend. real *" type="number" value={row.rendimiento_real} onChange={e => actualizarFila(idx, 'rendimiento_real', e.target.value)} style={campoStyle} title="Requerido — unidades/jornal" />
-            <input placeholder="Jornal (COP)" type="number" value={row.costo_jornal_dia} onChange={e => actualizarFila(idx, 'costo_jornal_dia', e.target.value)} style={campoStyle} />
-            <input placeholder="AIU" type="number" step="0.01" value={row.aiu} onChange={e => actualizarFila(idx, 'aiu', e.target.value)} style={campoStyle} title="Fracción, ej. 0.28 = 28%" />
+            <input aria-label="Rendimiento real" placeholder="Rend. real *" type="number" value={row.rendimiento_real} onChange={e => actualizarFila(idx, 'rendimiento_real', e.target.value)} style={campoStyle} title="Requerido — unidades/jornal" />
+            <input aria-label="Costo del jornal (COP)" placeholder="Jornal (COP)" type="number" value={row.costo_jornal_dia} onChange={e => actualizarFila(idx, 'costo_jornal_dia', e.target.value)} style={campoStyle} />
+            <input aria-label="AIU" placeholder="AIU" type="number" step="0.01" value={row.aiu} onChange={e => actualizarFila(idx, 'aiu', e.target.value)} style={campoStyle} title="Fracción, ej. 0.28 = 28%" />
             <button onClick={() => quitarFila(idx)} disabled={borrador.length === 1} style={{ background: 'none', border: 'none', color: borrador.length === 1 ? T.border : T.error, cursor: borrador.length === 1 ? 'not-allowed' : 'pointer', fontSize: 16 }} title="Quitar fila">✕</button>
           </div>
         ))}

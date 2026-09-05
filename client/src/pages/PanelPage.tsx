@@ -455,8 +455,9 @@ export default function PanelPage() {
 
           {/* input_project_name */}
           <div>
-            <label style={labelStyle}>Nombre de la Ficha Técnica / Proyecto</label>
+            <label htmlFor="panel-nombre-proyecto" style={labelStyle}>Nombre de la Ficha Técnica / Proyecto</label>
             <input
+              id="panel-nombre-proyecto"
               type="text"
               value={projName}
               onChange={e => setProjName(e.target.value)}
@@ -501,8 +502,9 @@ export default function PanelPage() {
           {/* combobox_pais_internacional — visible when colombia === false */}
           {!colombia && (
             <div>
-              <label style={labelStyle}>País de Destino Internacional</label>
+              <label htmlFor="panel-pais-destino" style={labelStyle}>País de Destino Internacional</label>
               <input
+                id="panel-pais-destino"
                 type="text"
                 value={pais}
                 onChange={e => setPais(e.target.value)}
