@@ -571,8 +571,9 @@ export default function LogisticaPage() {
             <h3 className="logx__modal-title">{editandoId ? 'Editar Tramo' : 'Añadir Tramo'}</h3>
             <div className="logx__modal-grid">
               <div className="logx__field">
-                <label>Origen * {origenBloqueado && <LockChip />}</label>
+                <label htmlFor="logx-origen">Origen * {origenBloqueado && <LockChip />}</label>
                 <input
+                  id="logx-origen"
                   value={nuevo.origen}
                   readOnly={origenBloqueado}
                   style={origenBloqueado ? LOCK_STYLE : {}}
@@ -582,8 +583,9 @@ export default function LogisticaPage() {
                 />
               </div>
               <div className="logx__field">
-                <label>Destino * {destinoBloqueado && <LockChip />}</label>
+                <label htmlFor="logx-destino">Destino * {destinoBloqueado && <LockChip />}</label>
                 <input
+                  id="logx-destino"
                   value={nuevo.destino}
                   readOnly={destinoBloqueado}
                   style={destinoBloqueado ? LOCK_STYLE : {}}
@@ -593,12 +595,12 @@ export default function LogisticaPage() {
                 />
               </div>
               <div className="logx__field">
-                <label>Duración</label>
-                <input value={nuevo.duracion} onChange={e => setNuevo(n => ({ ...n, duracion: e.target.value }))} placeholder="03h 15m" />
+                <label htmlFor="logx-duracion">Duración</label>
+                <input id="logx-duracion" value={nuevo.duracion} onChange={e => setNuevo(n => ({ ...n, duracion: e.target.value }))} placeholder="03h 15m" />
               </div>
               <div className="logx__field">
-                <label>Distancia (km) *</label>
-                <input type="number" value={nuevo.distancia} onChange={e => setNuevo(n => ({ ...n, distancia: e.target.value }))} placeholder="121.5" />
+                <label htmlFor="logx-distancia">Distancia (km) *</label>
+                <input id="logx-distancia" type="number" value={nuevo.distancia} onChange={e => setNuevo(n => ({ ...n, distancia: e.target.value }))} placeholder="121.5" />
               </div>
               <div className="logx__field">
                 <label>Medio Transp.</label>

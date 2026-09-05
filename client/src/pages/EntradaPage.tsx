@@ -1219,6 +1219,7 @@ export default function EntradaPage() {
                       <input
                         className="entr__sector-otro-input"
                         placeholder="Especifique otro sector..."
+                        aria-label="Especifique otro sector"
                         value={st.sectorOtro[s.grupo] || ''}
                         onChange={e => setSt(p => ({ ...p, sectorOtro: { ...p.sectorOtro, [s.grupo]: e.target.value } }))}
                       />
@@ -1257,6 +1258,7 @@ export default function EntradaPage() {
                               <input
                                 className="entr__sub-input"
                                 placeholder="Escribir aquí..."
+                                aria-label="Otra categoría de población, especifique"
                                 autoFocus
                                 value={st.categoriaOtro[cat.id] || ''}
                                 onChange={e => setSt(p => ({
@@ -1457,6 +1459,7 @@ export default function EntradaPage() {
                           className="entr__campo-c-input"
                           type="number"
                           placeholder="Beneficiarios"
+                          aria-label="Número de beneficiarios"
                           title={autoIntegral
                             ? 'C3 — Beneficiarios (automático: igual al déficit total en modalidad "Proyecto Integral")'
                             : 'C3 — Beneficiarios (hereda de Sección 06, editable)'}
@@ -1646,6 +1649,7 @@ export default function EntradaPage() {
                   <textarea
                     className="entr__solucion-textarea"
                     placeholder="Escribe tu propia propuesta de solución…"
+                    aria-label="Tu propia propuesta de solución"
                     value={st.soluciones.propuestaManual}
                     onChange={e => setSt(p => ({ ...p, soluciones: { ...p.soluciones, propuestaManual: e.target.value } }))}
                   />
