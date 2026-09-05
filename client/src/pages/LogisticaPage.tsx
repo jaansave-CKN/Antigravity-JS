@@ -661,11 +661,11 @@ export default function LogisticaPage() {
                 </select>
               </div>
               <div className="logx__field">
-                <label>Problemas de Orden Público</label>
+                <label htmlFor="logx-orden-publico-si">Problemas de Orden Público</label>
                 <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
                   {(['Sí', 'No'] as const).map(op => (
                     <label key={op} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 14, fontWeight: nuevo.orden_publico === op ? 700 : 400, color: nuevo.orden_publico === op ? (op === 'Sí' ? '#ba1a1a' : '#2e7d32') : '#434655' }}>
-                      <input type="radio" name="orden_publico" value={op} checked={nuevo.orden_publico === op} onChange={() => setNuevo(n => ({ ...n, orden_publico: op }))} style={{ accentColor: op === 'Sí' ? '#ba1a1a' : '#2e7d32' }} />
+                      <input id={op === 'Sí' ? 'logx-orden-publico-si' : undefined} type="radio" name="orden_publico" value={op} checked={nuevo.orden_publico === op} onChange={() => setNuevo(n => ({ ...n, orden_publico: op }))} style={{ accentColor: op === 'Sí' ? '#ba1a1a' : '#2e7d32' }} />
                       {op}
                     </label>
                   ))}

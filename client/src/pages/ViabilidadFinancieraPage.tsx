@@ -200,7 +200,7 @@ export default function ViabilidadFinancieraPage() {
               </div>
             </div>
             <div style={{ background: T.cardLow, border: `1px solid ${T.border}`, borderRadius: 4, padding: 16 }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 4 }}>Costos Variables Totales</label>
+              <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 4 }}>Costos Variables Totales</span>
               <div style={{ fontFamily: T.fontData, fontSize: 32, fontWeight: 700, color: T.text }}>{COP.format(costosVariablesPreview)}</div>
               <p style={{ fontSize: 12, color: T.textMuted, fontStyle: 'italic', margin: '4px 0 0' }}>
                 {costosVariablesFuente === 'manual'

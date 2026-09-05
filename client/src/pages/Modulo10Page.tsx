@@ -498,9 +498,9 @@ function Section({ label, icon, color, children }: { label: string; icon: string
     <div style={{ marginBottom: '2rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <span style={{ fontSize: 14 }}>{icon}</span>
-        <label style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+        <span style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.12em' }}>
           {label}
-        </label>
+        </span>
       </div>
       {children}
     </div>

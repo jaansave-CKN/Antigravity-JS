@@ -1415,9 +1415,10 @@ export default function EntradaPage() {
                 {/* Campo C — 5 sub-campos interconectados (Problemática, Déficit,
                     Beneficiarios, Tipo de formulación, % Calculado) */}
                 <div>
-                  <label className="entr__field-label">C. META ESPERADA — PROBLEMÁTICA, DÉFICIT Y COBERTURA</label>
+                  <label className="entr__field-label" htmlFor="entr-campo-c-problema">C. META ESPERADA — PROBLEMÁTICA, DÉFICIT Y COBERTURA</label>
                   <div className="entr__campo-c-grid">
                     <select
+                      id="entr-campo-c-problema"
                       className="entr__campo-c-select"
                       disabled={!campoCDesbloqueado(st.contexto)}
                       value={st.contextoMeta.problemaSeleccionado}

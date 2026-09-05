@@ -155,9 +155,11 @@ function estadoBadge(conv: Pick<Convocatoria, 'estado' | 'created_at'>): 'abiert
 const SectorDropdown = React.memo(function SectorDropdown({
   active,
   onChange,
+  id,
 }: {
   active: string[];
   onChange: (next: string[]) => void;
+  id?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -195,6 +197,7 @@ const SectorDropdown = React.memo(function SectorDropdown({
   return (
     <div className="radx__sector-drop" ref={panelRef}>
       <button
+        id={id}
         className={`radx__sector-btn${active.length > 0 ? ' radx__sector-btn--active' : ''}`}
         onClick={() => setOpen(v => !v)}
         type="button"
@@ -454,13 +457,13 @@ const RadarHeader = React.memo(function RadarHeader({
         </div>
 
         <div className="radx__filter-group">
-          <label className="radx__filter-label">
+          <label className="radx__filter-label" htmlFor="radx-filtro-sector">
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
               <path d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"/>
             </svg>
             Sector
           </label>
-          <SectorDropdown active={filtroSectores} onChange={onSectores} />
+          <SectorDropdown id="radx-filtro-sector" active={filtroSectores} onChange={onSectores} />
         </div>
 
         <div className="radx__filter-group">
