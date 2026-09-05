@@ -68,10 +68,11 @@ function RecoveryModal({ onClose }: { onClose: () => void }) {
               </div>
             )}
             <div>
-              <label className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
+              <label htmlFor="login-email-inicial" className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
                 IDENTIFICADOR DE SISTEMA (EMAIL)
               </label>
               <input
+                id="login-email-inicial"
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
@@ -398,10 +399,11 @@ export default function LoginPage() {
 
               <form onSubmit={handleMfaSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
+                  <label htmlFor="login-mfa-code" className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
                     CÓDIGO DE VERIFICACIÓN
                   </label>
                   <input
+                    id="login-mfa-code"
                     type="text"
                     inputMode="numeric"
                     pattern="[0-9]{6}"
@@ -465,10 +467,11 @@ export default function LoginPage() {
             {!esRegistro && (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
+                  <label htmlFor="login-email-signin" className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
                     IDENTIFICADOR DE ACCESO
                   </label>
                   <input
+                    id="login-email-signin"
                     type="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
@@ -542,10 +545,11 @@ export default function LoginPage() {
             {esRegistro && (
               <form onSubmit={handleRegister} className="space-y-4">
                 <div>
-                  <label className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
+                  <label htmlFor="login-email-registro" className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
                     CORREO ELECTRÓNICO
                   </label>
                   <input
+                    id="login-email-registro"
                     type="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}

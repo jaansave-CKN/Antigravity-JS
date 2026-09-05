@@ -207,6 +207,7 @@ function TabRegistros({ proyectoId, tareas, roles, onChange }: { proyectoId: str
             onChange={e => setNuevaTarea(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && agregarTarea()}
             placeholder="Nombre de la tarea/actividad…"
+            aria-label="Nombre de la tarea o actividad"
             style={{ flex: 1, padding: '9px 12px', border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 13, fontFamily: T.font }}
           />
           <button onClick={agregarTarea} disabled={guardando || !nuevaTarea.trim()} style={{ padding: '9px 16px', background: T.primary, color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 12.5, cursor: 'pointer', opacity: guardando ? 0.6 : 1 }}>+ Agregar</button>
@@ -234,6 +235,7 @@ function TabRegistros({ proyectoId, tareas, roles, onChange }: { proyectoId: str
             onChange={e => setNuevoRol(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && agregarRol()}
             placeholder="Nombre del rol o persona…"
+            aria-label="Nombre del rol o persona"
             style={{ flex: 1, padding: '9px 12px', border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 13, fontFamily: T.font }}
           />
           <button onClick={agregarRol} disabled={guardando || !nuevoRol.trim()} style={{ padding: '9px 16px', background: T.primary, color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 12.5, cursor: 'pointer', opacity: guardando ? 0.6 : 1 }}>+ Agregar</button>
