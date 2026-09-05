@@ -483,11 +483,12 @@ export default function LoginPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
+                  <label htmlFor="login-password-signin" className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
                     CLAVE DE AUTENTICACIÓN
                   </label>
                   <div className="relative">
                     <input
+                      id="login-password-signin"
                       type={showPwd ? 'text' : 'password'}
                       value={password}
                       onChange={e => setPassword(e.target.value)}
@@ -563,11 +564,12 @@ export default function LoginPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
+                  <label htmlFor="login-password-registro" className="block text-[10px] font-mono font-bold text-[#557997] uppercase tracking-widest mb-1.5">
                     CLAVE DE AUTENTICACIÓN
                   </label>
                   <div className="relative">
                     <input
+                      id="login-password-registro"
                       type={showPwd ? 'text' : 'password'}
                       value={password}
                       onChange={e => setPassword(e.target.value)}
