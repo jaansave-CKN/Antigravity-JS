@@ -172,6 +172,7 @@ export default function ArbolObjetivosPage() {
             value={objetivoCentral}
             onChange={e => setObjetivoCentral(e.target.value)}
             placeholder="Objetivo central del proyecto (ej: Mejorar el acceso a agua potable en zona rural X)"
+            aria-label="Objetivo central del proyecto"
             style={{ flex: 1, minWidth: 280, padding: '10px 14px', borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 13, fontFamily: T.font }}
           />
           <button
@@ -217,14 +218,14 @@ export default function ArbolObjetivosPage() {
           </div>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
-          <input placeholder="Nombre del indicador" value={nuevoInd.nombre} onChange={e => setNuevoInd(v => ({ ...v, nombre: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }} />
-          <select value={nuevoInd.tipo} onChange={e => setNuevoInd(v => ({ ...v, tipo: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }}>
+          <input aria-label="Nombre del indicador" placeholder="Nombre del indicador" value={nuevoInd.nombre} onChange={e => setNuevoInd(v => ({ ...v, nombre: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }} />
+          <select aria-label="Tipo de indicador" value={nuevoInd.tipo} onChange={e => setNuevoInd(v => ({ ...v, tipo: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }}>
             <option>Producto</option><option>Resultado</option><option>Impacto</option><option>Gestión</option>
           </select>
-          <input type="number" placeholder="Línea base" value={nuevoInd.linea_base} onChange={e => setNuevoInd(v => ({ ...v, linea_base: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }} />
-          <input type="number" placeholder="Meta *" value={nuevoInd.meta_total} onChange={e => setNuevoInd(v => ({ ...v, meta_total: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }} />
-          <input placeholder="Unidad de medida *" value={nuevoInd.unidad_medida} onChange={e => setNuevoInd(v => ({ ...v, unidad_medida: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }} />
-          <input placeholder="Fuente de verificación" value={nuevoInd.fuente_verificacion} onChange={e => setNuevoInd(v => ({ ...v, fuente_verificacion: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }} />
+          <input aria-label="Línea base" type="number" placeholder="Línea base" value={nuevoInd.linea_base} onChange={e => setNuevoInd(v => ({ ...v, linea_base: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }} />
+          <input aria-label="Meta" type="number" placeholder="Meta *" value={nuevoInd.meta_total} onChange={e => setNuevoInd(v => ({ ...v, meta_total: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }} />
+          <input aria-label="Unidad de medida" placeholder="Unidad de medida *" value={nuevoInd.unidad_medida} onChange={e => setNuevoInd(v => ({ ...v, unidad_medida: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }} />
+          <input aria-label="Fuente de verificación" placeholder="Fuente de verificación" value={nuevoInd.fuente_verificacion} onChange={e => setNuevoInd(v => ({ ...v, fuente_verificacion: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5 }} />
         </div>
         <button
           onClick={agregarIndicador}

@@ -122,6 +122,7 @@ export default function AdminPermisosPage() {
         value={filtro}
         onChange={e => setFiltro(e.target.value)}
         placeholder="Filtrar por nombre o correo…"
+        aria-label="Filtrar usuarios por nombre o correo"
         style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13, outline: 'none', marginBottom: 16, boxSizing: 'border-box' }}
       />
 

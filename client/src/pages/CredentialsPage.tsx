@@ -191,12 +191,12 @@ function GeminiByokPanel() {
               <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                 <input
                   type="password" value={keyInput} onChange={e => setKeyInput(e.target.value)}
-                  placeholder="Pega tu llave de Gemini (AIza...)" autoFocus disabled={guardando}
+                  placeholder="Pega tu llave de Gemini (AIza...)" aria-label="Llave de API de Gemini" autoFocus disabled={guardando}
                   style={{ width:'100%', padding:'9px 12px', fontSize:12, fontFamily:'monospace', background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:7, outline:'none', color:'#191c1e', boxSizing:'border-box' }}
                 />
                 <input
                   type="text" value={labelInput} onChange={e => setLabelInput(e.target.value)}
-                  placeholder="Etiqueta (opcional)" disabled={guardando}
+                  placeholder="Etiqueta (opcional)" aria-label="Etiqueta de la llave (opcional)" disabled={guardando}
                   style={{ width:'100%', padding:'9px 12px', fontSize:12, fontFamily:'monospace', background:'#f9fafb', border:'1.5px solid #e5e7eb', borderRadius:7, outline:'none', color:'#191c1e', boxSizing:'border-box' }}
                 />
                 {error && <p style={{ fontSize:10, color:'#ba1a1a', fontFamily:'monospace' }}>{error}</p>}

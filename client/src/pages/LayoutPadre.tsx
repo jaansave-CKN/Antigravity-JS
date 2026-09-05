@@ -423,6 +423,7 @@ const RadarHeader = React.memo(function RadarHeader({
             <input
               className="radx__search"
               placeholder="Buscar convocatorias..."
+              aria-label="Buscar convocatorias"
               type="text"
               value={busqueda}
               onChange={e => onBusqueda(e.target.value)}
