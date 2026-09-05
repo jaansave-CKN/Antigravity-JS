@@ -35,12 +35,21 @@
 import crypto from 'crypto';
 import pLimit from 'p-limit';
 import { supabaseStorage } from '../config/supabase.config.js';
-// withTenant() (005_INGENIERO_BACKEND, 2026-09-04): reemplaza el único uso de
-// supabaseAdmin que tenía este archivo (línea ~496, lectura de
-// project_apu_lineas para el conector de viabilidad financiera) — ver nota
-// completa en ese punto. supabaseStorage sigue siendo el cliente correcto
-// para Supabase Storage (líneas de arriba), sin cambios.
-import { withTenant } from '../config/database.config.js';
+// withTenant() (005_INGENIERO_BACKEND, 2026-09-04): reemplazó el único uso de
+// supabaseAdmin que tenía este archivo (lectura de project_apu_lineas para el
+// conector de viabilidad financiera). supabaseStorage sigue siendo el cliente
+// correcto para Supabase Storage (líneas de arriba), sin cambios.
+// AMPLIACIÓN (Prioridad Roja, Fase 1 de docs/ROADMAP_MIGRACION_TENANT_2026.md,
+// 2026-09-05): el resto de los call sites de este archivo (getRow/getRows/
+// runSql contra `project_anexos`, `project_anexos_carpetas`, `proyectos`)
+// migran aquí también, al rol rf360_rls_scoped — GRANT ya aplicado en
+// producción por 055_rls_scoped_grants_fase1.sql (verificado en vivo:
+// GRANT + prueba de aislamiento cross-tenant, 2026-09-05). withTenantRow/
+// withTenantRows/withTenantRun (database.config.js) preservan el contrato
+// getRow/getRows/runSql (mismo shape de retorno, misma convención "?") — el
+// diff de cada call site es solo agregar el tenantId (siempre `req.userId`
+// en este archivo, org_id = user_id) como primer argumento.
+import { withTenant, withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
 import { sanitizeTechnicalText, sanitizeUrl } from '../middlewares/SecurityMiddleware.js';
 import { parseAndSanitizeExcel } from '../services/ExtractorService.js';
 import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js';
@@ -100,15 +109,15 @@ const USE_PG = !!process.env.DATABASE_URL;
 // Genera el embedding semántico de un anexo y lo persiste — fire-and-forget
 // (se llama sin await desde el POST, después de responder al cliente; nunca
 // debe bloquear ni hacer fallar la subida si Gemini/MarkItDown fallan).
-async function generarEmbeddingAsync(runSql, { anexoId, projectId, texto }) {
+async function generarEmbeddingAsync(tenantId, { anexoId, projectId, texto }) {
   try {
     if (!texto || !texto.trim()) return;
     const vector = await textToEmbedding(texto);
     const embStr = serializeEmbedding(vector);
     if (USE_PG) {
-      await runSql('UPDATE project_anexos SET embedding = ?, embedding_vec = ?::vector WHERE id = ? AND project_id = ?', [embStr, embStr, anexoId, projectId]);
+      await withTenantRun(tenantId, 'UPDATE project_anexos SET embedding = ?, embedding_vec = ?::vector WHERE id = ? AND project_id = ?', [embStr, embStr, anexoId, projectId]);
     } else {
-      await runSql('UPDATE project_anexos SET embedding = ? WHERE id = ? AND project_id = ?', [embStr, anexoId, projectId]);
+      await withTenantRun(tenantId, 'UPDATE project_anexos SET embedding = ? WHERE id = ? AND project_id = ?', [embStr, anexoId, projectId]);
     }
   } catch (e) {
     console.warn('[anexos] No se pudo generar el embedding semántico (no bloqueante):', e.message);
@@ -172,7 +181,11 @@ function wrap(fn) {
   };
 }
 
-export async function registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows, financialPipelineLimiter }) {
+// `getRow`/`getRows`/`runSql` ya no se destructuran (todos los call sites de
+// este archivo migraron a withTenantRow/withTenantRows/withTenantRun, pool
+// RLS-escopado) — si server.js los sigue pasando en el objeto de deps, se
+// ignoran sin error.
+export async function registerAnexosRoutes(app, { authenticateToken, financialPipelineLimiter }) {
   if (!supabaseStorage) {
     console.error('[anexos] SUPABASE_URL/SUPABASE_SERVICE_KEY no configurados — subida de anexos desactivada');
   } else {
@@ -216,7 +229,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     // (más abajo, tras ingestar un presupuesto_apu) necesita fusionar sobre el
     // estado actual sin una segunda consulta — el resto de endpoints de este
     // archivo ignora este campo, así que ampliarlo aquí es seguro.
-    return getRow('SELECT id, ficha_tecnica FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    return withTenantRow(userId, 'SELECT id, ficha_tecnica FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
   /**
@@ -226,7 +239,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const anexos = await getRows(
+    const anexos = await withTenantRows(req.userId,
       // FIX (reportado por el usuario 2026-08-17): ORDER BY created_at DESC
       // (más nuevo primero) invertía el orden de ingreso cada vez que la
       // lista se recargaba — el usuario numera sus filas mentalmente en el
@@ -244,7 +257,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const carpetas = await getRows(
+    const carpetas = await withTenantRows(req.userId,
       'SELECT id, project_id, nombre, orden, created_at FROM project_anexos_carpetas WHERE project_id = ? ORDER BY orden ASC, created_at ASC',
       [req.params.id]
     );
@@ -261,13 +274,13 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
     if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
 
-    const [{ maxOrden } = { maxOrden: -1 }] = await getRows(
+    const [{ maxOrden } = { maxOrden: -1 }] = await withTenantRows(req.userId,
       'SELECT COALESCE(MAX(orden), -1) AS "maxOrden" FROM project_anexos_carpetas WHERE project_id = ?',
       [req.params.id]
     );
 
     const id = crypto.randomUUID();
-    await runSql(
+    await withTenantRun(req.userId,
       'INSERT INTO project_anexos_carpetas (id, project_id, tenant_id, nombre, orden, created_at) VALUES (?,?,?,?,?,?)',
       [id, req.params.id, req.userId, nombre, Number(maxOrden) + 1, new Date().toISOString()]
     );
@@ -284,7 +297,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
     if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
 
-    const carpeta = await getRow(
+    const carpeta = await withTenantRow(req.userId,
       'SELECT id, nombre FROM project_anexos_carpetas WHERE id = ? AND project_id = ?',
       [req.params.carpetaId, req.params.id]
     );
@@ -293,7 +306,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
       return res.status(403).json({ success: false, message: 'Esta carpeta está protegida y vinculada al botón "Generar con AI" de Entrada — no se puede renombrar.' });
     }
 
-    await runSql('UPDATE project_anexos_carpetas SET nombre = ? WHERE id = ?', [nombre, req.params.carpetaId]);
+    await withTenantRun(req.userId, 'UPDATE project_anexos_carpetas SET nombre = ? WHERE id = ?', [nombre, req.params.carpetaId]);
     res.json({ success: true, message: 'Carpeta renombrada' });
   }));
 
@@ -309,7 +322,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const carpeta = await getRow(
+    const carpeta = await withTenantRow(req.userId,
       'SELECT id, nombre FROM project_anexos_carpetas WHERE id = ? AND project_id = ?',
       [req.params.carpetaId, req.params.id]
     );
@@ -320,18 +333,18 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
 
     const eliminarDocumentos = String(req.query?.eliminarDocumentos || '') === 'true';
     if (eliminarDocumentos) {
-      const docs = await getRows(
+      const docs = await withTenantRows(req.userId,
         'SELECT id, ruta_storage FROM project_anexos WHERE carpeta_id = ? AND project_id = ?',
         [req.params.carpetaId, req.params.id]
       );
-      await runSql('DELETE FROM project_anexos WHERE carpeta_id = ? AND project_id = ?', [req.params.carpetaId, req.params.id]);
+      await withTenantRun(req.userId, 'DELETE FROM project_anexos WHERE carpeta_id = ? AND project_id = ?', [req.params.carpetaId, req.params.id]);
       if (supabaseStorage) {
         const rutas = docs.map(d => d.ruta_storage).filter(Boolean);
         if (rutas.length) supabaseStorage.storage.from(ANEXOS_BUCKET).remove(rutas).catch(() => {});
       }
     }
 
-    await runSql('DELETE FROM project_anexos_carpetas WHERE id = ?', [req.params.carpetaId]);
+    await withTenantRun(req.userId, 'DELETE FROM project_anexos_carpetas WHERE id = ?', [req.params.carpetaId]);
     res.json({ success: true, message: eliminarDocumentos ? 'Carpeta y sus anexos eliminados' : 'Carpeta eliminada — sus anexos quedaron sin carpeta' });
   }));
 
@@ -393,7 +406,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     // criterio que biblioteca.routes.js (migración 042).
     let carpetaId = req.body?.carpeta_id ? String(req.body.carpeta_id) : null;
     if (carpetaId) {
-      const carpeta = await getRow('SELECT id FROM project_anexos_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
+      const carpeta = await withTenantRow(req.userId, 'SELECT id FROM project_anexos_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
       if (!carpeta) carpetaId = null;
     }
 
@@ -432,7 +445,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     // ver auditoría Capa 2), antes quedaba huérfano en Storage, pagando hosting
     // sin ninguna fila que lo referencie. Se revierte el upload si el INSERT falla.
     try {
-      await runSql(
+      await withTenantRun(req.userId,
         `INSERT INTO project_anexos
          (id, project_id, tenant_id, nombre_archivo, ruta_storage, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, carpeta_id, created_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -459,7 +472,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
         // mismo nombre de archivo (p. ej. el usuario corrigió un typo y volvió
         // a subir "presupuesto.xlsx") para que ExtractorService limpie también
         // esas líneas antiguas, no solo las del anexo_id recién creado.
-        const anterioresRows = await getRows(
+        const anterioresRows = await withTenantRows(req.userId,
           'SELECT id FROM project_anexos WHERE project_id = ? AND categoria = ? AND nombre_archivo = ? AND id != ?',
           [req.params.id, 'presupuesto_apu', nombreArchivo, id]
         );
@@ -498,13 +511,13 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
           // fija por request — un SELECT vía esa vía devuelve 0 filas siempre,
           // silenciosamente (verificado en vivo). FIX (005_INGENIERO_BACKEND,
           // 2026-09-04): antes usaba supabaseAdmin (service_role, bypasea RLS
-          // por completo) — ahora usa withTenant() con el rol rf360_rls_scoped
-          // (sin BYPASSRLS, migración 053_rls_scoped_role.sql), RLS real.
-          const lineasApuRes = await withTenant(req.userId, client => client.query(
-            'SELECT valor_total_cop FROM project_apu_lineas WHERE project_id = $1',
+          // por completo) — ahora usa withTenantRows() (wrapper sobre
+          // withTenant()) con el rol rf360_rls_scoped (sin BYPASSRLS,
+          // migración 053_rls_scoped_role.sql), RLS real.
+          const lineasApu = await withTenantRows(req.userId,
+            'SELECT valor_total_cop FROM project_apu_lineas WHERE project_id = ?',
             [req.params.id]
-          ));
-          const lineasApu = lineasApuRes.rows || [];
+          );
           const costosVariablesTotales = lineasApu.reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
 
           const fichaTecnicaActual   = safeParseJson(proyecto.ficha_tecnica) || {};
@@ -529,7 +542,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
           // escribir esta misma clave en paralelo; mismo fix, mismo motivo.
           // ficha_tecnica es JSONB nativo desde 037_ficha_tecnica_a_jsonb.sql
           // (2026-08-10) — sin casts tácticos ::jsonb/::text, ya innecesarios.
-          await runSql(
+          await withTenantRun(req.userId,
             `UPDATE proyectos
              SET ficha_tecnica = jsonb_set(ficha_tecnica, '{viabilidad_financiera}', ?::jsonb, true),
                  updated_at = CURRENT_TIMESTAMP
@@ -540,7 +553,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
           console.error('[anexos] Conector de viabilidad financiera falló (no bloqueante):', viabErr.message);
         }
       } catch (extErr) {
-        await runSql('DELETE FROM project_anexos WHERE id = ?', [id]);
+        await withTenantRun(req.userId, 'DELETE FROM project_anexos WHERE id = ?', [id]);
         if (rutaStorage) supabaseStorage.storage.from(ANEXOS_BUCKET).remove([rutaStorage]).catch(() => {});
         return res.status(extErr.status || 500).json({ success: false, message: extErr.message });
       }
@@ -560,7 +573,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
         }
       }
       const textoCompleto = [descripcion, texto, textoArchivo].filter(Boolean).join('\n\n').slice(0, 8000);
-      await generarEmbeddingAsync(runSql, { anexoId: id, projectId: req.params.id, texto: textoCompleto });
+      await generarEmbeddingAsync(req.userId, { anexoId: id, projectId: req.params.id, texto: textoCompleto });
     })().catch(() => {});
 
     res.status(201).json({
@@ -599,7 +612,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     }
     const vecStr = serializeEmbedding(vector);
 
-    const resultados = await getRows(
+    const resultados = await withTenantRows(req.userId,
       `SELECT id, nombre_archivo, categoria, descripcion, texto, link, created_at,
               (1 - (embedding_vec <=> ?::vector)) AS similitud
        FROM project_anexos
@@ -635,7 +648,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const existente = await getRow(
+    const existente = await withTenantRow(req.userId,
       'SELECT descripcion, texto, link FROM project_anexos WHERE id = ? AND project_id = ?',
       [req.params.anexoId, req.params.id]
     );
@@ -655,7 +668,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     if (req.body?.carpeta_id !== undefined) {
       let carpetaId = req.body.carpeta_id ? String(req.body.carpeta_id) : null;
       if (carpetaId) {
-        const carpeta = await getRow('SELECT id FROM project_anexos_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
+        const carpeta = await withTenantRow(req.userId, 'SELECT id FROM project_anexos_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
         if (!carpeta) carpetaId = null;
       }
       carpetaClause = ', carpeta_id = ?';
@@ -666,12 +679,12 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
       const categoriaRaw = String(req.body.categoria || 'otro').toLowerCase();
       const categoria = CATEGORIAS_VALIDAS.has(categoriaRaw) ? categoriaRaw : 'otro';
       params.push(categoria);
-      await runSql(
+      await withTenantRun(req.userId,
         `UPDATE project_anexos SET descripcion = ?, texto = ?, link = ?${carpetaClause}, categoria = ? WHERE id = ? AND project_id = ?`,
         [...params, req.params.anexoId, req.params.id]
       );
     } else {
-      await runSql(
+      await withTenantRun(req.userId,
         `UPDATE project_anexos SET descripcion = ?, texto = ?, link = ?${carpetaClause} WHERE id = ? AND project_id = ?`,
         [...params, req.params.anexoId, req.params.id]
       );
@@ -689,7 +702,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const anexo = await getRow(
+    const anexo = await withTenantRow(req.userId,
       'SELECT ruta_storage, nombre_archivo FROM project_anexos WHERE id = ? AND project_id = ?',
       [req.params.anexoId, req.params.id]
     );
@@ -711,13 +724,13 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const anexo = await getRow(
+    const anexo = await withTenantRow(req.userId,
       'SELECT id, ruta_storage FROM project_anexos WHERE id = ? AND project_id = ?',
       [req.params.anexoId, req.params.id]
     );
     if (!anexo) return res.status(404).json({ success: false, message: 'Anexo no encontrado' });
 
-    await runSql('DELETE FROM project_anexos WHERE id = ?', [req.params.anexoId]);
+    await withTenantRun(req.userId, 'DELETE FROM project_anexos WHERE id = ?', [req.params.anexoId]);
 
     // Best-effort: un fallo al borrar el objeto en Storage no bloquea la respuesta.
     if (anexo.ruta_storage && supabaseStorage) {

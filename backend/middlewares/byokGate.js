@@ -13,10 +13,24 @@
  */
 import { esExento, resolverContextoBYOK } from '../services/byokService.js';
 import { geminiCB } from '../services/geminiCircuitBreaker.js';
+import { withTenantRow, withTenantRows } from '../config/database.config.js';
 
-export function requireByokOrExento({ getRow, getRows }) {
+// MIGRACIÓN (Prioridad Roja, Punto 1, 2026-09-05): antes recibía {getRow,
+// getRows} planos (pool principal, BYPASSRLS) del caller vía factory —
+// último punto ciego real del flujo de proyectos (usuarios.byok_exento y
+// user_gemini_keys se leían sin RLS). Ya no toma parámetros: construye su
+// propio getRow/getRows por REQUEST, escopados a withTenant(req.userId, ...)
+// (GRANT aplicado en 057_rls_scoped_grants_byok_viabilidad.sql). Los 4
+// callers existentes (server.js, proyectos.routes.js, copiloto.routes.js,
+// entradaIA.routes.js) seguían llamando requireByokOrExento({getRow,getRows})
+// — JS ignora silenciosamente un argumento que la función ya no declara, así
+// que solo se actualizaron las 3 llamadas fuera de server.js (server.js
+// queda deliberadamente intacto, Fase 5 del roadmap de migración tenant).
+export function requireByokOrExento() {
   return async (req, res, next) => {
     try {
+      const getRow  = (sql, params) => withTenantRow(req.userId, sql, params);
+      const getRows = (sql, params) => withTenantRows(req.userId, sql, params);
       const { exento, llaves } = await resolverContextoBYOK(req.userId, { getRow, getRows });
       if (exento) {
         // Válvula de escape (mandato 2026-08-24, "ModalBYOK — degradación

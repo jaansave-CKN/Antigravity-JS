@@ -31,5 +31,8 @@ export {
   runSql,
   runTransaction,
   withTenant,
+  withTenantRow,
+  withTenantRows,
+  withTenantRun,
   query,
 } from './config/database.config.js';
