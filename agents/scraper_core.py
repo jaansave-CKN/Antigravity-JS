@@ -18,6 +18,8 @@ from typing import Optional, List, Dict, Any
 import requests
 from bs4 import BeautifulSoup
 
+from pdf_extractor import extraer_resumen_pdf
+
 THIS_FILE = Path(__file__).resolve()
 PROJECT_ROOT = THIS_FILE.parent.parent
 DB_PATH = PROJECT_ROOT / "backend" / "radar.db"
@@ -173,6 +175,25 @@ class ScraperCore:
         self.nuevas_convocatorias.append(datos)
         
         return row_id
+
+    def _enriquecer_con_pdf(self, item: dict) -> None:
+        """Si el link detectado apunta a un PDF, lo lee via markitdown y
+        reemplaza la descripcion placeholder por el fragmento real indexado
+        (Ley 3: markitdown -> indexacion regex -> extractor LLM). El PDF
+        completo nunca llega a un LLM, solo el fragmento ya filtrado."""
+        url = item.get("url", "")
+        if not url.lower().endswith(".pdf"):
+            return
+
+        try:
+            fragmento = extraer_resumen_pdf(url, session=self.session)
+        except Exception as e:
+            logger.warning(f"Enriquecimiento PDF fallido ({url}): {e}")
+            return
+
+        if fragmento:
+            item["descripcion"] = fragmento
+            item["resumen"] = fragmento
 
     def _scrapear_giz(self) -> List[Dict]:
         """Scraper para portal GIZ (Cooperación Alemana)"""
@@ -388,8 +409,9 @@ class ScraperCore:
             try:
                 resultados = scraper_func()
                 total_extraidos += len(resultados)
-                
+
                 for item in resultados:
+                    self._enriquecer_con_pdf(item)
                     row_id = self._insertar_convocatoria(item)
                     if row_id:
                         total_insertados += 1

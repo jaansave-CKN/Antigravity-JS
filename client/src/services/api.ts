@@ -130,10 +130,6 @@ export const apiService = {
     return fetchApi('/api/credenciales/validar');
   },
 
-  async guardarCredenciales(apiKey: string, notebookKey: string): Promise<ApiResponse<any>> {
-    return fetchApi('/api/credenciales', { method: 'POST', body: JSON.stringify({ apiKey, notebookKey }) });
-  },
-
   async getFuentes(): Promise<ApiResponse<any>> {
     return fetchApi('/api/fuentes');
   },

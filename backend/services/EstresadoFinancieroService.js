@@ -11,7 +11,11 @@
  * IA (esa sería una integración aparte con el agente de viabilidad/Gemini
  * ya existente en el proyecto).
  */
-import { supabaseAdmin } from '../config/supabase.config.js';
+// FIX (005_INGENIERO_BACKEND, 2026-09-04): supabaseAdmin (service_role)
+// bypaseaba RLS por completo — ver AuditorForenseService.js para el detalle
+// completo del hallazgo/fix. withTenant() usa rf360_rls_scoped (migración
+// 053_rls_scoped_role.sql), sin BYPASSRLS.
+import { withTenant } from '../config/database.config.js';
 
 const UMBRAL_CRITICO_PCT = 15;
 const UMBRAL_RIESGO_PCT = UMBRAL_CRITICO_PCT / 2;
@@ -20,13 +24,18 @@ class EstresadoError extends Error {
   constructor(message) { super(message); this.status = 422; }
 }
 
-async function obtenerPresupuestoBase(projectId) {
-  const { data, error } = await supabaseAdmin
-    .from('project_apu_lineas')
-    .select('valor_total_cop')
-    .eq('project_id', projectId);
-  if (error) throw new Error(`No se pudo leer el presupuesto base: ${error.message}`);
-  return (data || []).reduce((sum, r) => sum + Number(r.valor_total_cop || 0), 0);
+async function obtenerPresupuestoBase(projectId, orgId) {
+  let rows;
+  try {
+    const res = await withTenant(orgId, client => client.query(
+      'SELECT valor_total_cop FROM project_apu_lineas WHERE project_id = $1',
+      [projectId]
+    ));
+    rows = res.rows;
+  } catch (err) {
+    throw new Error(`No se pudo leer el presupuesto base: ${err.message}`);
+  }
+  return (rows || []).reduce((sum, r) => sum + Number(r.valor_total_cop || 0), 0);
 }
 
 function clasificarViabilidad(porcentajeSobrecosto) {
@@ -58,7 +67,7 @@ export async function simularEscenario(projectId, orgId, { nombreEscenario, porc
     throw new EstresadoError('porcentajeIncremento debe ser un número >= 0');
   }
 
-  const valorBase = await obtenerPresupuestoBase(projectId);
+  const valorBase = await obtenerPresupuestoBase(projectId, orgId);
   if (valorBase === 0) {
     throw new EstresadoError('El proyecto no tiene líneas de presupuesto ingeridas (sube primero un presupuesto/APU marcado como "presupuesto_apu" en Anexos antes de simular un escenario de estrés).');
   }
@@ -68,43 +77,45 @@ export async function simularEscenario(projectId, orgId, { nombreEscenario, porc
   const viabilidad = clasificarViabilidad(porcentaje);
   const observaciones = redactarObservaciones({ nombreEscenario, valorBase, valorNuevo, impacto, porcentaje, viabilidad });
 
-  const { data, error } = await supabaseAdmin.from('project_escenarios_estres').insert({
-    project_id: projectId,
-    org_id: orgId,
-    nombre_escenario: nombreEscenario,
-    porcentaje_incremento_insumos: porcentaje,
-    valor_base_cop: valorBase,
-    impacto_total_calculado_cop: impacto,
-    viabilidad_resultado: viabilidad,
-    observaciones_red_teaming: observaciones,
-  }).select().single();
-  if (error) throw new Error(`No se pudo guardar el escenario de estrés: ${error.message}`);
+  let data;
+  try {
+    const res = await withTenant(orgId, client => client.query(
+      `INSERT INTO project_escenarios_estres
+        (project_id, org_id, nombre_escenario, porcentaje_incremento_insumos, valor_base_cop, impacto_total_calculado_cop, viabilidad_resultado, observaciones_red_teaming)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [projectId, orgId, nombreEscenario, porcentaje, valorBase, impacto, viabilidad, observaciones]
+    ));
+    data = res.rows?.[0];
+  } catch (err) {
+    throw new Error(`No se pudo guardar el escenario de estrés: ${err.message}`);
+  }
 
   if (viabilidad === 'CRITICO') {
-    await supabaseAdmin.from('project_hallazgos').insert({
-      project_id: projectId,
-      anexo_id: null,
-      org_id: orgId,
-      fase_phva: 'ACTUAR',
-      tipo: 'ESTRES_FINANCIERO_CRITICO',
-      tipo_hallazgo: 'ESTRES_FINANCIERO_CRITICO',
-      severidad: 'CRITICA',
-      titulo: `Riesgo financiero crítico bajo el escenario "${nombreEscenario}"`,
-      detalle: observaciones,
-      accion_recomendada: 'Revisar el presupuesto de contingencia (AIU), negociar cláusulas de reajuste de precios, o ajustar el alcance del proyecto antes de radicar.',
-      resuelto: false,
-    });
+    await withTenant(orgId, client => client.query(
+      `INSERT INTO project_hallazgos
+        (project_id, anexo_id, org_id, fase_phva, tipo, tipo_hallazgo, severidad, titulo, detalle, accion_recomendada, resuelto)
+       VALUES ($1, NULL, $2, 'ACTUAR', 'ESTRES_FINANCIERO_CRITICO', 'ESTRES_FINANCIERO_CRITICO', 'CRITICA', $3, $4, $5, false)`,
+      [
+        projectId, orgId,
+        `Riesgo financiero crítico bajo el escenario "${nombreEscenario}"`,
+        observaciones,
+        'Revisar el presupuesto de contingencia (AIU), negociar cláusulas de reajuste de precios, o ajustar el alcance del proyecto antes de radicar.',
+      ]
+    )).catch(() => {}); // fire-and-forget, mismo comportamiento previo (no bloqueaba el resultado principal)
   }
 
   return data;
 }
 
-export async function listarEscenarios(projectId) {
-  const { data, error } = await supabaseAdmin
-    .from('project_escenarios_estres')
-    .select('*')
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: false });
-  if (error) throw new Error(`No se pudieron listar los escenarios: ${error.message}`);
-  return data || [];
+export async function listarEscenarios(projectId, orgId) {
+  try {
+    const res = await withTenant(orgId, client => client.query(
+      'SELECT * FROM project_escenarios_estres WHERE project_id = $1 ORDER BY created_at DESC',
+      [projectId]
+    ));
+    return res.rows || [];
+  } catch (err) {
+    throw new Error(`No se pudieron listar los escenarios: ${err.message}`);
+  }
 }

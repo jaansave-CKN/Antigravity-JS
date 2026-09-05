@@ -34,7 +34,7 @@ export async function registerCopilotoRoutes(app, { authenticateToken, getRow, g
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const historial = await obtenerHistorial(req.params.id);
+    const historial = await obtenerHistorial(req.params.id, req.userId);
     res.json({ success: true, data: historial });
   }));
 

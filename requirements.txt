@@ -20,6 +20,9 @@ requests>=2.31.0
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
 
+# Lectura de PDF (Ley 3 — markitdown -> indexacion regex -> extractor LLM)
+markitdown[pdf]>=0.0.1a3
+
 # Notificaciones (notifications/manager.py — webhooks async)
 aiohttp>=3.9.0
 

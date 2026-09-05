@@ -13,15 +13,21 @@
 
 /**
  * @param {string} proyectoId
- * @param {{ getRows: Function }} deps
+ * @param {{ getRows: Function }} deps - getRows(sql, params) debe aceptar SQL
+ *   con placeholders $1,$2... (convención de withTenant()/database.config.js,
+ *   FIX 005_INGENIERO_BACKEND 2026-09-04: antes usaba "?", pero los 2 callers
+ *   (matrizRaci.routes.js, reporte.routes.js) ahora inyectan un getRows
+ *   escopado por tenant vía withTenant() para que las políticas RLS de
+ *   raci_tareas/raci_roles/raci_asignaciones (migración 054) se evalúen de
+ *   verdad — withTenant() entrega un client pg real que exige $N, no "?").
  */
 export async function calcularResumenRaci(proyectoId, { getRows }) {
   const tareas = await getRows(
-    'SELECT id, nombre FROM raci_tareas WHERE proyecto_id = ? ORDER BY orden ASC, created_at ASC',
+    'SELECT id, nombre FROM raci_tareas WHERE proyecto_id = $1 ORDER BY orden ASC, created_at ASC',
     [proyectoId]
   );
   const roles = await getRows(
-    'SELECT id, nombre FROM raci_roles WHERE proyecto_id = ? ORDER BY orden ASC, created_at ASC',
+    'SELECT id, nombre FROM raci_roles WHERE proyecto_id = $1 ORDER BY orden ASC, created_at ASC',
     [proyectoId]
   );
   // JOIN contra raci_tareas para filtrar por proyecto_id — raci_asignaciones
@@ -30,7 +36,7 @@ export async function calcularResumenRaci(proyectoId, { getRows }) {
     `SELECT ra.tarea_id, ra.rol_id, ra.sigla
        FROM raci_asignaciones ra
        JOIN raci_tareas t ON t.id = ra.tarea_id
-      WHERE t.proyecto_id = ?`,
+      WHERE t.proyecto_id = $1`,
     [proyectoId]
   );
 

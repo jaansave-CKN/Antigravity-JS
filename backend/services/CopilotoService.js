@@ -11,7 +11,11 @@
  * (EstresadoFinancieroService, ValorExponencialService) y con las líneas de
  * presupuesto/hallazgos ya persistidos — cero cifras inventadas.
  */
-import { supabaseAdmin } from '../config/supabase.config.js';
+// FIX (005_INGENIERO_BACKEND, 2026-09-04): supabaseAdmin (service_role)
+// bypaseaba RLS por completo — ver AuditorForenseService.js para el detalle
+// completo del hallazgo/fix. withTenant() usa rf360_rls_scoped (migración
+// 053_rls_scoped_role.sql), sin BYPASSRLS.
+import { withTenant } from '../config/database.config.js';
 import { withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
 import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js';
 import { SMMLV_2026_COP } from './ValorExponencialService.js';
@@ -27,25 +31,25 @@ class CopilotoError extends Error {
 
 const fmtCOP = (n) => `$${Number(n || 0).toLocaleString('es-CO')} COP`;
 
-async function construirSnapshot(projectId) {
+async function construirSnapshot(projectId, orgId) {
   const [proyectoRes, apuRes, estresRes, sroiRes, hallazgosRes] = await Promise.all([
-    supabaseAdmin.from('proyectos').select('nombre, location, estado').eq('id', projectId).maybeSingle(),
-    supabaseAdmin.from('project_apu_lineas').select('valor_total_cop').eq('project_id', projectId),
-    supabaseAdmin.from('project_escenarios_estres').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1),
-    supabaseAdmin.from('project_sroi_metrics').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(1),
-    supabaseAdmin.from('project_hallazgos').select('titulo, severidad, detalle, resuelto').eq('project_id', projectId).order('created_at', { ascending: false }).limit(10),
+    withTenant(orgId, client => client.query('SELECT nombre, location, estado FROM proyectos WHERE id = $1', [projectId])),
+    withTenant(orgId, client => client.query('SELECT valor_total_cop FROM project_apu_lineas WHERE project_id = $1', [projectId])),
+    withTenant(orgId, client => client.query('SELECT * FROM project_escenarios_estres WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1', [projectId])),
+    withTenant(orgId, client => client.query('SELECT * FROM project_sroi_metrics WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1', [projectId])),
+    withTenant(orgId, client => client.query('SELECT titulo, severidad, detalle, resuelto FROM project_hallazgos WHERE project_id = $1 ORDER BY created_at DESC LIMIT 10', [projectId])),
   ]);
 
-  const lineasApu = apuRes.data || [];
+  const lineasApu = apuRes.rows || [];
   const presupuestoTotalCOP = lineasApu.reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
 
   return {
-    proyecto: proyectoRes.data || null,
+    proyecto: proyectoRes.rows?.[0] || null,
     presupuestoTotalCOP,
     numLineasApu: lineasApu.length,
-    ultimoEscenarioEstres: estresRes.data?.[0] || null,
-    ultimaMetricaSROI: sroiRes.data?.[0] || null,
-    hallazgosRecientes: hallazgosRes.data || [],
+    ultimoEscenarioEstres: estresRes.rows?.[0] || null,
+    ultimaMetricaSROI: sroiRes.rows?.[0] || null,
+    hallazgosRecientes: hallazgosRes.rows || [],
   };
 }
 
@@ -160,22 +164,24 @@ function respuestaRespaldo(snapshot) {
     : 'Modo Respaldo activo (cuota de IA agotada o sin configurar). Además, este proyecto todavía no tiene presupuesto/APU ingerido en Anexos — sin eso no hay datos financieros que analizar.';
 }
 
-export async function obtenerHistorial(projectId) {
-  const { data, error } = await supabaseAdmin
-    .from('project_chat_history')
-    .select('role, content, modulo_activo, created_at')
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: true });
-  if (error) throw new Error(`No se pudo leer el historial del co-piloto: ${error.message}`);
-  return data || [];
+export async function obtenerHistorial(projectId, orgId) {
+  try {
+    const res = await withTenant(orgId, client => client.query(
+      'SELECT role, content, modulo_activo, created_at FROM project_chat_history WHERE project_id = $1 ORDER BY created_at ASC',
+      [projectId]
+    ));
+    return res.rows || [];
+  } catch (err) {
+    throw new Error(`No se pudo leer el historial del co-piloto: ${err.message}`);
+  }
 }
 
 export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo, userGeminiKeys }) {
   if (!mensaje?.trim()) throw new CopilotoError('mensaje es requerido');
 
   const [snapshot, historialPrevio] = await Promise.all([
-    construirSnapshot(projectId),
-    obtenerHistorial(projectId),
+    construirSnapshot(projectId, orgId),
+    obtenerHistorial(projectId, orgId),
   ]);
 
   const systemPrompt = buildSystemPrompt(formatearSnapshot(snapshot), moduloActivo);
@@ -199,11 +205,15 @@ export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo,
   const respuesta = respuestaGemini || respuestaRespaldo(snapshot);
   const fuente = respuestaGemini ? 'gemini-3.6-flash' : 'heuristica';
 
-  const { error: insertError } = await supabaseAdmin.from('project_chat_history').insert([
-    { project_id: projectId, org_id: orgId, role: 'user', content: mensaje, modulo_activo: moduloActivo || null },
-    { project_id: projectId, org_id: orgId, role: 'model', content: respuesta, modulo_activo: moduloActivo || null },
-  ]);
-  if (insertError) throw new Error(`No se pudo guardar el mensaje del co-piloto: ${insertError.message}`);
+  try {
+    await withTenant(orgId, client => client.query(
+      `INSERT INTO project_chat_history (project_id, org_id, role, content, modulo_activo)
+       VALUES ($1, $2, 'user', $3, $4), ($1, $2, 'model', $5, $4)`,
+      [projectId, orgId, mensaje, moduloActivo || null, respuesta]
+    ));
+  } catch (err) {
+    throw new Error(`No se pudo guardar el mensaje del co-piloto: ${err.message}`);
+  }
 
   return { respuesta, fuente };
 }

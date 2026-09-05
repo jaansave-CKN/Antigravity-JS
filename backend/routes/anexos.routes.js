@@ -34,7 +34,13 @@
  */
 import crypto from 'crypto';
 import pLimit from 'p-limit';
-import { supabaseAdmin, supabaseStorage } from '../config/supabase.config.js';
+import { supabaseStorage } from '../config/supabase.config.js';
+// withTenant() (005_INGENIERO_BACKEND, 2026-09-04): reemplaza el único uso de
+// supabaseAdmin que tenía este archivo (línea ~496, lectura de
+// project_apu_lineas para el conector de viabilidad financiera) — ver nota
+// completa en ese punto. supabaseStorage sigue siendo el cliente correcto
+// para Supabase Storage (líneas de arriba), sin cambios.
+import { withTenant } from '../config/database.config.js';
 import { sanitizeTechnicalText, sanitizeUrl } from '../middlewares/SecurityMiddleware.js';
 import { parseAndSanitizeExcel } from '../services/ExtractorService.js';
 import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js';
@@ -490,15 +496,16 @@ export async function registerAnexosRoutes(app, { authenticateToken, runSql, get
           // project_apu_lineas tiene RLS (tenant_isolation ON project_apu_lineas
           // USING org_id = current_setting('app.org_id')) que getRow/runSql no
           // fija por request — un SELECT vía esa vía devuelve 0 filas siempre,
-          // silenciosamente (verificado en vivo). supabaseAdmin (service_role)
-          // bypasea RLS, mismo cliente que ya usan EstresadoFinancieroService.js
-          // y ValorExponencialService.js para leer esta misma tabla.
-          const { data: lineasApu, error: sumError } = await supabaseAdmin
-            .from('project_apu_lineas')
-            .select('valor_total_cop')
-            .eq('project_id', req.params.id);
-          if (sumError) throw new Error(sumError.message);
-          const costosVariablesTotales = (lineasApu || []).reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
+          // silenciosamente (verificado en vivo). FIX (005_INGENIERO_BACKEND,
+          // 2026-09-04): antes usaba supabaseAdmin (service_role, bypasea RLS
+          // por completo) — ahora usa withTenant() con el rol rf360_rls_scoped
+          // (sin BYPASSRLS, migración 053_rls_scoped_role.sql), RLS real.
+          const lineasApuRes = await withTenant(req.userId, client => client.query(
+            'SELECT valor_total_cop FROM project_apu_lineas WHERE project_id = $1',
+            [req.params.id]
+          ));
+          const lineasApu = lineasApuRes.rows || [];
+          const costosVariablesTotales = lineasApu.reduce((sum, l) => sum + Number(l.valor_total_cop || 0), 0);
 
           const fichaTecnicaActual   = safeParseJson(proyecto.ficha_tecnica) || {};
           const viabilidadPrevia     = fichaTecnicaActual.viabilidad_financiera || {};

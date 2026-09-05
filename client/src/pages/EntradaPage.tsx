@@ -289,6 +289,23 @@ export default function EntradaPage() {
   const dispararRescateBYOK = useCallback(() => {
     window.dispatchEvent(new CustomEvent('byok-rescate'));
   }, []);
+  // Guarda de re-entrada real (2026-08-25, "sigue quemando tokens sin razón"):
+  // evidencia dura en ai_token_logs mostró 2 llamadas reales completas a
+  // Gemini con 318ms de diferencia — imposible como doble clic humano. Los
+  // `generando*` de useState NO bloquean esto de forma confiable: el atributo
+  // `disabled` del botón solo se aplica al DOM después de que React
+  // re-renderiza, dejando una ventana real donde un segundo disparo (doble
+  // clic, evento duplicado, lo que sea la causa exacta) todavía ve el botón
+  // habilitado. Este Set vive en un ref — se marca/revisa de forma síncrona,
+  // sin esperar ningún render, así que ninguna llamada real a Gemini puede
+  // duplicarse sin importar de dónde venga el segundo disparo.
+  const enVueloRef = useRef<Set<string>>(new Set());
+  const marcarEnVuelo = (clave: string): boolean => {
+    if (enVueloRef.current.has(clave)) return false;
+    enVueloRef.current.add(clave);
+    return true;
+  };
+  const liberarEnVuelo = (clave: string) => { enVueloRef.current.delete(clave); };
   const [generandoNombre, setGenerandoNombre] = useState(false);
   // Flag para el useEffect de abajo: sincronizarProyectoActivo() lee `st.nombre`
   // de SU PROPIO closure (useCallback con dep [st.nombre]) — llamarlo justo
@@ -561,8 +578,9 @@ export default function EntradaPage() {
   // campo específico) — distinto del viejo merge "solo si está vacío".
   const generarCampoConIA = async (campoId: string) => {
     if (cuotaAgotada) { dispararRescateBYOK(); return; }
+    if (!marcarEnVuelo(`campo:${campoId}`)) return;
     const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
-    if (!proyectoId) { setErrorIA('Activa un proyecto antes de generar con IA.'); return; }
+    if (!proyectoId) { liberarEnVuelo(`campo:${campoId}`); setErrorIA('Activa un proyecto antes de generar con IA.'); return; }
     setGenerandoCampo(campoId);
     setErrorIA(null);
     try {
@@ -588,6 +606,7 @@ export default function EntradaPage() {
       manejarErrorIA(e);
     } finally {
       setGenerandoCampo(null);
+      liberarEnVuelo(`campo:${campoId}`);
     }
   };
 
@@ -601,8 +620,9 @@ export default function EntradaPage() {
   // hasta el próximo blur manual del campo.
   const generarNombreConIA = async () => {
     if (cuotaAgotada) { dispararRescateBYOK(); return; }
+    if (!marcarEnVuelo('nombre')) return;
     const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
-    if (!proyectoId) { setErrorIA('Activa un proyecto antes de generar con IA.'); return; }
+    if (!proyectoId) { liberarEnVuelo('nombre'); setErrorIA('Activa un proyecto antes de generar con IA.'); return; }
     setGenerandoNombre(true);
     setErrorIA(null);
     try {
@@ -626,6 +646,7 @@ export default function EntradaPage() {
       manejarErrorIA(e);
     } finally {
       setGenerandoNombre(false);
+      liberarEnVuelo('nombre');
     }
   };
 
@@ -635,8 +656,9 @@ export default function EntradaPage() {
   // su useState) — el setSt es suficiente, se persiste con el SAVE normal.
   const generarPitchConIA = async () => {
     if (cuotaAgotada) { dispararRescateBYOK(); return; }
+    if (!marcarEnVuelo('pitch')) return;
     const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
-    if (!proyectoId) { setErrorIA('Activa un proyecto antes de generar con IA.'); return; }
+    if (!proyectoId) { liberarEnVuelo('pitch'); setErrorIA('Activa un proyecto antes de generar con IA.'); return; }
     setGenerandoPitch(true);
     setErrorIA(null);
     try {
@@ -659,6 +681,7 @@ export default function EntradaPage() {
       manejarErrorIA(e);
     } finally {
       setGenerandoPitch(false);
+      liberarEnVuelo('pitch');
     }
   };
 
@@ -688,8 +711,9 @@ export default function EntradaPage() {
   // abajo); el botón "🔄 Volver a leer" permite regenerarla a mano.
   const cargarProblematicas = useCallback(async () => {
     if (cuotaAgotada) { dispararRescateBYOK(); return; }
+    if (!marcarEnVuelo('C1')) return;
     const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
-    if (!proyectoId) return;
+    if (!proyectoId) { liberarEnVuelo('C1'); return; }
     setGenerandoCampo('C1');
     setErrorIA(null);
     try {
@@ -702,6 +726,7 @@ export default function EntradaPage() {
       manejarErrorIA(e);
     } finally {
       setGenerandoCampo(null);
+      liberarEnVuelo('C1');
     }
   }, [st.numeroBeneficiarios, st.coberturaGeografica, cuotaAgotada, dispararRescateBYOK]);
 
@@ -712,8 +737,9 @@ export default function EntradaPage() {
   // apuntaba a un slot de IA — el texto que tenía seleccionado ya no existe.
   const generarSoluciones = async () => {
     if (cuotaAgotada) { dispararRescateBYOK(); return; }
+    if (!marcarEnVuelo('SOLUCIONES')) return;
     const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
-    if (!proyectoId) { setErrorIA('Activa un proyecto antes de generar con IA.'); return; }
+    if (!proyectoId) { liberarEnVuelo('SOLUCIONES'); setErrorIA('Activa un proyecto antes de generar con IA.'); return; }
     setGenerandoCampo('SOLUCIONES');
     setErrorIA(null);
     try {
@@ -741,6 +767,7 @@ export default function EntradaPage() {
       manejarErrorIA(e);
     } finally {
       setGenerandoCampo(null);
+      liberarEnVuelo('SOLUCIONES');
     }
   };
 

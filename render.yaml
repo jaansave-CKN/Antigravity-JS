@@ -27,6 +27,14 @@ services:
       - key: DATABASE_URL
         sync: false
 
+      # Pool RLS-escopado dedicado (005_INGENIERO_BACKEND, 2026-09-04).
+      # Correr backend/migrations/053_rls_scoped_role.sql primero (crea el rol
+      # rf360_rls_scoped, sin BYPASSRLS). Sin esto, withTenant() degrada al
+      # pool principal (DATABASE_URL) con advertencia en logs — no bloquea el
+      # deploy, pero pierde enforcement real de RLS en esa ruta.
+      - key: DATABASE_URL_TENANT_SCOPED
+        sync: false
+
       # ── Cifrado de API keys de usuarios ─────────────────────────────────────
       # Si no se define, se usa JWT_SECRET como fallback (funcional pero menos seguro)
       - key: ENCRYPTION_KEY
@@ -61,4 +69,56 @@ services:
       - key: GOOGLE_CLIENT_SECRET
         sync: false
       - key: GOOGLE_REDIRECT_URI
+        sync: false
+
+      # ── Supabase (modo Supabase Auth — opcional, ver bloque en .env.example) ─
+      # SUPABASE_SERVICE_KEY es de MAXIMO PRIVILEGIO (bypassa RLS). El backend
+      # la usa activamente hoy (backend/config/supabase.config.js, database.config.js,
+      # server.js) — auditoria 2026-09-04.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_KEY
+        sync: false
+
+      # ── Pagos — Stripe y/o Wompi (backend/payments/*) ────────────────────────
+      # PAYMENT_PROVIDER selecciona el proveedor activo; default 'stripe' si se omite.
+      - key: PAYMENT_PROVIDER
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_RADAR
+        sync: false
+      - key: STRIPE_PRICE_FORMULADOR
+        sync: false
+      - key: STRIPE_PRICE_SUITE
+        sync: false
+      - key: WOMPI_PUBLIC_KEY
+        sync: false
+      - key: WOMPI_PRIVATE_KEY
+        sync: false
+      - key: WOMPI_EVENTS_SECRET
+        sync: false
+      - key: WOMPI_INTEGRITY_SECRET
+        sync: false
+
+      # ── Observabilidad (Sentry backend + PostHog) — opcional, standby si falta ──
+      - key: SENTRY_DSN
+        sync: false
+      - key: VITE_POSTHOG_KEY
+        sync: false
+
+      # ── Email transaccional (Resend, alternativa a Brevo) — opcional ─────────
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ADMIN_NOTIFY_EMAIL
+        sync: false
+
+      # ── URL pública del backend (usada en emails y en el build de Vite) ──────
+      - key: VITE_API_URL
         sync: false
