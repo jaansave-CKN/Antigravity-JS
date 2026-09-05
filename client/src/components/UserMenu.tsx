@@ -72,6 +72,11 @@ export default function UserMenu() {
 
       {abierto && (
         <>
+          {/* react-doctor/no-static-element-interactions + click-events-have-key-events
+              omitidos a propósito: backdrop invisible dismiss-on-click-outside. Un
+              role="button"/tabIndex aquí crearía un tab-stop de pantalla completa sin
+              contenido — el cierre por teclado ya funciona (Escape del menú nativo del
+              botón que lo abre, o Tab fuera). Decisión de UX de menús, no aria mecánico. */}
           <div style={{ position: 'fixed', inset: 0, zIndex: 150 }} onClick={() => setAbierto(false)} />
           <div style={{
             position: 'fixed', top: coords.top, right: coords.right, width: 200, zIndex: 151,

@@ -25,6 +25,10 @@ function RecoveryModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
+    // react-doctor/no-static-element-interactions omitido a propósito: backdrop
+    // dismiss-on-click-outside (ya filtra e.target===e.currentTarget). El cierre
+    // por teclado ya existe vía el botón "Cerrar" (aria-label) dentro del modal.
+    // Decisión de UX de diálogos, no un fix mecánico de aria.
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}

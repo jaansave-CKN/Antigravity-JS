@@ -220,7 +220,17 @@ const SectorDropdown = React.memo(function SectorDropdown({
             const cssColor = { '--sector-color': sector.color } as React.CSSProperties;
             return (
               <div key={sector.nombre} className="radx__sector-sect" style={cssColor}>
-                <div className="radx__sector-sect-hdr" onClick={() => toggleExpand(sector.nombre)}>
+                <div
+                  className="radx__sector-sect-hdr"
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isExpanded}
+                  onClick={() => toggleExpand(sector.nombre)}
+                  onKeyDown={e => {
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(sector.nombre); }
+                  }}
+                >
                   <input
                     type="checkbox"
                     aria-label={sector.nombre}
@@ -236,6 +246,14 @@ const SectorDropdown = React.memo(function SectorDropdown({
                 </div>
                 {isExpanded && (
                   <div className="radx__sector-subs">
+                    {/* react-doctor/no-static-element-interactions (fila de abajo) omitido
+                        a propósito — el toggle real vive en su onClick, no en el onChange
+                        (no-op) del checkbox interno, así que hoy ya es inalcanzable por
+                        teclado (Space en el checkbox no hace nada). Ponerle role="button" a
+                        la fila dispararía html-no-nested-interactive (checkbox anidado) sin
+                        arreglar el problema real. El fix correcto es mover el toggle al
+                        onChange del checkbox — cambio de comportamiento, no un aria-fix
+                        mecánico; requiere revisión aparte. */}
                     {sector.subgrupos.map(sg => (
                       <div
                         key={sg.nombre}
