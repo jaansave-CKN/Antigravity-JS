@@ -192,10 +192,10 @@ export default function ViabilidadFinancieraPage() {
           <h3 style={{ fontSize: 20, fontWeight: 600, margin: 0, paddingBottom: 12, borderBottom: `1px solid ${T.dividerBorder}` }}>Datos de Entrada</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginTop: 24 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 4 }}>Costos Fijos Proyectados (COP)</label>
+              <label htmlFor="viab-costos-fijos" style={{ display: 'block', fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 4 }}>Costos Fijos Proyectados (COP)</label>
               <div style={{ position: 'relative' }}>
                 <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: T.textMuted, fontFamily: T.fontData }}>$</span>
-                <input type="number" placeholder="0" value={costosFijos} onChange={e => setCostosFijos(e.target.value)}
+                <input id="viab-costos-fijos" type="number" placeholder="0" value={costosFijos} onChange={e => setCostosFijos(e.target.value)}
                   style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px 8px 28px', fontFamily: T.fontData, fontSize: 14, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text }} />
               </div>
             </div>
@@ -209,10 +209,10 @@ export default function ViabilidadFinancieraPage() {
               </p>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 4 }}>Ventas Totales Proyectadas / Fondeo Total (COP)</label>
+              <label htmlFor="viab-ventas-totales" style={{ display: 'block', fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 4 }}>Ventas Totales Proyectadas / Fondeo Total (COP)</label>
               <div style={{ position: 'relative' }}>
                 <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: T.textMuted, fontFamily: T.fontData }}>$</span>
-                <input type="number" placeholder="0" value={ventasTotales} onChange={e => setVentasTotales(e.target.value)}
+                <input id="viab-ventas-totales" type="number" placeholder="0" value={ventasTotales} onChange={e => setVentasTotales(e.target.value)}
                   style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px 8px 28px', fontFamily: T.fontData, fontSize: 14, border: `1px solid ${T.border}`, borderRadius: 4, color: T.text }} />
               </div>
             </div>

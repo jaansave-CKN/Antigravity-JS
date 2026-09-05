@@ -310,6 +310,7 @@ export default function Modulo10Page() {
               value={data.sostenibilidadAmbiental}
               onChange={e => update('sostenibilidadAmbiental', e.target.value)}
               placeholder="¿Cómo garantiza el proyecto un impacto ambiental neutro o positivo? Ej: implementación de manejo de residuos, reducción de emisiones, forestación..."
+              aria-label="Sostenibilidad ambiental"
               onFocus={e => (e.target as HTMLTextAreaElement).style.borderColor = '#22c55e44'}
               onBlur={e => (e.target as HTMLTextAreaElement).style.borderColor = '#0d2a3d'}
             />
@@ -322,6 +323,7 @@ export default function Modulo10Page() {
               value={data.sostenibilidadSocial}
               onChange={e => update('sostenibilidadSocial', e.target.value)}
               placeholder="¿Cómo asegura el proyecto continuidad e impacto social más allá del período de financiación? Ej: comités comunitarios, transferencia de capacidades..."
+              aria-label="Sostenibilidad social"
               onFocus={e => (e.target as HTMLTextAreaElement).style.borderColor = '#38bdf844'}
               onBlur={e => (e.target as HTMLTextAreaElement).style.borderColor = '#0d2a3d'}
             />
@@ -387,6 +389,7 @@ export default function Modulo10Page() {
                 value={data.enfoqueGeneroTexto}
                 onChange={e => update('enfoqueGeneroTexto', e.target.value)}
                 placeholder="Describe cómo se incorpora la perspectiva de género en el diseño, ejecución y evaluación..."
+                aria-label="Enfoque diferencial de género"
                 onFocus={e => (e.target as HTMLTextAreaElement).style.borderColor = '#f472b666'}
                 onBlur={e => (e.target as HTMLTextAreaElement).style.borderColor = '#f472b644'}
               />
@@ -400,6 +403,7 @@ export default function Modulo10Page() {
               value={data.riesgosIdentificados}
               onChange={e => update('riesgosIdentificados', e.target.value)}
               placeholder="Identifica los principales riesgos del proyecto: ambientales, sociales, financieros, institucionales..."
+              aria-label="Riesgos e impactos identificados"
               onFocus={e => (e.target as HTMLTextAreaElement).style.borderColor = '#f59e0b44'}
               onBlur={e => (e.target as HTMLTextAreaElement).style.borderColor = '#0d2a3d'}
             />
@@ -411,6 +415,7 @@ export default function Modulo10Page() {
               value={data.medidasMitigacion}
               onChange={e => update('medidasMitigacion', e.target.value)}
               placeholder="Describe las acciones preventivas y de mitigación para cada riesgo identificado..."
+              aria-label="Medidas de mitigación"
               onFocus={e => (e.target as HTMLTextAreaElement).style.borderColor = '#22c55e44'}
               onBlur={e => (e.target as HTMLTextAreaElement).style.borderColor = '#0d2a3d'}
             />
@@ -453,10 +458,11 @@ export default function Modulo10Page() {
             )}
 
             <div style={{ marginTop: 16 }}>
-              <label style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: '#60c9ff', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 8 }}>
+              <label htmlFor="m10-notas-adicionales" style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, color: '#60c9ff', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 8 }}>
                 Notas adicionales (edición manual)
               </label>
               <textarea
+                id="m10-notas-adicionales"
                 style={{ ...textareaStyle, minHeight: 70, borderColor: '#60c9ff33' }}
                 value={notasAdicionales}
                 onChange={e => setNotasAdicionales(e.target.value)}

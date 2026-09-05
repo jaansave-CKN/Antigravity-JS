@@ -50,7 +50,7 @@ function SolicitarEnlace() {
         <form onSubmit={handleSubmit}>
           <input
             type="email" value={email} onChange={e => setEmail(e.target.value)}
-            placeholder="tu@correo.com" required autoComplete="email" autoFocus className={INPUT}
+            placeholder="tu@correo.com" aria-label="Correo electrónico" required autoComplete="email" autoFocus className={INPUT}
           />
           <button type="submit" disabled={loading || !email.trim()} className={BTN_PRIMARY}>
             {loading ? 'Enviando…' : 'Enviar enlace de recuperación'}
@@ -114,12 +114,12 @@ function AplicarNuevaContrasena({ token }: { token: string }) {
         <form onSubmit={handleSubmit}>
           <input
             type="password" value={password} onChange={e => setPassword(e.target.value)}
-            placeholder="Nueva contraseña (mínimo 8 caracteres)" required minLength={8}
+            placeholder="Nueva contraseña (mínimo 8 caracteres)" aria-label="Nueva contraseña" required minLength={8}
             autoComplete="new-password" autoFocus className={INPUT}
           />
           <input
             type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
-            placeholder="Repite la nueva contraseña" required minLength={8}
+            placeholder="Repite la nueva contraseña" aria-label="Repite la nueva contraseña" required minLength={8}
             autoComplete="new-password" className={INPUT}
           />
           <button type="submit" disabled={loading || !password || !confirm} className={BTN_PRIMARY}>
