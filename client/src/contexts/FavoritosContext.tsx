@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { apiService } from '../services/api';
 import { leerAuthToken, esEventoDeSesion } from '../lib/authStorage';
 
@@ -89,13 +89,15 @@ export function FavoritosProvider({ children }: { children: React.ReactNode }) {
     await eliminarFavorito(fav.id);
   }, [favoritos, eliminarFavorito]);
 
+  const value = useMemo(() => ({
+    favoritos, cargando,
+    isFavorito, getFavoritoId,
+    guardarFavorito, eliminarFavorito, eliminarPorGrantId,
+    cargarFavoritos,
+  }), [favoritos, cargando, isFavorito, getFavoritoId, guardarFavorito, eliminarFavorito, eliminarPorGrantId, cargarFavoritos]);
+
   return (
-    <FavoritosContext.Provider value={{
-      favoritos, cargando,
-      isFavorito, getFavoritoId,
-      guardarFavorito, eliminarFavorito, eliminarPorGrantId,
-      cargarFavoritos,
-    }}>
+    <FavoritosContext.Provider value={value}>
       {children}
     </FavoritosContext.Provider>
   );

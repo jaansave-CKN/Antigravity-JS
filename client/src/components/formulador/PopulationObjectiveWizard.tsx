@@ -246,13 +246,13 @@ export default function PopulationObjectiveWizard({ initialData, onSubmit, onBac
 
   // ── Estado de checkboxes ──────────────────────────────────────────────────
   const [institucional, setInstitucional] = useState<Set<string>>(
-    new Set(initialData?.poblacion?.institucional ?? [])
+    () => new Set(initialData?.poblacion?.institucional ?? [])
   );
   const [comunitaria, setComunitaria] = useState<Set<string>>(
-    new Set(initialData?.poblacion?.comunitaria ?? [])
+    () => new Set(initialData?.poblacion?.comunitaria ?? [])
   );
   const [productiva, setProductiva] = useState<Set<string>>(
-    new Set(initialData?.poblacion?.productiva ?? [])
+    () => new Set(initialData?.poblacion?.productiva ?? [])
   );
 
   // ── Estado de campos "Otro" ───────────────────────────────────────────────

@@ -467,6 +467,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!response.ok) throw new Error(data?.message ?? 'CREDENCIALES INVÁLIDAS · ACCESO DENEGADO.');
   }
 
+  // react-doctor/jsx-no-constructed-context-values omitido a propósito: envolver
+  // este value en useMemo no evitaría nada hoy — login/completeMfaLogin/
+  // activarPorCorreo/register/logout/updateProfile/changePassword/
+  // sendPasswordReset/validateSessionAction/enterDemoMode/startTrial son
+  // `function` planas (no useCallback), se recrean en cada render, y el
+  // dependency array del memo tendría que incluirlas igual (exhaustive-deps),
+  // así que recalcularía siempre. Arreglarlo de verdad significa envolver ~10
+  // funciones en useCallback con las deps correctas en el contexto de auth de
+  // toda la app — riesgo real de closures obsoletos si se omite una dependencia,
+  // no un parche mecánico de useMemo. Requiere revisión aparte.
   return (
     <AuthContext.Provider
       value={{

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { leerAuthToken, esEventoDeSesion } from '../lib/authStorage';
 
 export type PlanId = 'free' | 'radar' | 'formulador' | 'suite';
@@ -111,16 +111,18 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     };
   }, [loadSubscription]);
 
+  const value = useMemo(() => ({
+    subscription,
+    loading,
+    hasRadar:       subscription.access_radar,
+    hasFormulador:  subscription.access_formulador,
+    hasSuite:       subscription.access_radar && subscription.access_formulador,
+    loadSubscription,
+    activatePlan,
+  }), [subscription, loading, loadSubscription, activatePlan]);
+
   return (
-    <SubscriptionContext.Provider value={{
-      subscription,
-      loading,
-      hasRadar:       subscription.access_radar,
-      hasFormulador:  subscription.access_formulador,
-      hasSuite:       subscription.access_radar && subscription.access_formulador,
-      loadSubscription,
-      activatePlan,
-    }}>
+    <SubscriptionContext.Provider value={value}>
       {children}
     </SubscriptionContext.Provider>
   );

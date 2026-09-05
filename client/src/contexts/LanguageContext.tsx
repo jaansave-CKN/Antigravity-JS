@@ -12,7 +12,7 @@
  */
 
 import React, {
-  createContext, useContext, useState, useCallback,
+  createContext, useContext, useState, useCallback, useMemo,
   type ReactNode,
 } from 'react';
 
@@ -72,14 +72,16 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     return payloadEs;
   }, [lang]);
 
+  const value = useMemo(() => ({
+    lang,
+    setLang,
+    toggleLang,
+    isEN: lang === 'en',
+    resolvePayload,
+  }), [lang, setLang, toggleLang, resolvePayload]);
+
   return (
-    <LanguageContext.Provider value={{
-      lang,
-      setLang,
-      toggleLang,
-      isEN: lang === 'en',
-      resolvePayload,
-    }}>
+    <LanguageContext.Provider value={value}>
       {children}
     </LanguageContext.Provider>
   );
