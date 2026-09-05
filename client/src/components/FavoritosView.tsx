@@ -181,7 +181,7 @@ export default function FavoritosView() {
                     </div>
                     <span className="favorito-card__progress-text mono">{progreso}%</span>
                   </div>
-                  <button className="favorito-card__toggle">
+                  <button className="favorito-card__toggle" aria-label={isExpanded ? 'Contraer tarjeta' : 'Expandir tarjeta'}>
                     {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                   </button>
                 </div>
@@ -199,7 +199,7 @@ export default function FavoritosView() {
                         key={tarea.id}
                         className={`favorito-task ${tarea.completada ? 'favorito-task--done' : ''}`}
                       >
-                        <button className="favorito-task__check" onClick={() => toggleTarea(convId, tarea.id)}>
+                        <button className="favorito-task__check" onClick={() => toggleTarea(convId, tarea.id)} aria-label={tarea.completada ? 'Marcar tarea como pendiente' : 'Marcar tarea como completada'}>
                           {tarea.completada ? <CheckSquare size={16} /> : <Square size={16} />}
                         </button>
                         <span className="favorito-task__text">{tarea.texto}</span>

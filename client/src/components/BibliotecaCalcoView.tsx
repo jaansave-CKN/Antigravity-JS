@@ -673,6 +673,7 @@ export default function BibliotecaCalcoView() {
                       <input
                         className="bib__bloquehead-input"
                         autoFocus
+                        aria-label="Nombre de la carpeta"
                         value={nombreEdicion}
                         onClick={e => e.stopPropagation()}
                         onChange={e => setNombreEdicion(e.target.value)}

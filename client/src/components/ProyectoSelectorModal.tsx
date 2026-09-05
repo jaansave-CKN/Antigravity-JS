@@ -219,7 +219,7 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
             </h2>
             <p style={{ fontSize: 11, color: C.textMuted, margin: '3px 0 0' }}>Selecciona un proyecto activo para el Formulador.</p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: C.textMuted, lineHeight: 1, padding: 4 }}>
+          <button onClick={onClose} aria-label="Cerrar" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: C.textMuted, lineHeight: 1, padding: 4 }}>
             ×
           </button>
         </div>
@@ -291,6 +291,7 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
                     <form onSubmit={e => guardarNombre(p.id, e)} onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 6 }}>
                       <input
                         autoFocus
+                        aria-label="Nuevo nombre del proyecto"
                         value={nombreEdit}
                         onChange={e => setNombreEdit(e.target.value)}
                         style={{ flex: 1, padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.bgCard, color: C.text, fontSize: 12.5, outline: 'none' }}
