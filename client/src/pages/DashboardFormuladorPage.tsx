@@ -664,14 +664,17 @@ function calcularSaludGlobal(sections: ImpactSection[]): { global: number | null
 
 /** Riesgos derivados de dimensiones con score real bajo (<60) — sin datos inventados. */
 function derivarRiesgos(sections: ImpactSection[]): Risk[] {
-  return sections
-    .filter(s => !s.pendiente && s.score < 60)
-    .map(s => ({
+  const riesgos: Risk[] = [];
+  for (const s of sections) {
+    if (s.pendiente || s.score >= 60) continue;
+    riesgos.push({
       level: s.score < 40 ? 'CRÍTICO' : 'ALTO',
       title: `${s.title} (${s.score}/100)`,
       description: s.fuente ? `Puntaje bajo calculado a partir de ${s.fuente}.` : 'Puntaje bajo detectado en el cálculo real de scoring.',
       section: `${s.roman}. ${s.title}`,
-    }));
+    });
+  }
+  return riesgos;
 }
 
 // ── Compliance M10 (riesgos/mitigación reales + estado legal predial) ───────

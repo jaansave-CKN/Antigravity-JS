@@ -190,12 +190,15 @@ export default function AnexosCalcoView() {
               const idsServidor = new Set(rows.map(r => r.id));
               // .localKey || .id: caché escrita ANTES de este fix (2026-08-24)
               // no tiene localKey — se usa el id viejo como respaldo.
-              const soloLocales = cached
-                .filter(c =>
+              const soloLocales: Soporte[] = [];
+              for (const c of cached) {
+                if (
                   !c.persistido && !idsServidor.has(c.id) &&
                   (c.descripcion?.trim() || c.texto?.trim() || c.link?.trim() || c.anexo?.trim())
-                )
-                .map(c => ({ ...c, localKey: c.localKey || c.id }));
+                ) {
+                  soloLocales.push({ ...c, localKey: c.localKey || c.id });
+                }
+              }
               if (soloLocales.length) merged = [...merged, ...soloLocales];
             }
           }

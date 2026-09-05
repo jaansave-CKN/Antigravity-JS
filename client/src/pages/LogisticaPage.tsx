@@ -303,7 +303,14 @@ export default function LogisticaPage() {
 
   const eliminarSeleccionados = () => {
     if (!haySel) return;
-    setTramos(ts => ts.filter(t => !t.seleccionado).map((t, i) => ({ ...t, numero: String(i + 1).padStart(2, '0') })));
+    setTramos(ts => {
+      const restantes: Tramo[] = [];
+      for (const t of ts) {
+        if (t.seleccionado) continue;
+        restantes.push({ ...t, numero: String(restantes.length + 1).padStart(2, '0') });
+      }
+      return restantes;
+    });
   };
 
   const abrirEdicion = () => {
