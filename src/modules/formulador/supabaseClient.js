@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { cacheGet, cacheSet } from '../../shared/infrastructure/cache.js';
 dotenv.config();
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -70,7 +71,20 @@ function decodeJwtSubUnsafe(token) {
 // ese valor no está en el CHECK de security_violations_ledger y agregarlo
 // requeriría una migración nueva fuera del alcance de este cambio) — el
 // detalle textual sí queda explícito para no perder la causa exacta.
+// Dedup por ventana (auditoría PROTOCOLO 5x5 ∞, 2026-09-04, hallazgo VECTOR 3):
+// mientras Third-Party Auth siga sin configurar en Supabase (ver comentario en
+// sbFetch arriba), ESTA función se dispara en el 100% de las requests de
+// Formulador — no en un caso raro. Sin dedup, cada request escribía una fila en
+// security_violations_ledger, ahogando cualquier señal real distinta (p.ej. un
+// patrón anómalo de uids) en ruido al 100% de la línea base. Se registra como
+// máximo 1 vez por hora por endpoint — evidencia suficiente de que el modo
+// degradado sigue activo, sin volumen que haga imposible detectar una anomalía.
+const BYPASS_ALERT_DEDUP_SEC = 3600;
+
 async function registrarBypassAuditoria(path, userJwt) {
+  const dedupKey = `bypass_alert:${path}`;
+  if (await cacheGet(dedupKey)) return;
+  await cacheSet(dedupKey, true, BYPASS_ALERT_DEDUP_SEC);
   try {
     await doFetch('/rpc/registrar_violacion_seguridad', {
       method: 'POST',

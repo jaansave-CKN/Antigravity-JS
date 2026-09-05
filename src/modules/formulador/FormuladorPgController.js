@@ -19,18 +19,21 @@ function deriveUuidFromString(value) {
 }
 
 // Resuelve el tenant_id como UUID válido para Postgres.
-// - req.user.uid (Firebase) nunca es un UUID -> se deriva de forma determinista.
-// - x-tenant-id explícito debe venir ya como UUID; si no lo es, se rechaza
-//   (ver los checks en guardarFase1/obtenerFase1) en vez de pasarlo tal cual a la RPC.
-// - Sin ninguno de los dos, cae al tenant por defecto.
+// - req.user.uid (Firebase, verificado por verifyFirebaseAuth antes de llegar
+//   aquí) siempre es la única fuente de verdad -> se deriva de forma determinista.
+// - Eliminado 2026-09-04 (auditoría PROTOCOLO 5x5 ∞, VECTOR 2): existía un
+//   fallback a `req.headers['x-tenant-id']` para cuando req.user.uid faltaba.
+//   Hoy es inalcanzable (el gate global de auth en server.js garantiza
+//   req.user.uid en todo /api/formulador/*, y ningún caller real —
+//   confirmado por grep en todo el repo— envía ese header), pero dependía
+//   por completo de que el orden de middlewares en server.js nunca cambiara:
+//   un solo `app.use()` reordenado convertía este header, controlado 100%
+//   por el cliente, en un IDOR trivial de un tenant a otro (RLS-por-rol está
+//   inactivo hoy — ver supabaseClient.js:sbFetch — así que nada en Postgres
+//   lo habría detenido). Sin caller legítimo, la superficie se cierra del
+//   todo en vez de parchearse: sin req.user.uid, la petición se rechaza.
 function getTenant(req) {
   if (req.user?.uid) return deriveUuidFromString(req.user.uid);
-  const headerTenant = req.headers['x-tenant-id'];
-  if (headerTenant) return UUID_RE.test(headerTenant) ? headerTenant : null;
-  // Antes: fallback silencioso a un tenant compartido (DEFAULT_TENANT) cuando no
-  // había req.user ni header — landmine de aislamiento si el gate global alguna
-  // vez deja pasar una request sin autenticar (guardrail RLS, 2026-08-07 §FASE 2).
-  // Eliminado: sin tenant identificable, la petición se rechaza (null → 400 abajo).
   return null;
 }
 

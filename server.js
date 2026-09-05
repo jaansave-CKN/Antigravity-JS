@@ -1,4 +1,5 @@
 import express    from 'express';
+import helmet     from 'helmet';
 import cors       from 'cors';
 import path       from 'path';
 import http       from 'http';
@@ -22,10 +23,12 @@ import { verifyFirebaseAuth }        from './src/shared/infrastructure/FirebaseA
 import { validateBody, schemas }     from './src/shared/infrastructure/validation.js';
 import { m1Router, runM1Pipeline }   from './src/modules/radar/m1Pipeline.js';
 import { initSentry, Sentry, sentryHabilitado } from './src/shared/infrastructure/SentryMonitoring.js';
+import { initLangfuse, trackGeneration }     from './src/shared/infrastructure/LangfuseMonitoring.js';
 import './scripts/generar_reporte.cjs'; // regenera public/estado_antigravity.json con inventario real de agents/ al arrancar + cada 10 min
 
 dotenv.config();
 initSentry();
+initLangfuse();
 
 // ── Configuración central ─────────────────────────────────────────────────────
 // Agnosticismo de modelo: un solo punto de verdad vía env var — al salir una
@@ -76,6 +79,74 @@ const httpServer = http.createServer(app);
 // ese caso: confía en el X-Forwarded-For del primer proxy, no en hops
 // posteriores (evita que un cliente spoofee la cabecera libremente).
 app.set('trust proxy', 1);
+
+// Headers de seguridad (punto 18/20 del checklist de lanzamiento, 2026-09-04;
+// CSP activado con hashes 2026-09-04 segunda ronda).
+//
+// script-src va sin 'unsafe-inline': todo <script> inline en public/*.html
+// (7 bloques, ver scripts/compute_csp_hashes.cjs) está en SCRIPT_HASHES por
+// su hash sha256 exacto — un script inyectado por un atacante NUNCA va a
+// calzar con un hash precomputado, así que queda bloqueado. Estas páginas
+// son estáticas (copiadas byte a byte a dist/ por copyStaticPlugin en
+// vite.config.js, sin templating server-side) — por eso hash en vez de
+// nonce: un nonce exige generarlo por request en el servidor, y
+// express.static no tiene ese hook; hash es la herramienta correcta de CSP
+// para contenido estático que no cambia entre requests.
+// IMPORTANTE: si editas el contenido de un <script> inline en public/*.html,
+// su hash cambia y el CSP lo bloquea en silencio (sin error visible salvo en
+// devtools) hasta que corras `node scripts/compute_csp_hashes.cjs` de nuevo
+// y actualices SCRIPT_HASHES.
+//
+// script-src-attr sí se deja en 'unsafe-inline': hay 42 atributos onclick=
+// (38 solo en fase1-entrada.html) sin refactorizar a addEventListener. CSP
+// no tiene hash para atributos inline en navegadores con soporte amplio
+// (solo 'unsafe-hashes' de CSP3, cobertura despareja) — cerrarlo del todo
+// requiere ese refactor de frontend, no es parte de este cambio. Mismo
+// razonamiento aplica a style-src: 139 atributos style="" sin refactorizar
+// a clases Tailwind, así que se deja 'unsafe-inline' ahí también.
+//
+// connect-src/frame-src incluyen los endpoints de Firebase Auth
+// (identitytoolkit/securetoken + el authDomain del proyecto) y
+// accounts.google.com porque test_auth.html usa signInWithPopup() — sin
+// esto el login con Google se rompe bajo CSP estricto.
+const SCRIPT_HASHES = [
+  "'sha256-QCweX6Y3RMFc9Q8VACnh4QPJsJrnYS8vqCo0o/DrgnQ='", // fase1-entrada.html #1
+  "'sha256-R2oQme0Et8WdqBzFZSERb/ncw/TTRo4jpTQcPa+LGAY='", // fase1-entrada.html #2
+  "'sha256-IfZaDn5P4N+Ug3TRigZo7EGENvuuMHGdITKytjHMKU0='", // fase1-recoleccion.html
+  "'sha256-eaND4VbpvFIDcLQSPRp2p5JJrwk3dFII2n8oqUvZMa4='", // monitoreo-tiempo-real.html
+  "'sha256-nbZD4obwCqDA98HE7JqUJwj1wAzVXfrdtrTW3Rqq6Zk='", // proyecto01.html
+  "'sha256-08jLYcS4nMEI9wx0xgRXso39QxT4eGHIGYeF58CfhG8='", // stitch-viewer.html
+  "'sha256-QEJjvmMh7M7S4qdIoO9HDjRU2ox9J49u1Cb9T8ELJH4='", // test_auth.html (no se despliega a dist/, se deja por consistencia local)
+];
+const FIREBASE_AUTH_DOMAIN = 'https://antigravity-jairo-2026.firebaseapp.com';
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", ...SCRIPT_HASHES, 'https://www.gstatic.com', 'https://cdn.jsdelivr.net', 'https://cdn.tailwindcss.com', 'https://unpkg.com'],
+      scriptSrcAttr: ["'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'", 'https://identitytoolkit.googleapis.com', 'https://securetoken.googleapis.com', FIREBASE_AUTH_DOMAIN],
+      frameSrc: [FIREBASE_AUTH_DOMAIN, 'https://accounts.google.com'],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'self'"],
+      upgradeInsecureRequests: [],
+    },
+  },
+  // Cross-Origin-Embedder-Policy queda desactivado: los CDNs externos
+  // (jsdelivr, tailwindcss, unpkg, fonts.gstatic.com) no envían headers CORP/CORS
+  // que COEP exigiría — activarlo rompería la carga de esos assets. No relacionado
+  // con CSP; es un header aparte de aislamiento de proceso que no necesitamos aquí.
+  crossOriginEmbedderPolicy: false,
+  // 'same-origin' (default de helmet) rompe el popup de Firebase Auth
+  // (signInWithPopup no puede comunicarse con la ventana emergente).
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+}));
 
 // ── 1. MIDDLEWARES ────────────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5000,http://localhost:5173')
@@ -141,6 +212,7 @@ app.post('/api/chat', validateBody(schemas.chat), async (req, res) => {
     const client       = getAnthropic();
     const systemMsg    = messages.find(m => m.role === 'system');
     const chatMessages = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content }));
+    const t0           = Date.now();
     const response     = await client.messages.create({
       model: CLAUDE_MODEL, max_tokens,
       ...(systemMsg ? { system: systemMsg.content } : {}),
@@ -148,6 +220,11 @@ app.post('/api/chat', validateBody(schemas.chat), async (req, res) => {
     });
     const reply = response.content[0]?.text ?? '';
     AuditLogger.log('CLAUDE_CHAT_SUCCESS', { uid: req.user?.uid ?? null, model: CLAUDE_MODEL, tokens: response.usage?.input_tokens });
+    trackGeneration({
+      traceId: crypto.randomUUID(), name: 'api-chat', userId: req.user?.uid,
+      model: CLAUDE_MODEL, input: chatMessages, output: reply,
+      usage: response.usage, latencyMs: Date.now() - t0,
+    });
     res.json({
       choices: [{ message: { role: 'assistant', content: reply }, finish_reason: response.stop_reason }],
       usage:   response.usage,
@@ -159,6 +236,7 @@ app.post('/api/chat', validateBody(schemas.chat), async (req, res) => {
     // poblado en el mismo scope (ver checkQuota 2 líneas arriba) — sin esto,
     // el ledger de auditoría no permitía atribuir consumo de IA a un usuario.
     AuditLogger.log('CLAUDE_CHAT_ERROR', { uid: req.user?.uid ?? null, error: err.message });
+    trackGeneration({ traceId: crypto.randomUUID(), name: 'api-chat', userId: req.user?.uid, model: CLAUDE_MODEL, error: err });
     // Detección de "sin saldo" agregada 2026-08-16 (mismo patrón que pingClaude(),
     // ver línea ~276): sin esto, el mensaje crudo de facturación de Anthropic
     // ("Your credit balance is too low...") llegaba tal cual al usuario final —

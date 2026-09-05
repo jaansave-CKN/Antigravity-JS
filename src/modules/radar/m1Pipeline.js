@@ -8,6 +8,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import express   from 'express';
 import { cacheKey, cacheGet, cacheSet, clearMemCache, cacheInfo } from '../../shared/infrastructure/cache.js';
 import { initSSE, acquireQuery, releaseQuery, checkQuota } from '../../shared/infrastructure/session-manager.js';
+import { trackGeneration } from '../../shared/infrastructure/LangfuseMonitoring.js';
 import ExtraerDatos from '../../../skills/seguridad/Skill_Protocolo_Fuente_Unica.cjs';
 
 // Mismo criterio que server.js: modelo inyectado por env var, no hardcodeado —
@@ -129,8 +130,9 @@ const SYSTEM_RADAR =
 // =============================================================================
 // CLAUDE AGENTIC LOOP — Tool Use con hasta 3 iteraciones de búsqueda
 // =============================================================================
-async function runClaudeWithTavily(query, filters = {}) {
-  const client = getClient();
+async function runClaudeWithTavily(query, filters = {}, userId) {
+  const client  = getClient();
+  const traceId = crypto.randomUUID(); // agrupa las hasta-3 generations del loop bajo un mismo trace en Langfuse
 
   const userContent =
     `Busca convocatorias y fondos VIGENTES en Colombia para el proyecto: "${query}". ` +
@@ -143,12 +145,18 @@ async function runClaudeWithTavily(query, filters = {}) {
   let iterations = 0;
 
   do {
+    const t0 = Date.now();
     response = await client.messages.create({
       model:      CLAUDE_MODEL,
       max_tokens: 4096,
       system:     SYSTEM_RADAR,
       tools:      [TAVILY_TOOL],
       messages,
+    });
+    trackGeneration({
+      traceId, name: 'm1-pipeline-search', userId, model: CLAUDE_MODEL,
+      input: messages, output: response.content, usage: response.usage,
+      latencyMs: Date.now() - t0, metadata: { iteration: iterations, stopReason: response.stop_reason },
     });
 
     if (response.stop_reason !== 'tool_use') break;
@@ -200,7 +208,7 @@ function applyFilters(opportunities, filters) {
 // =============================================================================
 // PIPELINE PRINCIPAL — con cache dual 24h
 // =============================================================================
-export async function runM1Pipeline({ query, filters = {}, bypassCache = false }) {
+export async function runM1Pipeline({ query, filters = {}, bypassCache = false, userId }) {
   if (!query?.trim()) throw new Error('Se requiere query string.');
 
   // Cache key normalizada (trim+lowercase) para que "Vivienda rural" y "vivienda rural "
@@ -218,7 +226,7 @@ export async function runM1Pipeline({ query, filters = {}, bypassCache = false }
   const startMs = Date.now();
   console.log(`[M1] MISS — Iniciando Tavily+Claude | "${query}"`);
 
-  const raw      = await runClaudeWithTavily(query, filters);
+  const raw      = await runClaudeWithTavily(query, filters, userId);
   const parsed   = safeParseJSON(raw);
   const all      = parsed.oportunidades || [];
   const filtered = applyFilters(all, filters);
@@ -270,7 +278,7 @@ router.post('/search', async (req, res) => {
     if (!query) return res.status(400).json({ error: 'Campo "query" requerido.' });
     const quota = await checkQuota(req.user?.uid ?? 'anonymous');
     if (!quota.allowed) return res.status(429).json({ error: 'Cuota diaria de búsquedas agotada.', resetAt: quota.resetAt });
-    const result = await runM1Pipeline({ query, filters: filters || {}, bypassCache });
+    const result = await runM1Pipeline({ query, filters: filters || {}, bypassCache, userId: req.user?.uid });
     res.json(result);
   } catch (err) {
     console.error('[M1 Router /search]', err.message);
@@ -317,9 +325,15 @@ router.post('/stream', async (req, res) => {
 
     // Agentic loop con streaming en el paso final
     while (iterations < 3) {
+      const t0 = Date.now();
       const response = await client.messages.create({
         model: CLAUDE_MODEL, max_tokens: 4096,
         system: SYSTEM_RADAR, tools: [TAVILY_TOOL], messages,
+      });
+      trackGeneration({
+        traceId: queryId, name: 'm1-pipeline-stream', userId: uid, model: CLAUDE_MODEL,
+        input: messages, output: response.content, usage: response.usage,
+        latencyMs: Date.now() - t0, metadata: { iteration: iterations, stopReason: response.stop_reason },
       });
 
       if (response.stop_reason !== 'tool_use') {

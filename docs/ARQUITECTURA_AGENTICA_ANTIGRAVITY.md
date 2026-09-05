@@ -2050,3 +2050,133 @@ No se generó diagrama Mermaid nuevo para esta nota — no hay subsistema ni rut
 real que graficar). No se detectó violación de divisa/idempotencia — no hay endpoint de mutación ni cálculo
 financiero involucrado, solo carpetas de agentes legacy sin conexión a producción, y `PERMISSIONS.json` es un
 archivo declarativo sin ningún endpoint ni mecanismo de escritura real detrás.
+
+## §0-AK. PROTOCOLO 5x5 ∞ — auditoría total 360° y blindaje multiagente (2026-09-04)
+
+Segunda invocación de "PROTOCOLO 5x5 ∞" contra este repositorio (la primera fue `§0-AF`, 2026-08-15, que cerró
+con el certificado `§0-AG` APTO 100/100). Esta ronda corrió en la misma sesión que ya había implementado y
+verificado en navegador real Tier 1 (Sentry+Langfuse, standby por falta de credenciales) y Tier 0 (helmet+CSP con
+hashes SHA-256, upgrade de `xlsx` al build oficial parcheado de SheetJS) — ver commits pendientes de esa misma
+sesión, aún sin commitear al momento de escribir esto (motivo: ver hallazgo 3 abajo). Metodología: investigación
+directa evidencia-primero (Read/Grep/Bash reales sobre el árbol de código y las migraciones SQL), no dos
+subagentes independientes ciegos entre sí — decisión explícita: la sesión ya tenía contexto verificado profundo
+de `server.js`, `session-manager.js`, el módulo Formulador y su capa Supabase por el trabajo de Tier 0/1
+inmediatamente anterior, y re-derivar ese contexto desde cero en un subagente fresco habría sido más caro y menos
+preciso que continuar directo. Cada hallazgo de esta sección aplica ambas lentes (Red Team + Staff Architect) en
+la misma pasada, citadas explícitamente por ángulo donde ambas difieren.
+
+**Regla de honestidad de esta sección**: dos escenarios que pedía el guion de auditoría no existen en este código
+y NO se inventaron resultados para ellos — se reporta su ausencia como hallazgo en sí:
+- "Trial bypass": no existe ningún concepto de *trial* en el código (`grep -rl trial` → 0 resultados). La
+  gobernanza de acceso real es `checkQuota`/`burstLimiter`/`loginBanGuard`, los tres keyed sobre el uid verificado
+  por Firebase, no sobre un estado de cliente falsificable.
+- "Autosave a los 2.5s / ms 2400": no existe ningún autosave con debounce en este código
+  (`grep -rn "autosave|debounce"` → 0 resultados reales). El único mecanismo de concurrencia real y comparable
+  es el guardado explícito de Fase 1/Módulo 10 del Formulador, cubierto abajo con evidencia real de su propia
+  auditoría previa (idempotencia + OCC), no con una simulación de un feature que no está en este repo.
+- "1000 requests reales contra Claude": **no se ejecutaron** — dispararlas de verdad gasta saldo real de Anthropic
+  (el mismo saldo que ya se agotó una vez, documentado en `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §1`
+  y referenciado en `server.js` línea ~281). En su lugar, VECTOR 4 se resolvió con un cálculo modelado a partir de
+  constantes reales del código (`validation.js:82-88`, `session-manager.js:85`), marcado explícitamente como
+  proyección, no como ejecución.
+
+### Hallazgo 1 (CRÍTICO ARQUITECTÓNICO, no explotable hoy, auto-documentado por el equipo desde 2026-08-06/08-07 — sigue sin resolver)
+
+RLS por rol de Postgres está **estructuralmente inactivo en producción**. Evidencia:
+`src/modules/formulador/supabaseClient.js:101-119` (función `sbFetch`) intenta usar el JWT de Firebase del
+usuario como `Authorization` contra PostgREST; PostgREST lo rechaza siempre con 401 porque Supabase no tiene
+Third-Party Auth con Firebase configurado (comentario explícito líneas 103-112, cita `docs/RADFOR360_ARQUITECTURA_
+OPTIMIZACION.md §3.6`) — cada llamada degrada a `SERVICE_KEY`, que en Supabase bypassa RLS por diseño. Las
+políticas `USING (tenant_id = current_tenant_id())` que sí existen y están bien escritas
+(`src/modules/formulador/migrations/001_formulador.sql:70-207`, 6 tablas) **nunca se evalúan** en el tráfico real.
+
+El aislamiento multi-tenant que sí funciona hoy depende al 100% de la capa Node: `getTenant(req)`
+(`FormuladorPgController.js`) deriva el tenant del uid de Firebase ya verificado por `verifyFirebaseAuth`, y cada
+función RPC filtra internamente por el `p_tenant_id` que Node le pasa (confirmado leyendo
+`insertar_fase1`/`guardar_modulo10` completas). Es una defensa de una sola capa donde el diseño asumía dos.
+**Explotación**: ninguna hoy — verifiqué que ni `getTenant` (tras el fix de este mismo hallazgo, ver Hallazgo 2)
+ni ningún caller aceptan un tenant_id que no venga del JWT verificado. El riesgo es de fragilidad futura, no de
+compromiso actual: un bug en cualquiera de las ~10 funciones RPC que olvide su `WHERE`/parámetro de tenant no
+tendría ningún backstop de base de datos deteniéndolo.
+**Remediación real** (ya identificada por el propio equipo, no nueva): configurar Firebase como Third-Party Auth
+provider en el dashboard de Supabase — acción de configuración externa, no un cambio de código, y fuera del
+alcance seguro de esta sesión (requiere acceso al dashboard de Supabase del usuario). No se fuerza un parche de
+código de una sola sesión sobre esto — sería exactamente la clase de prisa que el Axioma II.1 (arquitectura antes
+de código) existe para evitar.
+
+### Hallazgo 2 (MEDIO, cerrado en esta sesión)
+
+`FormuladorPgController.js` función `getTenant(req)` tenía una rama que confiaba en el header
+`x-tenant-id` controlado 100% por el cliente cuando `req.user?.uid` no estaba poblado, validado solo por forma
+UUID, no por propiedad. Inalcanzable hoy porque el gate global de auth en `server.js` garantiza `req.user.uid`
+antes de que cualquier request llegue a `/api/formulador/*`, y confirmé por grep en todo el repositorio que
+ningún caller real envía ese header — pero dependía enteramente de que el orden de `app.use()` en `server.js`
+nunca cambiara. Con RLS por rol inactivo (Hallazgo 1), nada en Postgres habría detenido el IDOR resultante.
+**Fix aplicado y verificado**: rama eliminada por completo (`FormuladorPgController.js:21-33`). `npm run
+test:gate` 135/135 en verde tras el cambio, servidor arrancado en caliente sin error, `/api/formulador/proyectos`
+sigue devolviendo 401 sin token.
+
+### Hallazgo 3 (BLOQUEO OPERATIVO ACTIVO, verificado en vivo, no inferido)
+
+`node agents/architecture-gate.cjs --check-gate` corrido en vivo durante esta auditoría devuelve:
+`🛑 Sin aprobación vigente: Excepción manual caducada (expiró 2026-08-16T22:56:13.531Z)`. La última aprobación de
+diseño expiró hace 19 días respecto a la fecha de esta sección. Consecuencia real y directa: **todo el trabajo de
+Tier 0/Tier 1 de esta misma sesión (helmet, CSP con hashes, upgrade de xlsx, Sentry/Langfuse, y los 2 fixes de
+esta sección) no puede commitearse** hasta que se corra `node agents/architecture-gate.cjs --aprobar-diseno` o se
+abra una excepción nueva — el pre-commit hook (`scripts/pre-commit.sh` → `agents/architecture-gate.cjs
+--check-gate`) lo bloqueará. No es una falla del gate — es el gate haciendo exactamente lo que `§0-AI`/`§0-AH`
+documentan que debe hacer. Se reporta como hallazgo porque el certificado `§0-AG` (APTO 100/100, 2026-08-15) ya
+no refleja el estado actual del propio mecanismo que lo produjo: "APTO" en esa fecha no implica "el gate sigue
+operando sin intervención humana" 19 días después.
+
+### Hallazgo 4 (bajo, resuelto en la misma sesión, contexto)
+
+`registrarBypassAuditoria` (`supabaseClient.js`) escribía una fila en `security_violations_ledger` en el 100% de
+las requests de Formulador (consecuencia directa del Hallazgo 1 — no es una excepción, es la línea base), ahogando
+cualquier anomalía real en ruido constante. **Fix aplicado y verificado**: dedup de 1h por endpoint vía
+`cacheGet`/`cacheSet` (mismo mecanismo Upstash-con-fallback-en-memoria que ya usa el resto del proyecto),
+`supabaseClient.js:73-84`. `test:gate` 135/135, boot limpio.
+
+### VECTOR 1 (topografía) y VECTOR 5 (ecosistema multiagente) — confirmado, no hallazgo nuevo
+
+`.claude/agents/*.md`: 10/10 definiciones presentes (001-010). El "Agente Arquitecto (bloqueo sistémico)" que el
+guion de auditoría pedía verificar **sí existe y es real**: `scripts/pre-commit.sh` → `agents/architecture-
+gate.cjs` (2043 líneas), firma de aprobación con expiración obligatoria, excepciones manuales con tope de horas,
+subgates por agente, telemetría en cada `--check-gate`. Confirmado en vivo por el Hallazgo 3 — el gate no solo
+existe en el código, está bloqueando activamente ahora mismo.
+
+### VECTOR 4 (FinOps) — cálculo modelado, no ejecutado
+
+Constantes reales: `checkQuota(uid, max=50)` (`session-manager.js:85`) = 50 requests/día por uid verificado.
+`schemas.chat` (`validation.js:82-88`) = máx 20 mensajes × 50.000 caracteres c/u, `max_tokens` tope 8192.
+`CLAUDE_MODEL` default `claude-sonnet-4-6` = $3/$15 por millón de tokens input/output (Anthropic, precio oficial
+vigente). TRM usada: ~3.150 COP/USD (promedio reciente, fuente Bloomberg Línea/dolarhoy.co, principios de
+septiembre 2026).
+
+Cota teórica superior por request (input+output al máximo permitido por el schema, no promedio real de tráfico):
+≈ $0,87 USD ≈ **2.750 COP**. × 50 requests/día (cuota de una sola cuenta legítima) ≈ **137.500 COP/día por cuenta**.
+El hallazgo real de FinOps no es ese número — es que **nada limita cuántas cuentas puede crear un atacante**:
+confirmado en la auditoría de seguridad de esta misma sesión que no hay CAPTCHA/App Check en el flujo de registro
+de Firebase (punto 12 del checklist de 20 puntos, ver conversación). Sin control de creación masiva de cuentas, la
+cuota-por-uid no acota el gasto total, solo el gasto por identidad — 1.000 cuentas gratuitas de Firebase ×
+137.500 COP/día ≈ **137.500.000 COP/día** como cota teórica superior si un atacante sostuviera tráfico al máximo
+del schema en las 1.000 cuentas simultáneamente (escenario extremo, no un promedio esperado). Este hallazgo ya
+estaba parcialmente identificado (Tier 2 de la conversación de esta sesión, pendiente de credenciales de Firebase
+App Check que solo el usuario puede generar).
+
+### Matriz de diagnóstico de esta ronda
+
+| # | Hallazgo | Severidad | Explotable hoy | Evidencia | Estado |
+|---|---|---|---|---|---|
+| 1 | RLS por rol inactivo (degrada siempre a SERVICE_KEY) | Crítico arquitectónico | No (aislamiento Node sigue cerrado) | `supabaseClient.js:101-119` | Auto-documentado 2026-08-06, sin resolver — requiere config Supabase, fuera de alcance de código |
+| 2 | `x-tenant-id` header IDOR latente | Medio | No (inalcanzable hoy) | `FormuladorPgController.js` (pre-fix) | ✅ Cerrado esta sesión |
+| 3 | Gate de arquitectura con excepción expirada | Bloqueo operativo activo | N/A (no es vulnerabilidad, es un control operando) | `node agents/architecture-gate.cjs --check-gate` (salida real) | Abierto — requiere `--aprobar-diseno` humano/002 |
+| 4 | Ledger de violaciones saturado (100% de requests) | Bajo | N/A | `supabaseClient.js:registrarBypassAuditoria` (pre-fix) | ✅ Cerrado esta sesión |
+| 5 | Sin control de creación masiva de cuentas (amplifica FinOps) | Medio-Alto (impacto financiero) | Sí, en teoría (sin cota de cuentas) | Checklist 20 puntos, punto 12, esta sesión | Abierto — requiere credenciales Firebase App Check del usuario |
+
+**Veredicto de esta ronda**: NO APTO 100/100 — 2 hallazgos abiertos requieren acción humana externa a esta sesión
+(config Supabase Dashboard, credenciales Firebase App Check) y 1 es un bloqueo operativo activo que impide incluso
+commitear el trabajo de cierre de esta misma sesión. Los 2 hallazgos que sí eran cerrables en sesión (Hallazgos 2
+y 4) están cerrados y verificados (`test:gate` 135/135, boot limpio, curl real post-fix). Detalle completo,
+tabla de validación cruzada y scoring numérico: reporte forense entregado en el chat de esta sesión (no
+duplicado aquí — este documento registra arquitectura as-built, no transcribe el reporte conversacional completo).

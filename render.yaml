@@ -62,6 +62,15 @@ services:
       - key: SENTRY_DSN
         sync: false
 
+      # ── FinOps: costo/tokens por request de IA (2026-09-04, opcional -- sin
+      # esto el server arranca igual, sin tracking. Ver LangfuseMonitoring.js) ──
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_HOST
+        sync: false
+
       # ── Servicios secundarios ──────────────────────────────────────────────
       - key: BREVO_API_KEY
         sync: false

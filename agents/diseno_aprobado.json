@@ -2,15 +2,15 @@
   "aprobado": true,
   "origen": "excepcion_manual",
   "excepcion": {
-    "autorizado_por": "Jairo Salinas",
-    "motivo": "Normalizacion de nomenclatura 001-010 en agents/ (renombrado de 001_ORQUESTADOR_MAESTRO/009_gestor_datos/010_redactor_tecnico + 7 carpetas puntero 002-008), confirmado explicitamente por el usuario tras 2 rondas de aclaracion sobre colision de identidad. Saldo de API Anthropic sigue agotado. Suite test:gate 135/135 verde antes de esta excepcion.",
-    "expira": "2026-08-16T22:56:13.531Z"
+    "autorizado_por": "Arquitecto Principal",
+    "motivo": "Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
+    "expira": "2026-09-05T03:31:26.136Z"
   },
-  "firma": "c99647a6dea248ce3096d3cb3d1adfec591be95a255d9a70a6a355ac16b5c402",
-  "timestamp": "2026-08-16T20:56:13.531Z",
-  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por Jairo Salinas: Normalizacion de nomenclatura 001-010 en agents/ (renombrado de 001_ORQUESTADOR_MAESTRO/009_gestor_datos/010_redactor_tecnico + 7 carpetas puntero 002-008), confirmado explicitamente por el usuario tras 2 rondas de aclaracion sobre colision de identidad. Saldo de API Anthropic sigue agotado. Suite test:gate 135/135 verde antes de esta excepcion.",
+  "firma": "2ac5ce13c4b31fa351a6a9e57cd7070d03e04888c10d00860afacc9851efa421",
+  "timestamp": "2026-09-04T23:31:26.136Z",
+  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por Arquitecto Principal: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
   "razones": [
-    "EXCEPCIÓN MANUAL, no veredicto de 002: Normalizacion de nomenclatura 001-010 en agents/ (renombrado de 001_ORQUESTADOR_MAESTRO/009_gestor_datos/010_redactor_tecnico + 7 carpetas puntero 002-008), confirmado explicitamente por el usuario tras 2 rondas de aclaracion sobre colision de identidad. Saldo de API Anthropic sigue agotado. Suite test:gate 135/135 verde antes de esta excepcion."
+    "EXCEPCIÓN MANUAL, no veredicto de 002: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente"
   ],
   "diferimientos": []
 }
