@@ -174,8 +174,8 @@ export default function DialecticaPage() {
   const proyectoId = useMemo(() => localStorage.getItem(ACTIVE_PROJECT_KEY), []);
   const [st, setSt] = useState<ConfigState>(ESTADO_INICIAL);
   const [copied, setCopied] = useState(false);
-  const [openOro, setOpenOro]     = useState<Set<string>>(new Set(ORO_DEFAULT.map(g => g.categoria)));
-  const [openNegra, setOpenNegra] = useState<Set<string>>(new Set(NEGRA_DEFAULT.map(g => g.categoria)));
+  const [openOro, setOpenOro]     = useState<Set<string>>(() => new Set(ORO_DEFAULT.map(g => g.categoria)));
+  const [openNegra, setOpenNegra] = useState<Set<string>>(() => new Set(NEGRA_DEFAULT.map(g => g.categoria)));
   const [inputMap, setInputMap] = useState<Record<string, string>>({});
   const [accion, setAccion]       = useState<AccionPendiente>(null);
   const [pin, setPin]             = useState('');

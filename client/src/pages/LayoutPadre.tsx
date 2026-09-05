@@ -54,6 +54,11 @@ function getSectorColor(nombre: string): string {
   return '#0058be';
 }
 
+// Instancias compartidas — construir un Intl.NumberFormat es costoso y estos
+// formatos son siempre los mismos (react-doctor/js-hoist-intl).
+const FMT_COP_INT = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
+const FMT_COMPACT = new Intl.NumberFormat('es-CO', { notation: 'compact', maximumFractionDigits: 1 });
+
 function parsePaises(raw: string): string[] {
   try { return JSON.parse(raw); } catch { return raw ? [raw] : []; }
 }
@@ -61,11 +66,10 @@ function parseSectores(raw: string): string[] {
   try { return JSON.parse(raw); } catch { return raw ? [raw] : []; }
 }
 function fmtCOP(cop: number): string {
-  const fmtInt = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
   if (cop >= 1_000_000) {
-    return fmtInt.format(Math.round(cop / 1_000_000)) + ' (MM)';
+    return FMT_COP_INT.format(Math.round(cop / 1_000_000)) + ' (MM)';
   }
-  return fmtInt.format(Math.round(cop)) + ' (MM)';
+  return FMT_COP_INT.format(Math.round(cop)) + ' (MM)';
 }
 function formatMonto(min: number, max: number, moneda: string): string {
   const val = max > 0 ? max : min;
@@ -73,8 +77,7 @@ function formatMonto(min: number, max: number, moneda: string): string {
   if (moneda === 'COP') {
     return fmtCOP(val);
   }
-  const fmt = new Intl.NumberFormat('es-CO', { notation: 'compact', maximumFractionDigits: 1 });
-  return `${fmt.format(val)} ${moneda}`;
+  return `${FMT_COMPACT.format(val)} ${moneda}`;
 }
 function formatMontoCOP(min: number, max: number, moneda: string, rates: Record<string, number>): string {
   if (moneda === 'COP') return '';
@@ -105,8 +108,7 @@ function tryExtractMonto(desc: string, rates: Record<string, number>): { monto: 
   if (!base || isNaN(base) || base <= 0) return null;
   const mult = /^M|million/i.test(m[2] || m[4] || '') ? 1_000_000 : /^K/i.test(m[2] || m[4] || '') ? 1_000 : 1;
   const value = base * mult;
-  const fmt = new Intl.NumberFormat('es-CO', { notation: 'compact', maximumFractionDigits: 1 });
-  const montoStr = `${fmt.format(value)} ${currency}`;
+  const montoStr = `${FMT_COMPACT.format(value)} ${currency}`;
   // COP → columna amarilla; divisa extranjera → naranja + equivalente amarillo
   if (currency === 'COP') return { monto: '', montoCop: fmtCOP(value) };
   return { monto: montoStr, montoCop: fmtCOP(value * (eff[currency] ?? 4200)) };
