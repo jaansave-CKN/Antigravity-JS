@@ -118,7 +118,7 @@ function CheckboxOption({ id, label, checked, onChange, accent = T.accent }: Che
         border:         `1px solid ${checked ? accent + '40' : T.border}`,
         background:     checked ? accent + '08' : T.cardBg,
         cursor:         'pointer',
-        transition:     'all 0.15s ease',
+        transition:     'border-color 0.15s ease, background-color 0.15s ease',
         userSelect:     'none',
         minHeight:      '44px',
       }}
@@ -141,7 +141,7 @@ function CheckboxOption({ id, label, checked, onChange, accent = T.accent }: Che
           display:        'flex',
           alignItems:     'center',
           justifyContent: 'center',
-          transition:     'all 0.15s ease',
+          transition:     'border-color 0.15s ease, background-color 0.15s ease',
         }}
       >
         {checked && (
@@ -546,7 +546,7 @@ export default function PopulationObjectiveWizard({ initialData, onSubmit, onBac
                 fontSize:     '13px',
                 fontWeight:   500,
                 cursor:       'pointer',
-                transition:   'all 0.15s',
+                transition:   'opacity 0.15s',
                 opacity:      isLoading ? 0.5 : 1,
               }}
             >
@@ -575,7 +575,7 @@ export default function PopulationObjectiveWizard({ initialData, onSubmit, onBac
               fontSize:        '13px',
               fontWeight:      600,
               cursor:          isLoading ? 'not-allowed' : 'pointer',
-              transition:      'all 0.15s',
+              transition:      'background-color 0.15s, box-shadow 0.15s',
               display:         'flex',
               alignItems:      'center',
               gap:             '8px',

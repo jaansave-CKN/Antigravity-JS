@@ -61,7 +61,7 @@ export default function LanguageToggle({ className = '', variant = 'pill' }: Lan
               fontWeight: lang === l ? 700 : 400,
               fontSize: 12, cursor: 'pointer',
               display: 'inline-flex', alignItems: 'center', gap: 4,
-              transition: 'all 0.15s',
+              transition: 'border-color 0.15s, background-color 0.15s, color 0.15s, font-weight 0.15s',
             }}
           >
             {FLAG[l]} {FULL_LABEL[l]}
@@ -98,7 +98,7 @@ export default function LanguageToggle({ className = '', variant = 'pill' }: Lan
             fontWeight: lang === l ? 700 : 400,
             fontSize: 12, cursor: 'pointer',
             display: 'inline-flex', alignItems: 'center', gap: 5,
-            transition: 'all 0.15s ease',
+            transition: 'background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease, font-weight 0.15s ease',
           }}
         >
           <span style={{ fontSize: 14 }}>{FLAG[l]}</span>

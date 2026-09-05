@@ -529,7 +529,7 @@ export default function PanelPage() {
               borderRadius: '6px', padding: '10px 16px',
               fontSize: 11, fontWeight: 700, cursor: 'pointer',
               letterSpacing: '0.06em', textTransform: 'uppercase',
-              transition: 'all 0.15s',
+              transition: 'background-color 0.15s, border-color 0.15s, color 0.15s',
             }}
           >
             {savedOk ? '✓ GUARDADO' : 'Guardar Ficha en Favoritos'}
@@ -652,7 +652,7 @@ export default function PanelPage() {
                     fontSize: 12, outline: 'none',
                     fontFamily: "'JetBrains Mono', monospace",
                     opacity: kw.enabled ? 1 : 0.45,
-                    transition: 'all 0.2s',
+                    transition: 'border-color 0.2s, color 0.2s, opacity 0.2s',
                   }}
                 />
               </div>
@@ -687,7 +687,7 @@ export default function PanelPage() {
               borderRadius: '6px', padding: '10px 16px',
               fontSize: 11, fontWeight: 700, cursor: 'pointer',
               letterSpacing: '0.06em', textTransform: 'uppercase',
-              transition: 'all 0.15s',
+              transition: 'background-color 0.15s, border-color 0.15s, color 0.15s',
             }}
           >
             {credsOk ? '✓ ACTUALIZADO' : 'Actualizar Credenciales en Caliente'}
