@@ -160,9 +160,10 @@ export default function PresupuestoPage() {
   const guardar = async () => {
     if (!proyectoId) { setSelectorAbierto(true); return; }
     if (guardandoRef.current) return;
-    const items = borrador
-      .filter(r => r.item.trim() && r.cantidad && r.rendimiento_real)
-      .map(r => ({
+    const items = [];
+    for (const r of borrador) {
+      if (!(r.item.trim() && r.cantidad && r.rendimiento_real)) continue;
+      items.push({
         fase: r.fase, capitulo: r.capitulo.trim(), item: r.item.trim(), unidad: r.unidad,
         cantidad: parseFloat(r.cantidad) || 0,
         rendimiento_std: r.rendimiento_std || undefined,
@@ -170,7 +171,8 @@ export default function PresupuestoPage() {
         costo_jornal_dia: parseFloat(r.costo_jornal_dia) || 0,
         aiu: parseFloat(r.aiu) || 0.28,
         materiales: [], equipos: [],
-      }));
+      });
+    }
     if (items.length === 0) { setError('Agrega al menos un ítem con cantidad y rendimiento real antes de guardar.'); return; }
 
     guardandoRef.current = true;

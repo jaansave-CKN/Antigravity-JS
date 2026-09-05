@@ -484,9 +484,10 @@ const RadarHeader = React.memo(function RadarHeader({
             <option value="Todos">Todos</option>
             <option value="Colombia">Colombia</option>
             <option value="Internacional">Internacional</option>
-            {metaPaises.filter(p => p !== 'Colombia' && p !== 'Internacional').map(p => (
-              <option key={p} value={p}>{p}</option>
-            ))}
+            {metaPaises.reduce<React.ReactElement[]>((acc, p) => {
+              if (p !== 'Colombia' && p !== 'Internacional') acc.push(<option key={p} value={p}>{p}</option>);
+              return acc;
+            }, [])}
           </select>
         </div>
 

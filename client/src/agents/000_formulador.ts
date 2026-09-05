@@ -124,9 +124,10 @@ function bandaToColor(banda: ResultadoAgente['banda']): string {
 
 function adaptarResultado(crudo: ResultadoAgente): AnalisisViabilidad {
   // Justificaciones: criterios de dimensiones con puntuación alta (≥4)
-  const justificacion = crudo.dimensiones
-    .filter(d => d.score >= 4)
-    .map(d => d.criterio);
+  const justificacion: string[] = [];
+  for (const d of crudo.dimensiones) {
+    if (d.score >= 4) justificacion.push(d.criterio);
+  }
 
   if (justificacion.length === 0) {
     justificacion.push('Completa la configuración en Dialéctica para obtener el análisis completo.');
@@ -142,14 +143,13 @@ function adaptarResultado(crudo: ResultadoAgente): AnalisisViabilidad {
     riesgos.push({ nivel, texto: alerta });
   });
 
-  crudo.pipeline
-    .filter(e => e.estado !== 'ok')
-    .forEach(e => {
-      riesgos.push({
-        nivel: e.estado === 'fallo' ? 'alto' : 'medio',
-        texto: `[${e.nombre}] ${e.detalle}`,
-      });
+  crudo.pipeline.forEach(e => {
+    if (e.estado === 'ok') return;
+    riesgos.push({
+      nivel: e.estado === 'fallo' ? 'alto' : 'medio',
+      texto: `[${e.nombre}] ${e.detalle}`,
     });
+  });
 
   if (riesgos.length === 0) {
     riesgos.push({ nivel: 'bajo', texto: 'Sin riesgos críticos detectados — configuración robusta' });
