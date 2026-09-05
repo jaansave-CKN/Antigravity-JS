@@ -26,7 +26,7 @@
  * éxito, dispara 'ai-quota-refresh' (escuchado por useAiQuotaStatus.ts) para
  * que el cronómetro de cualquier página abierta se refresque de inmediato.
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { http, ApiError } from '../lib/apiClient';
 
@@ -62,6 +62,11 @@ export default function ByokRequiredModal() {
   const [error, setError] = useState('');
   const [exito, setExito] = useState(false);
   const navigate = useNavigate();
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): `disabled={guardando}` solo se aplica al DOM tras el
+  // re-render — sin esto un segundo clic antes de eso podía disparar una
+  // segunda validación real de llave contra Gemini.
+  const guardandoRef = useRef(false);
 
   useEffect(() => {
     const abrir = (m: Modo) => (e: Event) => {
@@ -87,8 +92,10 @@ export default function ByokRequiredModal() {
   const cerrar = useCallback(() => { if (!guardando) setOpen(false); }, [guardando]);
 
   async function guardarYReintentar() {
+    if (guardandoRef.current) return;
     const raw = key.trim();
     if (!raw) { setError('Pega tu llave de Gemini (Google AI Studio) antes de continuar.'); return; }
+    guardandoRef.current = true;
     setGuardando(true);
     setError('');
     try {
@@ -100,6 +107,7 @@ export default function ByokRequiredModal() {
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'No se pudo validar la llave. Intenta de nuevo.');
     } finally {
+      guardandoRef.current = false;
       setGuardando(false);
     }
   }

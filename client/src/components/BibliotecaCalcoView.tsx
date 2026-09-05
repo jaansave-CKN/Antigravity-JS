@@ -15,7 +15,21 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import './BibliotecaCalcoView.css';
 import { http, ApiError, isAuthenticated } from '../lib/apiClient';
 
-const STORAGE_KEY = 'radar360_biblioteca_calco';
+// FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
+// versionada — NUNCA un renombre ciego (parte del blindaje antipérdida de
+// Biblioteca): leerBibliotecaStorage() migra la clave vieja.
+const STORAGE_KEY = 'radar360_biblioteca_calco:v1';
+const STORAGE_KEY_LEGACY = 'radar360_biblioteca_calco';
+function leerBibliotecaStorage(): string | null {
+  const actual = localStorage.getItem(STORAGE_KEY);
+  if (actual) return actual;
+  const legado = localStorage.getItem(STORAGE_KEY_LEGACY);
+  if (legado) {
+    localStorage.setItem(STORAGE_KEY, legado);
+    localStorage.removeItem(STORAGE_KEY_LEGACY);
+  }
+  return legado;
+}
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
 const SIN_CARPETA = '__sin_carpeta__'; // id sintético para el bloque de documentos sin carpeta_id
 // Caché por proyecto (blindaje antipérdida 2026-08-17): antes solo se
@@ -119,7 +133,7 @@ export default function BibliotecaCalcoView() {
 
   useEffect(() => {
     if (!proyectoId) {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = leerBibliotecaStorage();
       if (raw) {
         try {
           const p = JSON.parse(raw);
@@ -179,7 +193,7 @@ export default function BibliotecaCalcoView() {
 
         if (merged.length) { setDocumentos(merged); return; }
 
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const raw = leerBibliotecaStorage();
         let legacy: Documento[] = [];
         if (raw) {
           try {
@@ -208,6 +222,7 @@ export default function BibliotecaCalcoView() {
         if (cancelled) return;
         setDocumentos(migradas.length ? migradas : [nuevoDocumento(null)]);
         localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(STORAGE_KEY_LEGACY);
         const conNombreArchivo = legacy.some(s => s.anexo?.trim());
         setErrorSync(
           conNombreArchivo
@@ -217,7 +232,7 @@ export default function BibliotecaCalcoView() {
       } catch (err) {
         if (cancelled) return;
         const noAutenticado = (err instanceof ApiError && err.status === 401) || !isAuthenticated();
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const raw = leerBibliotecaStorage();
         let legacy: Documento[] = [];
         if (raw) {
           try {
@@ -255,7 +270,7 @@ export default function BibliotecaCalcoView() {
   useEffect(() => {
     if (cargando) return;
     localStorage.setItem(cacheKeyDe(proyectoId), JSON.stringify(documentos));
-  }, [documentos, proyectoId]);
+  }, [documentos, proyectoId, cargando]);
 
   // FIX (2026-08-24): lookup/actualización SIEMPRE por localKey (estable),
   // nunca por `id` (que muta de temporal a real del servidor tras el primer
@@ -361,7 +376,7 @@ export default function BibliotecaCalcoView() {
     if (sinGuardar && !window.confirm('Esto va a quitar de la vista los documentos que aún no se han guardado en el servidor. ¿Seguro que quieres continuar?')) {
       return;
     }
-    if (!proyectoId) localStorage.removeItem(STORAGE_KEY);
+    if (!proyectoId) { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(STORAGE_KEY_LEGACY); }
     setDocumentos(prev => {
       const persistidos = prev.filter(s => s.persistido);
       return persistidos.length ? persistidos : [nuevoDocumento(null)];

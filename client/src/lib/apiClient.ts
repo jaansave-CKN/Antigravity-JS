@@ -14,6 +14,7 @@
  *   const data = await http.get<Project[]>('/api/projects');
  *   const result = await http.post<{ success: boolean }>('/api/auth/login', { email, password });
  */
+import { leerAuthToken } from './authStorage';
 
 // ── Selector de fuente de autenticación ──────────────────────────────────────
 // true  → prioriza Supabase Auth session
@@ -62,7 +63,7 @@ function getAuthToken(): string | null {
   }
 
   // 2. JWT local del servidor RadarFondos
-  const localToken = localStorage.getItem('auth_token');
+  const localToken = leerAuthToken();
   if (localToken && localToken !== 'demo-mode-token') return localToken;
 
   // 3. Token de sesión de prueba (sessionStorage)

@@ -9,7 +9,7 @@
  *
  * Centro: Brand GGIE · RadarFondos + indicador ROOT ONLINE/OFFLINE
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 import { useSubscription } from '../contexts/SubscriptionContext';
@@ -66,9 +66,14 @@ function useRootStatus(): RootStatus {
 function ReportErrorButton({ token }: { token: string | null }) {
   const [state, setState] = useState<ReportState>('idle');
   const [message, setMessage] = useState('');
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): send() no tenía ninguna guarda contra un segundo disparo
+  // mientras el POST anterior seguía en vuelo.
+  const enviandoRef = useRef(false);
 
   async function send() {
-    if (!message.trim()) return;
+    if (!message.trim() || enviandoRef.current) return;
+    enviandoRef.current = true;
     setState('sending');
     try {
       const r = await fetch('/api/report-error', {
@@ -78,7 +83,7 @@ function ReportErrorButton({ token }: { token: string | null }) {
       });
       setState(r.ok ? 'sent' : 'error');
       if (r.ok) { setMessage(''); setTimeout(() => setState('idle'), 3000); }
-    } catch { setState('error'); }
+    } catch { setState('error'); } finally { enviandoRef.current = false; }
   }
 
   if (state === 'open') {

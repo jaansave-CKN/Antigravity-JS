@@ -177,7 +177,12 @@ export default function LoginPage() {
   // usuario lo pidiera cada vez — un problema de seguridad real, no solo de
   // UX. También se auto-purga cualquier rastro de esa versión anterior al
   // cargar la página, para limpiar sesiones ya afectadas sin acción manual.
-  const REMEMBER_KEY = 'rf360_remember_creds';
+  // FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
+  // versionada — el efecto de abajo migra la clave vieja (o simplemente la
+  // ignora si no hay nada legible, dado que solo guarda un correo de
+  // conveniencia, nunca la contraseña).
+  const REMEMBER_KEY = 'rf360_remember_creds:v1';
+  const REMEMBER_KEY_LEGACY = 'rf360_remember_creds';
   const [recordar, setRecordar] = useState(false);
   useEffect(() => {
     // Vía de purga explícita (?olvidar=1): borra cualquier correo recordado
@@ -187,11 +192,16 @@ export default function LoginPage() {
     // son almacenes independientes).
     if (new URLSearchParams(location.search).get('olvidar') === '1') {
       localStorage.removeItem(REMEMBER_KEY);
+      localStorage.removeItem(REMEMBER_KEY_LEGACY);
       navigate('/login', { replace: true });
       return;
     }
     try {
-      const raw = localStorage.getItem(REMEMBER_KEY);
+      let raw = localStorage.getItem(REMEMBER_KEY);
+      if (!raw) {
+        const legado = localStorage.getItem(REMEMBER_KEY_LEGACY);
+        if (legado) { localStorage.setItem(REMEMBER_KEY, legado); localStorage.removeItem(REMEMBER_KEY_LEGACY); raw = legado; }
+      }
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed?.password) {
@@ -203,6 +213,11 @@ export default function LoginPage() {
         }
       }
     } catch { localStorage.removeItem(REMEMBER_KEY); }
+  // Mount-once a propósito: lee la URL/localStorage una sola vez al cargar la
+  // página. navigate() de esta misma función cambia location.search (quita
+  // ?olvidar=1) — declarar location/navigate como deps reharía este efecto
+  // innecesariamente después del replace.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Aviso de sesión expirada — disparado por AuthContextNew.tsx al recibir un

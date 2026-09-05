@@ -14,7 +14,7 @@
  * líneas de materiales/equipos por ítem es una pieza de UI separada, no construida aún.
  * costo_materiales/costo_equipos quedan en 0 hasta que exista ese editor.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { http, ApiError } from '../lib/apiClient';
 import ProyectoSelectorModal from '../components/ProyectoSelectorModal';
 import { cop as COP } from '../lib/currencyFormat';
@@ -43,6 +43,9 @@ interface Rendimiento { clave: string; descripcion?: string; fase: Fase; unidad:
 interface ItemForm {
   fase: Fase; capitulo: string; item: string; unidad: string; cantidad: string;
   rendimiento_std: string; rendimiento_real: string; costo_jornal_dia: string; aiu: string;
+  // Identidad local estable para la key de React — nunca se envía al backend
+  // (guardar() reconstruye el payload campo por campo, ver más abajo).
+  _localKey: string;
 }
 interface ItemGuardado {
   id?: string; fase: Fase; capitulo: string; item: string; unidad: string;
@@ -53,10 +56,11 @@ interface RendimientosResponse { success: boolean; data: Rendimiento[] }
 interface PresupuestoResponse { success: boolean; data: ItemGuardado[]; porFase: Record<Fase, number>; total: number }
 interface GuardarResponse { success: boolean; message: string; porFase: Record<Fase, number>; total: number; alertas: unknown[]; items: number }
 
-const NUEVO_VACIO: ItemForm = {
+const NUEVO_VACIO: Omit<ItemForm, '_localKey'> = {
   fase: 'NEGRA', capitulo: '', item: '', unidad: 'm2', cantidad: '',
   rendimiento_std: '', rendimiento_real: '', costo_jornal_dia: '', aiu: '0.28',
 };
+const nuevaFila = (): ItemForm => ({ ...NUEVO_VACIO, _localKey: crypto.randomUUID() });
 
 function mensajeError(e: unknown): string {
   if (e instanceof ApiError) {
@@ -81,10 +85,14 @@ export default function PresupuestoPage() {
   const [itemsGuardados, setItemsGuardados] = useState<ItemGuardado[]>([]);
   const [porFase, setPorFase] = useState<Record<Fase, number>>({ NEGRA: 0, GRIS: 0, BLANCA: 0 });
   const [total, setTotal] = useState(0);
-  const [borrador, setBorrador] = useState<ItemForm[]>([{ ...NUEVO_VACIO }]);
+  const [borrador, setBorrador] = useState<ItemForm[]>([nuevaFila()]);
 
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): guardar() no tenía ninguna guarda contra un segundo
+  // disparo mientras el POST anterior seguía en vuelo.
+  const guardandoRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [limpiado, setLimpiado] = useState(false);
@@ -132,7 +140,7 @@ export default function PresupuestoPage() {
   const actualizarFila = (idx: number, campo: keyof ItemForm, valor: string) => {
     setBorrador(rows => rows.map((r, i) => i === idx ? { ...r, [campo]: valor } : r));
   };
-  const agregarFila = () => setBorrador(rows => [...rows, { ...NUEVO_VACIO }]);
+  const agregarFila = () => setBorrador(rows => [...rows, nuevaFila()]);
   const quitarFila = (idx: number) => setBorrador(rows => rows.filter((_, i) => i !== idx));
 
   // LIMPIAR — mismo botón que ya tienen las demás ventanas del Formulador,
@@ -144,13 +152,14 @@ export default function PresupuestoPage() {
     if (hayBorradorSinGuardar && !window.confirm('Esto va a borrar las filas del borrador que aún no has guardado. ¿Seguro que quieres continuar?')) {
       return;
     }
-    setBorrador([{ ...NUEVO_VACIO }]);
+    setBorrador([nuevaFila()]);
     setLimpiado(true);
     setTimeout(() => setLimpiado(false), 2000);
   };
 
   const guardar = async () => {
     if (!proyectoId) { setSelectorAbierto(true); return; }
+    if (guardandoRef.current) return;
     const items = borrador
       .filter(r => r.item.trim() && r.cantidad && r.rendimiento_real)
       .map(r => ({
@@ -164,18 +173,20 @@ export default function PresupuestoPage() {
       }));
     if (items.length === 0) { setError('Agrega al menos un ítem con cantidad y rendimiento real antes de guardar.'); return; }
 
+    guardandoRef.current = true;
     setGuardando(true);
     setError(null);
     setMensaje(null);
     try {
       const result = await http.post<GuardarResponse>(`/api/proyectos/${proyectoId}/presupuesto`, { items });
       setMensaje(result.message);
-      setBorrador([{ ...NUEVO_VACIO }]);
+      setBorrador([nuevaFila()]);
       await cargar();
     } catch (e) {
       console.error('[Presupuesto] Error guardando:', e);
       setError(mensajeError(e));
     } finally {
+      guardandoRef.current = false;
       setGuardando(false);
     }
   };
@@ -299,7 +310,7 @@ export default function PresupuestoPage() {
       <section style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ fontWeight: 700, fontSize: 14 }}>Agregar ítems APU</div>
         {borrador.map((row, idx) => (
-          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 1fr 70px 90px 1fr 90px 90px 70px 28px', gap: 6, alignItems: 'center' }}>
+          <div key={row._localKey} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 1fr 70px 90px 1fr 90px 90px 70px 28px', gap: 6, alignItems: 'center' }}>
             <select value={row.fase} onChange={e => actualizarFila(idx, 'fase', e.target.value)} style={campoStyle}>
               {FASES.map(f => <option key={f} value={f}>{f}</option>)}
             </select>

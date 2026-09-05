@@ -193,12 +193,13 @@ function ObjectiveTree({ nodes, lang }: { nodes: ObjectiveNode[]; lang: string }
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      {nodes.map((node, i) => {
+      {nodes.map((node) => {
         const text  = node.texto || node.content || '—';
         const tipo  = node.tipo || 'CENTRAL';
         const color = TIPO_COLORS[tipo] || '#374151';
+        const nodeKey = `${node.parent_id ?? 'root'}-${node.nivel ?? 0}-${tipo}-${text}`;
         return (
-          <div key={i} style={{ paddingLeft: (node.nivel || 0) * 20 + 4, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <div key={nodeKey} style={{ paddingLeft: (node.nivel || 0) * 20 + 4, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
             <span style={{ marginTop: 4, flexShrink: 0, width: 6, height: 6, borderRadius: '50%', background: color }} />
             <div style={{ flex: 1 }}>
               <span style={{ fontSize: 10, color, fontWeight: 700, fontFamily: 'monospace', marginRight: 6 }}>{tipo}</span>
@@ -230,15 +231,18 @@ function BudgetTable({ items, lang }: { items: BudgetItem[]; lang: string }) {
           </tr>
         </thead>
         <tbody>
-          {items.map((it, i) => (
-            <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+          {items.map((it) => {
+            const itemKey = `${it.fase ?? it.phase ?? ''}-${it.capitulo ?? it.chapter ?? ''}-${it.item ?? it.item_name ?? ''}`;
+            return (
+            <tr key={itemKey} style={{ borderBottom: '1px solid #f3f4f6' }}>
               <td style={{ padding: '5px 8px' }}>{it.fase || it.phase || '—'}</td>
               <td style={{ padding: '5px 8px' }}>{it.capitulo || it.chapter || '—'}</td>
               <td style={{ padding: '5px 8px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.item || it.item_name || '—'}</td>
               <td style={{ padding: '5px 8px', color: '#059669', textAlign: 'right' }}>{fmt(it.costo_directo ?? it.direct_cost)}</td>
               <td style={{ padding: '5px 8px', color: '#2563eb', fontWeight: 700, textAlign: 'right' }}>{fmt(it.valor_total ?? it.total_value)}</td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -436,8 +440,8 @@ function FormulacionContent({
           <SectionTitle icon="⚖️" title={isEN ? 'Regulatory Framework' : 'Marco Normativo'} />
           {Array.isArray((norms as any)?.normas) ? (
             <ul style={{ margin: 0, paddingLeft: 20 }}>
-              {((norms as any).normas as any[]).slice(0, 8).map((n: any, i: number) => (
-                <li key={i} style={{ fontSize: 12, color: '#374151', marginBottom: 3 }}>
+              {((norms as any).normas as any[]).slice(0, 8).map((n: any) => (
+                <li key={n.codigo || n.nombre || n.name || JSON.stringify(n)} style={{ fontSize: 12, color: '#374151', marginBottom: 3 }}>
                   {n.codigo && <strong style={{ color: '#7c3aed' }}>{n.codigo}: </strong>}
                   {n.nombre || n.name || JSON.stringify(n)}
                 </li>

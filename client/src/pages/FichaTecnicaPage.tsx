@@ -413,8 +413,8 @@ export default function FichaTecnicaPage() {
             <p style={{ margin: 0, fontSize: 12, color: T.textHint, fontStyle: 'italic' }}>Sin soportes cargados</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {anexosValidos.map((s, i) => (
-                <div key={i} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: '9px 14px', fontSize: 12.5, color: T.text, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+              {anexosValidos.map((s) => (
+                <div key={`${s.descripcion}-${s.anexo || s.link}`} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: '9px 14px', fontSize: 12.5, color: T.text, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                   <span>{s.descripcion}</span>
                   <span style={{ color: T.textMuted, fontSize: 11 }}>{s.anexo || s.link}</span>
                 </div>
@@ -429,8 +429,8 @@ export default function FichaTecnicaPage() {
             <p style={{ margin: 0, fontSize: 12, color: T.textHint, fontStyle: 'italic' }}>Sin tramos registrados</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {tramosValidos.map((t, i) => (
-                <div key={i} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: '9px 14px', fontSize: 12.5, color: T.text }}>
+              {tramosValidos.map((t) => (
+                <div key={`${t.origen}-${t.destino}-${t.duracion}`} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: '9px 14px', fontSize: 12.5, color: T.text }}>
                   <strong>{t.origen}</strong> → <strong>{t.destino}</strong> · {t.duracion}{t.medio ? ` · ${t.medio}` : ''}
                 </div>
               ))}

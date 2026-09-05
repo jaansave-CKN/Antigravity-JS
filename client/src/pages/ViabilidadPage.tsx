@@ -111,14 +111,14 @@ function DictamenIACard() {
                 <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: '#191c1e' }}>
                   <li>Respaldo financiero: {resultado.cruce_anexos.respaldo_financiero_detectado ? '✓ detectado' : '✗ no detectado'}</li>
                   <li>Marco normativo: {resultado.cruce_anexos.marco_normativo_validado ? '✓ validado' : '✗ no validado'}</li>
-                  {resultado.cruce_anexos.brechas_detectadas.map((b, i) => <li key={i} style={{ color: '#ba1a1a' }}>{b}</li>)}
+                  {resultado.cruce_anexos.brechas_detectadas.map((b) => <li key={b} style={{ color: '#ba1a1a' }}>{b}</li>)}
                 </ul>
               </div>
               <div>
                 <p style={{ margin: '0 0 6px', fontSize: 10.5, fontWeight: 700, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Supuestos (Teoría del Cambio)</p>
                 <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: '#191c1e' }}>
                   {resultado.teoria_del_cambio_generada.supuestos.length > 0
-                    ? resultado.teoria_del_cambio_generada.supuestos.map((s, i) => <li key={i}>{s}</li>)
+                    ? resultado.teoria_del_cambio_generada.supuestos.map((s) => <li key={s}>{s}</li>)
                     : <li style={{ color: '#76777d', fontStyle: 'italic' }}>Sin supuestos registrados aún</li>}
                 </ul>
               </div>
@@ -126,7 +126,7 @@ function DictamenIACard() {
                 <p style={{ margin: '0 0 6px', fontSize: 10.5, fontWeight: 700, color: '#6b4fbb', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Resultados Esperados</p>
                 <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: '#191c1e' }}>
                   {resultado.teoria_del_cambio_generada.resultados_esperados.length > 0
-                    ? resultado.teoria_del_cambio_generada.resultados_esperados.map((r, i) => <li key={i}>{r}</li>)
+                    ? resultado.teoria_del_cambio_generada.resultados_esperados.map((r) => <li key={r}>{r}</li>)
                     : <li style={{ color: '#76777d', fontStyle: 'italic' }}>Sin resultados registrados aún</li>}
                 </ul>
               </div>
@@ -507,8 +507,8 @@ export default function ViabilidadPage() {
               </div>
             </div>
             <ul className="viab__just-list">
-              {analisis.justificacion.map((j, i) => (
-                <li key={i}>
+              {analisis.justificacion.map((j) => (
+                <li key={j}>
                   <span className="material-symbols-outlined" style={{ fontSize: 14, color: analisis.color }}>arrow_forward_ios</span>
                   {j}
                 </li>
@@ -590,8 +590,8 @@ export default function ViabilidadPage() {
                 Indicadores MiroFish
               </div>
               <div className="viab__miro-panel-body">
-                {analisis.riesgos.map((r, i) => (
-                  <div key={i} className="viab__ind-row">
+                {analisis.riesgos.map((r) => (
+                  <div key={`${r.nivel}-${r.texto}`} className="viab__ind-row">
                     <span className={`viab__ind-badge viab__ind-badge--${r.nivel}`}>
                       {r.nivel.toUpperCase()}
                     </span>

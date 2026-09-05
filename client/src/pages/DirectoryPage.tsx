@@ -15,8 +15,12 @@ import { autoTable } from 'jspdf-autotable';
 import { useAuth } from '../contexts/AuthContextNew';
 import './DirectoryPage.css';
 
-const STORAGE_KEY = 'radar_directory_entries';
-const FAV_KEY = 'radar_directory_favoritos';
+// FIX (react-doctor client-localstorage-no-version, 2026-09-05): claves
+// versionadas — loadStored()/loadFavoritos() migran la clave vieja.
+const STORAGE_KEY = 'radar_directory_entries:v1';
+const STORAGE_KEY_LEGACY = 'radar_directory_entries';
+const FAV_KEY = 'radar_directory_favoritos:v1';
+const FAV_KEY_LEGACY = 'radar_directory_favoritos';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface DirectoryEntry {
@@ -53,7 +57,11 @@ const IconClose = () => (
 // ── Persistencia ──────────────────────────────────────────────────────────────
 function loadStored(): DirectoryEntry[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      const legado = localStorage.getItem(STORAGE_KEY_LEGACY);
+      if (legado) { localStorage.setItem(STORAGE_KEY, legado); localStorage.removeItem(STORAGE_KEY_LEGACY); raw = legado; }
+    }
     return raw ? (JSON.parse(raw) as DirectoryEntry[]) : [];
   } catch { return []; }
 }
@@ -344,7 +352,14 @@ export default function DirectoryPage() {
   const [bloquearDominio, setBloquearDominio] = useState(true);
 
   const [favoritos, setFavoritos]   = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(FAV_KEY) || '[]')); } catch { return new Set(); }
+    try {
+      let raw = localStorage.getItem(FAV_KEY);
+      if (!raw) {
+        const legado = localStorage.getItem(FAV_KEY_LEGACY);
+        if (legado) { localStorage.setItem(FAV_KEY, legado); localStorage.removeItem(FAV_KEY_LEGACY); raw = legado; }
+      }
+      return new Set(JSON.parse(raw || '[]'));
+    } catch { return new Set(); }
   });
 
   function commit(next: DirectoryEntry[]) {
@@ -594,12 +609,16 @@ export default function DirectoryPage() {
   }
 
   function toggleFavorito(id: string) {
-    setFavoritos(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      localStorage.setItem(FAV_KEY, JSON.stringify([...next]));
-      return next;
-    });
+    // FIX (react-doctor no-impure-state-updater, 2026-09-05): el write a
+    // localStorage vivía dentro del updater de setFavoritos — un updater
+    // puede reintentarse/descartarse, así que un side effect ahí no es
+    // seguro. `toggleFavorito` es una función plana (se recrea cada render),
+    // así que `favoritos` del closure ya es el valor actual sin riesgo de
+    // stale closure.
+    const next = new Set(favoritos);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    localStorage.setItem(FAV_KEY, JSON.stringify([...next]));
+    setFavoritos(next);
   }
 
   // Normaliza una URL a su hostname sin protocolo, sin www., sin path ni trailing slash.

@@ -329,23 +329,24 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     const projectId = req.params.id;
     const tenantId  = req.tenantId || req.userId;
 
-    // Cargar datos canónicos del proyecto (tabla projects, migración 003)
-    let project = await getRow(
-      `SELECT id, tenant_id, status, payload_es, payload_en, updated_at, name
-       FROM projects WHERE id = $1 AND tenant_id = $2`,
+    // FIX (auditoría 2026-08-24/2026-09-04): este endpoint intentaba leer
+    // primero de una tabla `projects` (inglesa) "canónica" que en la BD real
+    // no existe (confirmado: to_regclass('public.projects') IS NULL) — el
+    // catch genérico de abajo siempre caía al fallback, y ese fallback fijaba
+    // payload_es/payload_en en NULL sin excepción. Consecuencia real: el hash
+    // de "versión inmutable" (requisito V8.0) nunca reflejó contenido real
+    // del proyecto desde que se escribió este endpoint — solo hasheaba
+    // id/tenant/status/updated_at, nunca el contenido que se supone debía
+    // proteger contra alteraciones. Se elimina el intento muerto contra
+    // `projects` y se lee directo de `proyectos` (única tabla activa),
+    // incluyendo `ficha_tecnica` (el contenido real del proyecto) en el
+    // documento canónico.
+    const project = await getRow(
+      `SELECT id, org_id AS tenant_id, estado AS status, ficha_tecnica,
+              updated_at, nombre AS name
+       FROM proyectos WHERE id = $1 AND org_id = $2`,
       [projectId, tenantId]
-    ).catch(e => { console.warn('[versionado] fallback a legacy', { err: e.message }); return null; });
-
-    // Fallback a tabla legacy proyectos si no existe en projects
-    if (!project) {
-      project = await getRow(
-        `SELECT id, org_id AS tenant_id, estado AS status,
-                NULL AS payload_es, NULL AS payload_en,
-                updated_at, nombre AS name
-         FROM proyectos WHERE id = $1 AND org_id = $2`,
-        [projectId, tenantId]
-      ).catch(() => null);
-    }
+    );
 
     if (!project) {
       return res.status(404).json({
@@ -357,13 +358,12 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     // Construir el documento canónico a hashear
     const timestamp  = new Date().toISOString();
     const canonical  = JSON.stringify({
-      project_id:   project.id,
-      tenant_id:    project.tenant_id,
-      status:       project.status,
-      payload_es:   project.payload_es ?? null,
-      payload_en:   project.payload_en ?? null,
+      project_id:    project.id,
+      tenant_id:     project.tenant_id,
+      status:        project.status,
+      ficha_tecnica: project.ficha_tecnica ?? null,
       db_updated_at: project.updated_at,
-      hashed_at:    timestamp,
+      hashed_at:     timestamp,
     });
 
     const payloadBytes = Buffer.byteLength(canonical, 'utf8');

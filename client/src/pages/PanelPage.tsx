@@ -46,7 +46,10 @@ interface ProjectProfile {
 // ── Persistence ──────────────────────────────────────────────────────────────
 const PROFILES_KEY = 'rf360_profiles_v1';
 const CREDS_KEY    = 'rf360_credentials_v1';
-const KEYWORDS_KEY = 'radar_keywords';
+// FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
+// versionada — loadKeywords() migra la clave vieja.
+const KEYWORDS_KEY = 'radar_keywords:v1';
+const KEYWORDS_KEY_LEGACY = 'radar_keywords';
 const SLOT_COUNT   = 20;
 
 const DEFAULT_KEYWORDS: SearchKeyword[] = [
@@ -59,7 +62,11 @@ const DEFAULT_KEYWORDS: SearchKeyword[] = [
 
 function loadKeywords(): SearchKeyword[] {
   try {
-    const s = localStorage.getItem(KEYWORDS_KEY);
+    let s = localStorage.getItem(KEYWORDS_KEY);
+    if (!s) {
+      const legado = localStorage.getItem(KEYWORDS_KEY_LEGACY);
+      if (legado) { localStorage.setItem(KEYWORDS_KEY, legado); localStorage.removeItem(KEYWORDS_KEY_LEGACY); s = legado; }
+    }
     if (s) return JSON.parse(s) as SearchKeyword[];
   } catch {}
   localStorage.setItem(KEYWORDS_KEY, JSON.stringify(DEFAULT_KEYWORDS));
@@ -312,12 +319,15 @@ export default function PanelPage() {
   }, []);
 
   function updateKeyword(id: number, changes: Partial<SearchKeyword>) {
-    setKeywords(prev => {
-      const next = prev.map(k => k.id === id ? { ...k, ...changes } : k);
-      try { localStorage.setItem(KEYWORDS_KEY, JSON.stringify(next)); } catch {}
-      http.put('/api/panel/keywords', { keywords: next }).catch(() => {});
-      return next;
-    });
+    // FIX (react-doctor no-impure-state-updater, 2026-09-05): localStorage.
+    // setItem y el POST http.put vivían dentro del updater de setKeywords —
+    // un updater puede reintentarse/descartarse, lo que arriesgaba escrituras
+    // duplicadas o perdidas. `updateKeyword` es una función plana (se recrea
+    // cada render), `keywords` del closure ya es el valor actual.
+    const next = keywords.map(k => k.id === id ? { ...k, ...changes } : k);
+    try { localStorage.setItem(KEYWORDS_KEY, JSON.stringify(next)); } catch {}
+    http.put('/api/panel/keywords', { keywords: next }).catch(() => {});
+    setKeywords(next);
   }
 
   // Motor enable flags — persisten en CREDS_KEY para que PestañaRadar los lea

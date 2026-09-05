@@ -24,7 +24,8 @@
     "migrate:security": "psql $DATABASE_URL -f backend/migrations/008_trial_sessions_ttl_trigger.sql && psql $DATABASE_URL -f backend/migrations/009_project_version_hashes.sql && psql $DATABASE_URL -f backend/migrations/010_rls_complete_audit.sql",
     "test:all": "npm run test:smoke && npm run test:security",
     "test:e2e": "playwright test",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1095.0",
@@ -90,6 +91,7 @@
     "husky": "^9.1.7",
     "pm2": "^7.0.1",
     "postcss": "^8.5.25",
+    "react-doctor": "^0.9.13",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.67.0",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 import { http } from '../lib/apiClient';
@@ -78,6 +78,12 @@ export default function Modulo10Page() {
   const [notasAdicionales, setNotasAdicionales] = useState('');
   const [genNormas, setGenNormas] = useState(false);
   const [guardandoNormas, setGuardandoNormas] = useState(false);
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): ninguno de los 3 handlers de guardado revisaba su propio
+  // flag de estado antes de proceder.
+  const savingRef = useRef(false);
+  const guardandoNormasRef = useRef(false);
+  const genNormasRef = useRef(false);
   const [normasGuardadas, setNormasGuardadas] = useState(false);
   const [normasErr, setNormasErr] = useState<string | null>(null);
 
@@ -133,6 +139,8 @@ export default function Modulo10Page() {
 
   const handleGuardarNormas = async () => {
     if (!proyectoId) { setNormasErr('No hay proyecto activo — completa Entrada primero.'); return; }
+    if (guardandoNormasRef.current) return;
+    guardandoNormasRef.current = true;
     setGuardandoNormas(true);
     setNormasErr(null);
     try {
@@ -144,6 +152,7 @@ export default function Modulo10Page() {
     } catch {
       setNormasErr('No se pudo guardar el marco normativo.');
     } finally {
+      guardandoNormasRef.current = false;
       setGuardandoNormas(false);
     }
   };
@@ -160,6 +169,8 @@ export default function Modulo10Page() {
 
   const handleSave = async () => {
     if (!proyectoId) { setSaveErr('No hay proyecto activo — completa Entrada primero.'); return; }
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setSaveErr(null);
     try {
@@ -176,6 +187,7 @@ export default function Modulo10Page() {
     } catch {
       setSaveErr('No se pudo guardar en el servidor — inténtalo de nuevo.');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -189,6 +201,8 @@ export default function Modulo10Page() {
       setNormasErr('No hay proyecto activo — completa Entrada primero.');
       return;
     }
+    if (genNormasRef.current) return;
+    genNormasRef.current = true;
     setGenNormas(true);
     setNormasErr(null);
     try {
@@ -206,7 +220,7 @@ export default function Modulo10Page() {
         setCitas(d.data?.citas_bibliograficas || []); // antes se descartaban silenciosamente
       } else setNormasErr(d.message || 'Error generando normas');
     } catch { setNormasErr('Sin conexión con el servidor'); }
-    finally { setGenNormas(false); }
+    finally { genNormasRef.current = false; setGenNormas(false); }
   };
 
   const progress = [
@@ -423,8 +437,8 @@ export default function Modulo10Page() {
             {normasErr && <p style={{ fontSize: 12, color: '#f87171', marginBottom: 10, fontFamily: "'Hanken Grotesk', system-ui" }}>{normasErr}</p>}
             {normas.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {normas.map((n: any, i: number) => (
-                  <div key={i} style={{ background: '#001524', border: '1px solid #0d2a3d', borderRadius: 8, padding: '10px 14px' }}>
+                {normas.map((n: any) => (
+                  <div key={n.codigo || JSON.stringify(n)} style={{ background: '#001524', border: '1px solid #0d2a3d', borderRadius: 8, padding: '10px 14px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <p style={{ fontSize: 11, fontWeight: 700, color: '#60c9ff', margin: '0 0 2px', fontFamily: "'JetBrains Mono', monospace" }}>{n.codigo}</p>
                       <span style={{ fontSize: 8, fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, padding: '2px 8px', borderRadius: 20, textTransform: 'uppercase', background: n.relevancia === 'Alta' ? '#7f1d1d' : '#001c2e', color: n.relevancia === 'Alta' ? '#fca5a5' : '#38bdf8', border: `1px solid ${n.relevancia === 'Alta' ? '#fca5a5' : '#38bdf8'}44` }}>

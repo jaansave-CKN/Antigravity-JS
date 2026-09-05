@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { apiService } from '../services/api';
+import { leerAuthToken, esEventoDeSesion } from '../lib/authStorage';
 
 export interface Favorito {
   id: string;
@@ -26,7 +27,7 @@ export function FavoritosProvider({ children }: { children: React.ReactNode }) {
   const [cargando, setCargando] = useState(false);
 
   const cargarFavoritos = useCallback(async () => {
-    const token = localStorage.getItem('auth_token');
+    const token = leerAuthToken();
     if (!token || token === 'demo-mode-token') return;
     setCargando(true);
     try {
@@ -44,7 +45,7 @@ export function FavoritosProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     cargarFavoritos();
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'auth_token') cargarFavoritos();
+      if (esEventoDeSesion(e)) cargarFavoritos();
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);

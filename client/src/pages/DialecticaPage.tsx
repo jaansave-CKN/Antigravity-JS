@@ -2,7 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './DialecticaPage.css';
 import { http } from '../lib/apiClient';
 
-const STORAGE_KEY   = 'radar360_dialectica_config';
+// FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
+// versionada — NUNCA un renombre ciego (mandato de cero pérdida de datos):
+// leerDialecticaStorage() migra la clave vieja de forma transparente.
+const STORAGE_KEY   = 'radar360_dialectica_config:v1';
+const STORAGE_KEY_LEGACY = 'radar360_dialectica_config';
+function leerDialecticaStorage(): string | null {
+  const actual = localStorage.getItem(STORAGE_KEY);
+  if (actual) return actual;
+  const legado = localStorage.getItem(STORAGE_KEY_LEGACY);
+  if (legado) {
+    localStorage.setItem(STORAGE_KEY, legado);
+    localStorage.removeItem(STORAGE_KEY_LEGACY);
+  }
+  return legado;
+}
 const DNA_FICHA_KEY = 'radar360_ficha_dna';
 const CLAVE_ACCESO  = '1234';
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
@@ -188,7 +202,7 @@ export default function DialecticaPage() {
   const sinGuardar = JSON.stringify(st) !== ultimoGuardadoRef.current;
 
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = leerDialecticaStorage();
     let base = ESTADO_INICIAL;
     if (raw) {
       try {
@@ -233,22 +247,25 @@ export default function DialecticaPage() {
         const row = body.data;
         if (!cancelled && row) {
           const parseArr = (v?: string) => { try { return JSON.parse(v || '[]'); } catch { return []; } };
-          setSt(prev => {
-            const merged = {
-              selecciones: {
-                ...prev.selecciones,
-                tono: row.tono || prev.selecciones.tono,
-                interlocutor: row.interlocutor || prev.selecciones.interlocutor,
-                enfoque: row.enfoque || prev.selecciones.enfoque,
-                humanizacion: row.humanizacion || prev.selecciones.humanizacion,
-              },
-              adicionales: row.adicionales ? parseArr(row.adicionales) : prev.adicionales,
-              listaOro:   row.lista_oro   ? parseArr(row.lista_oro)   : prev.listaOro,
-              listaNegra: row.lista_negra ? parseArr(row.lista_negra) : prev.listaNegra,
-            };
-            ultimoGuardadoRef.current = JSON.stringify(merged);
-            return merged;
-          });
+          // FIX (react-doctor no-impure-state-updater, 2026-09-05): el merge y
+          // el ref write vivían dentro del updater de setSt. `base` (arriba)
+          // ya rastrea el valor sincrónico actual del estado en este mismo
+          // efecto (ESTADO_INICIAL o lo hidratado de localStorage) — sirve
+          // como reemplazo puro de `prev` sin depender del updater.
+          const merged = {
+            selecciones: {
+              ...base.selecciones,
+              tono: row.tono || base.selecciones.tono,
+              interlocutor: row.interlocutor || base.selecciones.interlocutor,
+              enfoque: row.enfoque || base.selecciones.enfoque,
+              humanizacion: row.humanizacion || base.selecciones.humanizacion,
+            },
+            adicionales: row.adicionales ? parseArr(row.adicionales) : base.adicionales,
+            listaOro:   row.lista_oro   ? parseArr(row.lista_oro)   : base.listaOro,
+            listaNegra: row.lista_negra ? parseArr(row.lista_negra) : base.listaNegra,
+          };
+          ultimoGuardadoRef.current = JSON.stringify(merged);
+          setSt(merged);
         }
       } catch {
         setErrorSync('No se pudo cargar la configuración guardada del servidor — se muestra el cache local.');
@@ -323,6 +340,7 @@ export default function DialecticaPage() {
 
   const limpiar = () => {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_KEY_LEGACY);
     setSt(ESTADO_BLANCO);
     setLimpiado(true);
     setTimeout(() => setLimpiado(false), 2000);

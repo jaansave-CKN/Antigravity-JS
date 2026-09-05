@@ -277,8 +277,8 @@ export default function PlanesPage() {
                 listStyle: 'none', padding: 0, margin: '0 0 1.25rem',
                 display: 'flex', flexDirection: 'column', gap: 7,
               }}>
-                {plan.modulos.map((m, i) => (
-                  <li key={i} style={{
+                {plan.modulos.map((m) => (
+                  <li key={m} style={{
                     display: 'flex', alignItems: 'flex-start',
                     gap: 7, fontSize: 11, color: '#45464d',
                   }}>

@@ -1,8 +1,10 @@
 // Use empty base so all /api/* requests go through the Vite dev proxy → localhost:3000
+import { leerAuthToken } from '../lib/authStorage';
+
 const API_BASE = '';
 
 function getAuthHeaders(): Record<string, string> {
-  const token = localStorage.getItem('auth_token');
+  const token = leerAuthToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

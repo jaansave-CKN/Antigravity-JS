@@ -9,7 +9,24 @@ import CountdownReset from '../components/CountdownReset';
 import { useAiQuotaStatus } from '../hooks/useAiQuotaStatus';
 import './EntradaPage.css';
 
-const STORAGE_KEY = 'radar360_entrada_m1';
+// FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
+// versionada para que un futuro cambio de forma del estado (ESTADO_INICIAL)
+// pueda ignorar datos viejos en vez de romper JSON.parse — NUNCA un renombre
+// ciego: este formulario está bajo mandato explícito de cero pérdida de
+// datos, así que leerEntradaStorage() migra la clave vieja sin tocar nada
+// visible para el usuario.
+const STORAGE_KEY = 'radar360_entrada_m1:v1';
+const STORAGE_KEY_LEGACY = 'radar360_entrada_m1';
+function leerEntradaStorage(): string | null {
+  const actual = localStorage.getItem(STORAGE_KEY);
+  if (actual) return actual;
+  const legado = localStorage.getItem(STORAGE_KEY_LEGACY);
+  if (legado) {
+    localStorage.setItem(STORAGE_KEY, legado);
+    localStorage.removeItem(STORAGE_KEY_LEGACY);
+  }
+  return legado;
+}
 const ACTIVE_PROJECT_KEY      = 'rf360_proyecto_activo';
 const ACTIVE_PROJECT_NAME_KEY = 'rf360_proyecto_nombre';
 
@@ -239,7 +256,7 @@ const ESTADO_INICIAL: EntradaState = {
 export default function EntradaPage() {
   const [st, setSt] = useState<EntradaState>(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = leerEntradaStorage();
       if (!raw) return ESTADO_INICIAL;
       const parsed = JSON.parse(raw);
       // Merge profundo de contextoMeta/soluciones: una sesión guardada ANTES
@@ -372,7 +389,7 @@ export default function EntradaPage() {
   // primera vez en este navegador/dispositivo) — evita pisar ediciones en
   // curso con una copia potencialmente más vieja del servidor.
   useEffect(() => {
-    if (localStorage.getItem(STORAGE_KEY)) return;
+    if (leerEntradaStorage()) return;
     const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
     if (!proyectoId) return;
     (async () => {
@@ -384,19 +401,26 @@ export default function EntradaPage() {
         // (FIX 2026-08-24) — este camino solo corre cuando NO hay nada en
         // localStorage (primera vez en el navegador), pero el objeto que
         // llega del servidor puede ser igual de viejo/incompleto.
-        if (entrada) setSt(prev => {
+        // FIX (react-doctor no-impure-state-updater, 2026-09-05): el merge y
+        // la escritura del ref vivían dentro del updater de setSt — React
+        // puede reintentar/descartar un updater, así que un side effect ahí
+        // (el ref write) no es seguro. Este efecto corre una sola vez
+        // ([] deps) al montar, así que `st` del closure es equivalente a
+        // `prev` en la ejecución real — se calcula el merge fuera y se llama
+        // setSt con el valor ya resuelto.
+        if (entrada) {
           const merged = {
-            ...prev, ...entrada,
-            contextoMeta: { ...prev.contextoMeta, ...(entrada.contextoMeta || {}) },
-            soluciones: { ...prev.soluciones, ...(entrada.soluciones || {}) },
+            ...st, ...entrada,
+            contextoMeta: { ...st.contextoMeta, ...(entrada.contextoMeta || {}) },
+            soluciones: { ...st.soluciones, ...(entrada.soluciones || {}) },
           };
           // Esto ES la última copia sincronizada con el servidor — fijarla
           // como línea base de "guardado" para que el botón no aparezca en
           // rojo (sinGuardar) apenas termina de cargar, sin que el usuario
           // haya tocado nada todavía.
           ultimoGuardadoRef.current = JSON.stringify(merged);
-          return merged;
-        });
+          setSt(merged);
+        }
       } catch { /* sin conexión — se queda con ESTADO_INICIAL */ }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -503,9 +527,15 @@ export default function EntradaPage() {
   // ContextoPage.tsx/PresupuestoPage.tsx (botón deshabilitado + "Guardando…"
   // mientras dura la petición).
   const [guardando, setGuardando] = useState(false);
+  // FIX (react-doctor no-async-event-handler-without-reentry-guard,
+  // 2026-09-05): `if (guardando) return` leía estado de React, que no se
+  // actualiza sincrónicamente entre 2 invocaciones en el mismo tick (antes
+  // del primer re-render) — un ref sí protege contra eso.
+  const guardandoRef = useRef(false);
 
   const guardar = async () => {
-    if (guardando) return;
+    if (guardandoRef.current) return;
+    guardandoRef.current = true;
     setGuardando(true);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
 
@@ -520,6 +550,7 @@ export default function EntradaPage() {
     // igual que el catch de abajo cuando el PATCH sí se intenta y falla.
     if (!proyectoId) {
       setErrorEntradaCompleta('No hay proyecto activo — se guardó localmente, pero no se pudo sincronizar con el servidor.');
+      guardandoRef.current = false;
       setGuardando(false);
       return;
     }
@@ -536,12 +567,14 @@ export default function EntradaPage() {
     } catch {
       setErrorEntradaCompleta('Se guardó localmente, pero no se pudo sincronizar con el servidor.');
     } finally {
+      guardandoRef.current = false;
       setGuardando(false);
     }
   };
 
   const limpiar = () => {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_KEY_LEGACY);
     // Limpieza total: incluso las metodologías con valor por defecto (Marco Lógico)
     // quedan sin marcar — LIMPIAR deja el formulario completamente en blanco.
     setSt({ ...JSON.parse(JSON.stringify(ESTADO_INICIAL)), metodologias: [] });
@@ -556,7 +589,7 @@ export default function EntradaPage() {
   // mismo criterio ya establecido (2026-08-22): un 401 aquí es señal de
   // sesión realmente perdida (auth.middleware.js solo responde "Token
   // requerido"/similar), nunca se muestra el string crudo del backend.
-  const manejarErrorIA = (e: unknown) => {
+  const manejarErrorIA = useCallback((e: unknown) => {
     // retryAt (mandato 2026-08-24, "reloj con cuenta regresiva y hora exacta
     // de reset"): viene en el body del 429 cuando el backend lo tiene (ver
     // entradaIA.routes.js) — momento real reportado por Google, no una
@@ -568,7 +601,7 @@ export default function EntradaPage() {
     } else {
       setErrorIA(e instanceof ApiError ? e.message : (e instanceof Error ? e.message : 'No se pudo generar con IA — inténtalo de nuevo.'));
     }
-  };
+  }, [reportarErrorCuota]);
 
   // Botón ✨ individual (REFACTOR 2026-08-22, reemplaza al botón global) —
   // genera SOLO el campo indicado (A,B,D,E,F,G — nunca 'meta'/C, que tiene su
@@ -728,7 +761,7 @@ export default function EntradaPage() {
       setGenerandoCampo(null);
       liberarEnVuelo('C1');
     }
-  }, [st.numeroBeneficiarios, st.coberturaGeografica, cuotaAgotada, dispararRescateBYOK]);
+  }, [st.numeroBeneficiarios, st.coberturaGeografica, cuotaAgotada, dispararRescateBYOK, manejarErrorIA]);
 
   // Sección 11 "Soluciones con AI" (MANDATO 2026-08-24) — hasta 9 propuestas
   // candidatas; la 10ª (manual) NUNCA se toca aquí. Regenerar reemplaza SOLO

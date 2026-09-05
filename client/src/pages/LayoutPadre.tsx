@@ -9,7 +9,10 @@ import { useAuth } from '../contexts/AuthContextNew';
 import { SECTORES_TAXONOMY } from '../data/sectoresTaxonomy';
 import './RadarCalcoPage.css';
 
-const STORAGE_KEY = 'radar360_radar_favoritos';
+// FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
+// versionada — el initializer de favoritos migra la clave vieja.
+const STORAGE_KEY = 'radar360_radar_favoritos:v1';
+const STORAGE_KEY_LEGACY = 'radar360_radar_favoritos';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Convocatoria {
@@ -777,11 +780,23 @@ export default function LayoutPadre() {
 
   // ── Favoritos ─────────────────────────────────────────────────────────────
   const [favoritos, setFavoritos] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')); }
+    try {
+      let raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        const legado = localStorage.getItem(STORAGE_KEY_LEGACY);
+        if (legado) { localStorage.setItem(STORAGE_KEY, legado); localStorage.removeItem(STORAGE_KEY_LEGACY); raw = legado; }
+      }
+      return new Set(JSON.parse(raw || '[]'));
+    }
     catch { return new Set(); }
   });
 
   // ── Refs para closures estables ───────────────────────────────────────────
+  // favoritosRef sigue el mismo patrón manual que el resto de esta sección
+  // (asignación directa en cada sitio que muta el estado, no un useEffect
+  // genérico) — lo necesita toggleFavorito, un useCallback([]) que no puede
+  // leer `favoritos` fresco por closure.
+  const favoritosRef = useRef(favoritos);
   const busquedaRef  = useRef(busqueda);
   const paisRef      = useRef(filtroPais);
   const sectoresRef  = useRef(filtroSectores);
@@ -792,12 +807,12 @@ export default function LayoutPadre() {
   const fetchGenRef  = useRef(0);
   const abortRef     = useRef<AbortController | null>(null);
 
-  function switchRastreo(r: null | '1') {
+  const switchRastreo = useCallback((r: null | '1') => {
     setActiveRastreo(r);
     rastreoRef.current = r;
     if (r) setSearchParams(p => { p.set('rastreo', r); return p; });
     else   setSearchParams(p => { p.delete('rastreo'); return p; });
-  }
+  }, [setSearchParams]);
 
   // ── fetchConvocatorias — lógica central ───────────────────────────────────
   const fetchConvocatorias = useCallback(async (opts: {
@@ -872,15 +887,16 @@ export default function LayoutPadre() {
     try {
       const authHeader: Record<string, string> = tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {};
       const res  = await fetch('/api/radar/rastreo1', { method: 'POST', headers: authHeader });
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.message || `Error ${res.status}`);
       setRastreo1Msg(json.message || 'Rastreo 1 iniciado');
       setTimeout(() => fetchConvocatorias({ isRefresh: true, rastreo: '1' }), 15000);
-    } catch {
-      setRastreo1Msg('Error al iniciar Rastreo 1');
+    } catch (e) {
+      setRastreo1Msg(e instanceof Error ? e.message : 'Error al iniciar Rastreo 1');
     } finally {
       setTimeout(() => setScanning1(false), 8000);
     }
-  }, [fetchConvocatorias]); // rastreoRef siempre apunta al valor actual — sin dep de estado
+  }, [fetchConvocatorias, switchRastreo]); // rastreoRef siempre apunta al valor actual — sin dep de estado
 
   const onToggleAplicaColombia = useCallback(() => {
     setFiltroAplicaColombia(prev => !prev);
@@ -933,25 +949,28 @@ export default function LayoutPadre() {
   const onClearEntity = useCallback(() => setSearchParams({}), [setSearchParams]);
 
   const toggleFavorito = useCallback((id: string) => {
+    // FIX (react-doctor no-impure-state-updater, 2026-09-05): el write a
+    // localStorage vivía dentro del updater de setFavoritos. Este callback
+    // es un useCallback([]) — no puede leer `favoritos` por closure sin
+    // quedar obsoleto, por eso usa favoritosRef (mismo patrón manual que
+    // busquedaRef/paisRef/etc. en esta sección) en vez de `prev`.
     const t = tokenRef.current;
-    setFavoritos(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      if (!t || t === 'demo-mode-token') {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([...next]));
-      }
-      return next;
-    });
+    const next = new Set(favoritosRef.current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    if (!t || t === 'demo-mode-token') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([...next]));
+    }
+    favoritosRef.current = next;
+    setFavoritos(next);
     if (t && t !== 'demo-mode-token') {
       fetch(`/api/convocatorias/${id}/favorito`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${t}` },
       }).catch(() => {
-        setFavoritos(prev => {
-          const next = new Set(prev);
-          if (next.has(id)) next.delete(id); else next.add(id);
-          return next;
-        });
+        const revertido = new Set(favoritosRef.current);
+        if (revertido.has(id)) revertido.delete(id); else revertido.add(id);
+        favoritosRef.current = revertido;
+        setFavoritos(revertido);
       });
     }
   }, []);
