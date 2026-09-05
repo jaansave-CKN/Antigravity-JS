@@ -348,7 +348,7 @@ export default function Modulo10Page() {
                       border: `2px solid ${active ? ods.color : '#0d2a3d'}`,
                       background: active ? ods.color + '22' : '#001524',
                       color: active ? ods.color : '#3a5e7a',
-                      transition: 'all .15s',
+                      transition: 'border-color .15s, background-color .15s, color .15s',
                     }}
                   >
                     ODS {ods.n}
