@@ -94,6 +94,7 @@ function ReportErrorButton({ token }: { token: string | null }) {
            onChange={e => setMessage(e.target.value)}
            onKeyDown={e => { if (e.key === 'Enter') send(); if (e.key === 'Escape') setState('idle'); }}
            placeholder="Describe el problema…"
+           aria-label="Describe el problema"
            style={{
              width: 180, padding: '3px 8px',
              background: '#001c2e', border: '1px solid #254b67',

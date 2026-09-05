@@ -602,6 +602,7 @@ export default function BibliotecaCalcoView() {
                   <input
                     className="bib__newcarpeta-input"
                     autoFocus
+                    aria-label="Nombre de la carpeta"
                     placeholder="Nombre de la carpeta"
                     value={nombreNuevaCarpeta}
                     onChange={e => setNombreNuevaCarpeta(e.target.value)}
@@ -700,18 +701,18 @@ export default function BibliotecaCalcoView() {
                     <div key={s.localKey} className="bib__tr bib__grid">
                       <span className="bib__rownum">{idx + 1}</span>
                       <div className="bib__td bib__td--desc">
-                        <input className="bib__input" placeholder="Descripcion del documento" value={s.descripcion}
+                        <input className="bib__input" aria-label="Descripción del documento" placeholder="Descripcion del documento" value={s.descripcion}
                           onChange={e => actualizar(s.localKey, { descripcion: e.target.value })}
                           onBlur={() => guardarEnServidor(s.localKey)} />
                       </div>
                       <div className="bib__td">
-                        <input className="bib__input bib__input--center" placeholder="TEXTO" value={s.texto}
+                        <input className="bib__input bib__input--center" aria-label="Texto del documento" placeholder="TEXTO" value={s.texto}
                           onChange={e => actualizar(s.localKey, { texto: e.target.value })}
                           onBlur={() => guardarEnServidor(s.localKey)} />
                       </div>
                       <div className="bib__td">
                         <div className="bib__attach-wrap">
-                          <input className="bib__input bib__input--attach" placeholder="." value={s.anexo}
+                          <input className="bib__input bib__input--attach" aria-label="Nombre del anexo adjunto" placeholder="." value={s.anexo}
                             onChange={e => actualizar(s.localKey, { anexo: e.target.value })} />
                           {s.persistido && s.anexo && (
                             <button className="bib__download-btn" title="Descargar documento" onClick={() => descargar(s)}>
@@ -734,7 +735,7 @@ export default function BibliotecaCalcoView() {
                         </div>
                       </div>
                       <div className="bib__td">
-                        <input className="bib__input bib__input--center" placeholder="WWW" value={s.link}
+                        <input className="bib__input bib__input--center" aria-label="Enlace (URL) del documento" placeholder="WWW" value={s.link}
                           onChange={e => actualizar(s.localKey, { link: e.target.value })}
                           onBlur={() => guardarEnServidor(s.localKey)} />
                       </div>

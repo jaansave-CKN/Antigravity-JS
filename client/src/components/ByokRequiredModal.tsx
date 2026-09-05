@@ -156,6 +156,7 @@ export default function ByokRequiredModal() {
               value={key}
               onChange={e => setKey(e.target.value)}
               placeholder="Pega tu llave de Gemini (AIza...)"
+              aria-label="Llave de API de Gemini"
               autoFocus
               disabled={guardando}
               style={{ width: '100%', padding: '10px 12px', fontSize: 12, fontFamily: 'monospace', background: '#f9fafb', border: `1.5px solid ${C.border}`, borderRadius: 8, outline: 'none', color: C.text, boxSizing: 'border-box' }}
@@ -165,6 +166,7 @@ export default function ByokRequiredModal() {
               value={label}
               onChange={e => setLabel(e.target.value)}
               placeholder="Etiqueta (opcional, ej. 'Principal')"
+              aria-label="Etiqueta de la llave (opcional)"
               disabled={guardando}
               style={{ width: '100%', padding: '10px 12px', fontSize: 12, fontFamily: 'monospace', background: '#f9fafb', border: `1.5px solid ${C.border}`, borderRadius: 8, outline: 'none', color: C.text, boxSizing: 'border-box' }}
             />

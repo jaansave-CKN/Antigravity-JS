@@ -323,6 +323,7 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
                         value={pwdBorrar}
                         onChange={e => setPwdBorrar(e.target.value)}
                         placeholder="Tu contraseña"
+                        aria-label="Contraseña para confirmar eliminación"
                         style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #fca5a5', background: C.bgCard, color: C.text, fontSize: 12.5, outline: 'none' }}
                       />
                       {errorBorrar && <span style={{ fontSize: 10.5, color: '#b91c1c' }}>{errorBorrar}</span>}
@@ -349,6 +350,7 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
               value={nombreNuevo}
               onChange={e => setNombreNuevo(e.target.value)}
               placeholder="Nombre del archivo (identificador corto)"
+              aria-label="Nombre del nuevo archivo"
               onKeyDown={e => e.key === 'Enter' && crearNuevo()}
               style={{
                 flex: 1, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.border}`,
