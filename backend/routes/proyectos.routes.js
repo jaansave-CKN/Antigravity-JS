@@ -10,11 +10,29 @@ import { sanitizeFormuladorBody } from '../middlewares/SecurityMiddleware.js';
 import { calcularViabilidadIA, recolectarContextoViabilidad, calcularPuntoEquilibrio } from '../services/viabilidadAgent.js';
 import { requireByokOrExento } from '../middlewares/byokGate.js';
 import { auditarViabilidadFinancieraIncompleta } from '../services/AuditorForenseService.js';
-// withTenant() (005_INGENIERO_BACKEND, 2026-09-04): reemplaza el único uso de
-// supabaseAdmin que tenía este archivo (línea ~607, lectura de
-// project_apu_lineas para el cálculo de punto de equilibrio) — ver nota
-// completa en ese punto.
-import { withTenant } from '../config/database.config.js';
+// withTenant() (005_INGENIERO_BACKEND, 2026-09-04): reemplazó el único uso de
+// supabaseAdmin que tenía este archivo (lectura de project_apu_lineas para el
+// cálculo de punto de equilibrio).
+// AMPLIACIÓN (Prioridad Roja, Fase 1 de docs/ROADMAP_MIGRACION_TENANT_2026.md,
+// 2026-09-05): el resto de los call sites de este archivo (getRow/getRows/
+// runSql/runTransaction contra `proyectos`, `usuarios`, `project_version_hashes`)
+// migran aquí también, al rol rf360_rls_scoped — requiere el GRANT de
+// 055_rls_scoped_grants_fase1.sql (sin él, "permission denied"). withTenantRow/
+// withTenantRows/withTenantRun son wrappers finos (database.config.js) que
+// preservan el contrato getRow/getRows/runSql (mismo shape de retorno, misma
+// convención de placeholders "?") pero fuerzan el pool RLS-escopado en vez del
+// pool principal (BYPASSRLS) — así el diff de cada call site es "cambiar el
+// nombre de la función + agregar tenantId como primer argumento", no
+// reescribir el SQL.
+// CIERRE (Prioridad Roja, Punto 1, 2026-09-05): recolectarContextoViabilidad()
+// (viabilidadAgent.js) ya fue verificada (toca project_anexos, objetivos_arbol,
+// project_change_theory — las 3 con GRANT real: 055/057) y ahora recibe un
+// {getRow,getRows} construido inline con withTenantRow/withTenantRows en el
+// único call site de este archivo (continuar-formulacion, más abajo), en vez
+// del getRow/getRows plano de antes. requireByokOrExento() ya no necesita
+// deps tampoco (byokGate.js construye los suyos propios por request) — no
+// queda ningún getRow/getRows plano reenviado desde este archivo.
+import { withTenant, withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
 import { captureError } from '../config/sentry.config.js';
 
 function wrap(fn) {
@@ -41,10 +59,14 @@ export function contieneMonedaNoCOP(obj) {
 
 /**
  * @param {import('express').Application} app
- * @param {{ authenticateToken: Function, requireAccess: Function, runSql: Function, getRow: Function, getRows: Function, verifyPassword: Function }} deps
+ * @param {{ authenticateToken: Function, requireAccess: Function, verifyPassword: Function }} deps
+ *   Todo el acceso a datos de este archivo usa withTenantRow/withTenantRows/
+ *   withTenantRun (pool RLS-escopado) — `getRow`/`getRows`/`runSql`/
+ *   `runTransaction` ya no se destructuran aquí; si server.js los sigue
+ *   pasando en el objeto de deps, se ignoran sin error.
  */
-export function registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, runTransaction, getRow, getRows, verifyPassword, aiLimiter }) {
-  const byokGate = requireByokOrExento({ getRow, getRows });
+export function registerProyectosRoutes(app, { authenticateToken, requireAccess, verifyPassword, aiLimiter }) {
+  const byokGate = requireByokOrExento(); // ya no toma deps — ver byokGate.js (Prioridad Roja, 2026-09-05)
 
   /**
    * POST /api/proyectos
@@ -97,7 +119,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     const orgId = req.userId;
     const id    = crypto.randomUUID();
 
-    await runSql(
+    await withTenantRun(orgId,
       `INSERT INTO proyectos
          (id, user_id, org_id, nombre, nombre_archivo, ficha_tecnica, presupuesto, estado)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'Borrador')`,
@@ -128,7 +150,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    * Lista los proyectos del tenant autenticado (filtro RLS por org_id).
    */
   app.get('/api/proyectos', authenticateToken, wrap(async (req, res) => {
-    const rows = await getRows(
+    const rows = await withTenantRows(req.userId,
       `SELECT id, nombre, nombre_archivo, estado, bloqueo_razon, created_at, updated_at
          FROM proyectos
         WHERE org_id = ?
@@ -144,7 +166,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    * RLS: org_id debe coincidir con el usuario autenticado.
    */
   app.get('/api/proyectos/:id', authenticateToken, wrap(async (req, res) => {
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       `SELECT id, nombre, nombre_archivo, estado, bloqueo_razon,
               ficha_tecnica, presupuesto, crosscheck_sello,
               created_at, updated_at
@@ -177,7 +199,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    * reales subidos, que pertenecen al proyecto original).
    */
   app.post('/api/proyectos/:id/duplicar', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
-    const original = await getRow(
+    const original = await withTenantRow(req.userId,
       'SELECT nombre, nombre_archivo, ficha_tecnica, presupuesto FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]
     );
@@ -195,7 +217,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
 
     const orgId = req.userId;
     const id    = crypto.randomUUID();
-    await runSql(
+    await withTenantRun(orgId,
       `INSERT INTO proyectos
          (id, user_id, org_id, nombre, nombre_archivo, ficha_tecnica, presupuesto, estado)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'Borrador')`,
@@ -211,7 +233,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    * no esté en estado Finalizado.
    */
   app.patch('/api/proyectos/:id', authenticateToken, requireAccess('formulador'), sanitizeFormuladorBody, wrap(async (req, res) => {
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       'SELECT id, estado FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]
     );
@@ -272,7 +294,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     updates.push('updated_at = CURRENT_TIMESTAMP');
     params.push(req.params.id, req.userId);
 
-    await runSql(
+    await withTenantRun(req.userId,
       `UPDATE proyectos SET ${updates.join(', ')} WHERE id = ? AND org_id = ?`,
       params
     );
@@ -295,7 +317,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       return res.status(400).json({ success: false, message: 'Se requiere tu contraseña para confirmar el borrado.' });
     }
 
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       'SELECT id, nombre FROM proyectos WHERE id = ? AND org_id = ? AND deleted_at IS NULL',
       [req.params.id, req.userId]
     );
@@ -303,13 +325,13 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
 
-    const user = await getRow('SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
+    const user = await withTenantRow(req.userId, 'SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
     const valid = user?.password_hash && await verifyPassword(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ success: false, message: 'Contraseña incorrecta — el proyecto no fue borrado.' });
     }
 
-    await runSql('UPDATE proyectos SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
+    await withTenantRun(req.userId, 'UPDATE proyectos SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
 
     return res.json({ success: true, message: `Proyecto "${proyecto.nombre}" eliminado.` });
   }));
@@ -341,7 +363,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     // `projects` y se lee directo de `proyectos` (única tabla activa),
     // incluyendo `ficha_tecnica` (el contenido real del proyecto) en el
     // documento canónico.
-    const project = await getRow(
+    const project = await withTenantRow(tenantId,
       `SELECT id, org_id AS tenant_id, estado AS status, ficha_tecnica,
               updated_at, nombre AS name
        FROM proyectos WHERE id = $1 AND org_id = $2`,
@@ -370,7 +392,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     const hashValue    = crypto.createHash('sha256').update(canonical, 'utf8').digest('hex');
 
     // Registrar en la tabla de hashes inmutables (append-only)
-    const hashRecord = await getRow(
+    const hashRecord = await withTenantRow(tenantId,
       `INSERT INTO project_version_hashes
          (project_id, tenant_id, hash_value, payload_size_bytes, project_status,
           triggered_by, created_by_user, metadata)
@@ -420,7 +442,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       return res.status(400).json({ success: false, message: 'Hash inválido: debe ser SHA-256 hex (64 chars)' });
     }
 
-    const record = await getRow(
+    const record = await withTenantRow(tenantId,
       `SELECT id, project_id, hash_value, project_status, created_at, triggered_by
        FROM project_version_hashes
        WHERE project_id = $1 AND hash_value = $2 AND tenant_id = $3`,
@@ -482,7 +504,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       return res.status(422).json({ success: false, message: 'El delta debe expresarse únicamente en COP — se detectó un código de moneda distinto.' });
     }
 
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       'SELECT id, nombre, ficha_tecnica, presupuesto, problem_statement, estado FROM proyectos WHERE id = ? AND org_id = ?',
       [proyectoId, req.userId]
     );
@@ -493,7 +515,17 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
 
     // Reprocesa viabilidad con el delta ya fusionado — mismo motor que
     // POST /api/proyectos/:id/viabilidad-ia, sin duplicar su lógica.
-    const { ctx, fichaTecnica } = await recolectarContextoViabilidad(proyecto, req.userId, { getRow, getRows }, delta);
+    // MIGRACIÓN (Prioridad Roja, Punto 1, 2026-09-05): recolectarContextoViabilidad()
+    // sigue aceptando {getRow,getRows} (su propia firma no cambió — la usa
+    // también server.js sin escopar, Fase 5 pendiente) pero aquí se le pasa
+    // un adaptador escopado por tenant en vez del getRow/getRows plano de
+    // antes — GRANT real sobre project_anexos/objetivos_arbol/
+    // project_change_theory verificado en 055/057_rls_scoped_grants_*.sql.
+    const scopedDeps = {
+      getRow:  (sql, params) => withTenantRow(req.userId, sql, params),
+      getRows: (sql, params) => withTenantRows(req.userId, sql, params),
+    };
+    const { ctx, fichaTecnica } = await recolectarContextoViabilidad(proyecto, req.userId, scopedDeps, delta);
     const resultado = await calcularViabilidadIA(ctx, req.userGeminiKeys);
     const fichaActualizada = { ...fichaTecnica, viabilidad_ia: resultado };
     const fichaJson = JSON.stringify(fichaActualizada);
@@ -522,30 +554,37 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     // para la escritura real.
     // Delta + versión inmutable en una sola transacción — un fallo parcial no
     // debe dejar el proyecto actualizado sin su versión, ni viceversa.
-    const [, hashRows] = await runTransaction([
-      {
-        sql: `UPDATE proyectos
-              SET ficha_tecnica = ficha_tecnica || ?::jsonb || jsonb_build_object('viabilidad_ia', ?::jsonb),
-                  updated_at = ?
-              WHERE id = ? AND org_id = ?`,
-        params: [JSON.stringify(delta), JSON.stringify(resultado), ahora, proyectoId, req.userId],
-      },
-      {
-        sql: `INSERT INTO project_version_hashes
+    // MIGRACIÓN (Prioridad Roja, Fase 1, 2026-09-05): reemplaza runTransaction()
+    // (pool principal, BYPASSRLS) por un único withTenant() — el callback ya
+    // corre dentro de su propio BEGIN/COMMIT (database.config.js:497-543), así
+    // que ejecutar las 2 queries sobre el mismo `client` preserva exactamente
+    // la misma atomicidad que runTransaction() ofrecía, ahora con RLS real
+    // (rol rf360_rls_scoped, sin BYPASSRLS).
+    const hashRecord = await withTenant(req.userId, async client => {
+      await client.query(
+        `UPDATE proyectos
+              SET ficha_tecnica = ficha_tecnica || $1::jsonb || jsonb_build_object('viabilidad_ia', $2::jsonb),
+                  updated_at = $3
+              WHERE id = $4 AND org_id = $5`,
+        [JSON.stringify(delta), JSON.stringify(resultado), ahora, proyectoId, req.userId]
+      );
+
+      const { rows } = await client.query(
+        `INSERT INTO project_version_hashes
                 (project_id, tenant_id, hash_value, payload_size_bytes, project_status,
                  triggered_by, created_by_user, metadata)
               VALUES ($1, $2, $3, $4, $5, 'delta_reprocesado', $6, $7)
               ON CONFLICT (project_id, hash_value) DO UPDATE
                 SET metadata = project_version_hashes.metadata
               RETURNING id, project_id, hash_value, project_status, created_at, payload_size_bytes`,
-        params: [
+        [
           proyectoId, tenantId, hashValue, Buffer.byteLength(canonical, 'utf8'),
           proyecto.estado || 'unknown', req.userId,
           JSON.stringify({ pipeline_version: '8.0', triggered_from: 'POST /api/proyectos/:id/continuar-formulacion', project_name: proyecto.nombre, delta_keys: Object.keys(delta) }),
-        ],
-      },
-    ]);
-    const hashRecord = hashRows.rows[0];
+        ]
+      );
+      return rows[0];
+    });
 
     res.json({
       success: true,
@@ -594,7 +633,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       return res.status(422).json({ success: false, message: 'Los montos deben expresarse únicamente en COP — se detectó un código de moneda distinto.' });
     }
 
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       'SELECT id, ficha_tecnica, estado FROM proyectos WHERE id = ? AND org_id = ?',
       [proyectoId, req.userId]
     );
@@ -608,15 +647,15 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     // un SELECT por esa vía devuelve 0 filas siempre, silenciosamente
     // (verificado en vivo). FIX (005_INGENIERO_BACKEND, 2026-09-04): antes
     // usaba supabaseAdmin (service_role, bypasea RLS por completo) — ahora
-    // usa withTenant() con el rol rf360_rls_scoped (sin BYPASSRLS, migración
-    // 053_rls_scoped_role.sql), RLS real.
+    // usa withTenantRows() (wrapper sobre withTenant()) con el rol
+    // rf360_rls_scoped (sin BYPASSRLS, migración 053_rls_scoped_role.sql),
+    // RLS real.
     let lineasApu;
     try {
-      const lineasApuRes = await withTenant(req.userId, client => client.query(
-        'SELECT valor_total_cop FROM project_apu_lineas WHERE project_id = $1',
+      lineasApu = await withTenantRows(req.userId,
+        'SELECT valor_total_cop FROM project_apu_lineas WHERE project_id = ?',
         [proyectoId]
-      ));
-      lineasApu = lineasApuRes.rows || [];
+      );
     } catch (sumError) {
       return res.status(500).json({ success: false, message: `No se pudo leer el presupuesto/APU real: ${sumError.message}` });
     }
@@ -673,7 +712,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     // lock global (esa sigue diferida), solo corrige la atomicidad del merge.
     // ficha_tecnica es JSONB nativo desde 037_ficha_tecnica_a_jsonb.sql
     // (2026-08-10) — sin casts tácticos ::jsonb/::text, ya innecesarios.
-    await runSql(
+    await withTenantRun(req.userId,
       `UPDATE proyectos
        SET ficha_tecnica = jsonb_set(ficha_tecnica, '{viabilidad_financiera}', ?::jsonb, true),
            updated_at = CURRENT_TIMESTAMP
@@ -704,7 +743,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       return res.status(400).json({ success: false, message: 'etapa_construccion_finalizada es requerido y debe ser boolean' });
     }
 
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       'SELECT id, estado FROM proyectos WHERE id = ? AND org_id = ?',
       [proyectoId, req.userId]
     );
@@ -721,7 +760,7 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
     // (ej. anexos.routes.js invalidando viabilidad_financiera tras ingerir
     // un presupuesto casi al mismo tiempo). jsonb_set aplica el merge
     // atómicamente sobre el valor vivo de la fila en Postgres.
-    await runSql(
+    await withTenantRun(req.userId,
       `UPDATE proyectos
        SET ficha_tecnica = jsonb_set(ficha_tecnica, '{etapa_construccion_finalizada}', ?::jsonb, true),
            updated_at = CURRENT_TIMESTAMP

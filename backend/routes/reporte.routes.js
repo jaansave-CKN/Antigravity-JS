@@ -10,16 +10,25 @@
 
 import { generarReportePDF } from '../services/pdfGenerator.js';
 import { calcularResumenRaci } from '../services/raciService.js';
+// MIGRACIÓN (Prioridad Roja, Archivo 3, 2026-09-05): reemplaza getRow/getRows
+// planos (pool principal, BYPASSRLS) por withTenantRow/withTenantRows (pool
+// rf360_rls_scoped) — GRANT ya cubierto por 054/055 para las 5 tablas que
+// toca este archivo (proyectos, motor_dialectico, logistica_tramos,
+// project_anexos, raci_*). calcularResumenRaci() sigue el mismo patrón ya
+// usado en matrizRaci.routes.js:251-253 (getRows con placeholders $N vía
+// withTenant() directo, no withTenantRows, porque raciService.js ya espera
+// esa convención — ver comentario en raciService.js:14-22).
+import { withTenant, withTenantRow, withTenantRows } from '../config/database.config.js';
 
 /**
  * @param {import('express').Application} app
- * @param {{ authenticateToken: Function, getRow: Function, getRows: Function }} deps
+ * @param {{ authenticateToken: Function }} deps
  */
-export function registerReporteRoutes(app, { authenticateToken, getRow, getRows }) {
+export function registerReporteRoutes(app, { authenticateToken }) {
 
   async function manejarReporte(req, res, graficos) {
     try {
-      const proyecto = await getRow(
+      const proyecto = await withTenantRow(req.userId,
         `SELECT id, nombre, estado, bloqueo_razon,
                 ficha_tecnica, presupuesto, crosscheck_sello,
                 created_at, updated_at
@@ -47,10 +56,12 @@ export function registerReporteRoutes(app, { authenticateToken, getRow, getRows 
       // segunda vez aquí, para no repetir el patrón de fuentes divergentes
       // ya encontrado 3 veces en este proyecto el mismo día.
       const [dialectico, tramos, anexos, raciResumen] = await Promise.all([
-        getRow('SELECT tono, interlocutor, enfoque, humanizacion FROM motor_dialectico WHERE proyecto_id = ? AND user_id = ?', [req.params.proyectoId, req.userId]),
-        getRows('SELECT origen, destino, duracion, medio FROM logistica_tramos WHERE proyecto_id = ? ORDER BY numero ASC', [req.params.proyectoId]),
-        getRows('SELECT descripcion, nombre_archivo, link FROM project_anexos WHERE project_id = ? ORDER BY created_at ASC', [req.params.proyectoId]),
-        calcularResumenRaci(req.params.proyectoId, { getRows }),
+        withTenantRow(req.userId, 'SELECT tono, interlocutor, enfoque, humanizacion FROM motor_dialectico WHERE proyecto_id = ? AND user_id = ?', [req.params.proyectoId, req.userId]),
+        withTenantRows(req.userId, 'SELECT origen, destino, duracion, medio FROM logistica_tramos WHERE proyecto_id = ? ORDER BY numero ASC', [req.params.proyectoId]),
+        withTenantRows(req.userId, 'SELECT descripcion, nombre_archivo, link FROM project_anexos WHERE project_id = ? ORDER BY created_at ASC', [req.params.proyectoId]),
+        calcularResumenRaci(req.params.proyectoId, {
+          getRows: async (sql, params) => (await withTenant(req.userId, client => client.query(sql, params))).rows || [],
+        }),
       ]);
 
       const buffer   = await generarReportePDF(proyecto, graficos, { dialectico, tramos, anexos, raciResumen });

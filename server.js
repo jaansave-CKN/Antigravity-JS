@@ -2062,7 +2062,21 @@ async function start() {
       await runSql('DELETE FROM versiones_proyecto WHERE proyecto_id = ?', [p.id]);
       await runSql('DELETE FROM project_budgets WHERE proyecto_id = ?', [p.id]);
     }
-    await runSql('DELETE FROM proyectos WHERE user_id = ?', [targetId]);
+    // FIX (Prioridad Roja, 2026-09-05): DELETE FROM proyectos cascadea a
+    // project_version_hashes (ON DELETE CASCADE, migración 049), pero esa
+    // tabla es un ledger inmutable (triggers trg_pvh_no_delete/no_update,
+    // función corregida en 058_fix_pvh_trigger.sql) que por defecto bloquea
+    // CUALQUIER DELETE — rompía este purge para cualquier usuario con al
+    // menos 1 hash de versión generado (bastaba con haber usado "Continuar
+    // formulación" una vez). set_config('app.allow_pvh_purge','true',true)
+    // es LOCAL a esta transacción (runTransaction abre su propio BEGIN/
+    // COMMIT sobre un único client) — el bypass se apaga solo al hacer
+    // COMMIT/ROLLBACK, no puede filtrarse a ninguna otra request concurrente
+    // ni a un UPDATE (la función solo lo honra para TG_OP='DELETE').
+    await runTransaction([
+      { sql: "SELECT set_config('app.allow_pvh_purge', 'true', true)" },
+      { sql: 'DELETE FROM proyectos WHERE user_id = ?', params: [targetId] },
+    ]);
     await runSql('DELETE FROM user_favorites WHERE user_id = ?', [targetId]);
     await runSql('DELETE FROM user_subscriptions WHERE user_id = ?', [targetId]);
     // BYOK (migración 045): guarda material cifrado de terceros (llaves de

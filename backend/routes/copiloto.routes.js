@@ -24,7 +24,7 @@ function wrap(fn) {
 }
 
 export async function registerCopilotoRoutes(app, { authenticateToken, getRow, getRows, aiLimiter }) {
-  const byokGate = requireByokOrExento({ getRow, getRows });
+  const byokGate = requireByokOrExento(); // ya no toma deps — ver byokGate.js (Prioridad Roja, 2026-09-05)
 
   async function checkOwnership(proyectoId, userId) {
     return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);

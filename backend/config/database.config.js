@@ -555,6 +555,34 @@ export async function withTenant(tenantId, callback) {
 // queda ANTES de los placeholders originales en el string (tenantId va
 // primero en el array); si no había WHERE, el nuevo placeholder queda AL
 // FINAL (tenantId va al final del array).
+// ── Helpers de conveniencia sobre withTenant() (Fase 1 roadmap tenant, 2026-09-05) ──
+// Mismo contrato de retorno que getRow/getRows/runSql (db.js) y misma
+// convención de placeholders "?" (normalizados aquí, igual que el resto de
+// este archivo) — para que migrar un call site sea "cambiar el nombre de la
+// función + agregar tenantId como primer argumento", no reescribir el SQL.
+// Fuerzan el pool RLS-escopado (rf360_rls_scoped) en vez del pool principal
+// (BYPASSRLS) — requieren que la tabla objetivo tenga GRANT DML a ese rol
+// (ver 053_rls_scoped_role.sql / 054_rls_raci_gemini_trial.sql /
+// 055_rls_scoped_grants_fase1.sql); si no lo tiene, fallan con "permission
+// denied" en vez de devolver 0 filas en silencio — falla explícito, igual
+// criterio que el resto de este archivo (líneas 33-35, 461).
+export async function withTenantRow(tenantId, sql, params = []) {
+  const { sql: q, params: p } = normalizePlaceholders(sql, params);
+  const { rows } = await withTenant(tenantId, client => client.query(q, p));
+  return rows[0] ?? null;
+}
+
+export async function withTenantRows(tenantId, sql, params = []) {
+  const { sql: q, params: p } = normalizePlaceholders(sql, params);
+  const { rows } = await withTenant(tenantId, client => client.query(q, p));
+  return rows ?? [];
+}
+
+export async function withTenantRun(tenantId, sql, params = []) {
+  const { sql: q, params: p } = normalizePlaceholders(sql, params);
+  return withTenant(tenantId, client => client.query(q, p));
+}
+
 function injectTenantFilter(sql, tenantId, params = []) {
   const upper = sql.trim().toUpperCase();
   if (!upper.startsWith('SELECT')) return { sql, params };
