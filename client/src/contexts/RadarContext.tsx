@@ -370,15 +370,19 @@ export function RadarProvider({ children }: { children: React.ReactNode }) {
 
     // Filtro por sectores
     if (filtros.sectors.length > 0) {
-      resultado = resultado.filter(ent => 
-        ent.sectors?.some(s => filtros.sectors.includes(s))
+      // Set en vez de re-escanear filtros.sectors por cada sector de cada
+      // entidad (react-doctor/js-set-map-lookups) — mismo resultado, O(1) lookup.
+      const sectorsSet = new Set(filtros.sectors);
+      resultado = resultado.filter(ent =>
+        ent.sectors?.some(s => sectorsSet.has(s))
       );
     }
 
     // Filtro por población objetivo
     if (filtros.targetPopulation.length > 0) {
-      resultado = resultado.filter(ent => 
-        ent.targetPopulation?.some(p => filtros.targetPopulation.includes(p))
+      const targetPopulationSet = new Set(filtros.targetPopulation);
+      resultado = resultado.filter(ent =>
+        ent.targetPopulation?.some(p => targetPopulationSet.has(p))
       );
     }
 

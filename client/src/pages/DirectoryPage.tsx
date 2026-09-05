@@ -647,6 +647,10 @@ export default function DirectoryPage() {
           bareHost(e.sitio_web),
           bareHost(e.url_convocatorias),
         ].join(' '));
+        // react-doctor/js-set-map-lookups: falso positivo verificado — `hay` es un
+        // string (join(' ')) y esto es String.prototype.includes (substring), no
+        // Array.prototype.includes. Un Set solo sirve para membresía de valor
+        // exacto, no detecta subcadenas; cambiarlo aquí rompería la búsqueda.
         return words.every(w => hay.includes(w));
       });
     }

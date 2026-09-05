@@ -932,6 +932,11 @@ export default function EntradaPage() {
   const toggleMetodologia = (m: string) =>
     setSt(p => ({ ...p, metodologias: p.metodologias.includes(m) ? p.metodologias.filter(x => x !== m) : [...p.metodologias, m] }));
 
+  // Sets en vez de re-escanear el array por cada opción renderizada
+  // (react-doctor/js-set-map-lookups) — mismo resultado, O(1) lookup.
+  const sectoresSet = new Set(st.sectores);
+  const detallePoblacionSet = new Set(st.detallePoblacion);
+
   return (
     <div className="entr">
       {/* ── Topbar ── */}
@@ -1205,7 +1210,7 @@ export default function EntradaPage() {
                             <label key={op} className="entr__check-row">
                               <input
                                 type="checkbox"
-                                checked={st.sectores.includes(op)}
+                                checked={sectoresSet.has(op)}
                                 onChange={() => toggleSector(op)}
                               />
                               <span>{op}</span>
@@ -1290,11 +1295,11 @@ export default function EntradaPage() {
                     {d.opciones.map(op => (
                       <label
                         key={op}
-                        className={`entr__check-card${st.detallePoblacion.includes(op) ? ' entr__check-card--on' : ''}`}
+                        className={`entr__check-card${detallePoblacionSet.has(op) ? ' entr__check-card--on' : ''}`}
                       >
                         <input
                           type="checkbox"
-                          checked={st.detallePoblacion.includes(op)}
+                          checked={detallePoblacionSet.has(op)}
                           onChange={() => toggleDetalle(op)}
                         />
                         <span>{op}</span>
