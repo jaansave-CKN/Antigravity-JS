@@ -149,11 +149,15 @@ export default function ImportPage() {
             {/* Drop zone */}
             <div
               ref={dropRef}
+              role="button"
+              tabIndex={0}
+              aria-label="Seleccionar o soltar archivo para importar"
               onDragEnter={() => setDragging(true)}
               onDragOver={e => { e.preventDefault(); setDragging(true); }}
               onDragLeave={() => setDragging(false)}
               onDrop={onDrop}
               onClick={() => fileInputRef.current?.click()}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
               className={`border-2 border-dashed rounded p-xl flex flex-col items-center justify-center gap-sm cursor-pointer transition-colors min-h-[200px] ${
                 dragging
                   ? 'border-secondary bg-[rgba(0,88,190,0.05)]'

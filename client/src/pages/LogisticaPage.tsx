@@ -566,6 +566,9 @@ export default function LogisticaPage() {
           </span>
         );
         return (
+        // react-doctor/no-static-element-interactions omitido a propósito: backdrop
+        // dismiss-on-click-outside estándar (el modal interno hace stopPropagation).
+        // Decisión de UX de diálogos, no un fix mecánico de aria.
         <div className="logx__modal-overlay" onClick={cerrarModal}>
           <div className="logx__modal" onClick={e => e.stopPropagation()}>
             <h3 className="logx__modal-title">{editandoId ? 'Editar Tramo' : 'Añadir Tramo'}</h3>

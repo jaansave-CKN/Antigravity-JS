@@ -115,6 +115,13 @@ export default function ByokRequiredModal() {
   if (!open) return null;
 
   return (
+    // react-doctor/no-static-element-interactions + click-events-have-key-events
+    // omitidos a propósito: este backdrop es dismiss-on-click-outside estándar
+    // (el contenido real hace stopPropagation abajo). Ponerle role="button"/
+    // tabIndex lo convertiría en un tab-stop de pantalla completa sin sentido
+    // para teclado/lector de pantalla — el cierre por teclado real ya existe
+    // vía el botón "Entendido"/Cancelar dentro del modal. Es una decisión de
+    // UX de diálogos, no un fix mecánico de aria.
     <div
       style={{
         position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)',

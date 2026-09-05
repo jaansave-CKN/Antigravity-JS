@@ -241,6 +241,14 @@ export default function ProyectoSelectorModal({ onClose }: { onClose: () => void
               const editando = editandoId === p.id;
               const confirmandoBorrado = borrandoId === p.id;
               return (
+                // react-doctor/no-static-element-interactions + click-events-have-key-events
+                // omitidos a propósito: esta tarjeta ya contiene botones reales
+                // (Editar/Eliminar) — ponerle role="button"/tabIndex a la tarjeta
+                // completa dispararía html-no-nested-interactive (botón dentro de
+                // botón). Abrir el proyecto por teclado sin un botón dedicado propio
+                // requiere decidir qué elemento interno se vuelve el control real
+                // (ej. el nombre), no un parche mecánico de aria — pendiente de
+                // decisión de UX.
                 <div
                   key={p.id}
                   onClick={() => !editando && !confirmandoBorrado && abrir(p)}

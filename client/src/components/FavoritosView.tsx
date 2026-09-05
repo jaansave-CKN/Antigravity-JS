@@ -128,6 +128,13 @@ export default function FavoritosView() {
 
           return (
             <div key={fav.id} className="favorito-card">
+              {/* react-doctor/no-static-element-interactions omitido a propósito: el
+                  botón .favorito-card__toggle de abajo hace exactamente esta misma
+                  acción (expandir/contraer) y ya es 100% accesible por teclado —
+                  ponerle role="button"/tabIndex a este header duplicaría el tab-stop
+                  y dispararía html-no-nested-interactive (botón anidado dentro de un
+                  div con role=button). El onClick de aquí es solo un área de clic más
+                  grande para mouse, no una acción sin equivalente de teclado. */}
               <div
                 className="favorito-card__header"
                 onClick={() => setExpandedId(isExpanded ? null : convId)}

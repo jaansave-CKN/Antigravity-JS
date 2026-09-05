@@ -1174,6 +1174,10 @@ export default function DirectoryPage() {
 
       {/* Modal de confirmación de eliminación masiva */}
       {showDeleteModal && (
+        // react-doctor/no-static-element-interactions omitido a propósito: backdrop
+        // dismiss-on-click-outside estándar (el modal interno hace stopPropagation).
+        // El cierre por teclado ya existe vía el botón "Cancelar" del modal — decisión
+        // de UX de diálogos, no un fix mecánico de aria.
         <div className="dirx__modal-overlay" onClick={() => !bulkDeleting && setShowDeleteModal(false)}>
           <div className="dirx__modal" onClick={e => e.stopPropagation()}>
             <div className="dirx__modal-icon">
