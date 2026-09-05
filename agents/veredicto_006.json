@@ -2,13 +2,13 @@
   "aprobado": true,
   "origen": "excepcion_manual",
   "excepcion": {
-    "autorizado_por": "Jairo Salinas",
-    "motivo": "Mismo mandato de purga RadFor-360. Cambio en scripts/architecture-gate.test.cjs es solo el assert de rutear('formulacion') actualizado a la nueva ruta -- sin impacto de seguridad. Saldo de API Anthropic agotado, no rechazo de diseno.",
-    "expira": "2026-08-16T22:30:37.600Z"
+    "autorizado_por": "Arquitecto Principal",
+    "motivo": "Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
+    "expira": "2026-09-05T04:15:39.593Z"
   },
-  "firma": "b11ce8d3ba9e034e35b8693e9a1c7c7ce3f59ecad0239c797bde30942fbb426b",
-  "timestamp": "2026-08-16T20:30:37.600Z",
-  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Jairo Salinas: Mismo mandato de purga RadFor-360. Cambio en scripts/architecture-gate.test.cjs es solo el assert de rutear('formulacion') actualizado a la nueva ruta -- sin impacto de seguridad. Saldo de API Anthropic agotado, no rechazo de diseno.",
+  "firma": "71782471382081a273025ae6f96e794c46d3873cf57996dd1efe7f34b4ec5f9c",
+  "timestamp": "2026-09-05T00:15:39.593Z",
+  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Arquitecto Principal: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
   "veredictoCompleto": {
     "nota": "excepción manual, sin evaluación real del subagente"
   }

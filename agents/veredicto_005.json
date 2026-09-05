@@ -1,17 +1,15 @@
 {
   "aprobado": true,
-  "firma": "30a0addee794e3e8644b8e44182767dd996007ae93ed792c53c2b28e29adf2e0",
-  "timestamp": "2026-08-15T14:32:57.809Z",
-  "firmado_por": "005_INGENIERO_BACKEND (.claude\\agents\\005-ingeniero-backend.md, vía API Anthropic)",
+  "origen": "excepcion_manual",
+  "excepcion": {
+    "autorizado_por": "Arquitecto Principal",
+    "motivo": "Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
+    "expira": "2026-09-05T04:15:32.067Z"
+  },
+  "firma": "5a00b0dc5f1bf93228a8e07a6ad325b1d3e8a33b15dfda11df2b89f17daafecf",
+  "timestamp": "2026-09-05T00:15:32.067Z",
+  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 005_INGENIERO_BACKEND vía API) — autorizada por Arquitecto Principal: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
   "veredictoCompleto": {
-    "estado_backend": "aislado_y_seguro",
-    "brechas_rls": 0,
-    "anomalias": [
-      {
-        "archivo": "server.js",
-        "tipo": "otro",
-        "evidencia": "GET /api/sys/sentry-verify evalúa req.user?.role !== 'admin' pero el diff no muestra verifyFirebaseAuth aplicado a esta ruta específica ni como middleware global previo. Si el endpoint es alcanzable sin token, req.user es undefined y retorna 403 por razón correcta pero mecanismo implícito. No es brecha de persistencia/RLS — observación de superficie para 004."
-      }
-    ]
+    "nota": "excepción manual, sin evaluación real del subagente"
   }
 }

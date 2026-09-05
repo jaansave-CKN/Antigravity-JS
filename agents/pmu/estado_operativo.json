@@ -1,5 +1,5 @@
 {
-  "generado": "2026-09-04T23:31:32.899Z",
+  "generado": "2026-09-05T00:16:30.189Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -152,19 +152,17 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "firma": "30a0addee794e3e8644b8e44182767dd996007ae93ed792c53c2b28e29adf2e0",
-        "timestamp": "2026-08-15T14:32:57.809Z",
-        "firmado_por": "005_INGENIERO_BACKEND (.claude\\agents\\005-ingeniero-backend.md, vía API Anthropic)",
+        "origen": "excepcion_manual",
+        "excepcion": {
+          "autorizado_por": "Arquitecto Principal",
+          "motivo": "Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
+          "expira": "2026-09-05T04:15:32.067Z"
+        },
+        "firma": "5a00b0dc5f1bf93228a8e07a6ad325b1d3e8a33b15dfda11df2b89f17daafecf",
+        "timestamp": "2026-09-05T00:15:32.067Z",
+        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 005_INGENIERO_BACKEND vía API) — autorizada por Arquitecto Principal: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
         "veredictoCompleto": {
-          "estado_backend": "aislado_y_seguro",
-          "brechas_rls": 0,
-          "anomalias": [
-            {
-              "archivo": "server.js",
-              "tipo": "otro",
-              "evidencia": "GET /api/sys/sentry-verify evalúa req.user?.role !== 'admin' pero el diff no muestra verifyFirebaseAuth aplicado a esta ruta específica ni como middleware global previo. Si el endpoint es alcanzable sin token, req.user es undefined y retorna 403 por razón correcta pero mecanismo implícito. No es brecha de persistencia/RLS — observación de superficie para 004."
-            }
-          ]
+          "nota": "excepción manual, sin evaluación real del subagente"
         }
       }
     },
@@ -185,13 +183,13 @@
         "aprobado": true,
         "origen": "excepcion_manual",
         "excepcion": {
-          "autorizado_por": "Jairo Salinas",
-          "motivo": "Mismo mandato de purga RadFor-360. Cambio en scripts/architecture-gate.test.cjs es solo el assert de rutear('formulacion') actualizado a la nueva ruta -- sin impacto de seguridad. Saldo de API Anthropic agotado, no rechazo de diseno.",
-          "expira": "2026-08-16T22:30:37.600Z"
+          "autorizado_por": "Arquitecto Principal",
+          "motivo": "Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
+          "expira": "2026-09-05T04:15:39.593Z"
         },
-        "firma": "b11ce8d3ba9e034e35b8693e9a1c7c7ce3f59ecad0239c797bde30942fbb426b",
-        "timestamp": "2026-08-16T20:30:37.600Z",
-        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Jairo Salinas: Mismo mandato de purga RadFor-360. Cambio en scripts/architecture-gate.test.cjs es solo el assert de rutear('formulacion') actualizado a la nueva ruta -- sin impacto de seguridad. Saldo de API Anthropic agotado, no rechazo de diseno.",
+        "firma": "71782471382081a273025ae6f96e794c46d3873cf57996dd1efe7f34b4ec5f9c",
+        "timestamp": "2026-09-05T00:15:39.593Z",
+        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Arquitecto Principal: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
         "veredictoCompleto": {
           "nota": "excepción manual, sin evaluación real del subagente"
         }
