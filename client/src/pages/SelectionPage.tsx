@@ -477,12 +477,17 @@ export default function SelectionPage() {
       <div className="sp-cards">
 
         {/* ── Pilar A: RADAR 360 ─────────────────────────────────────────── */}
+        {/* Sin role="button"/tabIndex aquí a propósito: la tarjeta ya envuelve un
+            <button> real (el CTA de abajo) — ponerle role="button" al contenedor
+            anidaría un control interactivo dentro de otro
+            (react-doctor/html-no-nested-interactive) y además dispararía
+            role-button-requires-complete-keyboard-activation (el onKeyDown manual
+            solo cubría Enter, no Space). El CTA nativo ya da Enter+Space
+            correctos por teclado; este onClick es solo un área de clic más grande
+            para mouse. Cero cambio visual — pantalla Stitch, ver CLAUDE.md. */}
         <div
           className="sp-card sp-card-a"
           onClick={goRadar}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => e.key === 'Enter' && goRadar()}
           title={isRealAuth ? 'Rastrear Ahora' : 'Iniciar sesión para acceder'}
         >
           {/* Radar SVG (from Stitch export) */}
@@ -527,12 +532,12 @@ export default function SelectionPage() {
         <div className="sp-divider" />
 
         {/* ── Pilar B: FORMULADOR AI ───────────────────────────────────────── */}
+        {/* Mismo motivo que la tarjeta A: sin role="button"/tabIndex, el CTA nativo
+            de abajo ya cubre teclado completo (Enter+Space) sin anidar controles
+            interactivos. Cero cambio visual. */}
         <div
           className="sp-card sp-card-b"
           onClick={goForm}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => e.key === 'Enter' && goForm()}
           title={isRealAuth ? 'Empezar Formulación' : 'Iniciar sesión para acceder'}
         >
           {/* Spark SVG (from Stitch export) */}

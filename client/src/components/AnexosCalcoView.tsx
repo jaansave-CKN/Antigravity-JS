@@ -704,15 +704,25 @@ export default function AnexosCalcoView() {
                   <div
                     className={`anx__bloquehead anx__bloquehead--clickable${bloque.esProtegida ? ' anx__bloquehead--protegida' : ''}`}
                     onClick={() => toggleColapso(bloque.id)}
-                    role="button"
-                    tabIndex={0}
-                    aria-expanded={!colapsada}
-                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleColapso(bloque.id); } }}
                   >
-                    <svg
-                      className={`anx__bloquehead-chevron${colapsada ? '' : ' anx__bloquehead-chevron--open'}`}
-                      width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
-                    ><polyline points="9 18 15 12 9 6" /></svg>
+                    {/* <button> real en vez de role="button" en la fila completa: la fila
+                        ya envuelve un <input> (rename) y botones (renombrar/eliminar) —
+                        un role="button" en el contenedor anidaría controles interactivos
+                        (react-doctor/html-no-nested-interactive). Este botón es hermano de
+                        esos controles, no su padre. stopPropagation evita el doble toggle
+                        vía el onClick de la fila. */}
+                    <button
+                      type="button"
+                      aria-expanded={!colapsada}
+                      aria-label={colapsada ? 'Expandir carpeta' : 'Contraer carpeta'}
+                      onClick={e => { e.stopPropagation(); toggleColapso(bloque.id); }}
+                      style={{ background: 'none', border: 'none', padding: 0, margin: 0, cursor: 'pointer', display: 'inline-flex', color: 'inherit' }}
+                    >
+                      <svg
+                        className={`anx__bloquehead-chevron${colapsada ? '' : ' anx__bloquehead-chevron--open'}`}
+                        width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+                      ><polyline points="9 18 15 12 9 6" /></svg>
+                    </button>
                     <span className={`anx__bloquehead-icon${bloque.esProtegida ? ' anx__bloquehead-icon--protegida' : ''}`}>
                       {bloque.esProtegida ? '🔴' : '📁'}
                     </span>
