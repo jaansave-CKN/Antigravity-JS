@@ -253,6 +253,10 @@ const ESTADO_INICIAL: EntradaState = {
   camposBloqueados: {},
 };
 
+// Pura, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+const claveAutoCarga = (proyectoId: string) => `radar360_c1_autocarga_${proyectoId}`;
+
 export default function EntradaPage() {
   const [st, setSt] = useState<EntradaState>(() => {
     try {
@@ -737,7 +741,6 @@ export default function EntradaPage() {
   // persiste en localStorage por proyecto: una sola vez por proyecto, para
   // siempre, hasta que el usuario reintente a mano con "🔄 Volver a leer".
   const intentoAutoCargaRef = useRef(false);
-  const claveAutoCarga = (proyectoId: string) => `radar360_c1_autocarga_${proyectoId}`;
 
   // C1 — lista de problemáticas + déficit detectadas en Anexos/Investigación.
   // Se auto-dispara la primera vez que el Campo C se desbloquea (useEffect

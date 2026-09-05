@@ -52,6 +52,16 @@ const KEYWORDS_KEY = 'radar_keywords:v1';
 const KEYWORDS_KEY_LEGACY = 'radar_keywords';
 const SLOT_COUNT   = 20;
 
+// Pura, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+function persistEngineFlag(key: 'isGeminiEnabled', val: boolean) {
+  try {
+    const prev = JSON.parse(localStorage.getItem(CREDS_KEY) || '{}');
+    localStorage.setItem(CREDS_KEY, JSON.stringify({ ...prev, [key]: val, updatedAt: new Date().toISOString() }));
+    window.dispatchEvent(new StorageEvent('storage', { key: CREDS_KEY }));
+  } catch {}
+}
+
 const DEFAULT_KEYWORDS: SearchKeyword[] = [
   { id: 1, term: 'Subvenciones',              enabled: true  },
   { id: 2, term: 'Donaciones',                enabled: true  },
@@ -335,14 +345,6 @@ export default function PanelPage() {
     try { const c = JSON.parse(localStorage.getItem(CREDS_KEY) || '{}'); return c.isGeminiEnabled !== false; }
     catch { return true; }
   });
-
-  function persistEngineFlag(key: 'isGeminiEnabled', val: boolean) {
-    try {
-      const prev = JSON.parse(localStorage.getItem(CREDS_KEY) || '{}');
-      localStorage.setItem(CREDS_KEY, JSON.stringify({ ...prev, [key]: val, updatedAt: new Date().toISOString() }));
-      window.dispatchEvent(new StorageEvent('storage', { key: CREDS_KEY }));
-    } catch {}
-  }
 
   // ── Handlers ────────────────────────────────────────────────────────────────
   function selectSlot(n: number) {

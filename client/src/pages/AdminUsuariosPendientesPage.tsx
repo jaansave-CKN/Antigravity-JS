@@ -9,6 +9,13 @@ interface UsuarioPendiente {
   createdat: string;
 }
 
+// Pura, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+function fmt(iso: string) {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleString('es-CO');
+}
+
 export default function AdminUsuariosPendientesPage() {
   const [usuarios, setUsuarios] = useState<UsuarioPendiente[]>([]);
   const [loading, setLoading]   = useState(true);
@@ -55,11 +62,6 @@ export default function AdminUsuariosPendientesPage() {
     } finally {
       setProcesando(null);
     }
-  };
-
-  const fmt = (iso: string) => {
-    const d = new Date(iso);
-    return isNaN(d.getTime()) ? iso : d.toLocaleString('es-CO');
   };
 
   return (

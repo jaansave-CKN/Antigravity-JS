@@ -43,6 +43,17 @@ function leerAnexosStorage(): string | null {
   return legado;
 }
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
+// normalizar() quita tildes para calzar "Investigación", "investigacion",
+// "INVESTIGACIÓN", etc. — mismo criterio que el backend. Pura, sin estado del
+// componente — a nivel de módulo (react-doctor/prefer-module-scope-pure-function).
+const normalizar = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+// Carpeta "Investigación" — mandato del usuario 2026-08-17: es la fuente real
+// que lee el botón "Generar con AI" (busca por este mismo nombre, ver
+// backend/services/EntradaIAService.js), así que queda protegida: sin opción
+// de renombrar/eliminar (ni en esta UI ni en el backend — ver guardas en
+// anexos.routes.js PUT/DELETE .../carpetas/:carpetaId) y siempre visible
+// primero para que sea obvio dónde va el material de investigación.
+const esCarpetaProtegida = (nombre: string) => normalizar(nombre).includes('investigacion');
 const SIN_CARPETA = '__sin_carpeta__'; // id sintético para el bloque de soportes sin carpeta_id
 // Caché por proyecto (blindaje antipérdida 2026-08-17): antes solo se
 // escribía en localStorage en modo "sin proyecto activo" — cualquier tecleo
@@ -601,17 +612,6 @@ export default function AnexosCalcoView() {
       return next;
     });
   };
-
-  // Carpeta "Investigación" — mandato del usuario 2026-08-17: es la fuente
-  // real que lee el botón "Generar con AI" (busca por este mismo nombre, ver
-  // backend/services/EntradaIAService.js), así que queda protegida: sin
-  // opción de renombrar/eliminar (ni en esta UI ni en el backend — ver
-  // guardas en anexos.routes.js PUT/DELETE .../carpetas/:carpetaId) y
-  // siempre visible primero para que sea obvio dónde va el material de
-  // investigación. normalizar() quita tildes para calzar "Investigación",
-  // "investigacion", "INVESTIGACIÓN", etc. — mismo criterio que el backend.
-  const normalizar = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const esCarpetaProtegida = (nombre: string) => normalizar(nombre).includes('investigacion');
 
   // Aviso de link no rastreable (auditoría 2026-08-22, "REQUERIDO: FALTA
   // INFORMACIÓN EN ANEXOS" pese a tener 4 links reales): estos dominios

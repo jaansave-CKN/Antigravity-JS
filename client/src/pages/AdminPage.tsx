@@ -3,6 +3,10 @@ import { http, ApiError } from '../lib/apiClient';
 import { POSTHOG_HOST } from '../lib/posthog';
 import AdminPermisosPage from './AdminPermisosPage';
 
+// Pura, sin estado del componente — a nivel de módulo
+// (react-doctor/prefer-module-scope-pure-function).
+const fmtCOP = (n: number) => `$${Math.round(n).toLocaleString('es-CO')} COP`;
+
 type Tab = 'usuarios' | 'finops' | 'telemetria' | 'wompi';
 
 interface SystemStatus {
@@ -187,8 +191,6 @@ function FinOpsTab() {
       }
     })();
   }, []);
-
-  const fmtCOP = (n: number) => `$${Math.round(n).toLocaleString('es-CO')} COP`;
 
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px', fontFamily: "'Public Sans', sans-serif", color: '#191c1e' }}>
