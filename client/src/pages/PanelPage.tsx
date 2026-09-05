@@ -435,8 +435,9 @@ export default function PanelPage() {
 
           {/* profile_selector_dropdown */}
           <div>
-            <label style={labelStyle}>Cargar Ficha de Profesional Guardada</label>
+            <label htmlFor="panel-slot-ficha" style={labelStyle}>Cargar Ficha de Profesional Guardada</label>
             <select
+              id="panel-slot-ficha"
               value={slot}
               onChange={e => selectSlot(Number(e.target.value))}
               style={{ ...inputStyle, cursor: 'pointer' }}
@@ -480,6 +481,7 @@ export default function PanelPage() {
               type="button"
               role="switch"
               aria-checked={colombia}
+              aria-label="Priorizar cobertura Colombia"
               onClick={() => setColombia(v => !v)}
               style={{
                 width: 44, height: 24, borderRadius: 9999, padding: 0, border: 'none',
@@ -576,6 +578,7 @@ export default function PanelPage() {
               {/* Toggle + label */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <button
+                  id="panel-toggle-gemini"
                   type="button" role="switch" aria-checked={isGeminiEnabled}
                   onClick={() => { const v = !isGeminiEnabled; setIsGeminiEnabled(v); persistEngineFlag('isGeminiEnabled', v); }}
                   style={{
@@ -591,7 +594,7 @@ export default function PanelPage() {
                     transition: 'left 0.18s', boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
                   }} />
                 </button>
-                <label style={{ ...labelStyle, margin: 0, color: isGeminiEnabled ? T.textMuted : T.textDim }}>
+                <label htmlFor="panel-toggle-gemini" style={{ ...labelStyle, margin: 0, color: isGeminiEnabled ? T.textMuted : T.textDim }}>
                   Motor Gemini (gestionado por servidor)
                 </label>
               </div>
@@ -619,6 +622,7 @@ export default function PanelPage() {
               <div key={kw.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <button
                   type="button" role="switch" aria-checked={kw.enabled}
+                  aria-label={kw.enabled ? `Desactivar palabra clave "${kw.term}"` : `Activar palabra clave "${kw.term}"`}
                   onClick={() => updateKeyword(kw.id, { enabled: !kw.enabled })}
                   style={{
                     width: 32, height: 18, borderRadius: 9999, padding: 0, border: 'none',
@@ -636,6 +640,7 @@ export default function PanelPage() {
                 </button>
                 <input
                   type="text"
+                  aria-label="Palabra clave"
                   value={kw.term}
                   onChange={e => updateKeyword(kw.id, { term: e.target.value })}
                   style={{

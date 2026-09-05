@@ -501,6 +501,7 @@ export default function LoginPage() {
                       onMouseDown={() => setShowPwd(true)}
                       onMouseUp={() => setShowPwd(false)}
                       onMouseLeave={() => setShowPwd(false)}
+                      aria-label={showPwd ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-[#557997] hover:text-[#c8d8e8]"
                       tabIndex={-1}
                     >
@@ -581,6 +582,7 @@ export default function LoginPage() {
                       onMouseDown={() => setShowPwd(true)}
                       onMouseUp={() => setShowPwd(false)}
                       onMouseLeave={() => setShowPwd(false)}
+                      aria-label={showPwd ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-[#557997] hover:text-[#c8d8e8]"
                       tabIndex={-1}
                     >
