@@ -193,6 +193,9 @@ const SectorDropdown = React.memo(function SectorDropdown({
     active.length === 0 ? 'Todos los sectores'
     : active.length === 1 ? active[0]
     : `${active.length} seleccionados`;
+  // Set en vez de re-escanear `active` por cada subgrupo renderizado
+  // (react-doctor/js-set-map-lookups) — mismo resultado, O(1) lookup.
+  const activeSet = new Set(active);
 
   return (
     <div className="radx__sector-drop" ref={panelRef}>
@@ -216,7 +219,7 @@ const SectorDropdown = React.memo(function SectorDropdown({
         <div className="radx__sector-panel">
           {SECTORES_TAXONOMY.map(sector => {
             const isExpanded = expanded.has(sector.nombre);
-            const isSectorChecked = active.includes(sector.nombre);
+            const isSectorChecked = activeSet.has(sector.nombre);
             const cssColor = { '--sector-color': sector.color } as React.CSSProperties;
             return (
               <div key={sector.nombre} className="radx__sector-sect" style={cssColor}>
@@ -277,7 +280,7 @@ const SectorDropdown = React.memo(function SectorDropdown({
                         <input
                           type="checkbox"
                           aria-label={sg.nombre}
-                          checked={active.includes(sg.nombre)}
+                          checked={activeSet.has(sg.nombre)}
                           onChange={() => {}}
                           style={{ accentColor: sg.color }}
                         />

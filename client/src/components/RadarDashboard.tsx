@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -262,6 +262,10 @@ function FilterPanel({
   const [temp, setTemp] = useState<SelectedFilters>(initialFilters);
 
   const totalTemp = temp.sectores.length + temp.poblaciones.length;
+  // Set en vez de re-escanear el array en cada item de cada .map() de abajo
+  // (react-doctor/js-set-map-lookups) — mismo resultado, O(1) por lookup.
+  const sectoresSet = useMemo(() => new Set(temp.sectores), [temp.sectores]);
+  const poblacionesSet = useMemo(() => new Set(temp.poblaciones), [temp.poblaciones]);
 
   function toggleSector(item: string) {
     setTemp(f => ({
@@ -344,7 +348,7 @@ function FilterPanel({
                 </h4>
                 <ul className="space-y-2">
                   {macro.items.map(item => {
-                    const checked = temp.sectores.includes(item);
+                    const checked = sectoresSet.has(item);
                     return (
                       <li key={item}>
                         <label className="flex items-center gap-2 cursor-pointer group">
@@ -397,7 +401,7 @@ function FilterPanel({
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {grupo.items.map(item => {
-                    const selected = temp.poblaciones.includes(item);
+                    const selected = poblacionesSet.has(item);
                     return (
                       <button
                         key={item}

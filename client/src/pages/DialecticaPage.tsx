@@ -408,6 +408,9 @@ export default function DialecticaPage() {
   const cancelarAccion = () => setAccion(null);
 
   const dna = encodeDNA(st.selecciones, st.adicionales);
+  // Set en vez de re-escanear st.adicionales por cada opción de cada categoría
+  // (react-doctor/js-set-map-lookups) — mismo resultado, O(1) lookup.
+  const adicionalesSet = new Set(st.adicionales);
 
   const copiar = () => {
     navigator.clipboard?.writeText(dna);
@@ -463,7 +466,7 @@ export default function DialecticaPage() {
                 <div className="diax__btns" style={{ gridTemplateColumns: `repeat(${cat.cols}, 1fr)` }}>
                   {cat.opciones.map(op => {
                     const isActive = cat.multi
-                      ? st.adicionales.includes(op)
+                      ? adicionalesSet.has(op)
                       : st.selecciones[cat.id] === op;
                     return (
                       <button
