@@ -539,7 +539,7 @@ export default function DialecticaPage() {
                             <li key={item} className="diax__item">
                               <span className="diax__item-dot">•</span>
                               <span className="diax__item-txt">{item}</span>
-                              <button className="diax__item-del" onClick={() => removeItem('listaOro', grupo.categoria, item)}>×</button>
+                              <button className="diax__item-del" aria-label={`Eliminar término "${item}"`} onClick={() => removeItem('listaOro', grupo.categoria, item)}>×</button>
                             </li>
                           ))}
                         </ul>
@@ -554,7 +554,7 @@ export default function DialecticaPage() {
                               if (e.key === 'Enter') addItem('listaOro', grupo.categoria, inputMap[inputKey] ?? '');
                             }}
                           />
-                          <button className="diax__add-ok" onClick={() => addItem('listaOro', grupo.categoria, inputMap[inputKey] ?? '')}>+</button>
+                          <button className="diax__add-ok" aria-label="Agregar término" onClick={() => addItem('listaOro', grupo.categoria, inputMap[inputKey] ?? '')}>+</button>
                         </div>
                       </div>
                     )}
@@ -596,7 +596,7 @@ export default function DialecticaPage() {
                             <li key={item} className="diax__item">
                               <span className="diax__item-dot">•</span>
                               <span className="diax__item-txt">{item}</span>
-                              <button className="diax__item-del" onClick={() => removeItem('listaNegra', grupo.categoria, item)}>×</button>
+                              <button className="diax__item-del" aria-label={`Eliminar término "${item}"`} onClick={() => removeItem('listaNegra', grupo.categoria, item)}>×</button>
                             </li>
                           ))}
                         </ul>
@@ -611,7 +611,7 @@ export default function DialecticaPage() {
                               if (e.key === 'Enter') addItem('listaNegra', grupo.categoria, inputMap[inputKey] ?? '');
                             }}
                           />
-                          <button className="diax__add-ok" onClick={() => addItem('listaNegra', grupo.categoria, inputMap[inputKey] ?? '')}>+</button>
+                          <button className="diax__add-ok" aria-label="Agregar término" onClick={() => addItem('listaNegra', grupo.categoria, inputMap[inputKey] ?? '')}>+</button>
                         </div>
                       </div>
                     )}

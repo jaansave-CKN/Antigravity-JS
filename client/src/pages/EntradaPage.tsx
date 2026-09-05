@@ -1627,6 +1627,7 @@ export default function EntradaPage() {
                     <span className="entr__solucion-num">{i + 1}</span>
                     <textarea
                       className="entr__solucion-textarea"
+                      aria-label={`Propuesta de solución ${i + 1} generada por IA`}
                       value={texto}
                       onChange={e => setSt(p => {
                         const propuestasIA = [...p.soluciones.propuestasIA];

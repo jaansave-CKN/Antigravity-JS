@@ -726,6 +726,7 @@ export default function DirectoryPage() {
                 {linkInput && (
                   <button
                     className="dirx__link-clear"
+                    aria-label="Limpiar link"
                     onClick={() => { setLinkInput(''); setLookupData(null); setLookupResumen(''); setLookupError(''); setBuscarState('idle'); setIsDuplicate(false); setDuplicateEntry(null); }}
                   >
                     <X size={14} />
@@ -798,14 +799,14 @@ export default function DirectoryPage() {
                     </label>
                     <div className="dirx__filter-group">
                       <span className="dirx__filter-group-label">Categoría</span>
-                      <select className="dirx__filter-select" value={filterTipo} onChange={e => setFilterTipo(e.target.value)}>
+                      <select className="dirx__filter-select" aria-label="Filtrar por categoría" value={filterTipo} onChange={e => setFilterTipo(e.target.value)}>
                         <option value="">Todas</option>
                         {uniqueTipos.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </div>
                     <div className="dirx__filter-group">
                       <span className="dirx__filter-group-label">País</span>
-                      <select className="dirx__filter-select" value={filterPais} onChange={e => setFilterPais(e.target.value)}>
+                      <select className="dirx__filter-select" aria-label="Filtrar por país" value={filterPais} onChange={e => setFilterPais(e.target.value)}>
                         <option value="">Todos</option>
                         {uniquePaises.map(p => <option key={p} value={p}>{p}</option>)}
                       </select>
@@ -813,7 +814,7 @@ export default function DirectoryPage() {
                     {uniqueAlcances.length > 0 && (
                       <div className="dirx__filter-group">
                         <span className="dirx__filter-group-label">Alcance</span>
-                        <select className="dirx__filter-select" value={filterAlcance} onChange={e => setFilterAlcance(e.target.value)}>
+                        <select className="dirx__filter-select" aria-label="Filtrar por alcance" value={filterAlcance} onChange={e => setFilterAlcance(e.target.value)}>
                           <option value="">Todos</option>
                           {uniqueAlcances.map(a => <option key={a} value={a}>{a}</option>)}
                         </select>
@@ -1127,6 +1128,7 @@ export default function DirectoryPage() {
                     <input
                       type="checkbox"
                       className="dirx__checkbox"
+                      aria-label="Seleccionar para eliminar"
                       checked={isSelected}
                       onChange={() => toggleSelect(entry.id)}
                     />
