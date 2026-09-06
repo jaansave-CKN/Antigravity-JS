@@ -10,15 +10,13 @@
  */
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
-import { 
-  ConvocatoriaEstandarizada, 
-  ItemColaValidacion,
+import {
   Proyecto,
   FiltrosRadarGrid,
   Organizacion,
   ValidationStatus
 } from '../types';
-import apiService from '../services/api';
+import apiService, { type EntidadIndexada, type EntidadColaValidacion } from '../services/api';
 
 // ============================================================
 // TIPOS DEL CONTEXTO
@@ -30,12 +28,18 @@ interface RadarState {
   credencialesConfiguradas: boolean;
   cargandoCredenciales: boolean;
 
-  // Cola de validación (Agente Validador)
-  colaValidacion: ItemColaValidacion[];
+  // Cola de validación (Agente Validador) — FIX (purga de `any`, 2026-09-05):
+  // tipado como ItemColaValidacion (forma de convocatoria) pero GET
+  // /api/cola-validacion (server.js) siempre consultó directorio_entidades
+  // (organizaciones), nunca convocatorias — mismatch preexistente, invisible
+  // bajo `any`. Corregido al tipo real verificado; ver también el comentario
+  // en entidadesFiltradas (abajo) sobre el mismo mismatch de fondo.
+  colaValidacion: EntidadColaValidacion[];
   cargandoCola: boolean;
-  
-  // Entidades indexadas (Agente Arquitecto)
-  entidadesIndexadas: ConvocatoriaEstandarizada[];
+
+  // Entidades indexadas (Agente Arquitecto) — mismo mismatch: GET
+  // /api/entidades/indexadas consulta directorio_entidades, no convocatorias.
+  entidadesIndexadas: EntidadIndexada[];
   cargandoEntidades: boolean;
   
   // Proyectos (Motor B)
@@ -60,14 +64,14 @@ type RadarAction =
   | { type: 'SET_ORGANIZACION'; payload: Organizacion | null }
   | { type: 'SET_CREDENCIALES_CONFIGURADAS'; payload: boolean }
   | { type: 'SET_CARGANDO_CREDENCIALES'; payload: boolean }
-  | { type: 'SET_COLA_VALIDACION'; payload: ItemColaValidacion[] }
+  | { type: 'SET_COLA_VALIDACION'; payload: EntidadColaValidacion[] }
   | { type: 'SET_CARGANDO_COLA'; payload: boolean }
-  | { type: 'AGREGAR_A_COLA'; payload: ItemColaValidacion }
+  | { type: 'AGREGAR_A_COLA'; payload: EntidadColaValidacion }
   | { type: 'REMOVER_DE_COLA'; payload: string }
   | { type: 'ACTUALIZAR_ITEM_COLA'; payload: { id: string; decision: ValidationStatus } }
-  | { type: 'SET_ENTIDADES_INDEXADAS'; payload: ConvocatoriaEstandarizada[] }
+  | { type: 'SET_ENTIDADES_INDEXADAS'; payload: EntidadIndexada[] }
   | { type: 'SET_CARGANDO_ENTIDADES'; payload: boolean }
-  | { type: 'AGREGAR_ENTIDAD'; payload: ConvocatoriaEstandarizada }
+  | { type: 'AGREGAR_ENTIDAD'; payload: EntidadIndexada }
   | { type: 'REMOVER_ENTIDAD'; payload: string }
   | { type: 'SET_PROYECTOS'; payload: Proyecto[] }
   | { type: 'SET_PROYECTO_ACTIVO'; payload: string | null }
@@ -212,7 +216,7 @@ interface RadarContextValue {
   navegarA: (vista: RadarState['vistaActual']) => void;
   
   // Computados
-  entidadesFiltradas: ConvocatoriaEstandarizada[];
+  entidadesFiltradas: EntidadIndexada[];
   pendientesCount: number;
   aprobadasCount: number;
   descartadasCount: number;
@@ -235,7 +239,13 @@ export function RadarProvider({ children }: { children: React.ReactNode }) {
       const response = await apiService.validarCredenciales();
       
       if (response.success) {
-        const validas = response.data?.validas || false;
+        // FIX (purga de `any`, 2026-09-05): leía response.data?.validas — el
+        // backend real (GET /api/credenciales/validar, server.js) responde
+        // `{ success, valid }` (singular, sin "s"), nunca "validas". Con
+        // `any` esto era siempre undefined -> false: todo usuario, tuviera o
+        // no credenciales reales configuradas, quedaba bloqueado y redirigido
+        // a "configuracion" en cada verificación.
+        const validas = response.data?.valid || false;
         dispatch({ type: 'SET_CREDENCIALES_CONFIGURADAS', payload: validas });
         
         if (!validas) {
@@ -259,8 +269,13 @@ export function RadarProvider({ children }: { children: React.ReactNode }) {
     
     try {
       const response = await apiService.getColaValidacion();
+      // FIX (purga de `any`, 2026-09-05): despachaba response.data completo
+      // ({success, data, total}) como si fuera el array — el backend real
+      // (GET /api/cola-validacion) envuelve las filas en .data. Con `any`
+      // esto compilaba pero el estado de cola de validación nunca contenía
+      // el array real de items.
       if (response.success && response.data) {
-        dispatch({ type: 'SET_COLA_VALIDACION', payload: response.data });
+        dispatch({ type: 'SET_COLA_VALIDACION', payload: response.data.data });
       }
     } catch (error) {
       console.error('Error cargando cola:', error);
@@ -275,8 +290,11 @@ export function RadarProvider({ children }: { children: React.ReactNode }) {
     
     try {
       const response = await apiService.getEntidadesIndexadas();
+      // FIX (purga de `any`, 2026-09-05): mismo bug que cargarColaValidacion
+      // — el backend envuelve las filas en .data, esto despachaba el
+      // envelope {success,data,total} completo en vez del array real.
       if (response.success && response.data) {
-        dispatch({ type: 'SET_ENTIDADES_INDEXADAS', payload: response.data });
+        dispatch({ type: 'SET_ENTIDADES_INDEXADAS', payload: response.data.data });
         dispatch({ type: 'SET_ULTIMA_ACTUALIZACION', payload: new Date().toLocaleString('es-CO') });
       }
     } catch (error) {
@@ -349,80 +367,46 @@ export function RadarProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'SET_VISTA', payload: vista });
   }, []);
 
-  // Entidades filtradas con useMemo para 60 FPS
+  // FIX (purga de `any`, 2026-09-05) — hallazgo estructural, no arreglado a
+  // fondo aquí a propósito: este bloque filtraba por paises_elegibles,
+  // fundingType, sectors, targetPopulation, monto_min/max, localRegion —
+  // ningún de esos campos existe en EntidadIndexada (la forma real de GET
+  // /api/entidades/indexadas: id/nombre/sigla/tipo/pais/validation_status/
+  // updated_at). Bajo `any` esto compilaba y cada `?.some(...)` sobre un
+  // campo inexistente devolvía `undefined` — `.filter()` lo trata como
+  // falsy, así que en cuanto CUALQUIER filtro estuviera activo, la lista
+  // quedaba vacía. Verificado además que esta rama es código muerto real:
+  // `RadarProvider` solo envuelve la ruta `/dev/dashboard` (main.tsx:418) y
+  // `Dashboard.tsx` no llama a `useRadar()` en ningún punto (grep, 0
+  // resultados) — nada renderiza `entidadesFiltradas` hoy. No se rediseña el
+  // filtro (exigiría decidir qué se supone que filtra esta vista, decisión
+  // de producto fuera de alcance de una purga de tipos) — se documenta el
+  // hallazgo y se devuelve la lista sin filtrar, tipo-seguro contra la forma
+  // real verificada.
   const entidadesFiltradas = useMemo(() => {
-    const { filtros } = state;
-    let resultado = state.entidadesIndexadas;
+    return state.entidadesIndexadas;
+  }, [state.entidadesIndexadas]);
 
-    // Filtro por país
-    if (!filtros.isGlobal && filtros.targetCountry) {
-      resultado = resultado.filter(ent => 
-        ent.paises_elegibles?.some(p => 
-          p.toLowerCase().includes(filtros.targetCountry?.toLowerCase() || '')
-        )
-      );
-    }
-
-    // Filtro por tipo de fondo
-    if (filtros.fundingType) {
-      resultado = resultado.filter(ent => ent.fundingType === filtros.fundingType);
-    }
-
-    // Filtro por sectores
-    if (filtros.sectors.length > 0) {
-      // Set en vez de re-escanear filtros.sectors por cada sector de cada
-      // entidad (react-doctor/js-set-map-lookups) — mismo resultado, O(1) lookup.
-      const sectorsSet = new Set(filtros.sectors);
-      resultado = resultado.filter(ent =>
-        ent.sectors?.some(s => sectorsSet.has(s))
-      );
-    }
-
-    // Filtro por población objetivo
-    if (filtros.targetPopulation.length > 0) {
-      const targetPopulationSet = new Set(filtros.targetPopulation);
-      resultado = resultado.filter(ent =>
-        ent.targetPopulation?.some(p => targetPopulationSet.has(p))
-      );
-    }
-
-    // Filtro por monto mínimo
-    if (filtros.monto_min !== undefined) {
-      resultado = resultado.filter(ent => 
-        (ent.monto_max || 0) >= filtros.monto_min!
-      );
-    }
-
-    // Filtro por monto máximo
-    if (filtros.monto_max !== undefined) {
-      resultado = resultado.filter(ent => 
-        (ent.monto_min || 0) <= filtros.monto_max!
-      );
-    }
-
-    // Filtro por región local (Motor B)
-    if (filtros.localRegion) {
-      resultado = resultado.filter(ent => 
-        ent.localRegion?.toLowerCase().includes(filtros.localRegion?.toLowerCase() || '')
-      );
-    }
-
-    return resultado;
-  }, [state.entidadesIndexadas, state.filtros]);
-
-  // Contadores
-  const pendientesCount = useMemo(() => 
-    state.colaValidacion.filter(item => item.estado === 'Pendiente').length,
+  // Contadores — FIX (purga de `any`, 2026-09-05): leían item.estado, campo
+  // que no existe en EntidadColaValidacion (la forma real de GET
+  // /api/cola-validacion es validation_status, con valores 'PENDIENTE'/
+  // 'VALIDADA'/'RECHAZADA' — ver server.js). Corregido al campo real que
+  // existe; los literales comparados ('Pendiente'/'Aprobado'/'Descartado')
+  // se dejan tal cual — no hay evidencia de cuál vocabulario UI se pretendía
+  // usar aquí, y esta rama es código muerto (ver comentario de
+  // entidadesFiltradas arriba), así que no se inventa uno nuevo.
+  const pendientesCount = useMemo(() =>
+    state.colaValidacion.filter(item => item.validation_status === 'Pendiente').length,
     [state.colaValidacion]
   );
 
-  const aprobadasCount = useMemo(() => 
-    state.colaValidacion.filter(item => item.estado === 'Aprobado').length,
+  const aprobadasCount = useMemo(() =>
+    state.colaValidacion.filter(item => item.validation_status === 'Aprobado').length,
     [state.colaValidacion]
   );
 
-  const descartadasCount = useMemo(() => 
-    state.colaValidacion.filter(item => item.estado === 'Descartado').length,
+  const descartadasCount = useMemo(() =>
+    state.colaValidacion.filter(item => item.validation_status === 'Descartado').length,
     [state.colaValidacion]
   );
 
