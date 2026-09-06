@@ -5,13 +5,33 @@
  */
 import crypto from 'crypto';
 import { procesarPresupuesto, getRendimientoRef, RENDIMIENTOS_CATALOGO } from '../pipeline/apuEngine.js';
-import { runTransaction } from '../db.js';
 import { logger } from '../utils/logger.js';
 // Reutiliza el guardián de moneda ya existente (backend/routes/proyectos.routes.js)
 // en vez de duplicarlo — este endpoint escribe a proyectos.presupuesto por otra
 // vía (POST /api/proyectos/:id/presupuesto) que no pasaba por ese guardián.
 import { contieneMonedaNoCOP } from './proyectos.routes.js';
 import { captureError } from '../config/sentry.config.js';
+// withTenant() (Fase 3 roadmap tenant, 2026-09-06): los call sites contra
+// `proyectos`/`project_budgets` migran al rol rf360_rls_scoped — GRANT sobre
+// project_budgets aplicado por 060_rls_scoped_grants_fase3.sql (proyectos ya
+// lo tenía desde 053). El INSERT masivo de ítems APU (antes runTransaction()
+// de db.js, pool principal BYPASSRLS) pasa a withTenantTransaction() —
+// atomicidad real bajo RLS, mismo helper agregado en el cierre de Fase 2.
+//
+// EXCEPCIÓN DELIBERADA: catalogo_rendimientos NO se tenant-escopa. Verificado
+// en vivo antes de tocar código: la tabla tiene RLS ACTIVO pero CERO
+// políticas definidas — en Postgres, RLS habilitado sin ninguna política es
+// deny-all para cualquier rol sin BYPASSRLS (GRANT no lo compensa: el GRANT
+// controla el permiso de intentar la operación, la política controla qué
+// filas se ven). Además no tiene columna org_id/user_id/tenant_id — es un
+// catálogo de referencia GLOBAL (rendimientos de obra), no datos por tenant,
+// mismo criterio que gemini_key_state/trial_sessions en la sección 4 del
+// roadmap. Migrarla a withTenant() habría devuelto 0 filas siempre, rompiendo
+// el catálogo para todo el mundo. `getRow` (sin tenant) se mantiene para
+// GET /api/rendimientos y para el getRow que procesarPresupuesto()/
+// getRendimientoRef() (apuEngine.js) reciben como dependencia inyectada —
+// esa función SOLO consulta catalogo_rendimientos, nunca datos de proyecto.
+import { withTenantRow, withTenantRows, withTenantRun, withTenantTransaction, getRow, getRows } from '../config/database.config.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -27,7 +47,7 @@ function wrap(fn) {
   };
 }
 
-export function registerPresupuestoRoutes(app, { authenticateToken, runSql, getRow, getRows }) {
+export function registerPresupuestoRoutes(app, { authenticateToken }) {
 
   /**
    * GET /api/rendimientos
@@ -68,11 +88,12 @@ export function registerPresupuestoRoutes(app, { authenticateToken, runSql, getR
       return res.status(422).json({ success: false, message: 'El presupuesto debe expresarse únicamente en COP — se detectó un código de moneda distinto.' });
     }
 
-    const proyecto = await getRow('SELECT id, estado, org_id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, req.userId]);
+    const proyecto = await withTenantRow(req.userId, 'SELECT id, estado, org_id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, req.userId]);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     if (proyecto.estado === 'Finalizado') return res.status(409).json({ success: false, message: 'Proyecto Finalizado — presupuesto inmutable' });
 
-    // Calcular APU con validacion de rendimientos
+    // Calcular APU con validacion de rendimientos — getRow SIN tenant a
+    // propósito: solo consulta catalogo_rendimientos (ver comentario del import).
     const resultado = await procesarPresupuesto(items, getRow);
 
     if (resultado.alertas.length > 0) {
@@ -110,11 +131,11 @@ export function registerPresupuestoRoutes(app, { authenticateToken, runSql, getR
       ],
     }));
 
-    await runTransaction(queries);
+    await withTenantTransaction(req.userId, queries);
 
     // Recalculo desde la tabla real (existentes + recién insertadas) — nunca
     // desde `resultado`, que solo conoce el lote de esta petición.
-    const todasLasFilas = await getRows('SELECT fase, valor_total FROM project_budgets WHERE proyecto_id = ?', [proyectoId]);
+    const todasLasFilas = await withTenantRows(req.userId, 'SELECT fase, valor_total FROM project_budgets WHERE proyecto_id = ?', [proyectoId]);
     const porFaseTotal = { NEGRA: 0, GRIS: 0, BLANCA: 0 };
     for (const it of todasLasFilas) {
       const f = String(it.fase || '').toUpperCase();
@@ -122,7 +143,7 @@ export function registerPresupuestoRoutes(app, { authenticateToken, runSql, getR
     }
     const totalGeneral = Math.round(Object.values(porFaseTotal).reduce((s, v) => s + v, 0) * 100) / 100;
     const resumenPresupuesto = JSON.stringify({ porFase: porFaseTotal, total: totalGeneral, alertas: resultado.alertas });
-    await runSql(
+    await withTenantRun(req.userId,
       'UPDATE proyectos SET presupuesto = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND org_id = ?',
       [resumenPresupuesto, proyectoId, req.userId]
     );
@@ -144,12 +165,12 @@ export function registerPresupuestoRoutes(app, { authenticateToken, runSql, getR
    * Devuelve todos los items APU calculados del proyecto.
    */
   app.get('/api/proyectos/:id/presupuesto', authenticateToken, wrap(async (req, res) => {
-    const proyecto = await getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
+    const proyecto = await withTenantRow(req.userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
     let items = [];
     try {
-      items = await getRows('SELECT * FROM project_budgets WHERE proyecto_id = ? ORDER BY fase, capitulo, item', [req.params.id]);
+      items = await withTenantRows(req.userId, 'SELECT * FROM project_budgets WHERE proyecto_id = ? ORDER BY fase, capitulo, item', [req.params.id]);
     } catch (e) {
       logger.error('[Presupuesto] Fallo consultando project_budgets — devolviendo presupuesto vacío', { proyectoId: req.params.id, err: e.message });
     }
