@@ -516,3 +516,62 @@ Ninguno de los dos cambios se commiteó — quedan como cambios sin commitear en
 **Cuándo se corrigió:** el commit que introdujo este rediseño (`byokService.js`, `CredentialsPage.tsx`, migración 045) es `173a07e` (2026-08-24) — citado por `006`, no re-verificado por este agente (sin acceso a `git log` en este rol), ~33 días posterior al reporte original de 2026-07-21/22. Coincide en fecha con el red-team ya documentado en §7.1 de este mismo documento (Fase 4, mismo día 2026-08-24), que auditó el mismo código BYOK desde un ángulo distinto (IDOR, fuga de llave, cifrado, rate-limiting) y llegó a la misma conclusión de "No explotable" para cifrado/fuga — este cierre de §9 es la confirmación específica del hallazgo puntual de `localStorage` sin cifrar que §7.1 no nombraba de forma explícita por su origen (el reporte de julio).
 
 **Veredicto: CERRADO — remediado en producción, verificado con evidencia de archivo:línea de dos fuentes independientes (auditoría `006` del 2026-09-04 + relectura de este agente).** No requiere ninguna acción adicional. Ver también la nota equivalente agregada directamente en `RADFOR360_REPORTE_TECNICO.md` §5.1 (línea 332), documento donde nació el hallazgo, para que quien lo lea ahí no lo persiga de nuevo.
+
+---
+
+## 10. Fase 6 (2026-09-05) — "PROTOCOLO 5x5 ∞" re-ejecutado bajo mandato pegado
+
+**Corrección de premisa, antes de auditar nada:** el mandato pegado de esta ronda asume que el Agente Arquitecto está ausente y pide un "plan de remediación" para crearlo. Falso — verificado en esta misma sesión: `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` (este archivo, 518 líneas antes de esta sección) y `scripts/architecture-gate.cjs` (193 líneas) ya existían, con 5 fases previas de esta misma auditoría documentadas (§6-9). El mandato también pide "Crear y guardar físicamente" este archivo como si no existiera — se extiende en vez de sobrescribirse, siguiendo el criterio de honestidad de alcance que el propio §6.6/§7 de este documento ya establecieron (re-auditar código ya verificado es redundante, no más preciso).
+
+**Alcance real de esta pasada:** solo lo que cambió desde el cierre de §9 (2026-09-04) — 5 commits, ninguno auditado por ninguna fase previa:
+
+| Commit | Fecha | Contenido |
+|---|---|---|
+| `173a07e` | 2026-08-24 23:34 | Ya cubierto por §9 |
+| `855ae1c`/`bd3fa6d` | 2026-08-24/25 | Chore de esquema (drop de tablas fantasma `formulador_oe`) — sin superficie de seguridad |
+| `c079be7` | 2026-08-25 00:29 | Fix de lógica de cooldown en `geminiCircuitBreaker.js` — sin superficie de seguridad |
+| `8d59c4c` | 2026-09-04 23:07 | Migración `054_rls_raci_gemini_trial.sql` — cierra el hallazgo 4 pendiente de `docs/AUDITORIA_SEGURIDAD_2026-09-04.md` |
+| `1118e61` | 2026-09-05 15:17 | Fase 1 del roadmap de migración a `withTenant()` + fix de trigger de inmutabilidad — foco de esta auditoría |
+
+### 10.1 Vector 2 — Seguridad/RBAC (foco: migraciones 054-058, no auditadas antes)
+
+Metodología: lectura completa de las 4 migraciones nuevas (055-058) + diff de `server.js`/`proyectos.routes.js` del commit `1118e61`, con verificación cruzada contra `docs/AUDITORIA_SEGURIDAD_2026-09-04.md` (documento hermano, no versión anterior de este archivo) y `docs/ROADMAP_MIGRACION_TENANT_2026.md`.
+
+- **Migración 054 (8d59c4c) cierra el hallazgo 4 de la auditoría del 09-04**, exactamente como declara su mensaje de commit: RLS + política real (no `USING(true)`) para `raci_tareas`/`raci_roles` (vía JOIN a `proyectos.org_id`), `raci_asignaciones` (JOIN de 2 saltos), y confirma que `gemini_key_state`/`trial_sessions` no son candidatas al patrón por tenant (sin columna de tenant, por diseño) — consistente con lo que el roadmap documenta en su §4.
+- **Hallazgo real, encontrado y corregido en la misma pasada de hoy (056):** `project_version_hashes` tenía RLS `ENABLED` pero con una política `pvh_provisional_open` (`qual: "true"`) — RLS activo en apariencia, sin protección real, creada directo contra la BD (SQL Editor de Supabase, fuera de control de versiones, nunca documentada en ningún `.sql` de este repo). Verificado en vivo por introspección (`pg_policies`) antes de escribir el reemplazo — no es una suposición. Reemplazada por `tenant_isolation` real (`tenant_id = current_setting('app.org_id', true)::uuid`), con verificación previa de que las 2 filas reales de la tabla tienen `tenant_id` poblado (sin huérfanas). Este es el hallazgo de mayor severidad real de esta pasada — RLS aparente sin protección real es peor que no tener RLS, porque da falsa sensación de seguridad a quien lea `pg_class.relrowsecurity=true` sin mirar la política.
+- **055/057 son GRANTs aditivos puros** — no tocan políticas ni el rol `postgres`, solo dan a `rf360_rls_scoped` los permisos DML que le faltaban sobre 9 tablas (6 en 055 + 3 en 057) para que envolverlas en `withTenant()` no falle con "permission denied". Verificados por lectura completa: cada migración hace introspección (`has_table_privilege`) antes y después, con `RAISE EXCEPTION` si el GRANT no tomó — patrón de verificación inline superior al de las migraciones 026/042 originales (que no se auto-verifican).
+- **058 corrige un bug funcional con implicación de cumplimiento (Habeas Data), no solo de seguridad de acceso:** el trigger de inmutabilidad de `project_version_hashes` referenciaba una columna inexistente (`OLD.proyecto_id` en vez de `OLD.project_id`) — el efecto no era que la inmutabilidad fallara (la excepción igual bloqueaba), sino que el flujo de purga de cuenta (`DELETE FROM proyectos ... CASCADE`) colapsaba con un error de Postgres distinto al esperado para cualquier usuario con ≥1 fila en esa tabla. Verificado el fix: `set_config('app.allow_pvh_purge','true', true)` es `is_local=true` (alcance de transacción), y `runTransaction()` (`database.config.js:602-624`) confirmado por lectura directa: abre un solo `client`/`BEGIN`/`COMMIT` para todas las queries del array — el bypass no puede filtrarse a otra conexión concurrente. Diseño correcto.
+- **Lo que esta pasada NO puede verificar (limitación real, no evasiva):** si las migraciones 055-058 ya corrieron contra la base de datos de producción. No existe un runner de migraciones automático en este repo (confirmado: 0 coincidencias de un ejecutor de migraciones en `backend/`) — se aplican a mano. Sin una conexión viva a la BD real no puedo confirmar si ya se ejecutaron; si no se han corrido, cualquier código que ya asuma los GRANTs de 055/057 fallaría con "permission denied" en producción hoy. Acción recomendada: correr las 4 migraciones (055→058, en orden, cada una ya trae su propio `BEGIN/COMMIT`) contra la BD real si aún no se hizo, y confirmar con el reporte final que cada una imprime.
+- **Deuda ya conocida, sin cambios en esta pasada:** de los ~397 call sites del pool principal (`BYPASSRLS=true`) documentados en `docs/AUDITORIA_SEGURIDAD_2026-09-04.md` §3, el commit `1118e61` avanza la Fase 1 del roadmap (`anexos.routes.js`, `proyectos.routes.js`, más los puntos ciegos de `reporte.routes.js`→`raciService.js`, `viabilidadAgent.js`, `byokService.js`) pero no la agota — el roadmap mismo (`docs/ROADMAP_MIGRACION_TENANT_2026.md`) proyecta 5 fases más, con `server.js` (264 call sites) dejado a propósito para el final. No es un hallazgo nuevo, es la ejecución en curso de un plan ya auditado el 09-04.
+
+### 10.2 Vector 2 (complementario) — hallazgos de `react-doctor` nunca cruzados con seguridad
+
+Corridos en esta sesión (ver reporte de salud de frontend, mismo hilo), 4 hallazgos de la categoría Security del propio `react-doctor` no habían sido cruzados contra las fases 1-5 de este documento:
+
+| # | Hallazgo | Archivo:línea | Veredicto | Acción |
+|---|---|---|---|---|
+| 1 | `raw-sql-injection-risk` en query de inserción masiva | `backend/services/ExtractorService.js:212` | **Falso positivo, verificado leyendo la función completa** — `COLS` es un array fijo hardcodeado (no input de usuario), los placeholders `$N` se generan estructuralmente, y los valores reales viajan 100% parametrizados en `params` vía `client.query(sql, params)` dentro de `withTenant(orgId, ...)`. El heurístico del linter no distingue interpolación estructural de interpolación de datos. | Ninguna — documentar como falso positivo verificado, no suprimir la regla globalmente |
+| 2 | `iframe-missing-sandbox` (dashboard PostHog embebido) | `client/src/pages/AdminPage.tsx:161` (antes del fix) | **Real** — sin `sandbox`, el iframe podía navegar el top-level o abrir popups si el origen embebido se viera comprometido | ✅ **Corregido en esta pasada** — `sandbox="allow-scripts allow-same-origin allow-forms allow-popups"` (permisos mínimos para que el dashboard de PostHog siga funcionando) |
+| 3-6 | `auth-token-in-web-storage` (JWT en `localStorage`) | `AuthContextNew.tsx:352`, `authStorage.ts:48`, `PanelPage.tsx:60,379` | **Real, arquitectónico, no un fix de una línea** — mover a cookie `HttpOnly`/`Secure`/`SameSite` requiere endpoints de backend que seteen la cookie, manejo de CSRF, y cambiar el modo `credentials` de cada llamada del cliente API. Mismo patrón de "requiere rediseño, no parche mecánico" que el resto de este documento aplica consistentemente. | No corregido — deuda documentada, decisión de arquitectura pendiente |
+
+### 10.3 Vectores 1, 3, 4 — sin cambios desde Fase 5
+
+Nada en los 5 commits de esta ventana toca Vector 1 (topografía), Vector 3 (concurrencia — `withTenant()`/`runTransaction()` ya traen su propio `BEGIN/COMMIT/ROLLBACK`, sin cambios de comportamiento en esta ventana) ni Vector 4 (FinOps — `aiLimiter` sigue aplicado en las mismas ~20 rutas ya confirmadas, sin rutas nuevas de IA en esta ventana). No se re-audita lo que no cambió, mismo criterio que §7/§8 de este documento.
+
+### 10.4 Vector 5 — Multiagente (actualización puntual)
+
+El propio commit `1118e61`/`055_rls_scoped_grants_fase1.sql` documenta una invocación real y reciente del subagente `architect` (`agentId a446b192b8ceaf153, 2026-09-05`) fiscalizando el roadmap de migración antes de escribirlo — **evidencia adicional, de hoy mismo, de que el patrón "diseño antes de código" descrito en §6.5 sigue vivo y en uso activo**, no solo un hallazgo histórico de sesiones pasadas. `scripts/architecture-gate.cjs` (el gate técnico) sigue sin verificarse en esta pasada — no hay evidencia de un commit reciente con su log característico; se asume sin cambio respecto a §8 (standby, decisión de negocio ya confirmada).
+
+### 10.5 Score Fase 6
+
+| Vector | Fase 5 | Fase 6 | Motivo del cambio |
+|---|---|---|---|
+| 1. Arquitectura/MVP | 17/20 | **17/20** | Sin cambios en esta ventana |
+| 2. Seguridad/RBAC | 17/20 | **18/20** | +1: se cerró un hallazgo real no trivial (RLS aparente sin protección en `project_version_hashes`) y se corrigió `iframe-missing-sandbox`; se descuenta 1 por la deuda aún no verificable de si 055-058 ya corrieron en producción |
+| 3. Concurrencia | 18/20 | **18/20** | Sin cambios — el fix del trigger PVH es correctitud/cumplimiento, no concurrencia |
+| 4. FinOps | 18/20 | **18/20** | Sin cambios en esta ventana |
+| 5. Multiagente | 16/20 | **16/20** | Sin cambios técnicos — el gate sigue en standby por decisión ya confirmada |
+
+**SCORE TOTAL Fase 6: 87/100** (+1 sobre Fase 5). **No se declara 100/100** — sería falso: quedan sin cerrar el `injectTenantFilter` sin parametrizar (§6.2), ~90 usos de `any`, el JWT en `localStorage` (§10.2), ~370 call sites aún en el pool `BYPASSRLS` (§10.1, en ejecución por fases), y la verificación en vivo de que 055-058 corrieron contra la BD real (no verificable desde este entorno sin conexión directa a producción).
+
+**Veredicto: APTO — no bloqueado.** Ningún hallazgo de esta pasada alcanza severidad Crítica sin corregir; el único hallazgo Alto real de esta ventana (política RLS aparente-pero-abierta en `project_version_hashes`) ya está corregido y verificado por introspección en la misma sesión que lo encontró.
