@@ -542,19 +542,6 @@ export async function withTenant(tenantId, callback) {
   return callback(fakeClient);
 }
 
-// FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 2, hallazgo 3): tenantId
-// ya llegaba dinámico por argumento — lo que estaba mal era CÓMO se
-// aplicaba: concatenado como literal de string dentro del SQL
-// (`WHERE org_id = '${tenantId}'`) en vez de ir como placeholder ligado
-// (`?`). No era explotable con las llamadas actuales (tenantId siempre
-// viene de `req.tenantId`, columna de BD/JWT verificado, nunca de input
-// libre de usuario — ver server.js linea ~200), pero es el mismo patrón de
-// inyección SQL que el resto de este archivo evita en todo lo demás. Ahora
-// inserta un placeholder real y devuelve los `params` alineados en el
-// orden posicional correcto: si ya había un WHERE, el nuevo placeholder
-// queda ANTES de los placeholders originales en el string (tenantId va
-// primero en el array); si no había WHERE, el nuevo placeholder queda AL
-// FINAL (tenantId va al final del array).
 // ── Helpers de conveniencia sobre withTenant() (Fase 1 roadmap tenant, 2026-09-05) ──
 // Mismo contrato de retorno que getRow/getRows/runSql (db.js) y misma
 // convención de placeholders "?" (normalizados aquí, igual que el resto de
@@ -583,6 +570,21 @@ export async function withTenantRun(tenantId, sql, params = []) {
   return withTenant(tenantId, client => client.query(q, p));
 }
 
+// FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 2, hallazgo 3): tenantId
+// ya llegaba dinámico por argumento — lo que estaba mal era CÓMO se
+// aplicaba: concatenado como literal de string dentro del SQL
+// (`WHERE org_id = '${tenantId}'`) en vez de ir como placeholder ligado
+// (`?`). No era explotable con las llamadas actuales (tenantId siempre
+// viene de `req.tenantId`, columna de BD/JWT verificado, nunca de input
+// libre de usuario — ver server.js linea ~200), pero es el mismo patrón de
+// inyección SQL que el resto de este archivo evita en todo lo demás. Ahora
+// inserta un placeholder real y devuelve los `params` alineados en el
+// orden posicional correcto: si ya había un WHERE, el nuevo placeholder
+// queda ANTES de los placeholders originales en el string (tenantId va
+// primero en el array); si no había WHERE, el nuevo placeholder queda AL
+// FINAL (tenantId va al final del array). Este comentario vivía mal ubicado
+// encima de withTenantRow() (auditoría Fase 7, 2026-09-05) — el fix real
+// siempre fue este, la reubicación es solo higiene documental.
 function injectTenantFilter(sql, tenantId, params = []) {
   const upper = sql.trim().toUpperCase();
   if (!upper.startsWith('SELECT')) return { sql, params };
