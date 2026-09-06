@@ -93,7 +93,7 @@ function MfaSettingsCard() {
   async function fetchStatus() {
     setLoadingStatus(true);
     try {
-      const r = await fetch(`${API_BASE}/api/auth/mfa/status`, { headers: { ...getAuthHeaders() } });
+      const r = await fetch(`${API_BASE}/api/auth/mfa/status`, { headers: { ...getAuthHeaders() }, credentials: 'include' });
       const data = await r.json();
       if (r.ok && data?.success) setMfaEnabled(!!data.mfaEnabled);
     } catch { /* estado indeterminado: se deja el último valor conocido */ }
@@ -108,6 +108,7 @@ function MfaSettingsCard() {
       const r = await fetch(`${API_BASE}/api/auth/mfa/setup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
       });
       const data = await r.json();
       if (!r.ok || !data?.success) throw new Error(data?.message || 'No se pudo iniciar la configuración de MFA.');
@@ -126,6 +127,7 @@ function MfaSettingsCard() {
       const r = await fetch(`${API_BASE}/api/auth/mfa/confirmar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
         body: JSON.stringify({ code: confirmCode }),
       });
       const data = await r.json();
@@ -146,6 +148,7 @@ function MfaSettingsCard() {
       const r = await fetch(`${API_BASE}/api/auth/mfa/desactivar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        credentials: 'include',
         body: JSON.stringify({ password: pwdDesactivar }),
       });
       const data = await r.json();
@@ -314,7 +317,7 @@ export default function ControlPanel() {
   // { gemini: true } sin importar si GOOGLE_API_KEY existía o no).
   const [engines, setEngines] = useState({ gemini: false });
   useEffect(() => {
-    fetch(`${API_BASE}/system/engines-status`, { headers: { ...getAuthHeaders() } })
+    fetch(`${API_BASE}/system/engines-status`, { headers: { ...getAuthHeaders() }, credentials: 'include' })
       .then(r => r.json())
       .then(body => { if (body?.success) setEngines(body.data); })
       .catch(() => {});

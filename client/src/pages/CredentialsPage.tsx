@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 import { http, ApiError } from '../lib/apiClient';
+import { obtenerCsrfHeaders } from '../lib/authStorage';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 interface Connector {
@@ -257,7 +258,7 @@ export default function CredentialsPage({ isOnboarding = false }: { isOnboarding
     const load = async () => {
       if (token === 'demo-mode-token') return;
       try {
-        const r    = await fetch('/api/credentials', { headers: { Authorization: `Bearer ${token}` } });
+        const r    = await fetch('/api/credentials', { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
         const data = await r.json().catch(() => ({ success: false }));
         if (!mounted.current) return;
         if (data.success) setSaved(data.data ?? []);
@@ -268,7 +269,7 @@ export default function CredentialsPage({ isOnboarding = false }: { isOnboarding
     const checkGoogle = async () => {
       if (token === 'demo-mode-token') { if (mounted.current) setGLoading(false); return; }
       try {
-        const r = await fetch('/api/auth/google/status', { headers: { Authorization: `Bearer ${token}` } });
+        const r = await fetch('/api/auth/google/status', { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
         const d = await r.json().catch(() => ({ success: false }));
         if (!mounted.current) return;
         if (d.success && d.connected) { setGConnectedAt(d.connectedAt ?? ''); setGSynced(true); }
@@ -295,7 +296,7 @@ export default function CredentialsPage({ isOnboarding = false }: { isOnboarding
     revocandoGoogleRef.current = true;
     setGError('');
     try {
-      const r = await fetch('/api/auth/google/revoke', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetch('/api/auth/google/revoke', { method: 'DELETE', credentials: 'include', headers: { Authorization: `Bearer ${token}`, ...obtenerCsrfHeaders() } });
       const d = await r.json().catch(() => ({ success: false }));
       if (d.success) { setGConnectedAt(null); setGSynced(false); await refreshCredentialsStatus(); }
       else setGError(d.message || 'Error al desvincular.');
@@ -306,7 +307,7 @@ export default function CredentialsPage({ isOnboarding = false }: { isOnboarding
   const fetchSaved = useCallback(async () => {
     if (!token) return;
     try {
-      const r    = await fetch('/api/credentials', { headers: { Authorization: `Bearer ${token}` } });
+      const r    = await fetch('/api/credentials', { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
       const data = await r.json().catch(() => ({ success: false }));
       if (data.success) setSaved(data.data ?? []);
     } catch {}
@@ -331,7 +332,8 @@ export default function CredentialsPage({ isOnboarding = false }: { isOnboarding
     try {
       const r    = await fetch('/api/credentials', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...obtenerCsrfHeaders() },
         body: JSON.stringify({ service: connector.id, apiKey: raw, label: connector.label }),
       });
       const data = await r.json();
@@ -352,7 +354,7 @@ export default function CredentialsPage({ isOnboarding = false }: { isOnboarding
     if (!confirm('¿Desvincular este canal? La integración quedará inactiva.')) return;
     setDeleting(p => ({ ...p, [svc]: true }));
     try {
-      await fetch(`/api/credentials/${svc}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      await fetch(`/api/credentials/${svc}`, { method: 'DELETE', credentials: 'include', headers: { Authorization: `Bearer ${token}`, ...obtenerCsrfHeaders() } });
       await fetchSaved();
       await refreshCredentialsStatus();
     } finally { setDeleting(p => ({ ...p, [svc]: false })); }

@@ -81,7 +81,7 @@ export default function PlanesPage() {
   // Precio/nombre reales desde el backend (única fuente de verdad) — se
   // combinan con la metadata de marketing/UI que solo vive en el frontend.
   useEffect(() => {
-    fetch(`${API_BASE}/api/plans`)
+    fetch(`${API_BASE}/api/plans`, { credentials: 'include' })
       .then(r => r.json())
       .then(body => {
         if (!body?.success || !body?.data) return;

@@ -8,7 +8,6 @@ import AdminGuard from './components/AdminGuard';
 import { FavoritosProvider } from './contexts/FavoritosContext';
 import { SubscriptionProvider, useSubscription } from './contexts/SubscriptionContext';
 import { LanguageProvider } from './contexts/LanguageContext';
-import { RadarProvider } from './contexts/RadarContext';
 import { SearchProvider } from './contexts/SearchContext';
 import FormuladorLayout from './components/FormuladorLayout';
 import AppLeftNav from './components/AppLeftNav';
@@ -288,19 +287,9 @@ function AppLayout() {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 function AppRoutes() {
-  const { isAuthenticated, hasCredentials, token, logout } = useAuth();
-  const location = useLocation();
+  const { isAuthenticated, hasCredentials, token } = useAuth();
   const toHome = <Navigate to="/" replace />;
   const realAuth = isAuthenticated && token !== 'demo-mode-token';
-
-  // Guard: si React cree que hay sesión pero localStorage ya no tiene token
-  // (purgado por otra pestaña, extensión o Clear-Site-Data), forzar logout local.
-  React.useEffect(() => {
-    if (isAuthenticated && token !== 'demo-mode-token' && !leerAuthToken()) {
-      logout();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
 
   return (
     <Routes>
@@ -415,7 +404,7 @@ function AppRoutes() {
           admin real (AdminGuard), no solo estar logueado. */}
       {import.meta.env.DEV && (
         <Route element={<AuthGuard mode="require-auth"><AdminGuard><AppLayout /></AdminGuard></AuthGuard>}>
-          <Route path="/dev/dashboard"   element={<RadarProvider><Dashboard /></RadarProvider>} />
+          <Route path="/dev/dashboard"   element={<Dashboard />} />
           <Route path="/dev/formulacion" element={<FormulacionViewer />} />
         </Route>
       )}

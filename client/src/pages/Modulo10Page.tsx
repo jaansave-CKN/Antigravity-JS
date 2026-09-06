@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 import { http } from '../lib/apiClient';
+import { obtenerCsrfHeaders } from '../lib/authStorage';
 
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
 
@@ -211,7 +212,8 @@ export default function Modulo10Page() {
       // fallaba con 400, sin importar quién estuviera logueado.
       const r = await fetch('/api/m8/normas/generar', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...obtenerCsrfHeaders() },
         body: JSON.stringify({ proyecto_id: proyectoId, sector: 'General', municipio: 'Colombia' }),
       });
       const d = await r.json();

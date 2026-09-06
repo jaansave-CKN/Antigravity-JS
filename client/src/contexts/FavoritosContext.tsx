@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { apiService } from '../services/api';
-import { leerAuthToken, esEventoDeSesion } from '../lib/authStorage';
+import { useAuth } from './AuthContextNew';
 
 /** Forma real de una convocatoria guardada — verificada contra los accesos
  *  defensivos de FavoritosView.tsx (fecha_cierre/fechaCierre/fecha_limite,
@@ -39,10 +39,16 @@ const FavoritosContext = createContext<FavoritosContextValue | null>(null);
 export function FavoritosProvider({ children }: { children: React.ReactNode }) {
   const [favoritos, setFavoritos] = useState<Favorito[]>([]);
   const [cargando, setCargando] = useState(false);
+  // FIX (Fase 1, 2026-09-05): leerAuthToken() ya solo devuelve 'demo-mode-token'
+  // o null (el JWT real vive en la cookie httpOnly, nunca en localStorage) —
+  // usarlo para detectar "hay sesión real" habría dejado esto SIEMPRE en
+  // early-return para cualquier usuario real. Se reemplaza por el estado
+  // reactivo de AuthContext.
+  const { isAuthenticated, token } = useAuth();
+  const esSesionReal = isAuthenticated && token !== 'demo-mode-token';
 
   const cargarFavoritos = useCallback(async () => {
-    const token = leerAuthToken();
-    if (!token || token === 'demo-mode-token') return;
+    if (!esSesionReal) return;
     setCargando(true);
     try {
       const resp = await apiService.getFavoritos();
@@ -54,15 +60,14 @@ export function FavoritosProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [esSesionReal]);
 
+  // Cambio de sesión en OTRA pestaña ya no necesita listener propio aquí:
+  // AuthContext lo detecta vía su suscribirCambioSesion() (BroadcastChannel)
+  // y re-verifica la cookie, lo que actualiza isAuthenticated/token y
+  // cascada hasta este efecto a través de la dependencia de cargarFavoritos.
   useEffect(() => {
     cargarFavoritos();
-    const onStorage = (e: StorageEvent) => {
-      if (esEventoDeSesion(e)) cargarFavoritos();
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
   }, [cargarFavoritos]);
 
   const isFavorito = useCallback(

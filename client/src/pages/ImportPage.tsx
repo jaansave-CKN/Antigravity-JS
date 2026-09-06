@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContextNew';
+import { obtenerCsrfHeaders } from '../lib/authStorage';
 
 type ImportType = 'directorio' | 'convocatorias';
 
@@ -75,7 +76,8 @@ export default function ImportPage() {
     try {
       const res = await fetch('/api/importar', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${token}`, ...obtenerCsrfHeaders() },
         body: formData,
       });
       const data = await res.json();

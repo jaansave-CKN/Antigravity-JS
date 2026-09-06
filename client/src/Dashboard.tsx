@@ -5,7 +5,8 @@ import RadarDashboard, { type Donor, type DonorType, type TagColor } from './com
 import FavoritosView from './components/FavoritosView';
 import { useFavoritos } from './contexts/FavoritosContext';
 import { useSubscription } from './contexts/SubscriptionContext';
-import { leerAuthToken } from './lib/authStorage';
+import { useAuth } from './contexts/AuthContextNew';
+import { leerAuthToken, obtenerCsrfHeaders } from './lib/authStorage';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 const WS_URL = (API_URL || 'ws://localhost:8000').replace(/^http/, 'ws') + '/ws/live_radar';
@@ -54,9 +55,14 @@ function useRadarStatus() {
   useEffect(() => {
     const load = async () => {
       try {
+        // FIX (Fase 1, 2026-09-05): leerAuthToken() ya solo puede devolver
+        // 'demo-mode-token' o null (el JWT real vive en la cookie httpOnly,
+        // nunca en localStorage) — una sesión real ya no manda nada aquí, se
+        // autentica sola vía credentials:'include'.
         const token = leerAuthToken();
         const r = await fetch('/api/radar/status', {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: 'include',
+          headers: token === 'demo-mode-token' ? { Authorization: `Bearer ${token}` } : {},
         });
         const d = await r.json();
         if (d.success) setStatus(d);
@@ -314,6 +320,7 @@ export default function Dashboard() {
   const { isFavorito, guardarFavorito, eliminarPorGrantId } = useFavoritos();
   const navigate = useNavigate();
   const { hasFormulador } = useSubscription();
+  const { isAuthenticated, token: authToken } = useAuth();
   const [guardandoId, setGuardandoId] = useState<string | null>(null);
   const [errorGuardado, setErrorGuardado] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -490,12 +497,17 @@ export default function Dashboard() {
   // M2 — Puente: transfiere convocatoria al Formulador si el usuario tiene acceso
   const handleFormular = useCallback(async (conv: Convocatoria) => {
     if (!hasFormulador) { navigate('/planes'); return; }
-    const token = leerAuthToken();
-    if (!token || token === 'demo-mode-token') { navigate('/login'); return; }
+    // FIX (Fase 1, 2026-09-05): antes comparaba leerAuthToken() (el JWT
+    // crudo) — con el JWT real fuera de localStorage esta condición habría
+    // sido SIEMPRE verdadera y mandado a /login a cualquier usuario real ya
+    // autenticado. isAuthenticated viene del estado reactivo de AuthContext,
+    // que sí sabe si la cookie httpOnly es válida.
+    if (!isAuthenticated || authToken === 'demo-mode-token') { navigate('/login'); return; }
     try {
       const r = await fetch('/api/bridge/transfer', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...obtenerCsrfHeaders() },
         body: JSON.stringify({
           convocatoria: {
             id: conv.externo_id || String(conv.id),
@@ -516,7 +528,7 @@ export default function Dashboard() {
     } catch {
       navigate('/checklist');
     }
-  }, [hasFormulador, navigate]);
+  }, [hasFormulador, navigate, isAuthenticated, authToken]);
 
   // ── Búsqueda semántica con pgvector (POST /api/radar/buscar-masivo) ──────────
   const handleBusquedaSemantica = useCallback(async () => {
@@ -525,12 +537,14 @@ export default function Dashboard() {
     setSearchingIA(true);
     setSemanticResults(null);
     try {
-      const token = leerAuthToken();
+      const token = leerAuthToken(); // solo 'demo-mode-token' o null — ver comentario en useRadarStatus()
       const r = await fetch('/api/radar/buscar-masivo', {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(token === 'demo-mode-token' ? { Authorization: `Bearer ${token}` } : {}),
+          ...obtenerCsrfHeaders(),
         },
         body: JSON.stringify({ texto: search.trim(), limit: 20, threshold: 0.25 }),
       });
@@ -574,12 +588,14 @@ export default function Dashboard() {
     setSearchingIA(true);
     setSemanticResults(null);
     try {
-      const token = leerAuthToken();
+      const token = leerAuthToken(); // solo 'demo-mode-token' o null — ver comentario en useRadarStatus()
       const r = await fetch('/api/radar/barrido-masivo', {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(token === 'demo-mode-token' ? { Authorization: `Bearer ${token}` } : {}),
+          ...obtenerCsrfHeaders(),
         },
         body: JSON.stringify({ texto: search.trim(), limit: 30, threshold: 0.25 }),
       });
