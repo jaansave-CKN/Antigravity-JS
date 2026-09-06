@@ -4,12 +4,29 @@
  */
 
 import crypto from 'crypto';
+// withTenant() (Fase 2 roadmap tenant, 2026-09-06): 9 de los 10 call sites de
+// este archivo (contra `proyectos`/`versiones_proyecto`/`compliance_data`/
+// `motor_dialectico`/`marco_normativo`/`config_logistica`) migran al rol
+// rf360_rls_scoped — GRANT aplicado por 059_rls_scoped_grants_fase2.sql
+// (verificado en vivo: GRANT + prueba de aislamiento cross-tenant,
+// 2026-09-06). El sello de versión (INSERT versiones_proyecto + UPDATE
+// proyectos) necesitaba atomicidad real bajo RLS — no existía un helper para
+// eso (runTransaction() de db.js corre siempre por el pool principal,
+// BYPASSRLS) — se agregó withTenantTransaction() a database.config.js en
+// esta misma sesión, mismo contrato que runTransaction().
+// getRow (SIN tenant) se mantiene para /api/m12/verificar/:hash a propósito:
+// esa ruta NO tiene authenticateToken (verificación pública de un hash
+// SHA-256 ya conocido, sin sesión) — no hay `req.userId` que pasarle a
+// withTenant(), y el hash en sí es la única clave de búsqueda legítima aquí
+// (mismo criterio de "dato sin tenant real" que gemini_key_state/
+// trial_sessions, documentado en el roadmap).
+import { withTenantRow, withTenantRows, withTenantTransaction, getRow } from '../config/database.config.js';
 
-export function registerFichaTecnicaRoutes(app, { authenticateToken, runSql, runTransaction, getRow, getRows, tryCatch }) {
+export function registerFichaTecnicaRoutes(app, { authenticateToken, tryCatch }) {
 
   // GET /api/m12/ficha/:proyectoId — historial de versiones selladas
   app.get('/api/m12/ficha/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
-    const versiones = await getRows(
+    const versiones = await withTenantRows(req.userId,
       `SELECT id, version_num, hash_sha256, contenido_resumido, firmado_en
        FROM versiones_proyecto
        WHERE proyecto_id = ? AND user_id = ?
@@ -23,7 +40,7 @@ export function registerFichaTecnicaRoutes(app, { authenticateToken, runSql, run
   app.post('/api/m12/ficha/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
     const proyectoId = req.params.proyectoId;
 
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       'SELECT * FROM proyectos WHERE id = ? AND user_id = ?',
       [proyectoId, req.userId]
     );
@@ -41,7 +58,7 @@ export function registerFichaTecnicaRoutes(app, { authenticateToken, runSql, run
     // Hard-Lock predial (F-Legal-01): el único punto real de bloqueo estricto.
     // 'sin_evaluar' también bloquea — certificar exige un despeje EXPLÍCITO,
     // no simplemente que nadie haya corrido la auditoría predial todavía.
-    const complianceLegal = await getRow(
+    const complianceLegal = await withTenantRow(req.userId,
       'SELECT estado_legal FROM compliance_data WHERE proyecto_id = ? AND user_id = ?',
       [proyectoId, req.userId]
     );
@@ -55,10 +72,10 @@ export function registerFichaTecnicaRoutes(app, { authenticateToken, runSql, run
 
     // Recopilar todos los módulos del proyecto
     const [motorDialectico, compliance, marcoNormativo, logistica] = await Promise.all([
-      getRow('SELECT tono, lista_oro, lista_negra, enfasis FROM motor_dialectico WHERE proyecto_id = ? AND user_id = ?', [proyectoId, req.userId]),
-      getRow('SELECT ods_alineados, sostenibilidad_ambiental, sostenibilidad_social, enfoque_genero FROM compliance_data WHERE proyecto_id = ? AND user_id = ?', [proyectoId, req.userId]),
-      getRow('SELECT normas_aplicables, citas_bibliograficas FROM marco_normativo WHERE proyecto_id = ? AND user_id = ?', [proyectoId, req.userId]),
-      getRow('SELECT proponente_nombre, tipo_entidad, departamento, municipio FROM config_logistica WHERE proyecto_id = ? AND user_id = ?', [proyectoId, req.userId]),
+      withTenantRow(req.userId, 'SELECT tono, lista_oro, lista_negra, enfasis FROM motor_dialectico WHERE proyecto_id = ? AND user_id = ?', [proyectoId, req.userId]),
+      withTenantRow(req.userId, 'SELECT ods_alineados, sostenibilidad_ambiental, sostenibilidad_social, enfoque_genero FROM compliance_data WHERE proyecto_id = ? AND user_id = ?', [proyectoId, req.userId]),
+      withTenantRow(req.userId, 'SELECT normas_aplicables, citas_bibliograficas FROM marco_normativo WHERE proyecto_id = ? AND user_id = ?', [proyectoId, req.userId]),
+      withTenantRow(req.userId, 'SELECT proponente_nombre, tipo_entidad, departamento, municipio FROM config_logistica WHERE proyecto_id = ? AND user_id = ?', [proyectoId, req.userId]),
     ]);
 
     const firmado_en = new Date().toISOString();
@@ -83,7 +100,7 @@ export function registerFichaTecnicaRoutes(app, { authenticateToken, runSql, run
     const hash_sha256   = crypto.createHash('sha256').update(contenidoStr).digest('hex');
 
     // Calcular número de versión
-    const ultima = await getRow(
+    const ultima = await withTenantRow(req.userId,
       'SELECT MAX(version_num) as max_v FROM versiones_proyecto WHERE proyecto_id = ?',
       [proyectoId]
     );
@@ -96,9 +113,11 @@ export function registerFichaTecnicaRoutes(app, { authenticateToken, runSql, run
     // versión y el UPDATE que marca Finalizado eran 2 runSql() secuenciales —
     // si el proceso caía entre ambos, quedaba una versión "fantasma" sellada
     // sin que el proyecto hubiera pasado a Finalizado. Mismo patrón de
-    // transacción atómica ya usado en presupuesto.routes.js/configLogistica.routes.js.
+    // transacción atómica ya usado en presupuesto.routes.js/configLogistica.routes.js,
+    // ahora vía withTenantTransaction() (RLS real) en vez de runTransaction()
+    // (pool principal, BYPASSRLS).
     const sello = { hash: hash_sha256, version: version_num, firmado_en, schema: '8.0' };
-    await runTransaction([
+    await withTenantTransaction(req.userId, [
       {
         sql: `INSERT INTO versiones_proyecto
               (id, proyecto_id, user_id, version_num, hash_sha256, contenido_resumido, firmado_en)
@@ -127,6 +146,9 @@ export function registerFichaTecnicaRoutes(app, { authenticateToken, runSql, run
   }));
 
   // GET /api/m12/verificar/:hash — verifica si un hash existe en la base de datos
+  // Sin authenticateToken a propósito (verificación pública de un sello ya
+  // emitido) — no hay req.userId, así que esta única consulta se queda en el
+  // pool principal (getRow), no en withTenant(). Ver comentario del import.
   app.get('/api/m12/verificar/:hash', tryCatch(async (req, res) => {
     const registro = await getRow(
       'SELECT id, proyecto_id, version_num, contenido_resumido, firmado_en FROM versiones_proyecto WHERE hash_sha256 = ?',

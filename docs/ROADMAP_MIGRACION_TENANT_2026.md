@@ -1,5 +1,28 @@
 # Roadmap — Migración del Pool Principal a `withTenant()` (RadFor-360)
 
+> **ACTUALIZACIÓN 2026-09-06 (re-verificado en vivo, no supuesto):** este documento
+> quedó desactualizado por 2 sesiones de trabajo real que no lo tocaron. Estado
+> real confirmado contra el código y la BD antes de escribir esta nota:
+> - **Fase 1 COMPLETA** (commit `1118e61`, 2026-09-05, sesión previa a este
+>   documento actualizarse): `anexos.routes.js` y `proyectos.routes.js`
+>   totalmente migrados a `withTenant()`. Ese mismo commit migró también
+>   `reporte.routes.js` (Fase 2) de forma adelantada.
+> - **Fase 2 parcialmente completa (2026-09-06):** `biblioteca.routes.js` (20
+>   call sites), `fichaTecnica.routes.js` (10, 1 se queda intencionalmente sin
+>   tenant — verificación pública de hash sin sesión) y `marcoNormativo.routes.js`
+>   (8) migrados y verificados (GRANT vía `059_rls_scoped_grants_fase2.sql`,
+>   11/11 pruebas de regresión + aislamiento cruzado passed). Pendiente de Fase 2:
+>   solo queda ya cubierta — revisar tabla de abajo para el detalle exacto.
+> - Se agregó `withTenantTransaction()` a `database.config.js` (mismo contrato
+>   que `runTransaction()`, pero corre bajo el pool RLS-escopado) — necesario
+>   para el sello atómico de Ficha Técnica (M12), reutilizable en Fase 3 para
+>   `presupuesto.routes.js`/`configLogistica.routes.js`, que el roadmap original
+>   ya anticipaba con "mismo patrón de transacción atómica".
+> - **Regla para la próxima sesión**: antes de elegir el siguiente lote,
+>   re-verificar con `grep -c` real (getRow/getRows/runSql vs withTenant\*) en
+>   cada archivo de la tabla de abajo — este documento puede volver a
+>   desactualizarse si otra sesión migra código sin actualizarlo aquí.
+
 **Fecha:** 2026-09-04/05. **Contexto:** `docs/AUDITORIA_SEGURIDAD_2026-09-04.md` §3 dejó documentada la deuda —
 el pool principal (rol `postgres`, `BYPASSRLS=true`) sigue sirviendo ~397 call sites reales sin backstop de RLS,
 protegidos hoy solo por filtro manual `WHERE org_id = ?`/`checkOwnership()` por ruta. Este documento traza cómo
@@ -16,21 +39,21 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 
 | Ubicación | Call sites (`getRow`/`getRows`/`runSql`) | Estado |
 |---|---:|---|
-| `server.js` | 264 | Sin migrar |
-| `backend/routes/anexos.routes.js` | 26 | **Parcialmente migrado** (ya usa `withTenant()` en algunos paths, ver auditoría §3) |
-| `backend/routes/biblioteca.routes.js` | 20 | Sin migrar |
-| `backend/routes/proyectos.routes.js` | 19 | **Parcialmente migrado** |
-| `backend/routes/fichaTecnica.routes.js` | 10 | Sin migrar |
+| `server.js` | 263 | Sin migrar |
+| `backend/routes/anexos.routes.js` | 30 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05) |
+| `backend/routes/biblioteca.routes.js` | 20 → withTenant | **MIGRADO COMPLETO** (2026-09-06, este documento) |
+| `backend/routes/proyectos.routes.js` | 25 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05) |
+| `backend/routes/fichaTecnica.routes.js` | 10 → 9 withTenant + 1 sin tenant (a propósito) | **MIGRADO COMPLETO** (2026-09-06, este documento) |
 | `backend/routes/compliance.routes.js` | 9 | Sin migrar |
-| `backend/routes/marcoNormativo.routes.js` | 8 | Sin migrar |
+| `backend/routes/marcoNormativo.routes.js` | 8 → withTenant | **MIGRADO COMPLETO** (2026-09-06, este documento) |
 | `backend/routes/subscriptions.routes.js` | 7 | Sin migrar |
 | `backend/routes/presupuesto.routes.js` / `configLogistica.routes.js` | 6 c/u | Sin migrar |
 | `backend/routes/radicacion.routes.js` / `motorDialectico.routes.js` / `exportacion.routes.js` / `authGoogle.controller.js` | 5 c/u | Sin migrar |
-| `backend/routes/reporte.routes.js` | 4 | Sin migrar |
+| `backend/routes/reporte.routes.js` | 6 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05, adelantado desde Fase 2) |
 | `backend/routes/wompi.webhook.js` / `stripe.webhook.js` | 2 c/u | Sin migrar — **ver nota de riesgo abajo** |
 | `backend/routes/valorExponencial.routes.js` / `matrizRaci.routes.js` / `estresFinanciero.routes.js` / `entradaIA.routes.js` / `copiloto.routes.js` | 1 c/u | **Ya migrados** (services detrás de estas rutas usan `withTenant()`, confirmado por auditoría) |
 
-**Total sin migrar hoy: ~370 call sites** (397 verificados menos los ya cubiertos por `withTenant()` en los 3 archivos parcialmente/totalmente migrados).
+**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): ~320 call sites**, concentrados casi todos en `server.js` (263) — el resto de Fase 2 (`compliance.routes.js`) y toda Fase 3/4 siguen sin migrar.
 
 **Cobertura de tests hoy:** 13 tests totales (`test:smoke` 8 + `test:security` 5) para ~397 call sites — insuficiente
 para migrar con confianza sin ampliarla primero. Ver Fase 0.
@@ -62,15 +85,24 @@ fuerza para no romper producción.
 - Ampliar `test:smoke`/`test:security` (o crear un `test:tenant-isolation` dedicado) para que cada fase de abajo
   tenga cobertura automatizada, no solo la prueba manual puntual que se corrió para la migración 054.
 
-### Fase 1 — Los 3 archivos ya parcialmente migrados, completarlos (bajo riesgo, ya validado el patrón)
-`anexos.routes.js` (26 call sites, ya tiene algunos en `withTenant()`), `proyectos.routes.js` (19, ídem). Terminar
-de convertir los call sites restantes de estos 2 archivos primero — el equipo ya probó que el patrón funciona ahí,
-así que el riesgo marginal de completarlos es el más bajo de todo el roadmap.
+### Fase 1 — ✅ COMPLETA (commit `1118e61`, 2026-09-05)
+`anexos.routes.js` y `proyectos.routes.js` migrados por completo a `withTenant()`. GRANT en
+`055_rls_scoped_grants_fase1.sql`.
 
 ### Fase 2 — Rutas de negocio de solo-lectura o bajo impacto (riesgo medio-bajo)
-`biblioteca.routes.js` (20), `fichaTecnica.routes.js` (10), `reporte.routes.js` (4), `marcoNormativo.routes.js` (8).
-Mayormente lecturas o generación de documentos — un fallo de aislamiento aquí expone datos pero no corrompe
-transacciones financieras ni de pago.
+`reporte.routes.js` — ✅ completado de forma adelantada en el mismo commit `1118e61`.
+`biblioteca.routes.js` (20), `fichaTecnica.routes.js` (10), `marcoNormativo.routes.js` (8) — ✅ **COMPLETADOS
+2026-09-06**: migrados a `withTenant()`, GRANT en `059_rls_scoped_grants_fase2.sql` (incluye `compliance_data`,
+`config_logistica`, `marco_normativo`, `versiones_proyecto`, `project_biblioteca`, `project_biblioteca_carpetas` —
+`fichaTecnica.routes.js` lee cruzado de las 2 primeras, que son tablas de `compliance.routes.js`/
+`configLogistica.routes.js`, aún sin migrar como archivo completo). 11/11 pruebas de regresión + aislamiento
+cruzado passed (2 tenants de prueba reales vía HTTP contra el backend vivo, fixture limpiado). Único call site que
+se queda deliberadamente FUERA de `withTenant()`: `GET /api/m12/verificar/:hash` (verificación pública de un sello
+ya emitido, sin `authenticateToken` — no hay `req.userId` que pasarle, mismo criterio que `gemini_key_state`/
+`trial_sessions` en la sección 4.
+
+**Falta de Fase 2**: `compliance.routes.js` (9 call sites) — su propio archivo, aparte de las 2 tablas que ya
+recibieron GRANT arriba por necesidad de `fichaTecnica.routes.js`.
 
 ### Fase 3 — Rutas con escritura de datos de negocio (riesgo medio)
 `compliance.routes.js` (9), `presupuesto.routes.js` (6), `configLogistica.routes.js` (6), `radicacion.routes.js` (5),
