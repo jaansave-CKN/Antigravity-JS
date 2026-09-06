@@ -61,7 +61,7 @@
     "pdfkit": "^0.18.0",
     "pg": "^8.21.0",
     "posthog-js": "^1.411.0",
-    "react": "^19.2.6",
+    "react": "^19.2.8",
     "react-dom": "^19.2.6",
     "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.18.2",
