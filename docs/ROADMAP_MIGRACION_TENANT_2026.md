@@ -29,6 +29,19 @@
 >   de `withTenantTransaction()` fuera de Ficha Técnica. `catalogo_rendimientos`
 >   excluida a propósito (RLS activo sin política = deny-all sin BYPASSRLS, sin
 >   columna de tenant — catálogo global). 14/14 pruebas passed.
+> - **Fase 3, lote 2 — ✅ COMPLETADO (2026-09-06):** `radicacion.routes.js` (5),
+>   `motorDialectico.routes.js` (5), `exportacion.routes.js` (5) y
+>   `authGoogle.controller.js` (5) migrados a `withTenant()`. GRANT en
+>   `061_rls_scoped_grants_fase3_lote2.sql` (`project_indicators` y
+>   `user_credentials` — el resto de las tablas del lote ya tenía GRANT de
+>   fases previas). Hallazgo colateral: `getGoogleAccessToken()`
+>   (`authGoogle.controller.js`) no tiene ningún caller real en el repo hoy
+>   (verificado con `grep -rn "getGoogleAccessToken("` — solo su propia
+>   definición; `server.js` la importa en la línea 24 pero nunca la invoca) —
+>   se migró igual por consistencia del archivo, documentado como código
+>   muerto, no como deuda de tenant. 15/15 pruebas de regresión + aislamiento
+>   cruzado passed (incluye una prueba de que `DELETE /api/auth/google/revoke`
+>   borra la fila de verdad en BD, no solo devuelve 200).
 > - **Regla para la próxima sesión**: antes de elegir el siguiente lote,
 >   re-verificar con `grep -c` real (getRow/getRows/runSql vs withTenant\*) en
 >   cada archivo de la tabla de abajo — este documento puede volver a
@@ -59,12 +72,12 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 | `backend/routes/marcoNormativo.routes.js` | 8 → withTenant | **MIGRADO COMPLETO** (2026-09-06, este documento) |
 | `backend/routes/subscriptions.routes.js` | 7 | Sin migrar |
 | `backend/routes/presupuesto.routes.js` / `configLogistica.routes.js` | 7 c/u → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 3 lote 1) |
-| `backend/routes/radicacion.routes.js` / `motorDialectico.routes.js` / `exportacion.routes.js` / `authGoogle.controller.js` | 5 c/u | Sin migrar |
+| `backend/routes/radicacion.routes.js` / `motorDialectico.routes.js` / `exportacion.routes.js` / `authGoogle.controller.js` | 5 c/u → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 3 lote 2) |
 | `backend/routes/reporte.routes.js` | 6 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05, adelantado desde Fase 2) |
 | `backend/routes/wompi.webhook.js` / `stripe.webhook.js` | 2 c/u | Sin migrar — **ver nota de riesgo abajo** |
 | `backend/routes/valorExponencial.routes.js` / `matrizRaci.routes.js` / `estresFinanciero.routes.js` / `entradaIA.routes.js` / `copiloto.routes.js` | 1 c/u | **Ya migrados** (services detrás de estas rutas usan `withTenant()`, confirmado por auditoría) |
 
-**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): ~311 call sites**, concentrados casi todos en `server.js` (263) — Fase 1 y Fase 2 quedan 100% cerradas; Fase 3 en adelante sigue sin migrar.
+**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): ~291 call sites**, concentrados casi todos en `server.js` (263) — Fase 1, Fase 2 y Fase 3 (lotes 1 y 2) quedan 100% cerradas; solo Fase 4 (pagos) y Fase 5 (`server.js`) siguen sin migrar.
 
 **Cobertura de tests hoy:** 13 tests totales (`test:smoke` 8 + `test:security` 5) para ~397 call sites — insuficiente
 para migrar con confianza sin ampliarla primero. Ver Fase 0.
@@ -137,8 +150,23 @@ tiene RLS **activo pero sin ninguna política** y no tiene columna de tenant —
 rol sin BYPASSRLS (el GRANT no lo arregla: controla el permiso de la operación, no qué filas se ven). Se queda en
 el pool principal (`getRow`/`getRows`), mismo criterio que `gemini_key_state`/`trial_sessions` (sección 4).
 
-**Lote 2 — pendiente:** `radicacion.routes.js` (5), `motorDialectico.routes.js` (5), `exportacion.routes.js` (5),
-`authGoogle.controller.js` (5).
+**Lote 2 — ✅ COMPLETADO 2026-09-06:** `radicacion.routes.js` (5), `motorDialectico.routes.js` (5),
+`exportacion.routes.js` (5) y `authGoogle.controller.js` (5) migrados a `withTenant()`. GRANT en
+`061_rls_scoped_grants_fase3_lote2.sql` (`project_indicators` y `user_credentials` — `proyectos`,
+`compliance_data`, `config_logistica`, `motor_dialectico`, `objetivos_arbol` y `project_change_theory` ya tenían
+GRANT de fases previas). 15/15 pruebas de regresión + aislamiento cruzado passed vía HTTP real contra el backend
+vivo (incluye radicación completa con Hard-Lock predial despejado vía `PATCH /api/proyectos/:id/estado-legal`,
+config dialéctica, exportación PDF y ciclo status/revoke de credenciales OAuth de Google, con verificación directa
+en BD de que el DELETE de `revoke` borra la fila de verdad).
+
+Hallazgo colateral (no es deuda de tenant, se documenta para no perderlo): `getGoogleAccessToken()`
+(`authGoogle.controller.js`) no tiene ningún caller real en el repo — verificado con
+`grep -rn "getGoogleAccessToken("`, solo aparece su propia definición; `server.js` la importa (línea 24) pero
+nunca la invoca. Es código muerto hoy. Se migró igual a `withTenant*` por consistencia del archivo (toca
+`user_credentials`), pero no hay ningún flujo en producción que la ejecute.
+
+Con esto, **Fase 3 queda oficialmente liquidada** (compliance.routes.js adelantado en el cierre de Fase 2, lote 1
+y lote 2 completos).
 
 ### Fase 4 — Pagos y suscripciones (riesgo alto — tratar aparte, con ventana de mantenimiento)
 `subscriptions.routes.js` (7), `wompi.webhook.js` (2), `stripe.webhook.js` (2). Los webhooks de pasarela son el

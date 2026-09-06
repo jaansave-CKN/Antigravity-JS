@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import { runCrossCheck } from '../validators/crossCheckValidator.js';
 import { captureError } from '../config/sentry.config.js';
+import { withTenantRow, withTenantRun } from '../config/database.config.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -24,9 +25,9 @@ function wrap(fn) {
 /**
  * Registra las rutas de radicación en la aplicación Express.
  * @param {import('express').Application} app
- * @param {{ authenticateToken: Function, runSql: Function, getRow: Function }} deps
+ * @param {{ authenticateToken: Function }} deps
  */
-export function registerRadicacionRoutes(app, { authenticateToken, runSql, getRow }) {
+export function registerRadicacionRoutes(app, { authenticateToken }) {
 
   /**
    * POST /api/modulo9/radicar/:proyectoId
@@ -53,7 +54,7 @@ export function registerRadicacionRoutes(app, { authenticateToken, runSql, getRo
     }
 
     // SECURITY FIX: user_id en WHERE evita enumeration (403 vs 404 leakage)
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       'SELECT id, estado FROM proyectos WHERE id = ? AND user_id = ?',
       [proyectoId, req.userId]
     );
@@ -68,7 +69,7 @@ export function registerRadicacionRoutes(app, { authenticateToken, runSql, getRo
     // Hard-Lock predial (F-Legal-01) — mismo candado que POST /api/m12/ficha/:proyectoId.
     // Este endpoint no lo llama ningún componente del frontend hoy, pero sigue
     // siendo una ruta HTTP real y autenticada — debe quedar igual de protegida.
-    const complianceLegal = await getRow(
+    const complianceLegal = await withTenantRow(req.userId,
       'SELECT estado_legal FROM compliance_data WHERE proyecto_id = ? AND user_id = ?',
       [proyectoId, req.userId]
     );
@@ -88,7 +89,7 @@ export function registerRadicacionRoutes(app, { authenticateToken, runSql, getRo
     // repo (ej. fichaTecnica.routes.js:107). No explotable antes (el guard sí
     // corta con 404), pero ahora ambos UPDATE repiten AND user_id = ?.
     if (!valid) {
-      await runSql(
+      await withTenantRun(req.userId,
         `UPDATE proyectos
            SET estado = 'BLOQUEADO',
                bloqueo_razon = ?,
@@ -117,7 +118,7 @@ export function registerRadicacionRoutes(app, { authenticateToken, runSql, getRo
       resumen: detail,
     };
 
-    await runSql(
+    await withTenantRun(req.userId,
       `UPDATE proyectos
           SET estado = 'Finalizado',
               bloqueo_razon = NULL,
@@ -148,7 +149,7 @@ export function registerRadicacionRoutes(app, { authenticateToken, runSql, getRo
    */
   app.get('/api/modulo9/radicar/:proyectoId/sello', authenticateToken, wrap(async (req, res) => {
     // SECURITY FIX: user_id en WHERE — misma corrección de enumeration
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       'SELECT id, estado, crosscheck_sello FROM proyectos WHERE id = ? AND user_id = ?',
       [req.params.proyectoId, req.userId]
     );

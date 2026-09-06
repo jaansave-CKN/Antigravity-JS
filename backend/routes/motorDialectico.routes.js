@@ -1,11 +1,12 @@
 import crypto from 'crypto';
+import { withTenantRow, withTenantRun } from '../config/database.config.js';
 
-export function registerMotorDialecticoRoutes(app, { authenticateToken, runSql, getRow, tryCatch }) {
+export function registerMotorDialecticoRoutes(app, { authenticateToken, tryCatch }) {
 
   // SECURITY: valida propiedad de :proyectoId antes de tocar motor_dialectico —
   // mismo fix de BOLA aplicado en compliance/configLogistica/marcoNormativo.
   async function checkOwnership(proyectoId, userId) {
-    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
   // GET /api/m4/config/:proyectoId
@@ -13,7 +14,7 @@ export function registerMotorDialecticoRoutes(app, { authenticateToken, runSql, 
     const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const row = await getRow(
+    const row = await withTenantRow(req.userId,
       'SELECT * FROM motor_dialectico WHERE proyecto_id = ? AND user_id = ?',
       [req.params.proyectoId, req.userId]
     );
@@ -40,7 +41,7 @@ export function registerMotorDialecticoRoutes(app, { authenticateToken, runSql, 
       interlocutor = '', enfoque = '', humanizacion = '', adicionales = [],
     } = req.body;
 
-    const existing = await getRow(
+    const existing = await withTenantRow(req.userId,
       'SELECT id FROM motor_dialectico WHERE proyecto_id = ? AND user_id = ?',
       [req.params.proyectoId, req.userId]
     );
@@ -54,14 +55,14 @@ export function registerMotorDialecticoRoutes(app, { authenticateToken, runSql, 
     async function escribir(columnas, valores) {
       if (existing) {
         const sets = columnas.map(c => `${c} = ?`).join(', ');
-        await runSql(
+        await withTenantRun(req.userId,
           `UPDATE motor_dialectico SET ${sets}, updated_at = CURRENT_TIMESTAMP WHERE proyecto_id = ? AND user_id = ?`,
           [...valores, req.params.proyectoId, req.userId]
         );
       } else {
         const cols = ['id', 'proyecto_id', 'user_id', ...columnas].join(', ');
         const placeholders = ['?', '?', '?', ...columnas.map(() => '?')].join(', ');
-        await runSql(
+        await withTenantRun(req.userId,
           `INSERT INTO motor_dialectico (${cols}) VALUES (${placeholders})`,
           [crypto.randomUUID(), req.params.proyectoId, req.userId, ...valores]
         );
