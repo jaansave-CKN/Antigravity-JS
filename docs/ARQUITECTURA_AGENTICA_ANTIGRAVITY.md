@@ -575,3 +575,15 @@ El propio commit `1118e61`/`055_rls_scoped_grants_fase1.sql` documenta una invoc
 **SCORE TOTAL Fase 6: 87/100** (+1 sobre Fase 5). **No se declara 100/100** — sería falso: quedan sin cerrar el `injectTenantFilter` sin parametrizar (§6.2), ~90 usos de `any`, el JWT en `localStorage` (§10.2), ~370 call sites aún en el pool `BYPASSRLS` (§10.1, en ejecución por fases), y la verificación en vivo de que 055-058 corrieron contra la BD real (no verificable desde este entorno sin conexión directa a producción).
 
 **Veredicto: APTO — no bloqueado.** Ningún hallazgo de esta pasada alcanza severidad Crítica sin corregir; el único hallazgo Alto real de esta ventana (política RLS aparente-pero-abierta en `project_version_hashes`) ya está corregido y verificado por introspección en la misma sesión que lo encontró.
+
+---
+
+## 11. Fase 7 (2026-09-05, misma tarde) — corrección de un hallazgo heredado sin re-verificar
+
+**Origen:** el usuario pidió atacar `injectTenantFilter` (§6.2 hallazgo 3, "Baja — no corregido") como Prioridad Roja tras el cierre de Fase 6. Antes de tocar el código: grep exhaustivo de `backend/` buscando el patrón vulnerable citado originalmente (`WHERE org_id = '${tenantId}'`) — **0 coincidencias en código ejecutable**, 1 sola coincidencia dentro de un comentario.
+
+**Hallazgo real:** `injectTenantFilter` (`database.config.js:588-601` tras esta corrección) **ya usa placeholder `?` + `params` alineados posicionalmente** — no concatena `tenantId` como literal. El comentario que documenta ese fix (con fecha de la propia auditoría del 2026-08-22) existía en el archivo, pero estaba ubicado por error encima de `withTenantRow()` (un helper distinto, creado después) en vez de encima de `injectTenantFilter`. Reubicado a su función correcta — cero cambio de lógica, `node --check` limpio, único call-site (`database.config.js:537`) no afectado.
+
+**Autocrítica explícita:** el cierre de Fase 6 (§10.5, arriba) repitió esta deuda como "sin cerrar" heredándola de §6.2/§6.7/§6.8 sin releer el código — exactamente el error que este mismo documento existe para prevenir (ver cabecera de `CLAUDE.md`). Se corrige aquí, no se reescribe la Fase 6 original — el score de Fase 6 (87/100) queda como estaba, este es un ajuste posterior:
+
+**SCORE TOTAL Fase 7: 88/100** (+1 sobre Fase 6 — `injectTenantFilter` cerrado, era el único ítem de Vector 2 que sí era un fix mecánico ya aplicado). Deuda real restante sin cambios: JWT en `localStorage` (§10.2, diseño en curso — ver Fase 8), ~90 usos de `any`, ~370 call sites en el pool `BYPASSRLS` (fuera de alcance de esta sesión, roadmap separado), y la verificación en vivo de 055-058 contra producción.
