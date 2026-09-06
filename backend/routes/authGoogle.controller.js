@@ -6,6 +6,7 @@
  */
 import { OAuth2Client } from 'google-auth-library';
 import crypto from 'crypto';
+import { withTenantRow, withTenantRun } from '../config/database.config.js';
 
 const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -25,14 +26,21 @@ export const googleOAuth2Client = (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET)
 
 /**
  * Obtiene un access_token válido para el usuario, refrescándolo automáticamente si está por vencer.
+ *
+ * NOTA (Fase 3 Lote 2, 2026-09-06): esta función no tiene ningún caller real
+ * en el repo (verificado con grep -rn "getGoogleAccessToken(" — solo aparece
+ * su propia definición; server.js la importa en la línea 24 pero nunca la
+ * invoca). Se migra igual a withTenant* por consistencia del archivo y
+ * porque toca user_credentials, pero es código muerto hoy.
+ *
  * @param {string} userId
- * @param {{ getRow, runSql, encryptKey, decryptKey, JWT_SECRET }} deps
+ * @param {{ encryptKey, decryptKey, JWT_SECRET }} deps
  * @returns {Promise<string|null>}
  */
-export async function getGoogleAccessToken(userId, { getRow, runSql, encryptKey, decryptKey, JWT_SECRET }) {
+export async function getGoogleAccessToken(userId, { encryptKey, decryptKey, JWT_SECRET }) {
   if (!googleOAuth2Client) return null;
 
-  const row = await getRow(
+  const row = await withTenantRow(userId,
     'SELECT encrypted_key FROM user_credentials WHERE user_id = ? AND service = ?',
     [userId, 'google_oauth']
   );
@@ -51,7 +59,7 @@ export async function getGoogleAccessToken(userId, { getRow, runSql, encryptKey,
       });
       const encrypted = encryptKey(updated, JWT_SECRET);
       const now = new Date().toISOString();
-      await runSql(
+      await withTenantRun(userId,
         'UPDATE user_credentials SET encrypted_key=?, updated_at=? WHERE user_id=? AND service=?',
         [encrypted, now, userId, 'google_oauth']
       );
@@ -102,9 +110,9 @@ function verificarState(state, JWT_SECRET) {
 /**
  * Registra las 4 rutas OAuth2 en la instancia Express.
  * @param {import('express').Express} app
- * @param {{ authenticateToken, runSql, getRow, encryptKey, JWT_SECRET }} deps
+ * @param {{ authenticateToken, encryptKey, JWT_SECRET }} deps
  */
-export function registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRow, encryptKey, JWT_SECRET }) {
+export function registerGoogleAuthRoutes(app, { authenticateToken, encryptKey, JWT_SECRET }) {
 
   // GET /api/auth/google — redirige al consentimiento de Google
   app.get('/api/auth/google', authenticateToken, (req, res) => {
@@ -155,7 +163,7 @@ export function registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRo
       const id  = crypto.randomUUID();
       const now = new Date().toISOString();
 
-      await runSql(
+      await withTenantRun(userId,
         `INSERT INTO user_credentials (id, user_id, service, encrypted_key, label, created_at, updated_at)
          VALUES (?, ?, 'google_oauth', ?, 'Google OAuth2 — Radar Fondos 360', ?, ?)
          ON CONFLICT(user_id, service)
@@ -173,7 +181,7 @@ export function registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRo
   // GET /api/auth/google/status — devuelve si el usuario ya tiene tokens vinculados
   app.get('/api/auth/google/status', authenticateToken, async (req, res) => {
     try {
-      const row = await getRow(
+      const row = await withTenantRow(req.userId,
         'SELECT updated_at FROM user_credentials WHERE user_id = ? AND service = ?',
         [req.userId, 'google_oauth']
       );
@@ -189,7 +197,7 @@ export function registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRo
   // DELETE /api/auth/google/revoke — elimina tokens del usuario
   app.delete('/api/auth/google/revoke', authenticateToken, async (req, res) => {
     try {
-      await runSql(
+      await withTenantRun(req.userId,
         'DELETE FROM user_credentials WHERE user_id = ? AND service = ?',
         [req.userId, 'google_oauth']
       );

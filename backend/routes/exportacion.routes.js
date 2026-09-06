@@ -5,6 +5,7 @@
  * en documentos PDF descargables — ver backend/services/exportGenerator.js.
  */
 import { generarMGA, generarBID, generarOXI } from '../services/exportGenerator.js';
+import { withTenantRow, withTenantRows } from '../config/database.config.js';
 
 function safeJson(v, fallback = {}) {
   if (v == null) return fallback;
@@ -12,15 +13,15 @@ function safeJson(v, fallback = {}) {
   try { return JSON.parse(v); } catch { return fallback; }
 }
 
-export function registerExportacionRoutes(app, { authenticateToken, getRow, getRows, tryCatch }) {
+export function registerExportacionRoutes(app, { authenticateToken, tryCatch }) {
   async function cargarContexto(proyectoId, userId) {
-    const proyecto = await getRow('SELECT * FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    const proyecto = await withTenantRow(userId, 'SELECT * FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
     if (!proyecto) return null;
     const [arbol, indicadores, tdcRow, logistica] = await Promise.all([
-      getRows('SELECT tipo, nivel, texto, parent_id, supuestos FROM objetivos_arbol WHERE proyecto_id = ? ORDER BY nivel ASC', [proyectoId]),
-      getRows('SELECT nombre, tipo, linea_base, meta_total, unidad_medida, fuente_verificacion FROM project_indicators WHERE project_id = ?', [proyectoId]),
-      getRow('SELECT insumos, actividades, productos, resultados_corto_plazo, impacto_largo_plazo FROM project_change_theory WHERE proyecto_id = ?', [proyectoId]),
-      getRow('SELECT proponente_nombre, tipo_entidad, departamento, municipio, duracion_meses FROM config_logistica WHERE proyecto_id = ? AND user_id = ?', [proyectoId, userId]),
+      withTenantRows(userId, 'SELECT tipo, nivel, texto, parent_id, supuestos FROM objetivos_arbol WHERE proyecto_id = ? ORDER BY nivel ASC', [proyectoId]),
+      withTenantRows(userId, 'SELECT nombre, tipo, linea_base, meta_total, unidad_medida, fuente_verificacion FROM project_indicators WHERE project_id = ?', [proyectoId]),
+      withTenantRow(userId, 'SELECT insumos, actividades, productos, resultados_corto_plazo, impacto_largo_plazo FROM project_change_theory WHERE proyecto_id = ?', [proyectoId]),
+      withTenantRow(userId, 'SELECT proponente_nombre, tipo_entidad, departamento, municipio, duracion_meses FROM config_logistica WHERE proyecto_id = ? AND user_id = ?', [proyectoId, userId]),
     ]);
     const tdc = tdcRow ? { ...tdcRow, resultados_corto_plazo: safeJson(tdcRow.resultados_corto_plazo, []) } : null;
     return { proyecto, arbol, indicadores, tdc, logistica };

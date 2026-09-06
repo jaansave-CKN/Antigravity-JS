@@ -5079,7 +5079,7 @@ Reglas:
   registerSubscriptionRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
 
   // V8.0 — Formulador: M4 Motor Dialéctico
-  registerMotorDialecticoRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
+  registerMotorDialecticoRoutes(app, { authenticateToken, tryCatch });
 
   // V8.0 — Formulador: M5 Configuración Logística
   registerConfigLogisticaRoutes(app, { authenticateToken, tryCatch });
@@ -5119,16 +5119,16 @@ Reglas:
   await registerEntradaIARoutes(app, { authenticateToken, getRow, getRows, runSql, requireAccess, aiLimiter, entradaCampoLimiter });
 
   // F5-01: Módulo 9 — Cross-Check Pipeline & Radicación
-  registerRadicacionRoutes(app, { authenticateToken, runSql, getRow });
+  registerRadicacionRoutes(app, { authenticateToken });
 
   // Fase 5: Exportación a estructura MGA / BID / OXI
-  registerExportacionRoutes(app, { authenticateToken, getRow, getRows, tryCatch });
+  registerExportacionRoutes(app, { authenticateToken, tryCatch });
 
   // F5-02: Módulo 9 — Exportación Certificada (reporte PDF SSR)
   registerReporteRoutes(app, { authenticateToken, getRow, getRows });
 
   // Google Auth routes
-  registerGoogleAuthRoutes(app, { authenticateToken, runSql, getRow, encryptKey, JWT_SECRET });
+  registerGoogleAuthRoutes(app, { authenticateToken, encryptKey, JWT_SECRET });
 
   // ════════════════════════════════════════════════════════════════════════════
   // ── Error handler global (CORS + otros errores de Express) ──────────────
