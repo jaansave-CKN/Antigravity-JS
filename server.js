@@ -25,7 +25,7 @@ import {
 } from './backend/routes/authGoogle.controller.js';
 import { emailAdapter } from './backend/notifications/BrevoEmailAdapter.js';
 import { pool, getRow, getRows, getCount, runSql, runTransaction } from './backend/db.js';
-import { dbStatus, withTenant, withTenantRow, withTenantRun } from './backend/config/database.config.js';
+import { dbStatus, withTenant, withTenantRow, withTenantRun, withTenantRows, withTenantTransaction } from './backend/config/database.config.js';
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -1856,11 +1856,16 @@ async function start() {
   // la respuesta si falla (la acción real ya se ejecutó).
   async function registrarAuditoriaAdmin(req, accion, objetivo) {
     try {
-      const admin = await getRow('SELECT email FROM usuarios WHERE id = ?', [req.userId]);
+      // El admin lee su PROPIO registro -> tenantId = req.userId, seguro.
+      const admin = await withTenantRow(req.userId, 'SELECT email FROM usuarios WHERE id = ?', [req.userId]);
       // FIX (auditoría SRE 2026-08-08): req.ip ya resuelve correctamente el
       // XFF real (trust proxy configurado) — antes un admin_audit_log podía
       // quedar con una IP falsa si el request traía un XFF manipulado.
       const ip = req.ip || 'desconocida';
+      // admin_audit_log: RLS activo pero CERO políticas (deny-all para
+      // rf360_rls_scoped, verificado en vivo) -- es un log de auditoría
+      // GLOBAL por naturaleza (un admin revisa acciones sobre TODOS los
+      // tenants). Sin escopar a propósito, mismo criterio que ai_token_logs.
       await runSql(
         `INSERT INTO admin_audit_log (admin_id, admin_email, accion, objetivo_id, objetivo_email, detalle, ip)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -1872,6 +1877,11 @@ async function start() {
   }
 
   // GET /api/admin/auditoria — últimas 100 acciones admin (aprobar/rechazar/purgar)
+  // Sin escopar a propósito: vista GLOBAL cross-tenant por diseño (un admin
+  // revisa acciones sobre TODOS los usuarios, no solo uno) -- RLS no puede
+  // expresar "todas las filas de todos los tenants". admin_audit_log además
+  // tiene RLS activo sin ninguna política (deny-all bajo el rol escopado).
+  // Protegida por el chequeo req.userRole==='admin', no por RLS.
   app.get('/api/admin/auditoria', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
     const rows = await getRows(
@@ -1880,7 +1890,8 @@ async function start() {
     res.json({ success: true, data: rows });
   }));
 
-  // GET /api/admin/usuarios/pendientes
+  // GET /api/admin/usuarios/pendientes — sin escopar a propósito: vista
+  // GLOBAL cross-tenant por diseño, mismo criterio que /api/admin/auditoria.
   app.get('/api/admin/usuarios/pendientes', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
     const rows = await getRows(
@@ -1897,7 +1908,11 @@ async function start() {
     // debe responder success:true (falso positivo real, confirmado en
     // auditoría: el UPDATE contra un id inexistente afecta 0 filas y el
     // endpoint igual devolvía éxito).
-    const objetivo = await getRow('SELECT id, email, nombre FROM usuarios WHERE id = ?', [req.params.id]);
+    // ADMIN-BYPASS: tenantId = req.params.id (el usuario objetivo), NUNCA
+    // req.userId (el admin) -- de lo contrario RLS bloquearía en silencio la
+    // escritura sobre la cuenta de otro usuario. Mismo criterio que
+    // compliance.routes.js/subscriptions.routes.js.
+    const objetivo = await withTenantRow(req.params.id, 'SELECT id, email, nombre FROM usuarios WHERE id = ?', [req.params.id]);
     if (!objetivo) {
       return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
     }
@@ -1905,7 +1920,7 @@ async function start() {
     // Placeholder real (no literal "1"): bajo el fallback REST, restUpdate()
     // en database.config.js solo traduce placeholders $N en el SET — un
     // literal se descarta en silencio y el UPDATE no cambia nada.
-    await runSql('UPDATE usuarios SET is_approved = ? WHERE id = ?', [1, req.params.id]);
+    await withTenantRun(req.params.id, 'UPDATE usuarios SET is_approved = ? WHERE id = ?', [1, req.params.id]);
     await registrarAuditoriaAdmin(req, 'aprobar', { id: req.params.id, email: objetivo.email });
 
     const activationToken = jwt.sign({ sub: objetivo.id, purpose: 'account_activated' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '30d' });
@@ -1921,8 +1936,9 @@ async function start() {
   // POST /api/admin/usuarios/:id/rechazar
   app.post('/api/admin/usuarios/:id/rechazar', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
-    await runSql('UPDATE usuarios SET is_active = ? WHERE id = ?', [0, req.params.id]);
-    const objetivo = await getRow('SELECT email FROM usuarios WHERE id = ?', [req.params.id]);
+    // ADMIN-BYPASS: tenantId = req.params.id, nunca req.userId.
+    await withTenantRun(req.params.id, 'UPDATE usuarios SET is_active = ? WHERE id = ?', [0, req.params.id]);
+    const objetivo = await withTenantRow(req.params.id, 'SELECT email FROM usuarios WHERE id = ?', [req.params.id]);
     await registrarAuditoriaAdmin(req, 'rechazar', { id: req.params.id, email: objetivo?.email });
     res.json({ success: true, message: 'Usuario rechazado.' });
   }));
@@ -1930,6 +1946,8 @@ async function start() {
   // GET /api/admin/usuarios — TODOS los usuarios (no solo pendientes), con su
   // user_subscriptions mergeado en JS (nunca JOIN — extractTable() del
   // traductor REST solo reconoce la primera tabla tras FROM/JOIN).
+  // Sin escopar a propósito: vista GLOBAL cross-tenant por diseño, mismo
+  // criterio que /api/admin/auditoria.
   app.get('/api/admin/usuarios', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
     const usuarios = await getRows(
@@ -1953,12 +1971,15 @@ async function start() {
   app.patch('/api/admin/usuarios/:id/permisos', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
     const targetId = req.params.id;
-    const target = await getRow('SELECT id, email, tipousuario, is_active FROM usuarios WHERE id = ? AND deleted_at IS NULL', [targetId]);
+    // ADMIN-BYPASS: tenantId = targetId, nunca req.userId (el admin).
+    const target = await withTenantRow(targetId, 'SELECT id, email, tipousuario, is_active FROM usuarios WHERE id = ? AND deleted_at IS NULL', [targetId]);
     if (!target) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
     const { access_radar, access_formulador, expires_at, is_active } = req.body || {};
 
-    // Protección "último admin activo" — mismo patrón que DELETE /api/usuarios/:id/purgar
+    // Protección "último admin activo" — mismo patrón que DELETE /api/usuarios/:id/purgar.
+    // Sin escopar a propósito: chequeo GLOBAL cross-tenant por naturaleza (debe
+    // ver admins de TODOS los tenants para saber si queda alguno más).
     if (target.tipousuario === 'admin' && is_active === false && target.is_active) {
       const otrosAdmins = await getRows(
         "SELECT id FROM usuarios WHERE tipousuario = 'admin' AND is_active = 1 AND id != ? AND deleted_at IS NULL",
@@ -1970,29 +1991,29 @@ async function start() {
     }
 
     if (typeof is_active === 'boolean') {
-      await runSql('UPDATE usuarios SET is_active = ? WHERE id = ?', [is_active ? 1 : 0, targetId]);
+      await withTenantRun(targetId, 'UPDATE usuarios SET is_active = ? WHERE id = ?', [is_active ? 1 : 0, targetId]);
     }
 
     if (access_radar !== undefined || access_formulador !== undefined || expires_at !== undefined) {
-      const existing = await getRow('SELECT access_radar, access_formulador FROM user_subscriptions WHERE user_id = ?', [targetId]);
+      const existing = await withTenantRow(targetId, 'SELECT access_radar, access_formulador FROM user_subscriptions WHERE user_id = ?', [targetId]);
       const nextRadar      = access_radar      !== undefined ? !!access_radar      : !!existing?.access_radar;
       const nextFormulador = access_formulador !== undefined ? !!access_formulador : !!existing?.access_formulador;
       const nextPlan = nextRadar && nextFormulador ? 'suite' : nextRadar ? 'radar' : nextFormulador ? 'formulador' : 'free';
 
       if (existing) {
         if (expires_at !== undefined) {
-          await runSql(
+          await withTenantRun(targetId,
             'UPDATE user_subscriptions SET plan = ?, access_radar = ?, access_formulador = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
             [nextPlan, nextRadar ? 1 : 0, nextFormulador ? 1 : 0, expires_at || null, targetId]
           );
         } else {
-          await runSql(
+          await withTenantRun(targetId,
             'UPDATE user_subscriptions SET plan = ?, access_radar = ?, access_formulador = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
             [nextPlan, nextRadar ? 1 : 0, nextFormulador ? 1 : 0, targetId]
           );
         }
       } else {
-        await runSql(
+        await withTenantRun(targetId,
           `INSERT INTO user_subscriptions (id, user_id, plan, access_radar, access_formulador, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
           [crypto.randomUUID(), targetId, nextPlan, nextRadar ? 1 : 0, nextFormulador ? 1 : 0, expires_at || null]
         );
@@ -2004,8 +2025,8 @@ async function start() {
       detalle: JSON.stringify({ access_radar, access_formulador, expires_at, is_active }),
     });
 
-    const updatedUser = await getRow('SELECT is_active FROM usuarios WHERE id = ?', [targetId]);
-    const updatedSub  = await getRow('SELECT plan, access_radar, access_formulador, expires_at FROM user_subscriptions WHERE user_id = ?', [targetId]);
+    const updatedUser = await withTenantRow(targetId, 'SELECT is_active FROM usuarios WHERE id = ?', [targetId]);
+    const updatedSub  = await withTenantRow(targetId, 'SELECT plan, access_radar, access_formulador, expires_at FROM user_subscriptions WHERE user_id = ?', [targetId]);
     res.json({
       success: true, message: 'Permisos actualizados',
       data: {
@@ -2027,9 +2048,10 @@ async function start() {
     app.post('/api/dev/make-admin', authenticateToken, tryCatch(async (req, res) => {
       const email = String(req.body?.email || '').trim().toLowerCase();
       if (!email) return res.status(400).json({ success: false, message: 'email es requerido' });
+      // Sin escopar a propósito: búsqueda por email, tenant aún desconocido.
       const user = await getRow('SELECT id, email, tipousuario FROM usuarios WHERE email = ?', [email]);
       if (!user) return res.status(404).json({ success: false, message: `No existe ningún usuario con email ${email}` });
-      await runSql('UPDATE usuarios SET tipousuario = ? WHERE email = ?', ['admin', email]);
+      await withTenantRun(user.id, 'UPDATE usuarios SET tipousuario = ? WHERE email = ?', ['admin', email]);
       console.warn(`[DEV] ${email} elevado a rol admin vía /api/dev/make-admin (por ${req.userId}).`);
       res.json({ success: true, message: `${email} ahora tiene rol admin. Vuelve a iniciar sesión para que el token lo refleje.` });
     }));
@@ -2040,6 +2062,10 @@ async function start() {
   // traduce agregación SQL, solo filtros WHERE simples; este endpoint requiere
   // Capa 1 (pg.Pool) activa. Se degrada con un mensaje claro si falla, nunca
   // devuelve datos parciales/incorrectos en silencio.
+  // Sin escopar a propósito: reporte agregado GLOBAL (suma de costos de TODOS
+  // los usuarios) -- escoparlo por un solo tenant rompería el propósito mismo
+  // del reporte. ai_token_logs además tiene RLS activo sin ninguna política
+  // (deny-all bajo el rol escopado, verificado en vivo).
   app.get('/api/admin/finops', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
     try {
@@ -2130,6 +2156,10 @@ async function start() {
   async function registrarAuditoriaAdminSinSesion(accion, objetivo, req) {
     try {
       const ip = req.ip || 'desconocida'; // FIX (auditoría SRE 2026-08-08): ver registrarAuditoriaAdmin
+      // admin_audit_log: RLS activo sin políticas (deny-all bajo el rol
+      // escopado) -- sin escopar a propósito, mismo criterio que
+      // registrarAuditoriaAdmin. Tampoco hay sesión/tenant real aquí (flujo
+      // de un clic desde el correo, sin login).
       await runSql(
         `INSERT INTO admin_audit_log (admin_id, admin_email, accion, objetivo_id, objetivo_email, detalle, ip)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -2144,15 +2174,17 @@ async function start() {
     const check = await verificarTokenAprobacionCorreo(req.params.id, req.query.token);
     if (!check.ok) return res.status(400).send(paginaResultadoAprobacion('No se pudo aprobar', check.message, false));
 
-    const objetivo = await getRow('SELECT id, email, nombre, is_approved FROM usuarios WHERE id = ?', [req.params.id]);
+    // ADMIN-BYPASS (sin sesión real, pero misma regla): tenantId = req.params.id.
+    const objetivo = await withTenantRow(req.params.id, 'SELECT id, email, nombre, is_approved FROM usuarios WHERE id = ?', [req.params.id]);
     if (!objetivo) return res.status(404).send(paginaResultadoAprobacion('Usuario no encontrado', 'La cuenta ya no existe.', false));
 
     if (objetivo.is_approved) {
+      // revokeToken: ledger GLOBAL, sin escopar a propósito (ver logout en Bloque 1).
       await revokeToken(req.query.token, req.params.id, check.payload.exp, runSql);
       return res.send(paginaResultadoAprobacion('Ya estaba aprobado', `${objetivo.email} ya tenía acceso habilitado.`, true));
     }
 
-    await runSql('UPDATE usuarios SET is_approved = ? WHERE id = ?', [1, req.params.id]);
+    await withTenantRun(req.params.id, 'UPDATE usuarios SET is_approved = ? WHERE id = ?', [1, req.params.id]);
     await revokeToken(req.query.token, req.params.id, check.payload.exp, runSql);
     await registrarAuditoriaAdminSinSesion('aprobar', objetivo, req);
 
@@ -2174,10 +2206,11 @@ async function start() {
     const check = await verificarTokenAprobacionCorreo(req.params.id, req.query.token);
     if (!check.ok) return res.status(400).send(paginaResultadoAprobacion('No se pudo rechazar', check.message, false));
 
-    const objetivo = await getRow('SELECT id, email FROM usuarios WHERE id = ?', [req.params.id]);
+    // ADMIN-BYPASS (sin sesión real, pero misma regla): tenantId = req.params.id.
+    const objetivo = await withTenantRow(req.params.id, 'SELECT id, email FROM usuarios WHERE id = ?', [req.params.id]);
     if (!objetivo) return res.status(404).send(paginaResultadoAprobacion('Usuario no encontrado', 'La cuenta ya no existe.', false));
 
-    await runSql('UPDATE usuarios SET is_active = ? WHERE id = ?', [0, req.params.id]);
+    await withTenantRun(req.params.id, 'UPDATE usuarios SET is_active = ? WHERE id = ?', [0, req.params.id]);
     await revokeToken(req.query.token, req.params.id, check.payload.exp, runSql);
     await registrarAuditoriaAdminSinSesion('rechazar', objetivo, req);
     res.send(paginaResultadoAprobacion('Cuenta rechazada', `${objetivo.email} fue rechazada.`, true));
@@ -2196,9 +2229,12 @@ async function start() {
     if (targetId === req.userId) {
       return res.status(400).json({ success: false, message: 'No puedes purgar tu propia cuenta.' });
     }
-    const target = await getRow('SELECT id, email, tipousuario FROM usuarios WHERE id = ?', [targetId]);
+    // ADMIN-BYPASS: tenantId = targetId, nunca req.userId (el admin).
+    const target = await withTenantRow(targetId, 'SELECT id, email, tipousuario FROM usuarios WHERE id = ?', [targetId]);
     if (!target) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
+    // Sin escopar a propósito: chequeo GLOBAL cross-tenant por naturaleza
+    // (debe ver admins de TODOS los tenants), mismo criterio que PATCH /permisos.
     if (target.tipousuario === 'admin') {
       const otrosAdmins = await getRows(
         "SELECT id FROM usuarios WHERE tipousuario = 'admin' AND is_active = 1 AND id != ? AND deleted_at IS NULL",
@@ -2209,12 +2245,24 @@ async function start() {
       }
     }
 
-    const proyectos = await getRows('SELECT id FROM proyectos WHERE user_id = ?', [targetId]);
+    const proyectos = await withTenantRows(targetId, 'SELECT id FROM proyectos WHERE user_id = ?', [targetId]);
+
+    // withTenantTransaction() (Fase 5 Bloque 2, 2026-09-06): TODA la cascada
+    // en UNA sola transacción atómica bajo el pool RLS-escopado -- mejora
+    // real de atomicidad frente al código anterior (solo el DELETE de
+    // proyectos estaba envuelto en una transacción; un fallo a mitad de la
+    // cascada podía dejar una purga parcial). set_config('app.allow_pvh_purge',
+    // 'true', true) sigue siendo LOCAL a esta transacción (mismo client que
+    // el resto de las queries) -- el bypass se apaga solo al hacer
+    // COMMIT/ROLLBACK, no puede filtrarse a ninguna otra request concurrente.
+    const queriesPurga = [
+      { sql: "SELECT set_config('app.allow_pvh_purge', 'true', true)" },
+    ];
+    // Únicas 2 tablas de proyecto con FK NO ACTION — el resto de project_* ya
+    // tienen ON DELETE CASCADE real y se limpian solas al borrar el proyecto.
     for (const p of proyectos) {
-      // Únicas 2 tablas de proyecto con FK NO ACTION — el resto de project_* ya
-      // tienen ON DELETE CASCADE real y se limpian solas al borrar el proyecto.
-      await runSql('DELETE FROM versiones_proyecto WHERE proyecto_id = ?', [p.id]);
-      await runSql('DELETE FROM project_budgets WHERE proyecto_id = ?', [p.id]);
+      queriesPurga.push({ sql: 'DELETE FROM versiones_proyecto WHERE proyecto_id = ?', params: [p.id] });
+      queriesPurga.push({ sql: 'DELETE FROM project_budgets WHERE proyecto_id = ?', params: [p.id] });
     }
     // FIX (Prioridad Roja, 2026-09-05): DELETE FROM proyectos cascadea a
     // project_version_hashes (ON DELETE CASCADE, migración 049), pero esa
@@ -2222,25 +2270,20 @@ async function start() {
     // función corregida en 058_fix_pvh_trigger.sql) que por defecto bloquea
     // CUALQUIER DELETE — rompía este purge para cualquier usuario con al
     // menos 1 hash de versión generado (bastaba con haber usado "Continuar
-    // formulación" una vez). set_config('app.allow_pvh_purge','true',true)
-    // es LOCAL a esta transacción (runTransaction abre su propio BEGIN/
-    // COMMIT sobre un único client) — el bypass se apaga solo al hacer
-    // COMMIT/ROLLBACK, no puede filtrarse a ninguna otra request concurrente
-    // ni a un UPDATE (la función solo lo honra para TG_OP='DELETE').
-    await runTransaction([
-      { sql: "SELECT set_config('app.allow_pvh_purge', 'true', true)" },
-      { sql: 'DELETE FROM proyectos WHERE user_id = ?', params: [targetId] },
-    ]);
-    await runSql('DELETE FROM user_favorites WHERE user_id = ?', [targetId]);
-    await runSql('DELETE FROM user_subscriptions WHERE user_id = ?', [targetId]);
+    // formulación" una vez). De ahí el set_config('app.allow_pvh_purge', ...) arriba.
+    queriesPurga.push({ sql: 'DELETE FROM proyectos WHERE user_id = ?', params: [targetId] });
+    queriesPurga.push({ sql: 'DELETE FROM user_favorites WHERE user_id = ?', params: [targetId] });
+    queriesPurga.push({ sql: 'DELETE FROM user_subscriptions WHERE user_id = ?', params: [targetId] });
     // BYOK (migración 045): guarda material cifrado de terceros (llaves de
     // Gemini del propio usuario) — Habeas Data real, no puede sobrevivir a
     // la purga. tenant_audit_logs SÍ sobrevive a propósito (mismo criterio
     // que admin_audit_log): es rastro de auditoría, no material sensible
     // del usuario en sí, y el registro de "esta cuenta fue purgada" pierde
     // sentido si se borra junto con la cuenta.
-    await runSql('DELETE FROM user_gemini_keys WHERE user_id = ?', [targetId]);
-    await runSql('DELETE FROM usuarios WHERE id = ?', [targetId]);
+    queriesPurga.push({ sql: 'DELETE FROM user_gemini_keys WHERE user_id = ?', params: [targetId] });
+    queriesPurga.push({ sql: 'DELETE FROM usuarios WHERE id = ?', params: [targetId] });
+
+    await withTenantTransaction(targetId, queriesPurga);
 
     // Se registra DESPUÉS del delete — admin_audit_log no tiene FK a usuarios
     // a propósito (el objetivo ya no existe tras purgar), queda como rastro
