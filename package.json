@@ -84,7 +84,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "autoprefixer": "^10.5.4",
-    "concurrently": "^10.0.3",
+    "concurrently": "^10.0.4",
     "esbuild": "^0.28.1",
     "eslint": "^10.9.0",
     "eslint-plugin-react-hooks": "^7.1.1",
