@@ -5083,13 +5083,13 @@ Reglas:
   registerMatrizRaciRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch, financialPipelineLimiter });
 
   // V8.0 — Formulador: M8 Marco Normativo
-  registerMarcoNormativoRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
+  registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch });
 
   // V8.0 — Formulador: M10 Compliance
   registerComplianceRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
 
   // V8.0 — Formulador: M12 Ficha Técnica Maestra (Hash SHA-256)
-  registerFichaTecnicaRoutes(app, { authenticateToken, runSql, runTransaction, getRow, getRows, tryCatch });
+  registerFichaTecnicaRoutes(app, { authenticateToken, tryCatch });
 
   // Scraping portales oficiales (Minciencias, etc.)
   registerScraperRoutes(app, authenticateToken, requireAdmin);
@@ -5104,7 +5104,7 @@ Reglas:
   await registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows, financialPipelineLimiter });
   // Biblioteca Gubernamental: clon aislado de Anexos (migración 039) — bucket
   // de Storage propio, sin pipeline financiero (ExtractorService/AuditorForenseService)
-  await registerBibliotecaRoutes(app, { authenticateToken, runSql, getRow, getRows });
+  await registerBibliotecaRoutes(app, { authenticateToken });
   await registerEstresFinancieroRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
   await registerValorExponencialRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
   await registerCopilotoRoutes(app, { authenticateToken, getRow, getRows, aiLimiter });

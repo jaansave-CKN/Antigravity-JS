@@ -29,6 +29,17 @@ import crypto from 'crypto';
 import { supabaseStorage } from '../config/supabase.config.js';
 import { sanitizeTechnicalText, sanitizeUrl } from '../middlewares/SecurityMiddleware.js';
 import { captureError } from '../config/sentry.config.js';
+// withTenant() (Fase 2 roadmap tenant, 2026-09-06): los 20 call sites de este
+// archivo (getRow/getRows/runSql contra `proyectos`/`project_biblioteca`/
+// `project_biblioteca_carpetas`) migran al rol rf360_rls_scoped — GRANT
+// aplicado por 059_rls_scoped_grants_fase2.sql (verificado en vivo: GRANT +
+// prueba de aislamiento cross-tenant, 2026-09-06). withTenantRow/
+// withTenantRows/withTenantRun (database.config.js) preservan el contrato
+// getRow/getRows/runSql (mismo shape de retorno, misma convención "?") — el
+// diff de cada call site es solo agregar el tenantId (siempre `req.userId`
+// en este archivo, org_id = user_id, mismo criterio que anexos.routes.js)
+// como primer argumento.
+import { withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
 
 const BIBLIOTECA_BUCKET = 'biblioteca';
 
@@ -91,7 +102,7 @@ function wrap(fn) {
   };
 }
 
-export async function registerBibliotecaRoutes(app, { authenticateToken, runSql, getRow, getRows }) {
+export async function registerBibliotecaRoutes(app, { authenticateToken }) {
   if (!supabaseStorage) {
     console.error('[biblioteca] SUPABASE_URL/SUPABASE_SERVICE_KEY no configurados — subida a la Biblioteca desactivada');
   } else {
@@ -129,7 +140,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
   });
 
   async function checkOwnership(proyectoId, userId) {
-    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
   /**
@@ -139,7 +150,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const documentos = await getRows(
+    const documentos = await withTenantRows(req.userId,
       // FIX (reportado por el usuario 2026-08-17): mismo fix que anexos.routes.js
       // — ORDER BY created_at DESC invertía el orden de ingreso en cada recarga.
       'SELECT id, project_id, carpeta_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at FROM project_biblioteca WHERE project_id = ? ORDER BY created_at ASC',
@@ -155,7 +166,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const carpetas = await getRows(
+    const carpetas = await withTenantRows(req.userId,
       'SELECT id, project_id, nombre, orden, created_at FROM project_biblioteca_carpetas WHERE project_id = ? ORDER BY orden ASC, created_at ASC',
       [req.params.id]
     );
@@ -172,13 +183,13 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
     if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
 
-    const [{ maxOrden } = { maxOrden: -1 }] = await getRows(
+    const [{ maxOrden } = { maxOrden: -1 }] = await withTenantRows(req.userId,
       'SELECT COALESCE(MAX(orden), -1) AS "maxOrden" FROM project_biblioteca_carpetas WHERE project_id = ?',
       [req.params.id]
     );
 
     const id = crypto.randomUUID();
-    await runSql(
+    await withTenantRun(req.userId,
       'INSERT INTO project_biblioteca_carpetas (id, project_id, tenant_id, nombre, orden, created_at) VALUES (?,?,?,?,?,?)',
       [id, req.params.id, req.userId, nombre, Number(maxOrden) + 1, new Date().toISOString()]
     );
@@ -195,13 +206,13 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
     if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
 
-    const carpeta = await getRow(
+    const carpeta = await withTenantRow(req.userId,
       'SELECT id FROM project_biblioteca_carpetas WHERE id = ? AND project_id = ?',
       [req.params.carpetaId, req.params.id]
     );
     if (!carpeta) return res.status(404).json({ success: false, message: 'Carpeta no encontrada' });
 
-    await runSql('UPDATE project_biblioteca_carpetas SET nombre = ? WHERE id = ?', [nombre, req.params.carpetaId]);
+    await withTenantRun(req.userId, 'UPDATE project_biblioteca_carpetas SET nombre = ? WHERE id = ?', [nombre, req.params.carpetaId]);
     res.json({ success: true, message: 'Carpeta renombrada' });
   }));
 
@@ -216,7 +227,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const carpeta = await getRow(
+    const carpeta = await withTenantRow(req.userId,
       'SELECT id FROM project_biblioteca_carpetas WHERE id = ? AND project_id = ?',
       [req.params.carpetaId, req.params.id]
     );
@@ -224,18 +235,18 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
 
     const eliminarDocumentos = String(req.query?.eliminarDocumentos || '') === 'true';
     if (eliminarDocumentos) {
-      const docs = await getRows(
+      const docs = await withTenantRows(req.userId,
         'SELECT id, ruta_storage FROM project_biblioteca WHERE carpeta_id = ? AND project_id = ?',
         [req.params.carpetaId, req.params.id]
       );
-      await runSql('DELETE FROM project_biblioteca WHERE carpeta_id = ? AND project_id = ?', [req.params.carpetaId, req.params.id]);
+      await withTenantRun(req.userId, 'DELETE FROM project_biblioteca WHERE carpeta_id = ? AND project_id = ?', [req.params.carpetaId, req.params.id]);
       if (supabaseStorage) {
         const rutas = docs.map(d => d.ruta_storage).filter(Boolean);
         if (rutas.length) supabaseStorage.storage.from(BIBLIOTECA_BUCKET).remove(rutas).catch(() => {});
       }
     }
 
-    await runSql('DELETE FROM project_biblioteca_carpetas WHERE id = ?', [req.params.carpetaId]);
+    await withTenantRun(req.userId, 'DELETE FROM project_biblioteca_carpetas WHERE id = ?', [req.params.carpetaId]);
     res.json({ success: true, message: eliminarDocumentos ? 'Carpeta y sus documentos eliminados' : 'Carpeta eliminada — sus documentos quedaron sin carpeta' });
   }));
 
@@ -276,7 +287,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     // que exista y pertenezca al mismo proyecto antes de aceptarla.
     let carpetaId = req.body?.carpeta_id ? String(req.body.carpeta_id) : null;
     if (carpetaId) {
-      const carpeta = await getRow('SELECT id FROM project_biblioteca_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
+      const carpeta = await withTenantRow(req.userId, 'SELECT id FROM project_biblioteca_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
       if (!carpeta) carpetaId = null;
     }
 
@@ -302,7 +313,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     }
 
     try {
-      await runSql(
+      await withTenantRun(req.userId,
         `INSERT INTO project_biblioteca
          (id, project_id, tenant_id, nombre_archivo, ruta_storage, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, carpeta_id, created_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -352,7 +363,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const existente = await getRow(
+    const existente = await withTenantRow(req.userId,
       'SELECT descripcion, texto, link FROM project_biblioteca WHERE id = ? AND project_id = ?',
       [req.params.docId, req.params.id]
     );
@@ -367,7 +378,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     if (req.body?.carpeta_id !== undefined) {
       let carpetaId = req.body.carpeta_id ? String(req.body.carpeta_id) : null;
       if (carpetaId) {
-        const carpeta = await getRow('SELECT id FROM project_biblioteca_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
+        const carpeta = await withTenantRow(req.userId, 'SELECT id FROM project_biblioteca_carpetas WHERE id = ? AND project_id = ?', [carpetaId, req.params.id]);
         if (!carpeta) carpetaId = null;
       }
       carpetaClause = ', carpeta_id = ?';
@@ -378,12 +389,12 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
       const categoriaRaw = String(req.body.categoria || 'otro').toLowerCase();
       const categoria = CATEGORIAS_VALIDAS.has(categoriaRaw) ? categoriaRaw : 'otro';
       params.push(categoria);
-      await runSql(
+      await withTenantRun(req.userId,
         `UPDATE project_biblioteca SET descripcion = ?, texto = ?, link = ?${carpetaClause}, categoria = ? WHERE id = ? AND project_id = ?`,
         [...params, req.params.docId, req.params.id]
       );
     } else {
-      await runSql(
+      await withTenantRun(req.userId,
         `UPDATE project_biblioteca SET descripcion = ?, texto = ?, link = ?${carpetaClause} WHERE id = ? AND project_id = ?`,
         [...params, req.params.docId, req.params.id]
       );
@@ -399,7 +410,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const doc = await getRow(
+    const doc = await withTenantRow(req.userId,
       'SELECT ruta_storage, nombre_archivo FROM project_biblioteca WHERE id = ? AND project_id = ?',
       [req.params.docId, req.params.id]
     );
@@ -421,13 +432,13 @@ export async function registerBibliotecaRoutes(app, { authenticateToken, runSql,
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const doc = await getRow(
+    const doc = await withTenantRow(req.userId,
       'SELECT id, ruta_storage FROM project_biblioteca WHERE id = ? AND project_id = ?',
       [req.params.docId, req.params.id]
     );
     if (!doc) return res.status(404).json({ success: false, message: 'Documento no encontrado' });
 
-    await runSql('DELETE FROM project_biblioteca WHERE id = ?', [req.params.docId]);
+    await withTenantRun(req.userId, 'DELETE FROM project_biblioteca WHERE id = ?', [req.params.docId]);
 
     if (doc.ruta_storage && supabaseStorage) {
       supabaseStorage.storage.from(BIBLIOTECA_BUCKET).remove([doc.ruta_storage]).catch(() => {});

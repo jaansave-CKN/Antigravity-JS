@@ -570,6 +570,35 @@ export async function withTenantRun(tenantId, sql, params = []) {
   return withTenant(tenantId, client => client.query(q, p));
 }
 
+// FIX (Fase 2 roadmap tenant, 2026-09-06, fichaTecnica.routes.js — sellado de
+// versión): el sello de Ficha Técnica hace 2 escrituras que deben ser
+// atómicas (INSERT en versiones_proyecto + UPDATE de proyectos.estado) — antes
+// usaba runTransaction() (db.js), que corre SIEMPRE por el pool principal
+// (BYPASSRLS), nunca por el pool RLS-escopado. withTenant() ya envuelve su
+// callback en BEGIN/COMMIT/ROLLBACK sobre UN solo client — este helper solo
+// itera varias queries normalizadas dentro de ese mismo client/transacción,
+// mismo contrato (array de {sql, params}) que runTransaction() para que
+// migrar un call site sea cambiar el nombre de la función + agregar tenantId.
+// Mismo guard que runTransaction() (db.js) contra el modo degradado: sin pool
+// real (ni escopado ni principal), PostgREST no soporta transacciones
+// multi-sentencia — falla explícito (503) en vez de ejecutar parcialmente.
+export async function withTenantTransaction(tenantId, queries) {
+  if (!_pgScopedReady && !_pgReady && queries.length > 1) {
+    const err = new Error('No se puede garantizar una escritura atómica en este momento (base de datos en modo degradado) — intenta de nuevo en unos segundos.');
+    err.status = 503;
+    err.code = 'DB_DEGRADED_NO_ATOMIC';
+    throw err;
+  }
+  return withTenant(tenantId, async (client) => {
+    const results = [];
+    for (const q of queries) {
+      const { sql, params } = normalizePlaceholders(q.sql, q.params || []);
+      results.push(await client.query(sql, params));
+    }
+    return results;
+  });
+}
+
 // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 2, hallazgo 3): tenantId
 // ya llegaba dinámico por argumento — lo que estaba mal era CÓMO se
 // aplicaba: concatenado como literal de string dentro del SQL
