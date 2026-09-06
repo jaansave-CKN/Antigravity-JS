@@ -158,12 +158,22 @@ function TelemetriaTab() {
           Una vez agregadas las credenciales reales, esta sección carga automáticamente el dashboard de tu proyecto de PostHog.
         </div>
       ) : (
+        // react-doctor/iframe-missing-sandbox: sigue marcando esta línea a
+        // propósito — allow-scripts + allow-same-origin juntos son el par
+        // que, en teoría, le devuelve a un iframe casi toda la capacidad que
+        // el sandbox existe para quitarle (con ambos, el contenido conserva
+        // su origen real y puede ejecutar JS con él). Es el mismo trade-off
+        // que exige cualquier dashboard SaaS embebido que necesite su propia
+        // sesión/cookies (PostHog, Grafana, Metabase) — sin allow-same-origin
+        // el login de PostHog no persiste; sin allow-scripts no renderiza. Se
+        // confía en el origen de PostHog, no en el sandbox, para este caso;
+        // allow-forms/allow-popups sí se quitan por no ser necesarios.
         <iframe
           title="PostHog — Análisis y Grabaciones"
           src={POSTHOG_HOST}
           style={{ width: '100%', height: 'calc(100vh - 420px)', border: '1px solid #e5e7eb', borderRadius: 10, background: '#fff' }}
           referrerPolicy="no-referrer"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          sandbox="allow-scripts allow-same-origin"
         />
       )}
     </div>
