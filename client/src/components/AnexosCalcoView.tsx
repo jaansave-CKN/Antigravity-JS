@@ -25,7 +25,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './AnexosCalcoView.css';
-import { http, ApiError, isAuthenticated } from '../lib/apiClient';
+import { http, ApiError } from '../lib/apiClient';
+import { useAuth } from '../contexts/AuthContextNew';
 
 // FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
 // versionada — NUNCA un renombre ciego (esta caché es parte del blindaje
@@ -113,6 +114,14 @@ const nuevoSoporte = (carpetaId: string | null): Soporte => {
 };
 
 export default function AnexosCalcoView() {
+  // FIX (Fase 1, 2026-09-06): isAuthenticated() de apiClient.ts leía el JWT
+  // real de localStorage/sessionStorage -- con el JWT fuera de Web Storage
+  // (cookie httpOnly) esa función quedó SIEMPRE en false, sin importar si
+  // había sesión real. `noAutenticado` (más abajo) dependía de esto vía OR,
+  // así que CUALQUIER error (404 de un proyecto ajeno, 500, red caída)
+  // mostraba "Tu sesión no es válida o expiró" aunque la sesión sí fuera
+  // válida. Se reemplaza por el estado reactivo real de AuthContext.
+  const { isAuthenticated: sesionReal, loading: authLoading } = useAuth();
   const proyectoId = useMemo(() => localStorage.getItem(ACTIVE_PROJECT_KEY), []);
   const [soportes, setSoportes] = useState<Soporte[]>([]);
   const [carpetas, setCarpetas] = useState<Carpeta[]>([]);
@@ -164,6 +173,11 @@ export default function AnexosCalcoView() {
       setSoportes([nuevoSoporte(null)]);
       return;
     }
+    // FIX (Fase 1, 2026-09-06): esperar a que AuthContext termine de
+    // verificar la cookie antes de disparar el fetch -- mismo hallazgo que
+    // BibliotecaCalcoView.tsx (ver su comentario) para evitar "sesión
+    // inválida" espurio en un reload con sesión sana.
+    if (authLoading) return;
     let cancelled = false;
     (async () => {
       try {
@@ -265,7 +279,7 @@ export default function AnexosCalcoView() {
         // usuario nunca vea "desaparecer" datos que sí tiene guardados en el
         // navegador. Estas filas NO quedan marcadas como persistidas: siguen
         // pendientes de sincronizar en cuanto el servidor vuelva a responder.
-        const noAutenticado = (err instanceof ApiError && err.status === 401) || !isAuthenticated();
+        const noAutenticado = (err instanceof ApiError && err.status === 401) || !sesionReal;
         const raw = leerAnexosStorage();
         let legacy: Soporte[] = [];
         if (raw) {
@@ -290,7 +304,7 @@ export default function AnexosCalcoView() {
       }
     })();
     return () => { cancelled = true; };
-  }, [proyectoId]);
+  }, [proyectoId, authLoading]);
 
   // Cache local instantánea — con o sin proyecto activo. Se escribe en cada
   // cambio de estado (cada tecla, cada blur) para que un F5 nunca pierda una
