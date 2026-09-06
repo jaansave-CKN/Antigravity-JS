@@ -14,6 +14,21 @@ import { isRevoked, checkSessionValid, checkAccountStatus } from './tokenBlackli
 import { getRow } from '../db.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
+export const AUTH_COOKIE_NAME = 'auth_token';
+
+// FIX (Fase 1 Dual-Mode, Prioridad Amarilla, 2026-09-05): única fuente de
+// verdad de "de dónde viene el token" — cookie primero, header Authorization
+// como fallback. Compartida entre authenticateToken y logout (server.js)
+// para que ambos coincidan siempre: si el logout leyera el token de un lugar
+// distinto al que authenticateToken usó para autenticar, podría revocar el
+// token equivocado (o, con la cookie como única fuente real, explotar contra
+// `req.headers.authorization.slice(7)` con authorization===undefined).
+export function extractToken(req) {
+  if (req.cookies?.[AUTH_COOKIE_NAME]) return req.cookies[AUTH_COOKIE_NAME];
+  const auth = req.headers.authorization;
+  if (auth && auth.startsWith('Bearer ')) return auth.slice(7);
+  return null;
+}
 
 // Usuario de desarrollo para 'demo-mode-token' (solo NODE_ENV !== 'production').
 // UUID fijo y reconocible (todo ceros salvo el último dígito) — nunca debe
@@ -43,12 +58,16 @@ function logAuthRejection(req, motivo, extra) {
 }
 
 export async function authenticateToken(req, res, next) {
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) {
-    logAuthRejection(req, 'sin_header_o_sin_bearer', { authPresente: !!auth, authPrefijo: auth ? auth.slice(0, 15) : null });
+  // Cookie primero (Fase 1 Dual-Mode), header Authorization como fallback —
+  // ver extractToken() arriba. El frontend actual (sin tocar en esta fase)
+  // nunca manda la cookie de vuelta (fetch sin credentials), así que hoy
+  // esto SIEMPRE cae al header, igual que antes de este cambio.
+  const token = extractToken(req);
+  if (!token) {
+    const auth = req.headers.authorization;
+    logAuthRejection(req, 'sin_cookie_ni_header_valido', { tieneCookie: !!req.cookies?.[AUTH_COOKIE_NAME], authPresente: !!auth, authPrefijo: auth ? auth.slice(0, 15) : null });
     return res.status(401).json({ success: false, message: 'Token requerido' });
   }
-  const token = auth.slice(7);
 
   // DEV: demo-mode-token es aceptado en entorno local para no bloquear el trabajo de desarrollo.
   // Debe ser un UUID real (no 'dev-user-001') porque proyectos.user_id/org_id y
