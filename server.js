@@ -5086,7 +5086,7 @@ Reglas:
   registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch });
 
   // V8.0 — Formulador: M10 Compliance
-  registerComplianceRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
+  registerComplianceRoutes(app, { authenticateToken, tryCatch });
 
   // V8.0 — Formulador: M12 Ficha Técnica Maestra (Hash SHA-256)
   registerFichaTecnicaRoutes(app, { authenticateToken, tryCatch });
