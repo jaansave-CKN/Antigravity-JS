@@ -10,13 +10,39 @@ import { useEffect, useState } from 'react';
  * y backend/services/geminiCircuitBreaker.js::getEarliestRetryAt, que calculan
  * el momento REAL reportado por Google, no una espera fija inventada).
  *
+ * FIX (2026-09-06, "el banner engaña al usuario"): esa última frase dejó de
+ * ser cierta en todos los casos — cuando Google no reporta un retryDelay
+ * real, el backend cae a un cooldown FIJO de sondeo (5 min) que no tiene
+ * relación con cuándo la cuota real se libera (si la causa es cuota DIARIA
+ * agotada, se libera a medianoche UTC, no en 5 min). Mostrar una cuenta
+ * regresiva con "se restablece a las HH:MM:SS" sobre una estimación es una
+ * promesa falsa: al llegar a 00:00 el siguiente intento vuelve a fallar y el
+ * ciclo se repite. Con `esEstimado=true`, este componente ya NO cuenta hacia
+ * atrás ni promete una hora — muestra un aviso honesto y un botón de
+ * reintento manual que re-consulta el estado real (`onReintentar`).
+ *
  * Se oculta sola (onExpire) cuando el conteo llega a 0 — el caller decide qué
- * hacer (ej. limpiar el error, dejar que el usuario reintente).
+ * hacer (ej. limpiar el error, dejar que el usuario reintente). onExpire NO
+ * debe asumir que ya está disponible: debe re-verificar contra el servidor
+ * (ver useAiQuotaStatus.verificarYActualizar) antes de reabilitar cualquier
+ * acción. `onReintentar` solo se usa en la rama `esEstimado` (sin cronómetro):
+ * no es un "reintentar la misma llamada" genérico, es la acción real
+ * disponible en esta app cuando el pool del servidor está agotado sin fecha
+ * de recuperación confiable — conectar la llave propia del usuario (BYOK,
+ * ver dispararRescateBYOK en EntradaPage.tsx).
  */
-export default function CountdownReset({ retryAt, onExpire }: { retryAt: string; onExpire?: () => void }) {
+export default function CountdownReset({
+  retryAt, esEstimado, onExpire, onReintentar,
+}: {
+  retryAt: string;
+  esEstimado?: boolean;
+  onExpire?: () => void;
+  onReintentar?: () => void;
+}) {
   const [msRestante, setMsRestante] = useState(() => new Date(retryAt).getTime() - Date.now());
 
   useEffect(() => {
+    if (esEstimado) return; // sin cuenta regresiva sobre una estimación — nada que temporizar
     setMsRestante(new Date(retryAt).getTime() - Date.now());
     const id = setInterval(() => {
       const restante = new Date(retryAt).getTime() - Date.now();
@@ -28,7 +54,32 @@ export default function CountdownReset({ retryAt, onExpire }: { retryAt: string;
     }, 1000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retryAt]);
+  }, [retryAt, esEstimado]);
+
+  if (esEstimado) {
+    // Cuota agotada sin un retryDelay real de Google (no un rate-limit
+    // temporal corto) — mensaje estático y definitivo, sin cronómetro ni
+    // hora de reset prometida. La única acción real disponible en esta app
+    // para no esperar es BYOK (conectar la llave propia del usuario, ver
+    // dispararRescateBYOK en EntradaPage.tsx) — no existe un botón de
+    // "recargar saldo" porque el free tier de Gemini no es un modelo
+    // prepago, es una cuota que se libera con el tiempo.
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: '#b45309' }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 13 }}>error</span>
+        Créditos de IA agotados por ahora — no hay una hora de reset garantizada.
+        {onReintentar && (
+          <button
+            type="button"
+            onClick={onReintentar}
+            style={{ fontSize: 11, fontWeight: 700, color: '#b45309', background: 'transparent', border: '1px solid #b45309', borderRadius: 4, padding: '1px 6px', cursor: 'pointer' }}
+          >
+            Conectar mi llave de IA
+          </button>
+        )}
+      </span>
+    );
+  }
 
   if (msRestante <= 0) return null;
 

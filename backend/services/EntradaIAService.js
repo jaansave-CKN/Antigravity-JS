@@ -89,7 +89,9 @@ class EntradaIAError extends Error {
   // retryAt (opcional, Date): momento real en que se puede reintentar — se
   // propaga desde GeminiPoolExhaustedError (ver llamarGemini más abajo) para
   // que el frontend pueda mostrar el reloj de cuenta regresiva real.
-  constructor(message, status = 422, retryAt = null) { super(message); this.status = status; this.retryAt = retryAt; }
+  // esEstimado (2026-09-06): true si retryAt es una estimación (cooldown fijo
+  // de sondeo, sin dato real de Google) — ver GeminiPoolExhaustedError.
+  constructor(message, status = 422, retryAt = null, esEstimado = false) { super(message); this.status = status; this.retryAt = retryAt; this.esEstimado = esEstimado; }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -422,7 +424,20 @@ async function llamarGemini(systemPrompt, orgId, userGeminiKeys) {
   } catch (err) {
     if (err instanceof EntradaIAError) throw err;
     if (err instanceof UserKeyPoolExhaustedError) throw new EntradaIAError(err.message, 429);
-    if (err instanceof GeminiPoolExhaustedError) throw new EntradaIAError('El límite de uso de IA está agotado por ahora — intenta de nuevo en unos minutos, o llena el formulario manualmente.', 429, err.retryAt);
+    if (err instanceof GeminiPoolExhaustedError) {
+      // FIX (2026-09-06, "el banner engaña al usuario"): el mensaje ya no es
+      // fijo. esEstimado=false significa que Google reportó un retryDelay
+      // real (rate_limit_exceeded temporal, típicamente RPM del free tier,
+      // se libera en segundos) — "intenta de nuevo" es una promesa cierta.
+      // esEstimado=true significa que NO hay ese dato (posible cuota diaria
+      // agotada — insufficient_quota — que se libera a medianoche UTC, no en
+      // minutos) — el mensaje debe ser definitivo y apuntar a la única
+      // acción real disponible en esta app para no esperar: BYOK.
+      const msg = err.esEstimado
+        ? 'Créditos de IA agotados por ahora — no hay una hora de reset garantizada. Conecta tu propia llave de Gemini (BYOK) para seguir usando la IA, o llena el formulario manualmente.'
+        : 'El límite de uso de IA está agotado por ahora — intenta de nuevo en unos segundos, o llena el formulario manualmente.';
+      throw new EntradaIAError(msg, 429, err.retryAt, err.esEstimado);
+    }
     if (isQuotaError(err)) throw new EntradaIAError('Límite de IA agotado — intenta de nuevo en unos minutos.', 429);
     if (err.status === 503) throw new EntradaIAError('La generación con IA no está configurada en el servidor (falta GOOGLE_API_KEY).', 503);
     logger.error('[EntradaIA] Excepción Gemini', { err: err.message });

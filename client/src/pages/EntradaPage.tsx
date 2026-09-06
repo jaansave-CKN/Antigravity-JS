@@ -296,12 +296,34 @@ export default function EntradaPage() {
   // es un useState de página — el hook consulta GET /api/ia/estado-cuota al
   // montar, restaurando el bloqueo real si el usuario recarga a mitad de la
   // penalización (antes se perdía y los botones ✨ volvían a habilitarse).
-  const { retryAt: retryAtIA, reportarErrorCuota, limpiar: limpiarRetryAtIA } = useAiQuotaStatus();
+  const { retryAt: retryAtIA, esEstimado: esEstimadoIA, reportarErrorCuota, verificarYActualizar } = useAiQuotaStatus();
   const cuotaAgotada = !!retryAtIA;
+  // FIX (2026-09-06, "el banner engaña al usuario"): reemplaza el viejo
+  // onExpire={() => { setErrorIA(null); limpiarRetryAtIA(); }} — ese patrón
+  // reabilitaba el botón solo porque el timer LOCAL llegó a 0, sin preguntarle
+  // al servidor si la cuota real ya está disponible. Si el cooldown mostrado
+  // era una estimación (cuota diaria agotada, no un retryDelay real de
+  // Google), el siguiente clic volvía a fallar con el mismo 429 — ciclo
+  // infinito. Ahora se re-consulta el estado real (verificarYActualizar);
+  // solo se limpia el mensaje de error si el servidor confirma disponibilidad.
+  // Si sigue agotado, el hook ya actualizó retryAtIA/esEstimadoIA con el
+  // cooldown real más reciente — el banner se refresca solo, sin mentir.
+  const reintentarCuotaIA = useCallback(async () => {
+    const disponible = await verificarYActualizar();
+    if (disponible) setErrorIA(null);
+  }, [verificarYActualizar]);
   // Mismo texto que EntradaIAService.js (rewrap de GeminiPoolExhaustedError) —
   // se muestra cuando retryAtIA llegó por el poll on-mount (F5 a mitad de la
   // penalización) y todavía no hay un errorIA fresco de un clic real.
-  const MENSAJE_CUOTA_AGOTADA = 'El límite de uso de IA está agotado por ahora — intenta de nuevo en unos minutos, o llena el formulario manualmente.';
+  // FIX (2026-09-06, "el banner engaña al usuario"): el texto ya no es fijo —
+  // "intenta de nuevo en unos minutos" es una promesa de tiempo que solo es
+  // cierta cuando Google reportó un retryDelay real (rate-limit temporal,
+  // esEstimadoIA=false). Cuando es una estimación (cuota agotada sin fecha de
+  // recuperación confiable), el mensaje debe ser definitivo y accionable —
+  // ver CountdownReset.tsx para el mismo criterio en el sub-mensaje.
+  const MENSAJE_CUOTA_AGOTADA = esEstimadoIA
+    ? 'Créditos de IA agotados por ahora — no hay una hora de reset garantizada. Conecta tu propia llave de Gemini (BYOK) para seguir usando la IA, o llena el formulario manualmente.'
+    : 'El límite de uso de IA está agotado por ahora — intenta de nuevo en unos segundos, o llena el formulario manualmente.';
   // Mandato 2026-08-24 ("ModalBYOK — interceptar el bloqueo"): los botones ✨
   // ya NO quedan 100% inactivos durante cuotaAgotada — siguen siendo
   // clicables (ver className `--cooldown` en vez de `disabled`), y el clic
@@ -598,8 +620,8 @@ export default function EntradaPage() {
     // de reset"): viene en el body del 429 cuando el backend lo tiene (ver
     // entradaIA.routes.js) — momento real reportado por Google, no una
     // espera fija inventada.
-    const body = e instanceof ApiError ? e.body as { retryAt?: string } | undefined : undefined;
-    if (body?.retryAt) reportarErrorCuota(body.retryAt);
+    const body = e instanceof ApiError ? e.body as { retryAt?: string; esEstimado?: boolean } | undefined : undefined;
+    if (body?.retryAt) reportarErrorCuota(body.retryAt, body.esEstimado);
     if (e instanceof ApiError && e.status === 401) {
       setErrorIA('Tu sesión no es válida o expiró. Recarga la página e inicia sesión de nuevo.');
     } else {
@@ -1021,7 +1043,7 @@ export default function EntradaPage() {
               {(errorIA || retryAtIA) && (
                 <span role="alert" style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'block' }}>
                   {errorIA || MENSAJE_CUOTA_AGOTADA}
-                  {retryAtIA && <><br /><CountdownReset retryAt={retryAtIA} onExpire={() => { setErrorIA(null); limpiarRetryAtIA(); }} /></>}
+                  {retryAtIA && <><br /><CountdownReset retryAt={retryAtIA} esEstimado={esEstimadoIA} onExpire={reintentarCuotaIA} onReintentar={dispararRescateBYOK} /></>}
                 </span>
               )}
             </div>
@@ -1364,7 +1386,7 @@ export default function EntradaPage() {
               {(errorIA || retryAtIA) && (
                 <div role="alert" style={{ fontSize: 11, color: '#dc2626', background: '#fef2f2', padding: '6px 10px', borderRadius: 6, marginBottom: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                   <span>{errorIA || MENSAJE_CUOTA_AGOTADA}</span>
-                  {retryAtIA && <CountdownReset retryAt={retryAtIA} onExpire={() => { setErrorIA(null); limpiarRetryAtIA(); }} />}
+                  {retryAtIA && <CountdownReset retryAt={retryAtIA} esEstimado={esEstimadoIA} onExpire={reintentarCuotaIA} onReintentar={dispararRescateBYOK} />}
                 </div>
               )}
               <p className="entr__section-hint">Caracterice la situación problemática que el proyecto busca resolver — complete cada paso en orden; el siguiente se habilita al llenar el actual.</p>
@@ -1602,7 +1624,7 @@ export default function EntradaPage() {
               {(errorIA || retryAtIA) && (
                 <div role="alert" style={{ fontSize: 11, color: '#dc2626', background: '#fef2f2', padding: '6px 10px', borderRadius: 6, marginBottom: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                   <span>{errorIA || MENSAJE_CUOTA_AGOTADA}</span>
-                  {retryAtIA && <CountdownReset retryAt={retryAtIA} onExpire={() => { setErrorIA(null); limpiarRetryAtIA(); }} />}
+                  {retryAtIA && <CountdownReset retryAt={retryAtIA} esEstimado={esEstimadoIA} onExpire={reintentarCuotaIA} onReintentar={dispararRescateBYOK} />}
                 </div>
               )}
               <div className="entr__soluciones-header">

@@ -11,6 +11,17 @@ import { http } from '../lib/apiClient';
  * para restaurar el estado real ANTES de que el usuario pueda volver a hacer
  * clic. El 429 en vivo (ver reportarErrorCuota) sigue siendo la señal más
  * fresca y gana sobre lo que devuelva este poll.
+ *
+ * FIX (2026-09-06, "el banner engaña al usuario"): retryAt podía ser una
+ * ESTIMACIÓN (cooldown fijo de 5 min cuando Google no reportó un retryDelay
+ * real — típico de cuota DIARIA agotada, que en realidad se libera a
+ * medianoche UTC, no en 5 min) y la UI la mostraba como una hora de reset
+ * garantizada. Al expirar el conteo, el botón se rehabilitaba solo porque el
+ * timer local llegó a 0 — no porque el servidor confirmara disponibilidad
+ * real — así que el siguiente clic volvía a fallar con el mismo 429,
+ * repitiendo el ciclo indefinidamente. Ahora se expone `esEstimado` (la UI
+ * no promete una hora cuando es una estimación) y `verificarYActualizar()`
+ * (re-consulta el estado REAL antes de reabilitar cualquier botón).
  */
 
 const BUFFER_MS = 3000;
@@ -29,19 +40,29 @@ export function construirRetryAtConBuffer(retryAt: string | null): string | null
 interface EstadoCuota {
   exhausted: boolean;
   retryAt: string | null;
+  esEstimado: boolean;
 }
 
 export function useAiQuotaStatus() {
   const [retryAt, setRetryAt] = useState<string | null>(null);
+  const [esEstimado, setEsEstimado] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       const resp = await http.get<{ success: boolean; data?: EstadoCuota }>('/api/ia/estado-cuota');
       const data = resp?.data;
-      setRetryAt(data?.exhausted && data.retryAt ? construirRetryAtConBuffer(data.retryAt) : null);
+      if (data?.exhausted && data.retryAt) {
+        setRetryAt(construirRetryAtConBuffer(data.retryAt));
+        setEsEstimado(!!data.esEstimado);
+      } else {
+        setRetryAt(null);
+        setEsEstimado(false);
+      }
+      return !data?.exhausted;
     } catch {
       // silencioso: si el status-check falla, no bloquea la UI — el 429 real
       // (si de verdad sigue agotado) sigue siendo la fuente de verdad final.
+      return null;
     }
   }, []);
 
@@ -60,11 +81,23 @@ export function useAiQuotaStatus() {
   /** Llamar desde el catch de una llamada de IA real cuando el backend
    *  reporta un retryAt en el body del 429 — gana sobre lo que haya puesto
    *  el poll, es la señal más fresca posible. */
-  const reportarErrorCuota = useCallback((retryAtCrudo: string | null | undefined) => {
+  const reportarErrorCuota = useCallback((retryAtCrudo: string | null | undefined, esEstimadoCrudo?: boolean) => {
     setRetryAt(construirRetryAtConBuffer(retryAtCrudo ?? null));
+    setEsEstimado(!!esEstimadoCrudo);
   }, []);
 
-  const limpiar = useCallback(() => setRetryAt(null), []);
+  const limpiar = useCallback(() => { setRetryAt(null); setEsEstimado(false); }, []);
 
-  return { retryAt, refresh, reportarErrorCuota, limpiar };
+  /** FIX (2026-09-06): reemplaza el viejo patrón "el timer local llega a 0 →
+   *  se asume disponible". Re-consulta el estado REAL del servidor: si ya
+   *  está disponible, limpia retryAt y devuelve true (el caller puede
+   *  limpiar su propio mensaje de error); si sigue agotado, ACTUALIZA
+   *  retryAt/esEstimado con el estado real más reciente (puede ser un nuevo
+   *  cooldown, real o estimado) en vez de reabilitar el botón a ciegas. */
+  const verificarYActualizar = useCallback(async (): Promise<boolean> => {
+    const disponible = await refresh();
+    return disponible === true;
+  }, [refresh]);
+
+  return { retryAt, esEstimado, refresh, reportarErrorCuota, limpiar, verificarYActualizar };
 }
