@@ -13,7 +13,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './BibliotecaCalcoView.css';
-import { http, ApiError, isAuthenticated } from '../lib/apiClient';
+import { http, ApiError } from '../lib/apiClient';
+import { useAuth } from '../contexts/AuthContextNew';
 
 // FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
 // versionada — NUNCA un renombre ciego (parte del blindaje antipérdida de
@@ -78,6 +79,14 @@ const nuevoDocumento = (carpetaId: string | null): Documento => {
 };
 
 export default function BibliotecaCalcoView() {
+  // FIX (Fase 1, 2026-09-06): isAuthenticated() de apiClient.ts leía el JWT
+  // real de localStorage/sessionStorage -- con el JWT fuera de Web Storage
+  // (cookie httpOnly) esa función quedó SIEMPRE en false, sin importar si
+  // había sesión real. `noAutenticado` (más abajo) dependía de esto vía OR,
+  // así que CUALQUIER error (404 de un proyecto ajeno, 500, red caída)
+  // mostraba "Tu sesión no es válida o expiró" aunque la sesión sí fuera
+  // válida. Se reemplaza por el estado reactivo real de AuthContext.
+  const { isAuthenticated: sesionReal, loading: authLoading } = useAuth();
   const proyectoId = useMemo(() => localStorage.getItem(ACTIVE_PROJECT_KEY), []);
   const [documentos, setDocumentos] = useState<Documento[]>([]);
   const [carpetas, setCarpetas] = useState<Carpeta[]>([]);
@@ -143,6 +152,15 @@ export default function BibliotecaCalcoView() {
       setDocumentos([nuevoDocumento(null)]);
       return;
     }
+    // FIX (Fase 1, 2026-09-06): esperar a que AuthContext termine de
+    // verificar la cookie antes de disparar el fetch -- sin esto, en la
+    // primera carga de la página este efecto podía correr ANTES de que
+    // verifyViaCookie() resolviera, capturando sesionReal=false por closure
+    // (el valor por defecto antes de confirmar sesión) aunque la cookie
+    // fuera válida, mostrando "sesión inválida" en un reload perfectamente
+    // sano. Con authLoading en las deps, el efecto se re-dispara ya con el
+    // valor real en cuanto AuthContext resuelve.
+    if (authLoading) return;
     let cancelled = false;
     (async () => {
       try {
@@ -234,7 +252,7 @@ export default function BibliotecaCalcoView() {
         );
       } catch (err) {
         if (cancelled) return;
-        const noAutenticado = (err instanceof ApiError && err.status === 401) || !isAuthenticated();
+        const noAutenticado = (err instanceof ApiError && err.status === 401) || !sesionReal;
         const raw = leerBibliotecaStorage();
         let legacy: Documento[] = [];
         if (raw) {
@@ -259,7 +277,7 @@ export default function BibliotecaCalcoView() {
       }
     })();
     return () => { cancelled = true; };
-  }, [proyectoId]);
+  }, [proyectoId, authLoading]);
 
   // Cache local instantánea — con o sin proyecto activo. Se escribe en cada
   // cambio de estado (cada tecla, cada blur) para que un F5 nunca pierda una

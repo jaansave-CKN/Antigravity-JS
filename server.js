@@ -153,31 +153,43 @@ function issueXsrfCookie(req, res, next) {
   next();
 }
 
-// FIX (Fase 2, resolución arquitectónica del usuario, 2026-09-05): dos
-// exenciones aplicadas por CONDICIÓN REAL de la request, no por una lista de
-// rutas mantenida a mano (una lista así queda desactualizada el día que se
-// agregue una ruta pública nueva y nadie recuerde sumarla aquí):
-//
-//   Regla 1 — sin sesión de navegador, nada que proteger: CSRF explota el
-//   envío automático de la cookie de sesión ya existente. Si la request no
-//   trae la cookie auth_token, no hay sesión establecida que un atacante
-//   pueda montar a caballo — cubre login/registro/trial/activación/reset de
-//   contraseña sin necesidad de listar esas rutas una por una.
-//
-//   Regla 2 — autenticación explícita por header, inmune a CSRF por
-//   construcción: un atacante cross-site puede lograr que el navegador de
-//   la víctima ADJUNTE cookies automáticamente, pero nunca puede hacer que
-//   agregue un header Authorization arbitrario a esa petición. Cualquier
-//   consumidor que se autentique así (backend/scripts/smokeTest.js,
-//   securityValidation.js, Postman, integraciones externas) queda exento
-//   sin necesidad de una lista de "scripts conocidos".
+// FIX (Fase 2, 2026-09-06): Regla 1 vivía como "sin cookie auth_token, no hay
+// sesión que proteger" -- fallaba en un caso real: un navegador con una
+// cookie VIEJA/caducada de una sesión anterior (nunca la borra sola, solo al
+// expirar Max-Age o con logout explícito) hace que login/registro/trial
+// vean tieneCookie:true y exijan un header CSRF que esas rutas nunca
+// mandan -- 403 bloqueando el login mismo. Reproducido en vivo: {"path":
+// "/auth/trial","tieneCookie":true,"tieneHeader":false} con un auth_token
+// residual de una prueba anterior. Vuelve al diseño original del usuario:
+// whitelist explícita de las rutas de entrada que nunca requieren sesión
+// YA establecida -- son 7 rutas fijas, cambian con la frecuencia de un
+// endpoint de auth nuevo (no la de un endpoint de negocio cualquiera), el
+// riesgo de olvido es mucho menor que el de esta heurística fallando en
+// producción.
+const CSRF_EXEMPT_PATHS = new Set([
+  '/auth/login',
+  '/auth/register',
+  '/auth/trial',
+  '/auth/mfa/challenge',
+  '/auth/validar-por-correo',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+]);
+
+// Regla 2 — autenticación explícita por header, inmune a CSRF por
+// construcción: un atacante cross-site puede lograr que el navegador de la
+// víctima ADJUNTE cookies automáticamente, pero nunca puede hacer que
+// agregue un header Authorization arbitrario a esa petición. Cualquier
+// consumidor que se autentique así (backend/scripts/smokeTest.js,
+// securityValidation.js, Postman, integraciones externas) queda exento sin
+// necesidad de una lista de "scripts conocidos".
 function verifyCsrf(req, res, next) {
   if (!MUTATING_METHODS.has(req.method)) return next();
 
   const auth = req.headers.authorization;
   if (auth && auth.startsWith('Bearer ')) return next(); // Regla 2
 
-  if (!req.cookies?.[AUTH_COOKIE_NAME]) return next(); // Regla 1
+  if (CSRF_EXEMPT_PATHS.has(req.path)) return next(); // Regla 1
 
   const cookieToken = req.cookies?.[XSRF_COOKIE_NAME];
   const headerToken = req.headers['x-csrf-token'];
