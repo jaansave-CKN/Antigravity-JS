@@ -79,6 +79,7 @@ function AplicarNuevaContrasena({ token }: { token: string }) {
     try {
       const res = await fetch(`${API_BASE}/auth/reset-password`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, newPassword: password }),
       });

@@ -130,18 +130,14 @@ function authCookieOptions(maxAgeMs) {
 // policy), así que solo un cliente que ya "es" el frontend real puede
 // producir cookie+header coincidentes.
 //
-// CSRF_ENFORCE en false por defecto (env var, no código): el frontend actual
-// (sin tocar en esta fase, por instrucción explícita) nunca manda el header
-// X-CSRF-Token — si el middleware bloqueara (403) desde ya, el 100% de las
-// mutaciones de la app en producción se rompería el día del deploy sin que
-// ningún cambio de frontend estuviera siquiera escrito todavía. Se registra
-// el hallazgo (log de advertencia) en cada request que fallaría, para poder
-// verificar en logs reales que el patrón funciona ANTES de activarlo — mismo
-// patrón standby que ANTHROPIC_API_KEY/Stripe/Wompi en este mismo repo.
-// Activar: CSRF_ENFORCE=true en el entorno, después de que apiClient.ts
-// mande el header (fase de frontend, fuera de alcance de esta pasada).
+// FIX (Fase 2, 2026-09-05): bloqueo estricto por defecto — apiClient.ts,
+// services/api.ts, AuthContextNew.tsx y el resto de fetch() manuales del
+// frontend ya mandan credentials:'include' + X-CSRF-Token (Fase 1 frontend,
+// mismo commit). CSRF_ENFORCE=false sigue disponible como interruptor de
+// emergencia (mismo patrón standby que ANTHROPIC_API_KEY/Stripe/Wompi en
+// este repo), no como el comportamiento esperado en producción.
 const XSRF_COOKIE_NAME = 'XSRF-TOKEN';
-const CSRF_ENFORCE = process.env.CSRF_ENFORCE === 'true';
+const CSRF_ENFORCE = process.env.CSRF_ENFORCE !== 'false';
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 function issueXsrfCookie(req, res, next) {
@@ -157,8 +153,32 @@ function issueXsrfCookie(req, res, next) {
   next();
 }
 
+// FIX (Fase 2, resolución arquitectónica del usuario, 2026-09-05): dos
+// exenciones aplicadas por CONDICIÓN REAL de la request, no por una lista de
+// rutas mantenida a mano (una lista así queda desactualizada el día que se
+// agregue una ruta pública nueva y nadie recuerde sumarla aquí):
+//
+//   Regla 1 — sin sesión de navegador, nada que proteger: CSRF explota el
+//   envío automático de la cookie de sesión ya existente. Si la request no
+//   trae la cookie auth_token, no hay sesión establecida que un atacante
+//   pueda montar a caballo — cubre login/registro/trial/activación/reset de
+//   contraseña sin necesidad de listar esas rutas una por una.
+//
+//   Regla 2 — autenticación explícita por header, inmune a CSRF por
+//   construcción: un atacante cross-site puede lograr que el navegador de
+//   la víctima ADJUNTE cookies automáticamente, pero nunca puede hacer que
+//   agregue un header Authorization arbitrario a esa petición. Cualquier
+//   consumidor que se autentique así (backend/scripts/smokeTest.js,
+//   securityValidation.js, Postman, integraciones externas) queda exento
+//   sin necesidad de una lista de "scripts conocidos".
 function verifyCsrf(req, res, next) {
   if (!MUTATING_METHODS.has(req.method)) return next();
+
+  const auth = req.headers.authorization;
+  if (auth && auth.startsWith('Bearer ')) return next(); // Regla 2
+
+  if (!req.cookies?.[AUTH_COOKIE_NAME]) return next(); // Regla 1
+
   const cookieToken = req.cookies?.[XSRF_COOKIE_NAME];
   const headerToken = req.headers['x-csrf-token'];
   const coincide = !!cookieToken && cookieToken === headerToken;
@@ -1342,7 +1362,11 @@ async function start() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Smoke-Token'],
+    // X-CSRF-Token (Fase 2 CSRF, 2026-09-05): sin esto, el preflight CORS
+    // rechaza el header antes de que la request de mutación llegue siquiera
+    // a verifyCsrf — descubierto revisando esta lista ANTES de activar
+    // CSRF_ENFORCE, no en producción.
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Smoke-Token', 'X-CSRF-Token'],
   }));
   // STRIPE WEBHOOK — debe ir ANTES de express.json() para recibir raw body
   // (la verificación de firma de Stripe falla si el body ya fue parseado)

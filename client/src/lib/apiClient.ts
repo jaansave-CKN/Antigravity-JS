@@ -14,7 +14,16 @@
  *   const data = await http.get<Project[]>('/api/projects');
  *   const result = await http.post<{ success: boolean }>('/api/auth/login', { email, password });
  */
-import { leerAuthToken } from './authStorage';
+import { leerAuthToken, obtenerCsrfHeaders } from './authStorage';
+
+// FIX (Fase 1/2 Dual-Mode, 2026-09-05): credentials:'include' en TODO
+// request es lo que hace viajar la cookie httpOnly auth_token (y la lectura
+// de XSRF-TOKEN vía document.cookie ya funcionaba sin esto, pero enviarla de
+// vuelta como header no sirve de nada si el navegador no manda también la
+// cookie de sesión que ese header debe acompañar). Sin esto, todo el
+// Dual-Mode backend (login/verify por cookie) queda inerte desde el
+// frontend — server.js seguiría recibiendo solo el header Authorization.
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 // ── Selector de fuente de autenticación ──────────────────────────────────────
 // true  → prioriza Supabase Auth session
@@ -74,10 +83,17 @@ function getAuthToken(): string | null {
 }
 
 // ── Cabeceras base ────────────────────────────────────────────────────────────
-function buildHeaders(extra?: HeadersInit): Headers {
+function buildHeaders(method: string, extra?: HeadersInit): Headers {
   const headers = new Headers({ 'Content-Type': 'application/json' });
   const token = getAuthToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
+  // Fase 2 CSRF (2026-09-05): solo en mutaciones — GET/HEAD nunca lo exige
+  // el backend (ver verifyCsrf en server.js), y calcularlo ahí sería trabajo
+  // sin efecto en cada lectura de la app.
+  if (MUTATING_METHODS.has(method.toUpperCase())) {
+    const csrf = obtenerCsrfHeaders();
+    if (csrf['X-CSRF-Token']) headers.set('X-CSRF-Token', csrf['X-CSRF-Token']);
+  }
   if (extra) {
     new Headers(extra).forEach((value, key) => headers.set(key, value));
   }
@@ -164,7 +180,7 @@ export async function fetchWithRetry(url: string, init: RequestInit, retries = 3
 async function get<T>(endpoint: string, opts?: RequestInit): Promise<T> {
   const resp = await fetchWithRetry(
     `${API_BASE}${endpoint}`,
-    { method: 'GET', ...opts, headers: buildHeaders(opts?.headers) }
+    { method: 'GET', credentials: 'include', ...opts, headers: buildHeaders('GET', opts?.headers) }
   );
   return parseResponse<T>(resp);
 }
@@ -174,9 +190,10 @@ async function post<T>(endpoint: string, body?: unknown, opts?: RequestInit): Pr
     `${API_BASE}${endpoint}`,
     {
       method:  'POST',
+      credentials: 'include',
       body:    body !== undefined ? JSON.stringify(body) : undefined,
       ...opts,
-      headers: buildHeaders(opts?.headers),
+      headers: buildHeaders('POST', opts?.headers),
     }
   );
   return parseResponse<T>(resp);
@@ -187,9 +204,10 @@ async function put<T>(endpoint: string, body?: unknown, opts?: RequestInit): Pro
     `${API_BASE}${endpoint}`,
     {
       method:  'PUT',
+      credentials: 'include',
       body:    body !== undefined ? JSON.stringify(body) : undefined,
       ...opts,
-      headers: buildHeaders(opts?.headers),
+      headers: buildHeaders('PUT', opts?.headers),
     }
   );
   return parseResponse<T>(resp);
@@ -200,9 +218,10 @@ async function patch<T>(endpoint: string, body?: unknown, opts?: RequestInit): P
     `${API_BASE}${endpoint}`,
     {
       method:  'PATCH',
+      credentials: 'include',
       body:    body !== undefined ? JSON.stringify(body) : undefined,
       ...opts,
-      headers: buildHeaders(opts?.headers),
+      headers: buildHeaders('PATCH', opts?.headers),
     }
   );
   return parseResponse<T>(resp);
@@ -211,7 +230,7 @@ async function patch<T>(endpoint: string, body?: unknown, opts?: RequestInit): P
 async function del<T>(endpoint: string, opts?: RequestInit): Promise<T> {
   const resp = await fetchWithRetry(
     `${API_BASE}${endpoint}`,
-    { method: 'DELETE', ...opts, headers: buildHeaders(opts?.headers) }
+    { method: 'DELETE', credentials: 'include', ...opts, headers: buildHeaders('DELETE', opts?.headers) }
   );
   return parseResponse<T>(resp);
 }
@@ -222,9 +241,11 @@ async function upload<T>(endpoint: string, formData: FormData): Promise<T> {
   const token = getAuthToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
   // NO Content-Type — browser lo pone automáticamente con boundary
+  const csrf = obtenerCsrfHeaders();
+  if (csrf['X-CSRF-Token']) headers.set('X-CSRF-Token', csrf['X-CSRF-Token']);
 
   const resp = await fetchWithRetry(`${API_BASE}${endpoint}`, {
-    method: 'POST', body: formData, headers,
+    method: 'POST', credentials: 'include', body: formData, headers,
   });
   return parseResponse<T>(resp);
 }
@@ -241,8 +262,11 @@ function uploadConProgreso<T>(endpoint: string, formData: FormData, onProgress?:
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${API_BASE}${endpoint}`);
+    xhr.withCredentials = true; // envía/recibe la cookie httpOnly auth_token — fetch() lo hace vía credentials:'include', XHR vía esta propiedad
     const token = getAuthToken();
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    const csrf = obtenerCsrfHeaders();
+    if (csrf['X-CSRF-Token']) xhr.setRequestHeader('X-CSRF-Token', csrf['X-CSRF-Token']);
 
     if (onProgress) {
       xhr.upload.onprogress = (e) => {
@@ -282,10 +306,19 @@ export function isAuthenticated(): boolean {
   return getAuthToken() !== null;
 }
 
-/** Retorna las cabeceras de Auth para uso en WebSocket o en requests manuales */
+/** Retorna las cabeceras de Auth para uso en WebSocket o en requests manuales.
+ *  FIX (Fase 1, 2026-09-05): incluye también el header CSRF de forma
+ *  incondicional — es más simple y robusto que auditar cada uno de los ~8
+ *  archivos que llaman a esta función directamente para saber cuáles hacen
+ *  mutaciones; enviarlo también en un GET es inerte (verifyCsrf en server.js
+ *  lo ignora fuera de POST/PUT/PATCH/DELETE). Sigue sin incluir
+ *  `credentials:'include'` — eso es una opción de fetch(), no un header;
+ *  cada caller debe seguir poniéndolo (ya lo hacen todos salvo los 5 fetch()
+ *  de ControlPanel.tsx, corregidos aparte en esta misma pasada). */
 export function getAuthHeaders(): Record<string, string> {
   const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  return { ...authHeader, ...obtenerCsrfHeaders() };
 }
 
 export default http;

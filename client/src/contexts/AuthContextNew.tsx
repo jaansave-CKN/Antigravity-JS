@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { fetchWithRetry } from '../lib/apiClient';
-import { leerAuthToken, leerAuthUser, escribirAuthToken, escribirAuthUser, borrarAuthSession } from '../lib/authStorage';
+import { leerAuthToken, leerAuthUser, escribirAuthToken, escribirAuthUser, borrarAuthSession, emitirCambioSesion, suscribirCambioSesion, obtenerCsrfHeaders } from '../lib/authStorage';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface UserProfile {
@@ -42,6 +42,18 @@ interface AuthApiResponse {
   pendingApproval?: boolean;
 }
 
+// FIX (Fase 1 frontend, Prioridad Amarilla, 2026-09-05): el JWT real ya
+// NUNCA toca este archivo ni localStorage/sessionStorage — vive solo en la
+// cookie httpOnly `auth_token` que server.js planta en login/mfa/activación/
+// trial (ver server.js, comentario "Fase 1 Dual-Mode"). `token` en este
+// contexto deja de ser el secreto real: es un centinela no sensible que solo
+// indica CÓMO está autenticada la sesión, para que el resto del código (que
+// hoy revisa `token`/`token === 'demo-mode-token'` en ~7 archivos) no tenga
+// que rediseñarse todo de una vez. 'demo-mode-token' sigue siendo la única
+// cadena que SÍ vive en localStorage (vía authStorage.ts) — no es un secreto,
+// es un flag local público y ya lo era antes de este cambio.
+const SESSION_TOKEN = 'cookie-session';
+
 interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
@@ -78,6 +90,7 @@ async function sendPasswordReset(email: string) {
     await fetch(`${API_BASE}/auth/forgot-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ email }),
     });
   } catch {}
@@ -92,13 +105,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isReconnecting, setIsReconnecting] = useState(false);
 
   useEffect(() => {
-    const storedToken = leerAuthToken();
-    const storedUser  = leerAuthUser();
-
-    if (!storedToken) { setLoading(false); return; }
-
-    // Token de demo local (modo sin backend)
-    if (storedToken === 'demo-mode-token') {
+    // 'demo-mode-token' es la ÚNICA cadena que authStorage.ts guarda hoy —
+    // es un flag local sin backend real detrás, no un JWT. Cualquier otra
+    // sesión se verifica SIEMPRE contra el backend vía la cookie httpOnly:
+    // ya no hay nada que leer síncronamente en el cliente para saberlo.
+    const demoToken = leerAuthToken();
+    if (demoToken === 'demo-mode-token') {
+      const storedUser = leerAuthUser();
       if (storedUser) {
         try { setUser(JSON.parse(storedUser)); setToken('demo-mode-token'); setHasCreds(false); }
         catch { clearSession(); }
@@ -106,10 +119,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-
-    verifyTokenWithBackend(storedToken);
+    verifyViaCookie();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // mount-once: verifyTokenWithBackend estabilizado con useCallback, no cambia entre renders
+  }, []); // mount-once: verifyViaCookie estabilizado con useCallback, no cambia entre renders
 
   // Aviso global de sesión expirada (401 real, ej. rotación de JWT_SECRET en
   // el servidor) — disparado por apiClient.ts en cualquier request de la app,
@@ -135,37 +147,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsReconnecting(false);
   }
 
-  function persistSession(t: string, u: UserProfile) {
-    escribirAuthToken(t);
+  // Sesión real (login/mfa/activación/trial): la cookie httpOnly ya la puso
+  // el backend en la misma respuesta que trajo este `u` — aquí solo se
+  // refleja en React state + se cachea el PERFIL (no el token, nunca
+  // sensible) para que un reload no muestre una pantalla en blanco mientras
+  // se revalida. `emitirCambioSesion()` reemplaza la sincronización entre
+  // pestañas que antes daba gratis el evento `storage` de localStorage.token
+  // — con el JWT fuera de Web Storage, otra pestaña ya no puede detectar el
+  // cambio de sesión observando storage, así que se hace explícito via
+  // BroadcastChannel (ver authStorage.ts).
+  function persistSession(u: UserProfile) {
     escribirAuthUser(u);
-    setToken(t);
+    setToken(SESSION_TOKEN);
     setUser(u);
+    emitirCambioSesion();
   }
 
-  const verifyTokenWithBackend = useCallback(async (storedToken: string) => { // eslint-disable-line react-hooks/exhaustive-deps
+  const verifyViaCookie = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/auth/verify`, {
-        headers: { Authorization: `Bearer ${storedToken}` },
-      });
+      // Sin Authorization: la cookie httpOnly viaja sola con credentials:'include'.
+      const response = await fetch(`${API_BASE}/auth/verify`, { credentials: 'include' });
       if (!response.ok) {
         // FIX (2026-08-22, causa raíz real de "Token requerido" en Generar con
         // AI): 502/503 = backend/proxy todavía no disponible (reinicio de PM2,
         // cold start — vite.config.ts devuelve 503 sintético en ECONNREFUSED),
-        // NO un rechazo real del token. Antes esto entraba a la MISMA rama que
-        // un 401 genuino y, en dev, reemplazaba la sesión real por
-        // demo-mode-token de forma silenciosa y PERMANENTE ante cualquier
-        // reinicio momentáneo — apiClient.ts nunca envía 'demo-mode-token'
-        // como Authorization real, así que el siguiente request salía sin
-        // header y el backend respondía "Token requerido" (nada que ver con
-        // BYOK/byokGate.js, que nunca llegaba a ejecutarse). Se trata igual
-        // que el bloque de red de abajo: mantener la sesión real y marcar
-        // reconectando, sin tocar localStorage.
+        // NO un rechazo real de la sesión. Se mantiene el perfil cacheado
+        // (no sensible) mientras se reconecta, igual que antes — lo único que
+        // cambia es que ya no hay un `storedToken` que reflejar en `token`,
+        // se usa el mismo centinela SESSION_TOKEN.
         if (response.status === 502 || response.status === 503) {
           const storedUser = leerAuthUser();
           if (storedUser) {
             try {
               const parsed = JSON.parse(storedUser);
-              setToken(storedToken);
+              setToken(SESSION_TOKEN);
               setUser(parsed);
               setIsReconnecting(true);
               console.warn('[Auth] Backend no disponible (', response.status, ') — manteniendo sesión local (reconectando)');
@@ -174,7 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false);
           return;
         }
-        // Token rechazado por el backend (backend UP, respuesta explícita: 401/403).
+        // Sesión rechazada por el backend (backend UP, respuesta explícita: 401/403).
         // En dev, cambiar a demo-mode-token para no bloquear el trabajo local.
         if (import.meta.env.DEV) {
           const devUser = { id: 'dev-user-001', email: 'dev@antigravity.local', nombre: 'Desarrollador Local', role: 'admin' as const, plan: 'suite', created_at: new Date().toISOString(), is_active: true };
@@ -193,38 +208,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try { data = JSON.parse(text); } catch { clearSession(); setLoading(false); return; }
       if (data.valid && data.user) {
         setIsReconnecting(false);
-        setToken(storedToken);
-        setUser({
+        setToken(SESSION_TOKEN);
+        const perfil: UserProfile = {
           id: data.user.id, email: data.user.email,
           nombre: data.user.nombre, role: data.user.role,
           plan: data.user.plan,
           created_at: data.user.created_at, is_active: data.user.is_active,
           email_verified: data.user.email_verified,
-        });
-        checkCredentials(storedToken);
+        };
+        setUser(perfil);
+        escribirAuthUser(perfil); // solo perfil, nunca el token — cache para el próximo reload
+        checkCredentials();
       } else { clearSession(); }
     } catch (err: unknown) {
       // TypeError  = fetch() falló antes de recibir respuesta (red caída, DNS, CORS).
       // AbortError = el AbortController disparó un timeout.
-      // En ambos casos el token puede ser válido — mantenemos la sesión en modo reconexión.
-      // Cualquier otro error inesperado (ej. excepción en setState) → cierra sesión por seguridad.
+      // En ambos casos la sesión (cookie) puede seguir siendo válida — mantenemos
+      // el perfil cacheado en modo reconexión.
       const isNetworkError =
         err instanceof TypeError ||
         (err instanceof DOMException && err.name === 'AbortError');
 
       if (isNetworkError) {
-        // FIX (2026-08-22): unificado con la rama 502/503 de arriba — un
-        // backend caído momentáneamente (reinicio de PM2, cold start) NUNCA
-        // debe destruir una sesión real, ni en dev ni en prod. La rama dev
-        // anterior sobreescribía localStorage.auth_token con el string
-        // literal 'demo-mode-token' ante cualquier blip de red — permanente
-        // hasta un re-login manual, y la causa raíz real del "Token
-        // requerido" reportado en Generar con AI.
         const storedUser = leerAuthUser();
         if (storedUser) {
           try {
             const parsed = JSON.parse(storedUser);
-            setToken(storedToken);
+            setToken(SESSION_TOKEN);
             setUser(parsed);
             setIsReconnecting(true);
             console.warn('[Auth] Backend no disponible — manteniendo sesión local (reconectando)');
@@ -232,19 +242,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else { clearSession(); }
       } else {
         // Error inesperado no relacionado con la red → cerrar sesión por seguridad
-        console.warn('[Auth] Error inesperado en verificación de token, cerrando sesión:', err);
+        console.warn('[Auth] Error inesperado en verificación de sesión, cerrando sesión:', err);
         clearSession();
       }
     }
     finally { setLoading(false); }
   }, []); // useCallback con deps vacías: solo usa setters de estado (referencia estable garantizada por React)
 
-  async function checkCredentials(t: string) {
+  // FIX (Fase 1, 2026-09-05): reemplaza el guard que main.tsx tenía en
+  // AppRoutes (`token !== 'demo-mode-token' && !leerAuthToken()` ⇒ logout) —
+  // esa condición se volvió SIEMPRE verdadera para cualquier sesión real en
+  // cuanto el JWT dejó de escribirse en localStorage (leerAuthToken() ya
+  // nunca devuelve un JWT real), lo que habría cerrado sesión a todo usuario
+  // real en cada cambio de ruta. La señal correcta ahora es este canal
+  // explícito: cuando OTRA pestaña hace login/logout/trial, revalida contra
+  // el backend (la cookie es compartida por todo el navegador) en vez de
+  // inferir el estado desde localStorage.
+  useEffect(() => {
+    return suscribirCambioSesion(() => {
+      if (leerAuthToken() !== 'demo-mode-token') verifyViaCookie();
+    });
+  }, [verifyViaCookie]);
+
+  async function checkCredentials() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
       const r = await fetch(`${API_BASE}/credentials/status`, {
-        headers: { Authorization: `Bearer ${t}` },
+        credentials: 'include',
         signal: controller.signal,
       });
       if (!r.ok) { setHasCreds(false); return; }
@@ -255,7 +280,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const refreshCredentialsStatus = useCallback(async () => {
-    if (token && token !== 'demo-mode-token') await checkCredentials(token);
+    if (token && token !== 'demo-mode-token') await checkCredentials();
   }, [token]);
 
   // ── login ──────────────────────────────────────────────────────────────────
@@ -271,6 +296,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       response = await fetchWithRetry(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
       });
     } catch {
@@ -288,12 +314,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { mfaRequired: true, preAuthToken: data.preAuthToken };
     }
 
-    const { token: newToken, user: userData, subscription } = data;
-    if (!newToken || !userData) throw new Error('Respuesta inválida del servidor.');
-    persistSession(newToken, userData);
-    checkCredentials(newToken);
-    // Notifica a SubscriptionContext (mismo tab) para recargar sin depender de localStorage events
-    window.dispatchEvent(new CustomEvent('auth-login', { detail: { token: newToken } }));
+    const { user: userData, subscription } = data;
+    if (!userData) throw new Error('Respuesta inválida del servidor.');
+    persistSession(userData);
+    checkCredentials();
+    // Notifica a SubscriptionContext (mismo tab) — ya no depende de localStorage events.
+    window.dispatchEvent(new CustomEvent('auth-login'));
     return subscription as LoginSubscription | undefined;
   }
 
@@ -305,6 +331,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       response = await fetchWithRetry(`${API_BASE}/auth/mfa/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ preAuthToken, code: code.trim() }),
       });
     } catch {
@@ -315,11 +342,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento.'); }
     if (!response.ok) throw new Error(data?.message || 'Código incorrecto.');
-    const { token: newToken, user: userData, subscription } = data;
-    if (!newToken || !userData) throw new Error('Respuesta inválida del servidor.');
-    persistSession(newToken, userData);
-    checkCredentials(newToken);
-    window.dispatchEvent(new CustomEvent('auth-login', { detail: { token: newToken } }));
+    const { user: userData, subscription } = data;
+    if (!userData) throw new Error('Respuesta inválida del servidor.');
+    persistSession(userData);
+    checkCredentials();
+    window.dispatchEvent(new CustomEvent('auth-login'));
     return subscription as LoginSubscription | undefined;
   }
 
@@ -333,6 +360,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       response = await fetch(`${API_BASE}/auth/validar-por-correo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ token: activationToken }),
       });
     } catch {
@@ -343,18 +371,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento.'); }
     if (!response.ok) throw new Error(data?.message || 'No se pudo validar la cuenta.');
-    const { token: newToken, user: userData } = data;
-    if (!newToken || !userData) throw new Error('Respuesta inválida del servidor.');
-    persistSession(newToken, userData);
-    checkCredentials(newToken);
-    window.dispatchEvent(new CustomEvent('auth-login', { detail: { token: newToken } }));
+    const { user: userData } = data;
+    if (!userData) throw new Error('Respuesta inválida del servidor.');
+    persistSession(userData);
+    checkCredentials();
+    window.dispatchEvent(new CustomEvent('auth-login'));
   }
 
-  // ── Modo Trial (V8.0) — token temporal 24h, datos en sessionStorage ──────
+  // ── Modo Trial (V8.0) ──────────────────────────────────────────────────────
+  // FIX (Fase 1 frontend, 2026-09-05): el token de trial ya NO se guarda en
+  // sessionStorage/localStorage — server.js ya planta la cookie httpOnly
+  // auth_token (24h) en esta misma respuesta (verificado en vivo la sesión
+  // anterior: Set-Cookie auth_token con Max-Age=86400). El perfil (no
+  // sensible) sí se cachea, igual que cualquier otra sesión.
   async function startTrial() {
     let response: Response;
     try {
-      response = await fetch(`${API_BASE}/auth/trial`, { method: 'POST' });
+      response = await fetch(`${API_BASE}/auth/trial`, { method: 'POST', credentials: 'include' });
     } catch {
       throw new Error('No se pudo conectar con el servidor.');
     }
@@ -362,25 +395,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let data: AuthApiResponse;
     try { data = JSON.parse(text); } catch { throw new Error('Respuesta inválida del servidor.'); }
     if (!response.ok || !data.success) throw new Error(data?.message || 'Error al iniciar sesión trial.');
-    const { token: trialToken, user: trialUser } = data;
-    // FIX (purga de `any`, 2026-09-05): tipar AuthApiResponse expuso que este
-    // bloque, a diferencia de los otros 7 call sites de este archivo, nunca
-    // verificaba token/user antes de usarlos — con `any` un backend que
-    // respondiera success:true sin ambos campos habría guardado la literal
-    // "undefined" en sessionStorage/localStorage en silencio.
-    if (!trialToken || !trialUser) throw new Error('Respuesta inválida del servidor.');
-    // Datos del trial en sessionStorage (volátiles — se pierden al cerrar la pestaña)
-    sessionStorage.setItem('trial_token', trialToken);
-    sessionStorage.setItem('trial_user', JSON.stringify(trialUser));
-    // También persistir en auth para que el contexto lo detecte
-    escribirAuthToken(trialToken);
-    escribirAuthUser(trialUser);
-    setToken(trialToken);
-    setUser(trialUser);
+    const { user: trialUser } = data;
+    if (!trialUser) throw new Error('Respuesta inválida del servidor.');
+    persistSession(trialUser);
     setHasCreds(false);
   }
 
   // ── Modo demo sin credenciales reales ─────────────────────────────────────
+  // Único caso que SÍ sigue escribiendo en localStorage: 'demo-mode-token' no
+  // es un secreto (cadena pública hardcodeada en todo el repo), es un flag de
+  // "estoy trabajando sin backend real" que por diseño debe sobrevivir un
+  // reload — no hay servidor del que revalidar una sesión que nunca existió.
   function enterDemoMode() {
     const demoUser: UserProfile = {
       id: 'demo-user', email: 'demo@radar.com',
@@ -401,6 +426,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       response = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email: email.trim(), password, nombre: nombre || 'Usuario', role }),
       });
     } catch { throw new Error('No se pudo conectar con el servidor.'); }
@@ -409,12 +435,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento.'); }
     if (!response.ok) throw new Error(data?.message || 'Error al registrarse.');
-    // Registro con aprobación manual pendiente: el servidor no emite token
-    // todavía — no hay sesión que abrir, solo se informa al llamador.
+    // Registro con aprobación manual pendiente: el servidor no emite sesión
+    // todavía — no hay nada que abrir, solo se informa al llamador.
     if (data?.pendingApproval) return { pendingApproval: true as const, message: data.message as string };
-    const { token: newToken, user: userData } = data;
-    if (!newToken || !userData) throw new Error('Respuesta inválida del servidor.');
-    persistSession(newToken, userData);
+    const { user: userData } = data;
+    if (!userData) throw new Error('Respuesta inválida del servidor.');
+    persistSession(userData);
     setHasCreds(false); // usuario nuevo nunca tiene credenciales
     return { pendingApproval: false as const };
   }
@@ -422,27 +448,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ── logout ─────────────────────────────────────────────────────────────────
   async function logout() {
     // 1. Notificar al servidor ANTES de limpiar el estado local, para que
-    //    pueda revocar el token y responder con Clear-Site-Data
+    //    pueda revocar la sesión (blacklist) y limpiar la cookie httpOnly
+    //    (res.clearCookie + Clear-Site-Data, ver server.js). Sin Authorization:
+    //    la cookie viaja sola con credentials:'include'; extractToken() en
+    //    el backend la resuelve igual que en cualquier otra ruta.
     if (token && token !== 'demo-mode-token') {
       try {
         await fetch(`${API_BASE}/auth/logout`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          credentials: 'include',  // incluye cookies HTTP-only si las hay
+          credentials: 'include',
+          headers: { ...obtenerCsrfHeaders() },
         });
       } catch { /* red caída — la sesión del cliente se limpia de todas formas */ }
     }
 
-    // 2. Limpieza selectiva de localStorage (solo claves de sesión conocidas)
+    // 2. Limpieza de localStorage (perfil cacheado + flag de demo, si los hay)
     borrarAuthSession();
-    localStorage.removeItem('trial_token');
-    localStorage.removeItem('trial_user');
 
-    // 3. Purgar sessionStorage completo (trial tokens volátiles + cualquier dato de sesión)
+    // 3. Purgar sessionStorage completo (cualquier dato de sesión volátil)
     sessionStorage.clear();
 
-    // 4. Sincronizar estado React
+    // 4. Sincronizar estado React + avisar a otras pestañas
     clearSession();
+    emitirCambioSesion();
   }
 
   // ── updateProfile ──────────────────────────────────────────────────────────
@@ -455,11 +483,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const response = await fetch(`${API_BASE}/auth/me`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', ...obtenerCsrfHeaders() },
+      credentials: 'include',
       body: JSON.stringify(data),
     });
     if (!response.ok) throw new Error('Error al actualizar perfil.');
-    setUser(prev => prev ? { ...prev, ...data } : null);
+    setUser(prev => {
+      const next = prev ? { ...prev, ...data } : null;
+      if (next) escribirAuthUser(next);
+      return next;
+    });
   }
 
   // ── changePassword ─────────────────────────────────────────────────────────
@@ -467,7 +500,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token || token === 'demo-mode-token') return;
     const response = await fetch(`${API_BASE}/auth/change-password`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', ...obtenerCsrfHeaders() },
+      credentials: 'include',
       body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
     });
     const text = await response.text();
@@ -482,7 +516,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (token === 'demo-mode-token') return; // modo demo: acepta cualquier pwd
     const response = await fetch(`${API_BASE}/auth/validate-action`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', ...obtenerCsrfHeaders() },
+      credentials: 'include',
       body: JSON.stringify({ password }),
     });
     const data: AuthApiResponse = await response.json().catch(() => ({}));

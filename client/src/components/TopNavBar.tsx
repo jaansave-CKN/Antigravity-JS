@@ -13,6 +13,7 @@ import { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 import { useSubscription } from '../contexts/SubscriptionContext';
+import { obtenerCsrfHeaders } from '../lib/authStorage';
 import UserMenu from './UserMenu';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -78,7 +79,8 @@ function ReportErrorButton({ token }: { token: string | null }) {
     try {
       const r = await fetch('/api/report-error', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...obtenerCsrfHeaders() },
         body: JSON.stringify({ message: message.trim(), url: window.location.href }),
       });
       setState(r.ok ? 'sent' : 'error');

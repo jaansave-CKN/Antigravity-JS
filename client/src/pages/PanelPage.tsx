@@ -153,6 +153,7 @@ function QuotaTelemetry() {
     async function fetchQuota() {
       try {
         const res  = await fetch('/api/admin/quota-status', {
+          credentials: 'include',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         const json = await res.json();

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
-import { leerAuthToken, esEventoDeSesion } from '../lib/authStorage';
+import { obtenerCsrfHeaders } from '../lib/authStorage';
+import { useAuth } from './AuthContextNew';
 
 export type PlanId = 'free' | 'radar' | 'formulador' | 'suite';
 
@@ -34,15 +35,19 @@ const API_BASE = import.meta.env.VITE_API_URL
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [subscription, setSubscription] = useState<Subscription>(DEFAULT_SUB);
   const [loading, setLoading]           = useState(false);
+  // FIX (Fase 1, 2026-09-05): leerAuthToken() ya solo devuelve 'demo-mode-token'
+  // o null — nunca el JWT real — así que ya no sirve para detectar "hay sesión
+  // real". Se reemplaza por el estado reactivo de AuthContext, que además
+  // propaga solo un cambio de sesión entre pestañas vía su propio
+  // suscribirCambioSesion(), sin duplicar esa suscripción aquí.
+  const { isAuthenticated, token } = useAuth();
+  const esSesionReal = isAuthenticated && token !== 'demo-mode-token';
 
   const loadSubscription = useCallback(async () => {
-    const token = leerAuthToken();
-    if (!token || token === 'demo-mode-token') { setSubscription(DEFAULT_SUB); return; }
+    if (!esSesionReal) { setSubscription(DEFAULT_SUB); return; }
     setLoading(true);
     try {
-      const r = await fetch(`${API_BASE}/subscription`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const r = await fetch(`${API_BASE}/subscription`, { credentials: 'include' });
       if (!r.ok) { setSubscription(DEFAULT_SUB); return; }
       const data = await r.json();
       if (data.success && data.data) {
@@ -62,14 +67,14 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [esSesionReal]);
 
   const activatePlan = useCallback(async (plan: PlanId) => {
-    const token = leerAuthToken();
-    if (!token || token === 'demo-mode-token') throw new Error('Debes iniciar sesión para cambiar de plan');
+    if (!esSesionReal) throw new Error('Debes iniciar sesión para cambiar de plan');
     const r = await fetch(`${API_BASE}/subscription/activate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', ...obtenerCsrfHeaders() },
+      credentials: 'include',
       body: JSON.stringify({ plan }),
     });
     const data = await r.json();
@@ -93,22 +98,16 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       access_formulador:  !!data.access_formulador,
     });
     return { redirected: false };
-  }, []);
+  }, [esSesionReal]);
 
-  // Cargar suscripción al montar y al cambiar la sesión (mismo tab o tab cruzado)
+  // Cargar suscripción al montar y cuando cambia esSesionReal — cubre login/
+  // logout en ESTA pestaña automáticamente (loadSubscription depende de
+  // esSesionReal, que viene de AuthContext). El cambio en OTRA pestaña ya no
+  // necesita un listener propio aquí: AuthContext detecta ese caso vía su
+  // propio suscribirCambioSesion() (BroadcastChannel) y re-verifica la
+  // cookie, lo que actualiza isAuthenticated/token y cascada hasta aquí.
   useEffect(() => {
     loadSubscription();
-    // storage event solo dispara en *otras* pestañas; auth-login cubre el tab actual
-    const onStorage = (e: StorageEvent) => {
-      if (esEventoDeSesion(e)) loadSubscription();
-    };
-    const onAuthLogin = () => loadSubscription();
-    window.addEventListener('storage', onStorage);
-    window.addEventListener('auth-login', onAuthLogin);
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener('auth-login', onAuthLogin);
-    };
   }, [loadSubscription]);
 
   const value = useMemo(() => ({

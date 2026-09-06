@@ -1,12 +1,16 @@
 // Use empty base so all /api/* requests go through the Vite dev proxy → localhost:3000
-import { leerAuthToken } from '../lib/authStorage';
+import { leerAuthToken, obtenerCsrfHeaders } from '../lib/authStorage';
 import type { GrantData } from '../contexts/FavoritosContext';
 
 const API_BASE = '';
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-function getAuthHeaders(): Record<string, string> {
+function getAuthHeaders(method?: string): Record<string, string> {
   const token = leerAuthToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  // Fase 2 CSRF (2026-09-05): solo en mutaciones, mismo criterio que apiClient.ts.
+  const csrfHeader = method && MUTATING_METHODS.has(method.toUpperCase()) ? obtenerCsrfHeaders() : {};
+  return { ...authHeader, ...csrfHeader };
 }
 
 interface ApiResponse<T> {
@@ -49,9 +53,11 @@ interface FavoritoRow {
 
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<ApiResponse<T>> {
   try {
+    const method = (options?.method as string | undefined) ?? 'GET';
     const res = await fetch(`${API_BASE}${endpoint}`, {
+      credentials: 'include',
       ...options,
-      headers: { 'Content-Type': 'application/json', ...getAuthHeaders(), ...options?.headers },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders(method), ...options?.headers },
     });
 
     const text = await res.text();

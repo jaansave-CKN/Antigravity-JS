@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
+import { obtenerCsrfHeaders } from '../lib/authStorage';
 import { SECTORES_TAXONOMY } from '../data/sectoresTaxonomy';
 import './RadarCalcoPage.css';
 
@@ -890,6 +891,7 @@ export default function LayoutPadre() {
       if (sectores.length > 0) params.set('sector', sectores.join('|||'));
       if (estado !== 'todos')  params.set('estado', estado);
       const res = await fetch(`/api/convocatorias?${params}`, {
+        credentials: 'include',
         headers: { 'Cache-Control': 'no-cache' },
         signal: controller.signal,
       });
@@ -928,8 +930,8 @@ export default function LayoutPadre() {
     fetchConvocatorias({ rastreo: '1' });
     setScanning1(true);
     try {
-      const authHeader: Record<string, string> = tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {};
-      const res  = await fetch('/api/radar/rastreo1', { method: 'POST', headers: authHeader });
+      const authHeader: Record<string, string> = tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}`, ...obtenerCsrfHeaders() } : {};
+      const res  = await fetch('/api/radar/rastreo1', { method: 'POST', credentials: 'include', headers: authHeader });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.message || `Error ${res.status}`);
       setRastreo1Msg(json.message || 'Rastreo 1 iniciado');
@@ -1008,7 +1010,8 @@ export default function LayoutPadre() {
     if (t && t !== 'demo-mode-token') {
       fetch(`/api/convocatorias/${id}/favorito`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${t}` },
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${t}`, ...obtenerCsrfHeaders() },
       }).catch(() => {
         const revertido = new Set(favoritosRef.current);
         if (revertido.has(id)) revertido.delete(id); else revertido.add(id);
@@ -1023,7 +1026,7 @@ export default function LayoutPadre() {
 
   // Carga países y sectores dinámicos desde la BD al montar
   useEffect(() => {
-    fetch('/api/convocatorias/meta')
+    fetch('/api/convocatorias/meta', { credentials: 'include' })
       .then(r => r.json())
       .then(j => { if (j.success) setMeta({ sectores: j.sectores ?? [], paises: j.paises ?? [] }); })
       .catch(() => {});
