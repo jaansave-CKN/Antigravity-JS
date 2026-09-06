@@ -27,6 +27,21 @@ export interface MfaRequiredResult {
   preAuthToken: string;
 }
 
+/** Forma real (verificada contra los ~8 endpoints de auth de server.js) del
+ *  envelope JSON que devuelve cada ruta de autenticación — todas comparten
+ *  este superset de campos, ninguna los usa todos a la vez. */
+interface AuthApiResponse {
+  success?: boolean;
+  message?: string;
+  valid?: boolean;
+  mfaRequired?: boolean;
+  preAuthToken?: string;
+  token?: string;
+  user?: UserProfile;
+  subscription?: LoginSubscription;
+  pendingApproval?: boolean;
+}
+
 interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
@@ -174,7 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       const text = await response.text();
-      let data: any;
+      let data: AuthApiResponse;
       try { data = JSON.parse(text); } catch { clearSession(); setLoading(false); return; }
       if (data.valid && data.user) {
         setIsReconnecting(false);
@@ -262,7 +277,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('No se pudo conectar con el servidor. Verifica tu conexión o intenta más tarde.');
     }
     const text = await response.text();
-    let data: any;
+    let data: AuthApiResponse;
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento. Por favor intenta en unos minutos.'); }
     if (!response.ok) throw new Error(data?.message || 'Credenciales incorrectas.');
@@ -296,7 +311,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('No se pudo conectar con el servidor. Verifica tu conexión o intenta más tarde.');
     }
     const text = await response.text();
-    let data: any;
+    let data: AuthApiResponse;
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento.'); }
     if (!response.ok) throw new Error(data?.message || 'Código incorrecto.');
@@ -324,7 +339,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('No se pudo conectar con el servidor. Verifica tu conexión o intenta más tarde.');
     }
     const text = await response.text();
-    let data: any;
+    let data: AuthApiResponse;
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento.'); }
     if (!response.ok) throw new Error(data?.message || 'No se pudo validar la cuenta.');
@@ -344,10 +359,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('No se pudo conectar con el servidor.');
     }
     const text = await response.text();
-    let data: any;
+    let data: AuthApiResponse;
     try { data = JSON.parse(text); } catch { throw new Error('Respuesta inválida del servidor.'); }
     if (!response.ok || !data.success) throw new Error(data?.message || 'Error al iniciar sesión trial.');
     const { token: trialToken, user: trialUser } = data;
+    // FIX (purga de `any`, 2026-09-05): tipar AuthApiResponse expuso que este
+    // bloque, a diferencia de los otros 7 call sites de este archivo, nunca
+    // verificaba token/user antes de usarlos — con `any` un backend que
+    // respondiera success:true sin ambos campos habría guardado la literal
+    // "undefined" en sessionStorage/localStorage en silencio.
+    if (!trialToken || !trialUser) throw new Error('Respuesta inválida del servidor.');
     // Datos del trial en sessionStorage (volátiles — se pierden al cerrar la pestaña)
     sessionStorage.setItem('trial_token', trialToken);
     sessionStorage.setItem('trial_user', JSON.stringify(trialUser));
@@ -384,7 +405,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     } catch { throw new Error('No se pudo conectar con el servidor.'); }
     const text = await response.text();
-    let data: any;
+    let data: AuthApiResponse;
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento.'); }
     if (!response.ok) throw new Error(data?.message || 'Error al registrarse.');
@@ -450,7 +471,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
     });
     const text = await response.text();
-    let data: any;
+    let data: AuthApiResponse;
     try { data = JSON.parse(text); } catch { throw new Error('Error al cambiar la contraseña.'); }
     if (!response.ok) throw new Error(data?.message || 'Error al cambiar la contraseña.');
   }
@@ -464,7 +485,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ password }),
     });
-    const data: any = await response.json().catch(() => ({}));
+    const data: AuthApiResponse = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data?.message ?? 'CREDENCIALES INVÁLIDAS · ACCESO DENEGADO.');
   }
 
