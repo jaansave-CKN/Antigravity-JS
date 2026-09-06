@@ -66,6 +66,21 @@
 >   migrados" sin haber re-verificado este detalle. Bajo riesgo, bajo costo de
 >   arreglar (5 archivos × 1 línea), candidato natural para un lote de cierre
 >   rápido antes o durante la Fase 5.
+> - **Fase 5, Bloque 1 (Auth & Sesión en `server.js`) — ✅ COMPLETADO
+>   (2026-09-06):** 26 call sites migrados (`register`, `login`, `mfa/*`,
+>   `verify`, `validar-por-correo`, `me`, `change-password`, `reset-password`,
+>   `validate-action`). `usuarios`/`user_subscriptions` ya tenían GRANT
+>   completo de fases previas — sin migración de GRANT nueva. `revoked_tokens`
+>   (blacklist de tokens) queda deliberadamente sin escopar — ledger de
+>   seguridad GLOBAL cargado completo en memoria al arrancar, mismo criterio
+>   que `stripe_events`/`gemini_key_state`. El panel de administración de
+>   usuarios (~40 call sites, físicamente intercalado en el mismo rango de
+>   `server.js`) y `/api/credentials/*` quedan fuera a propósito — son áreas
+>   funcionales distintas, para un Bloque 2/3 futuro. 35/35 pruebas passed vía
+>   HTTP real (registro, login, MFA completo con TOTP real, cambio de
+>   contraseña con revocación bulk verificada, reset de contraseña con
+>   anti-replay verificado en BD, logout, aislamiento cruzado entre 2 usuarios
+>   reales).
 > - **Regla para la próxima sesión**: antes de elegir el siguiente lote,
 >   re-verificar con `grep -c` real (getRow/getRows/runSql vs withTenant\*) en
 >   cada archivo de la tabla de abajo — este documento puede volver a
@@ -87,7 +102,7 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 
 | Ubicación | Call sites (`getRow`/`getRows`/`runSql`) | Estado |
 |---|---:|---|
-| `server.js` | 263 | Sin migrar |
+| `server.js` (núcleo, Fase 5) | 263 → 237 pendientes + 26 withTenant (Bloque 1: auth/sesión) | **Bloque 1 MIGRADO** (2026-09-06) — Bloque 2 (admin usuarios) y resto pendientes |
 | `backend/routes/anexos.routes.js` | 30 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05) |
 | `backend/routes/biblioteca.routes.js` | 20 → withTenant | **MIGRADO COMPLETO** (2026-09-06, este documento) |
 | `backend/routes/proyectos.routes.js` | 25 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05) |
@@ -102,10 +117,11 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 | `matrizRaci.routes.js` / `copiloto.routes.js` / `entradaIA.routes.js` / `estresFinanciero.routes.js` / `valorExponencial.routes.js` | 1 c/u (`checkOwnership` crudo) | **RESIDUO por re-verificar** (ver nota arriba) |
 | `backend/routes/reporte.routes.js` | 6 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05, adelantado desde Fase 2) |
 
-**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): ~269 call sites** — 263 en `server.js` +
-5 residuos de `checkOwnership()` crudo (ver hallazgo arriba) + 1 en `presupuesto.routes.js` que es la excepción
-deliberada de `catalogo_rendimientos`, no deuda real. Fase 1, Fase 2, Fase 3 (lotes 1 y 2) y Fase 4 quedan 100%
-cerradas; solo Fase 5 (`server.js`, el núcleo) sigue sin migrar.
+**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): ~243 call sites** — 237 en `server.js`
+(263 menos los 26 del Bloque 1 de Fase 5) + 5 residuos de `checkOwnership()` crudo (ver hallazgo arriba) + 1 en
+`presupuesto.routes.js` que es la excepción deliberada de `catalogo_rendimientos`, no deuda real. Fase 1, Fase 2,
+Fase 3 (lotes 1 y 2) y Fase 4 quedan 100% cerradas; Fase 5 (`server.js`) arrancó con su Bloque 1 (auth/sesión)
+completo — Bloque 2 (admin de usuarios) y el resto del archivo siguen pendientes.
 
 **Cobertura de tests hoy:** 13 tests totales (`test:smoke` 8 + `test:security` 5) para ~397 call sites — insuficiente
 para migrar con confianza sin ampliarla primero. Ver Fase 0.
@@ -251,6 +267,50 @@ prueba de aislamiento ya se habrá ejecutado ~130 veces en las fases 1-4, con aj
 Migrar `server.js` de una sola vez sin ese rodaje previo es exactamente el "romper producción sin cobertura
 suficiente" que la auditoría original señaló como riesgo. Sub-dividir por bloque funcional dentro del propio
 archivo (auth, proyectos, radar, IA) en vez de tratarlo como una sola unidad.
+
+**Bloque 1 — ✅ COMPLETADO (2026-09-06) — Auth & Sesión.** Alcance estrictamente delimitado a las rutas bajo
+`/api/auth/*` que manejan identidad/sesión: `register`, `login`, `mfa/challenge`, `mfa/status`, `mfa/setup`,
+`mfa/confirmar`, `mfa/desactivar`, `verify`, `validar-por-correo`, `me`, `change-password`, `reset-password` y
+`validate-action` — 26 call sites migrados a `withTenantRow()`/`withTenantRun()`. Deliberadamente FUERA de este
+bloque (es un área funcional distinta, aunque vive físicamente intercalada en el mismo rango de líneas de
+`server.js`): el panel de administración de usuarios (listar/aprobar/desactivar/promover/purgar, ~40 call sites
+entre `validar-por-correo` y `trial`) y `/api/credentials/*` (BYOK de notebook, tabla `user_credentials`) — quedan
+para un Bloque 2/3 futuro. `usuarios` y `user_subscriptions` ya tenían GRANT completo a `rf360_rls_scoped` de fases
+previas (Fase 1 y Fase 4) — **no se necesitó ninguna migración de GRANT nueva para este bloque.**
+
+Patrón aplicado, consistente con toda la Fase 3/4: las búsquedas por EMAIL (`register`'s chequeo de duplicado,
+`login`, `forgot-password`) se quedan sin escopar a propósito — el tenant (el propio id del usuario) no existe
+todavía o no se conoce hasta resolver el email. En cuanto se conoce el id (recién generado en `register`, resuelto
+por email en `login`, o extraído de un JWT ya verificado — `payload.sub` en `mfa/challenge`/`validar-por-correo`/
+`reset-password`), toda operación posterior sí escopa. `register`'s INSERT en `usuarios` es un caso nuevo frente a
+Fases 1-4: el id se genera en JS ANTES del INSERT, así que puede auto-escoparse (`withTenantRun(id, ...)`) desde el
+primer momento — no hay problema del huevo y la gallina para una fila que uno mismo está creando con un id ya
+conocido.
+
+**EXCLUSIÓN DELIBERADA, verificada en vivo:** `revoked_tokens` (blacklist de tokens, `backend/middlewares/
+tokenBlacklist.js`) se queda sin escopar — es un ledger de seguridad GLOBAL que se carga COMPLETO en memoria al
+arrancar el servidor (para poder rechazar en O(1) el token revocado de CUALQUIER usuario, no solo el del tenant
+actual); escoparlo habría sido arquitectónicamente incorrecto, no solo innecesario. Mismo criterio que
+`stripe_events`/`gemini_key_state`/`trial_sessions`.
+
+35/35 pruebas passed vía HTTP real contra el backend vivo, con 2 usuarios reales (no mocks): registro completo
+(verificando en BD que el INSERT escopado de `usuarios` Y el de `user_subscriptions` — este dentro de un
+try/catch — de verdad aterrizan), login con password incorrecto/correcto (verificando el UPDATE escopado de
+`failed_login_attempts`/`locked_until`), `verify` con aislamiento cruzado explícito entre los 2 usuarios, ciclo MFA
+completo (`setup` → `confirmar` con un código TOTP real generado con `otplib` → `login` con `mfaRequired` →
+`challenge` con un segundo código real → `status` → `desactivar`), `change-password` con verificación de que el
+JWT emitido ANTES del cambio queda invalidado por la revocación bulk (`tokens_invalidated_at`), el flujo completo
+de `forgot-password`/`reset-password` (token auto-firmado con el mismo `JWT_SECRET` real, ya que el envío de email
+está inactivo en este entorno) incluyendo el rechazo de reintentar el mismo token de reset ya usado (verificado
+además directo en BD que `revoked_tokens` sí recibió el hash), `logout` con verificación de que el token usado
+queda rechazado de inmediato, y `trial` como sanity check de que la ruta más simple del bloque sigue intacta.
+`test:smoke` 8/8 y `test:security` 5/5 (100%).
+
+**Bloque 2 — pendiente:** panel de administración de usuarios en `server.js` (~40 call sites: listar, aprobar,
+rechazar, activar/desactivar, promover a admin, purgar con cascada de borrado, estadísticas por agente). Tiene
+patrones de admin-bypass reales por diseño (un admin actuando sobre OTRO usuario) — mismo criterio que
+`compliance.routes.js`/`subscriptions.routes.js`: el tenantId de cualquier escritura debe ser el usuario objetivo
+(`targetId`/`req.params.id`), nunca `req.userId` del admin.
 
 ---
 

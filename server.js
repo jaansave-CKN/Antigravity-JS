@@ -25,7 +25,7 @@ import {
 } from './backend/routes/authGoogle.controller.js';
 import { emailAdapter } from './backend/notifications/BrevoEmailAdapter.js';
 import { pool, getRow, getRows, getCount, runSql, runTransaction } from './backend/db.js';
-import { dbStatus, withTenant } from './backend/config/database.config.js';
+import { dbStatus, withTenant, withTenantRow, withTenantRun } from './backend/config/database.config.js';
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -286,8 +286,8 @@ validateProductionEnv();
 // ir directo a /checklist o /radar. Sin fila en user_subscriptions (usuario
 // nuevo antes de que el trigger/registro la cree), plan 'free' con ambos
 // accesos en false es el resultado correcto — igual que GET /api/subscription.
-async function getLoginSubscription(userId, getRowFn) {
-  const sub = await getRowFn('SELECT plan, access_radar, access_formulador FROM user_subscriptions WHERE user_id = ?', [userId]);
+async function getLoginSubscription(userId, withTenantRowFn) {
+  const sub = await withTenantRowFn(userId, 'SELECT plan, access_radar, access_formulador FROM user_subscriptions WHERE user_id = ?', [userId]);
   return sub
     ? { plan: sub.plan, access_radar: !!sub.access_radar, access_formulador: !!sub.access_formulador }
     : { plan: 'free', access_radar: false, access_formulador: false };
@@ -1565,6 +1565,9 @@ async function start() {
      // atacante no pueda usar este endpoint para descubrir qué correos ya
      // tienen cuenta. Al dueño real de la cuenta se le avisa por correo en
      // vez de filtrarlo en la respuesta HTTP.
+     // Sin escopar a propósito: se busca por email, el tenant (el propio id
+     // del usuario) todavía no existe en este punto — mismo problema del
+     // huevo y la gallina que authenticateToken.
      const existing = await getRow('SELECT id, email FROM usuarios WHERE email = ?', [email.trim().toLowerCase()]);
      if (existing) {
        emailAdapter.sendDuplicateRegistrationNotice(existing.email)
@@ -1578,13 +1581,15 @@ async function start() {
      const id = crypto.randomUUID();
      const password_hash = await hashPassword(password);
      const safeRole = role === 'admin' ? 'user' : (role || 'user'); // no permitir auto-admin
-     await runSql(
+     // id generado en JS antes del INSERT -> puede escoparse por sí mismo
+     // (usuarios.id === app.org_id bajo la política RLS real de esta tabla).
+     await withTenantRun(id,
        `INSERT INTO usuarios (id, email, password_hash, nombre, tipousuario, rol, is_approved) VALUES (?, ?, ?, ?, ?, ?, ?)`,
        [id, email.trim().toLowerCase(), password_hash, nombre.trim(), 'Usuario', safeRole, 0]
      );
     // V8.0: auto-crear suscripción free al registrarse
     try {
-      await runSql(
+      await withTenantRun(id,
         `INSERT INTO user_subscriptions (id, user_id, plan, access_radar, access_formulador)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT (user_id) DO NOTHING`,
@@ -1617,11 +1622,12 @@ async function start() {
   app.post('/api/auth/login', authLimiter, sanitizeAuthBody, tryCatch(async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ success: false, message: 'email y password requeridos' });
+    // Sin escopar a propósito: búsqueda por email, tenant aún desconocido.
     const user = await getRow('SELECT * FROM usuarios WHERE email = ? AND deleted_at IS NULL', [email.trim().toLowerCase()]);
     if (!user) return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
     if (!user.is_active) return res.status(403).json({ success: false, message: 'Cuenta desactivada' });
     if (user.tipousuario !== 'admin') {
-      const sub = await getRow('SELECT expires_at FROM user_subscriptions WHERE user_id = ?', [user.id]);
+      const sub = await withTenantRow(user.id, 'SELECT expires_at FROM user_subscriptions WHERE user_id = ?', [user.id]);
       if (sub?.expires_at && new Date(sub.expires_at).getTime() < Date.now()) {
         return res.status(403).json({ success: false, code: 'SUBSCRIPTION_EXPIRED', message: 'Tu membresía expiró. Contacta al administrador para renovarla.' });
       }
@@ -1644,13 +1650,13 @@ async function start() {
       const LIMITE_INTENTOS = 5;
       if (intentos >= LIMITE_INTENTOS) {
         const lockedUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-        await runSql('UPDATE usuarios SET failed_login_attempts = ?, locked_until = ? WHERE id = ?', [0, lockedUntil, user.id]);
+        await withTenantRun(user.id, 'UPDATE usuarios SET failed_login_attempts = ?, locked_until = ? WHERE id = ?', [0, lockedUntil, user.id]);
         return res.status(423).json({
           success: false, code: 'ACCOUNT_LOCKED',
           message: 'Cuenta bloqueada temporalmente por múltiples intentos fallidos. Intenta de nuevo en 15 minutos.',
         });
       }
-      await runSql('UPDATE usuarios SET failed_login_attempts = ? WHERE id = ?', [intentos, user.id]);
+      await withTenantRun(user.id, 'UPDATE usuarios SET failed_login_attempts = ? WHERE id = ?', [intentos, user.id]);
       return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
     }
 
@@ -1660,7 +1666,7 @@ async function start() {
 
     // Login correcto — reiniciar contador de intentos fallidos.
     if (user.failed_login_attempts > 0 || user.locked_until) {
-      await runSql('UPDATE usuarios SET failed_login_attempts = ?, locked_until = ? WHERE id = ?', [0, null, user.id]);
+      await withTenantRun(user.id, 'UPDATE usuarios SET failed_login_attempts = ?, locked_until = ? WHERE id = ?', [0, null, user.id]);
     }
 
     // MFA: password correcta no basta si la cuenta tiene TOTP activo — se
@@ -1678,7 +1684,7 @@ async function start() {
       success: true,
       token,
       user: { id: user.id, email: user.email, nombre: user.nombre, role: user.tipousuario, plan: user.plan || 'free', created_at: user.createdat, is_active: !!user.is_active, email_verified: !!user.email_verified },
-      subscription: await getLoginSubscription(user.id, getRow),
+      subscription: await getLoginSubscription(user.id, withTenantRow),
     });
   }));
 
@@ -1698,7 +1704,8 @@ async function start() {
       return res.status(401).json({ success: false, message: 'Token de verificación inválido.' });
     }
 
-    const user = await getRow('SELECT * FROM usuarios WHERE id = ? AND deleted_at IS NULL', [payload.sub]);
+    // payload.sub viene de un JWT firmado y verificado arriba -- tenant confiable.
+    const user = await withTenantRow(payload.sub, 'SELECT * FROM usuarios WHERE id = ? AND deleted_at IS NULL', [payload.sub]);
     if (!user || !user.mfa_enabled || !user.mfa_secret) {
       return res.status(401).json({ success: false, message: 'Cuenta no válida para verificación MFA.' });
     }
@@ -1712,7 +1719,7 @@ async function start() {
       success: true,
       token,
       user: { id: user.id, email: user.email, nombre: user.nombre, role: user.tipousuario, plan: user.plan || 'free', created_at: user.createdat, is_active: !!user.is_active, email_verified: !!user.email_verified },
-      subscription: await getLoginSubscription(user.id, getRow),
+      subscription: await getLoginSubscription(user.id, withTenantRow),
     });
   }));
 
@@ -1722,17 +1729,17 @@ async function start() {
   // GET /api/auth/mfa/status — estado actual de MFA de la cuenta en sesión,
   // para que la UI de gestión sepa si mostrar "activar" o "desactivar".
   app.get('/api/auth/mfa/status', authenticateToken, tryCatch(async (req, res) => {
-    const user = await getRow('SELECT mfa_enabled FROM usuarios WHERE id = ?', [req.userId]);
+    const user = await withTenantRow(req.userId, 'SELECT mfa_enabled FROM usuarios WHERE id = ?', [req.userId]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
     res.json({ success: true, mfaEnabled: !!user.mfa_enabled });
   }));
 
   app.post('/api/auth/mfa/setup', authenticateToken, tryCatch(async (req, res) => {
-    const user = await getRow('SELECT id, email FROM usuarios WHERE id = ?', [req.userId]);
+    const user = await withTenantRow(req.userId, 'SELECT id, email FROM usuarios WHERE id = ?', [req.userId]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
     const secret = authenticator.generateSecret();
-    await runSql('UPDATE usuarios SET mfa_secret = ?, mfa_enabled = ? WHERE id = ?', [secret, false, user.id]);
+    await withTenantRun(req.userId, 'UPDATE usuarios SET mfa_secret = ?, mfa_enabled = ? WHERE id = ?', [secret, false, user.id]);
     const otpauthUrl = authenticator.keyuri(user.email, 'RadFor-360', secret);
 
     res.json({ success: true, data: { secret, otpauthUrl } });
@@ -1744,13 +1751,13 @@ async function start() {
     const { code } = req.body || {};
     if (!code) return res.status(400).json({ success: false, message: 'code es requerido' });
 
-    const user = await getRow('SELECT mfa_secret FROM usuarios WHERE id = ?', [req.userId]);
+    const user = await withTenantRow(req.userId, 'SELECT mfa_secret FROM usuarios WHERE id = ?', [req.userId]);
     if (!user?.mfa_secret) return res.status(400).json({ success: false, message: 'No hay una configuración de MFA pendiente. Ejecuta /mfa/setup primero.' });
 
     const valido = authenticator.check(String(code).trim(), user.mfa_secret);
     if (!valido) return res.status(400).json({ success: false, message: 'Código incorrecto. Verifica la hora de tu dispositivo e intenta de nuevo.' });
 
-    await runSql('UPDATE usuarios SET mfa_enabled = ? WHERE id = ?', [true, req.userId]);
+    await withTenantRun(req.userId, 'UPDATE usuarios SET mfa_enabled = ? WHERE id = ?', [true, req.userId]);
     res.json({ success: true, message: 'MFA activado. Se te pedirá un código cada vez que inicies sesión.' });
   }));
 
@@ -1760,20 +1767,20 @@ async function start() {
     const { password } = req.body || {};
     if (!password) return res.status(400).json({ success: false, message: 'password es requerido' });
 
-    const user = await getRow('SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
+    const user = await withTenantRow(req.userId, 'SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) return res.status(401).json({ success: false, message: 'Contraseña incorrecta.' });
 
-    await runSql('UPDATE usuarios SET mfa_enabled = ?, mfa_secret = ? WHERE id = ?', [false, null, req.userId]);
+    await withTenantRun(req.userId, 'UPDATE usuarios SET mfa_enabled = ?, mfa_secret = ? WHERE id = ?', [false, null, req.userId]);
     res.json({ success: true, message: 'MFA desactivado.' });
   }));
 
   // GET /api/auth/verify
   app.get('/api/auth/verify', authenticateToken, tryCatch(async (req, res) => {
-    const user = await getRow('SELECT id, email, nombre, tipousuario, plan, createdat, is_active, email_verified FROM usuarios WHERE id = ? AND deleted_at IS NULL', [req.userId]);
+    const user = await withTenantRow(req.userId, 'SELECT id, email, nombre, tipousuario, plan, createdat, is_active, email_verified FROM usuarios WHERE id = ? AND deleted_at IS NULL', [req.userId]);
     if (!user) return res.status(401).json({ valid: false });
-    const sub = await getRow(
+    const sub = await withTenantRow(req.userId,
       'SELECT plan, access_radar, access_formulador FROM user_subscriptions WHERE user_id = ?',
       [req.userId]
     );
@@ -1816,19 +1823,23 @@ async function start() {
     if (payload.purpose !== 'account_activated' || !payload.sub) {
       return res.status(400).json({ success: false, message: 'El enlace no es válido.' });
     }
-    const user = await getRow('SELECT * FROM usuarios WHERE id = ? AND deleted_at IS NULL', [payload.sub]);
+    // payload.sub viene de un JWT firmado y verificado arriba -- tenant confiable.
+    const user = await withTenantRow(payload.sub, 'SELECT * FROM usuarios WHERE id = ? AND deleted_at IS NULL', [payload.sub]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado.' });
     if (!user.is_approved) {
       return res.status(403).json({ success: false, code: 'PENDING_APPROVAL', message: 'Tu cuenta todavía no ha sido aprobada por el administrador.' });
     }
     if (!user.is_active) return res.status(403).json({ success: false, message: 'Cuenta desactivada.' });
     if (user.tipousuario !== 'admin') {
-      const sub = await getRow('SELECT expires_at FROM user_subscriptions WHERE user_id = ?', [user.id]);
+      const sub = await withTenantRow(user.id, 'SELECT expires_at FROM user_subscriptions WHERE user_id = ?', [user.id]);
       if (sub?.expires_at && new Date(sub.expires_at).getTime() < Date.now()) {
         return res.status(403).json({ success: false, code: 'SUBSCRIPTION_EXPIRED', message: 'Tu membresía expiró. Contacta al administrador para renovarla.' });
       }
     }
 
+    // revokeToken: ledger GLOBAL de tokens revocados (revoked_tokens), no dato
+    // de tenant -- se carga completo en memoria al arrancar para O(1) checks
+    // de CUALQUIER usuario. Sin escopar a propósito, ver nota en logout más abajo.
     await revokeToken(token, user.id, payload.exp, runSql);
     const sessionToken = jwt.sign({ sub: user.id, role: user.tipousuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
     res.cookie(AUTH_COOKIE_NAME, sessionToken, authCookieOptions(MS_7D));
@@ -2275,7 +2286,10 @@ async function start() {
     // verdad que ya usó authenticateToken para autenticar este request.
     const rawToken = extractToken(req);
 
-    // 1. Revocar token individual: añade al revokedSet (memoria O(1)) y persiste en BD
+    // 1. Revocar token individual: añade al revokedSet (memoria O(1)) y persiste en BD.
+    // revoked_tokens es un ledger GLOBAL (se carga completo en memoria al
+    // arrancar, para todos los usuarios) -- sin escopar a propósito, mismo
+    // criterio que stripe_events/gemini_key_state.
     const payload = jwt.decode(rawToken);
     const expiresAt = payload?.exp ?? Math.floor(Date.now() / 1000) + 3600;
     await revokeToken(rawToken, req.userId, expiresAt, runSql);
@@ -2306,7 +2320,7 @@ async function start() {
   app.put('/api/auth/me', authenticateToken, tryCatch(async (req, res) => {
     const { nombre } = req.body;
     if (!nombre) return res.status(400).json({ success: false, message: 'nombre requerido' });
-    await runSql('UPDATE usuarios SET nombre = ? WHERE id = ?', [nombre.trim(), req.userId]);
+    await withTenantRun(req.userId, 'UPDATE usuarios SET nombre = ? WHERE id = ?', [nombre.trim(), req.userId]);
     res.json({ success: true, message: 'Perfil actualizado' });
   }));
 
@@ -2314,13 +2328,13 @@ async function start() {
   app.post('/api/auth/change-password', authenticateToken, tryCatch(async (req, res) => {
     const { old_password, new_password } = req.body;
     if (!old_password || !new_password) return res.status(400).json({ success: false, message: 'Campos requeridos' });
-    const user = await getRow('SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
+    const user = await withTenantRow(req.userId, 'SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
     const valid = await verifyPassword(old_password, user.password_hash);
     if (!valid) return res.status(401).json({ success: false, message: 'Contraseña actual incorrecta' });
     const newHash = await hashPassword(new_password);
-    await runSql('UPDATE usuarios SET password_hash = ? WHERE id = ?', [newHash, req.userId]);
-    await runSql('UPDATE usuarios SET tokens_invalidated_at = NOW() WHERE id = ?', [req.userId]);
+    await withTenantRun(req.userId, 'UPDATE usuarios SET password_hash = ? WHERE id = ?', [newHash, req.userId]);
+    await withTenantRun(req.userId, 'UPDATE usuarios SET tokens_invalidated_at = NOW() WHERE id = ?', [req.userId]);
     res.json({ success: true, message: 'Contraseña actualizada' });
   }));
 
@@ -2331,6 +2345,7 @@ async function start() {
     res.json({ success: true, message: 'Si el email existe, recibirás un correo de recuperación' });
     if (!email) return;
     try {
+      // Sin escopar a propósito: búsqueda por email, tenant aún desconocido.
       const user = await getRow('SELECT id, email FROM usuarios WHERE email = ? AND deleted_at IS NULL', [email.trim().toLowerCase()]);
       if (!user) return;
       // Token de reset = JWT de 1 hora
@@ -2372,12 +2387,14 @@ async function start() {
       return res.status(400).json({ success: false, message: 'El enlace de recuperación es inválido.' });
     }
 
-    const user = await getRow('SELECT id FROM usuarios WHERE id = ? AND deleted_at IS NULL', [payload.sub]);
+    // payload.sub viene de un JWT firmado y verificado arriba -- tenant confiable.
+    const user = await withTenantRow(payload.sub, 'SELECT id FROM usuarios WHERE id = ? AND deleted_at IS NULL', [payload.sub]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
     const newHash = await hashPassword(newPassword);
-    await runSql('UPDATE usuarios SET password_hash = ? WHERE id = ?', [newHash, user.id]);
-    await runSql('UPDATE usuarios SET tokens_invalidated_at = NOW() WHERE id = ?', [user.id]);
+    await withTenantRun(user.id, 'UPDATE usuarios SET password_hash = ? WHERE id = ?', [newHash, user.id]);
+    await withTenantRun(user.id, 'UPDATE usuarios SET tokens_invalidated_at = NOW() WHERE id = ?', [user.id]);
+    // revokeToken: ledger GLOBAL, sin escopar a propósito (ver nota en logout).
     await revokeToken(token, user.id, payload.exp, runSql);
 
     res.json({ success: true, message: 'Contraseña actualizada correctamente. Inicia sesión con tu nueva contraseña.' });
@@ -2387,7 +2404,7 @@ async function start() {
   app.post('/api/auth/validate-action', authenticateToken, tryCatch(async (req, res) => {
     const { password } = req.body;
     if (!password) return res.status(400).json({ success: false, message: 'Password requerido' });
-    const user = await getRow('SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
+    const user = await withTenantRow(req.userId, 'SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) return res.status(401).json({ success: false, message: 'CREDENCIALES INVÁLIDAS · ACCESO DENEGADO.' });
