@@ -17,6 +17,12 @@ import {
 } from '../services/embeddingsService.js';
 import { logCriticalError } from '../services/logService.js';
 import { logger } from '../utils/logger.js';
+// convocatorias: RLS ACTIVO pero CERO políticas definidas (verificado en vivo,
+// 064_rls_scoped_grants_fase5_bloque3.sql) -- catálogo GLOBAL/PÚBLICO de
+// oportunidades (scrapeado, sin org_id real), no dato de tenant. Import crudo
+// a propósito, aparte de getRow/runSql (que sí llegan escopados por tenant
+// desde runMatchPipeline) -- mismo criterio que catalogo_rendimientos.
+import { getRows as getRowsRaw } from '../config/database.config.js';
 
 // Pesos según spec v2.0 Sección D-3: w1=0.50 coseno, w2=0.30 P_norm, w3=0.20 C_risk
 const W = Object.freeze({ cosine: 0.50, prob: 0.30, risk: 0.20 });
@@ -51,11 +57,11 @@ function computeRisk(convocatoria, metaFisicaTotal) {
 }
 
 // ── Bulk match via pgvector (PostgreSQL): una sola query, top N por coseno ────
-async function pgBulkMatch(proyectoEmbedding, getRows) {
+async function pgBulkMatch(proyectoEmbedding) {
   const vec = serializeEmbedding(proyectoEmbedding); // "[0.1,-0.45,...]" — pgvector text format
   try {
     // Columna nativa vector(768) con índice HNSW — ruta rápida
-    return await getRows(
+    return await getRowsRaw(
       `SELECT id, titulo, descripcion, monto_min, monto_max, score_probabilidad, fecha_limite, donante,
               (1 - (embedding_vec <=> $1::vector)) AS cosine_sim
        FROM convocatorias
@@ -66,7 +72,7 @@ async function pgBulkMatch(proyectoEmbedding, getRows) {
     );
   } catch {
     // Fallback: cast TEXT → vector si backfill aún no completó
-    return await getRows(
+    return await getRowsRaw(
       `SELECT id, titulo, descripcion, monto_min, monto_max, score_probabilidad, fecha_limite, donante,
               (1 - (embedding::vector <=> $1::vector)) AS cosine_sim
        FROM convocatorias
@@ -164,7 +170,10 @@ async function prefetchEmbeddings(convocatorias, runSql) {
 }
 
 // ── Pipeline principal ────────────────────────────────────────────────────────
-export async function runMatchPipeline(proyectoId, getRow, getRows, runSql) {
+// getRow/runSql llegan escopados por tenant desde el caller (withTenantRow/
+// withTenantRun ligados a req.userId) -- ver nota de cabecera sobre por qué
+// convocatorias usa el import crudo (getRowsRaw) en vez de estos parámetros.
+export async function runMatchPipeline(proyectoId, tenantId, getRow, runSql) {
   await stage1Validate(proyectoId, getRow);
 
   const { embedding: proyEmb, fichaTecnica } = await stage2GetEmbedding(proyectoId, getRow, runSql);
@@ -174,10 +183,10 @@ export async function runMatchPipeline(proyectoId, getRow, getRows, runSql) {
   let candidatas = [];
   if (USE_PG) {
     // Una sola query SQL ordenada por pgvector — O(log n) con índice HNSW
-    candidatas = await pgBulkMatch(proyEmb, getRows);
+    candidatas = await pgBulkMatch(proyEmb);
   } else {
     // SQLite: cargar todas, prefetch embeddings faltantes, calcular coseno en JS
-    const convocatorias = await getRows(
+    const convocatorias = await getRowsRaw(
       "SELECT id, titulo, descripcion, sectores, paises_elegibles, monto_min, monto_max, score_probabilidad, fecha_limite, donante, embedding FROM convocatorias WHERE estado != 'cerrada' AND deleted_at IS NULL",
       []
     );
@@ -221,12 +230,16 @@ export async function runMatchPipeline(proyectoId, getRow, getRows, runSql) {
   for (const res of top20) {
     const id = crypto.randomUUID();
     try {
+      // org_id explícito (default de la columna es ''::text, no NULL) --
+      // bajo el pool escopado, la política tenant_isolation (org_id =
+      // app.org_id) rechazaría el INSERT sin este valor. Verificado en vivo
+      // antes de esta migración (Fase 5, Bloque 3).
       await runSql(
-        `INSERT INTO match_scores (id, proyecto_id, convocatoria_id, score, breakdown, pipeline_version)
-         VALUES (?, ?, ?, ?, ?, 'v2-vector')
+        `INSERT INTO match_scores (id, proyecto_id, convocatoria_id, org_id, score, breakdown, pipeline_version)
+         VALUES (?, ?, ?, ?, ?, ?, 'v2-vector')
          ON CONFLICT(proyecto_id, convocatoria_id)
          DO UPDATE SET score = excluded.score, breakdown = excluded.breakdown, calculado_en = CURRENT_TIMESTAMP`,
-        [id, proyectoId, res.convocatoriaId, res.score, JSON.stringify(res.breakdown)]
+        [id, proyectoId, res.convocatoriaId, tenantId, res.score, JSON.stringify(res.breakdown)]
       );
     } catch (err) {
       logCriticalError('MatchScore', 'Fallo al persistir score en match_scores', {

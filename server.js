@@ -4639,7 +4639,7 @@ Reglas:
 
   // Ownership compartido para todas las rutas del Motor de Coherencia (Fase 2).
   async function checkProyectoOwnership(proyectoId, userId) {
-    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
   // F4-03: Módulo 3b - Árbol de Objetivos.
@@ -4670,12 +4670,12 @@ Reglas:
 
     // Persistir realmente los nodos en objetivos_arbol — antes se devolvían al
     // cliente pero nunca se guardaban, dejando "confirmar" sin nada que validar.
-    await runSql('DELETE FROM objetivos_arbol WHERE proyecto_id = ?', [proyectoId]);
+    await withTenantRun(req.userId, 'DELETE FROM objetivos_arbol WHERE proyecto_id = ?', [proyectoId]);
     const ids = nodos.map(() => crypto.randomUUID());
     for (let i = 0; i < nodos.length; i++) {
       const n = nodos[i];
       const parentId = (n.parentIndex !== null && n.parentIndex !== undefined) ? ids[n.parentIndex] : null;
-      await runSql(
+      await withTenantRun(req.userId,
         `INSERT INTO objetivos_arbol (id, proyecto_id, tipo, nivel, texto, parent_id, generado_por_ia, confirmado)
          VALUES (?, ?, ?, ?, ?, ?, 1, 0)`,
         [ids[i], proyectoId, n.tipo, n.nivel, n.texto, parentId]
@@ -4696,7 +4696,7 @@ Reglas:
     if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
-    const nodos = await getRows(
+    const nodos = await withTenantRows(req.userId,
       'SELECT id, tipo, nivel, texto, parent_id, confirmado, supuestos FROM objetivos_arbol WHERE proyecto_id = ? ORDER BY nivel ASC',
       [req.params.id]
     );
@@ -4715,7 +4715,7 @@ Reglas:
     if (supuestos !== undefined) { updates.push('supuestos = ?'); params.push(supuestos); }
     if (updates.length === 0) return res.status(400).json({ success: false, message: 'Nada que actualizar' });
     params.push(req.params.nodoId, req.params.id);
-    await runSql(`UPDATE objetivos_arbol SET ${updates.join(', ')} WHERE id = ? AND proyecto_id = ?`, params);
+    await withTenantRun(req.userId, `UPDATE objetivos_arbol SET ${updates.join(', ')} WHERE id = ? AND proyecto_id = ?`, params);
     res.json({ success: true });
   }));
 
@@ -4724,7 +4724,7 @@ Reglas:
     if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
-    const rows = await getRows(
+    const rows = await withTenantRows(req.userId,
       'SELECT id, nombre, tipo, linea_base, meta_total, unidad_medida, fuente_verificacion FROM project_indicators WHERE project_id = ? ORDER BY created_at ASC',
       [req.params.id]
     );
@@ -4740,7 +4740,7 @@ Reglas:
       return res.status(400).json({ success: false, message: 'nombre, tipo, meta_total y unidad_medida son requeridos' });
     }
     const id = crypto.randomUUID();
-    await runSql(
+    await withTenantRun(req.userId,
       `INSERT INTO project_indicators (id, project_id, org_id, nombre, tipo, linea_base, meta_total, unidad_medida, fuente_verificacion)
        VALUES (?,?,?,?,?,?,?,?,?)`,
       [id, req.params.id, req.userId, nombre, tipo, linea_base, meta_total, unidad_medida, fuente_verificacion]
@@ -4752,7 +4752,7 @@ Reglas:
     if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
-    await runSql('DELETE FROM project_indicators WHERE id = ? AND project_id = ?', [req.params.indicadorId, req.params.id]);
+    await withTenantRun(req.userId, 'DELETE FROM project_indicators WHERE id = ? AND project_id = ?', [req.params.indicadorId, req.params.id]);
     res.json({ success: true });
   }));
 
@@ -4761,7 +4761,7 @@ Reglas:
     if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
-    const row = await getRow(
+    const row = await withTenantRow(req.userId,
       'SELECT insumos, actividades, productos, resultados_corto_plazo, impacto_largo_plazo FROM project_change_theory WHERE proyecto_id = ?',
       [req.params.id]
     );
@@ -4781,15 +4781,15 @@ Reglas:
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
     const { insumos = [], actividades = [], productos = [], resultados_corto_plazo = [], impacto_largo_plazo = '' } = req.body;
-    const existing = await getRow('SELECT id FROM project_change_theory WHERE proyecto_id = ?', [req.params.id]);
+    const existing = await withTenantRow(req.userId, 'SELECT id FROM project_change_theory WHERE proyecto_id = ?', [req.params.id]);
     const vals = [JSON.stringify(insumos), JSON.stringify(actividades), JSON.stringify(productos), JSON.stringify(resultados_corto_plazo), impacto_largo_plazo];
     if (existing) {
-      await runSql(
+      await withTenantRun(req.userId,
         `UPDATE project_change_theory SET insumos=?, actividades=?, productos=?, resultados_corto_plazo=?, impacto_largo_plazo=?, updated_at=CURRENT_TIMESTAMP WHERE proyecto_id=?`,
         [...vals, req.params.id]
       );
     } else {
-      await runSql(
+      await withTenantRun(req.userId,
         `INSERT INTO project_change_theory (id, proyecto_id, org_id, insumos, actividades, productos, resultados_corto_plazo, impacto_largo_plazo)
          VALUES (?,?,?,?,?,?,?,?)`,
         [crypto.randomUUID(), req.params.id, req.userId, ...vals]
@@ -4824,7 +4824,7 @@ Reglas:
     if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
-    const rows = await getRows(
+    const rows = await withTenantRows(req.userId,
       'SELECT id, nombre_entidad, url_lineamientos, enfoque_generado_ia, enfoque_fuente, estado_postulacion, created_at, updated_at FROM postulaciones_entidad WHERE proyecto_matriz_id = ? ORDER BY created_at DESC',
       [req.params.id]
     );
@@ -4832,7 +4832,7 @@ Reglas:
   }));
 
   app.post('/api/proyectos/:id/postulaciones', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, tryCatch(async (req, res) => {
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       'SELECT id, ficha_tecnica, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]
     );
@@ -4850,7 +4850,7 @@ Reglas:
     }, req.userGeminiKeys);
 
     const id = crypto.randomUUID();
-    await runSql(
+    await withTenantRun(req.userId,
       `INSERT INTO postulaciones_entidad (id, proyecto_matriz_id, org_id, nombre_entidad, url_lineamientos, enfoque_generado_ia, enfoque_fuente, estado_postulacion)
        VALUES (?,?,?,?,?,?,?,?)`,
       [id, req.params.id, req.userId, nombreEntidad, urlLineamientos, enfoque, fuente, 'Borrador']
@@ -4860,7 +4860,7 @@ Reglas:
   }));
 
   async function checkPostulacionOwnership(postulacionId, userId) {
-    return getRow(
+    return withTenantRow(userId,
       'SELECT id, proyecto_matriz_id, nombre_entidad, url_lineamientos FROM postulaciones_entidad WHERE id = ? AND org_id = ?',
       [postulacionId, userId]
     );
@@ -4875,7 +4875,7 @@ Reglas:
     const postulacion = await checkPostulacionOwnership(req.params.id, req.userId);
     if (!postulacion) return res.status(404).json({ success: false, message: 'Postulación no encontrada' });
 
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       'SELECT ficha_tecnica, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
       [postulacion.proyecto_matriz_id, req.userId]
     );
@@ -4884,7 +4884,7 @@ Reglas:
       nombreEntidad: postulacion.nombre_entidad, urlLineamientos: postulacion.url_lineamientos, problematicaCentral, poblacionObjetivo, userId: req.userId,
     }, req.userGeminiKeys);
 
-    await runSql(
+    await withTenantRun(req.userId,
       'UPDATE postulaciones_entidad SET enfoque_generado_ia = ?, enfoque_fuente = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [enfoque, fuente, req.params.id]
     );
@@ -4907,7 +4907,7 @@ Reglas:
     if (updates.length === 0) return res.status(400).json({ success: false, message: 'Nada que actualizar' });
     updates.push('updated_at = CURRENT_TIMESTAMP');
     params.push(req.params.id);
-    await runSql(`UPDATE postulaciones_entidad SET ${updates.join(', ')} WHERE id = ?`, params);
+    await withTenantRun(req.userId, `UPDATE postulaciones_entidad SET ${updates.join(', ')} WHERE id = ?`, params);
     res.json({ success: true });
   }));
 
@@ -4915,7 +4915,7 @@ Reglas:
     if (!(await checkPostulacionOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ success: false, message: 'Postulación no encontrada' });
     }
-    await runSql('DELETE FROM postulaciones_entidad WHERE id = ?', [req.params.id]);
+    await withTenantRun(req.userId, 'DELETE FROM postulaciones_entidad WHERE id = ?', [req.params.id]);
     res.json({ success: true });
   }));
 
@@ -4927,7 +4927,7 @@ Reglas:
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
 
-    const nodos = await getRows('SELECT id, tipo, parent_id FROM objetivos_arbol WHERE proyecto_id = ?', [proyectoId]);
+    const nodos = await withTenantRows(req.userId, 'SELECT id, tipo, parent_id FROM objetivos_arbol WHERE proyecto_id = ?', [proyectoId]);
     const detail = [];
 
     if (nodos.length === 0) {
@@ -4954,12 +4954,13 @@ Reglas:
       }
     }
 
-    const totalIndicadores = await getCount('SELECT COUNT(*) as cnt FROM project_indicators WHERE project_id = ?', [proyectoId]);
+    const conteoRow = await withTenantRow(req.userId, 'SELECT COUNT(*) as cnt FROM project_indicators WHERE project_id = ?', [proyectoId]);
+    const totalIndicadores = parseInt(conteoRow?.cnt ?? 0, 10);
     if (totalIndicadores === 0) {
       detail.push('El proyecto no tiene ningún indicador registrado — todo objetivo debe tener al menos 1 indicador verificable.');
     }
 
-    const tdc = await getRow('SELECT resultados_corto_plazo, impacto_largo_plazo FROM project_change_theory WHERE proyecto_id = ?', [proyectoId]);
+    const tdc = await withTenantRow(req.userId, 'SELECT resultados_corto_plazo, impacto_largo_plazo FROM project_change_theory WHERE proyecto_id = ?', [proyectoId]);
     if (tdc) {
       let resultados = [];
       try { resultados = JSON.parse(tdc.resultados_corto_plazo || '[]'); } catch { /* noop */ }
@@ -4972,7 +4973,7 @@ Reglas:
       return res.status(422).json({ success: false, message: 'El árbol no pasa la validación de coherencia', detail });
     }
 
-    await runSql('UPDATE objetivos_arbol SET confirmado = ? WHERE proyecto_id = ?', [1, proyectoId]);
+    await withTenantRun(req.userId, 'UPDATE objetivos_arbol SET confirmado = ? WHERE proyecto_id = ?', [1, proyectoId]);
     res.json({ success: true, message: 'Árbol confirmado — coherencia verificada' });
   }));
 
@@ -4994,12 +4995,12 @@ Reglas:
     if (!key || typeof key !== 'string') {
       return res.status(400).json({ success: false, message: 'key (string) es requerido' });
     }
-    const proyecto = await getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
+    const proyecto = await withTenantRow(req.userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
     // ficha_tecnica es JSONB nativo desde 037_ficha_tecnica_a_jsonb.sql
     // (2026-08-10) — sin casts tácticos ::jsonb/::text, ya innecesarios.
-    await runSql(
+    await withTenantRun(req.userId,
       `UPDATE proyectos
        SET ficha_tecnica = jsonb_set(ficha_tecnica, ARRAY[?]::text[], ?::jsonb, true),
            updated_at = CURRENT_TIMESTAMP
@@ -5058,7 +5059,15 @@ Reglas:
     if (!ownerCheck.rows?.[0]) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
     try {
-      const results = await runMatchPipeline(req.params.proyectoId, getRow, getRows, runSql);
+      // getRow/runSql escopados por tenant (proyectos/match_scores); convocatorias
+      // usa un import crudo dentro del propio matchScore.js -- ver nota de
+      // cabecera ahí (RLS activo sin políticas, catálogo global/público).
+      const results = await runMatchPipeline(
+        req.params.proyectoId,
+        req.userId,
+        (sql, params) => withTenantRow(req.userId, sql, params),
+        (sql, params) => withTenantRun(req.userId, sql, params),
+      );
       res.json({ success: true, data: results });
     } catch (err) {
       if (err.message.includes('PIPELINE_BLOCKED')) {
@@ -5077,7 +5086,13 @@ Reglas:
     ));
     if (!ownerCheck.rows?.[0]) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const resultado = await calcularScoringDinamico(req.params.id, { getRow, getRows });
+    // Adaptador escopado (mismo patrón que proyectos.routes.js/viabilidad-financiera):
+    // calcularScoringDinamico() no cambia su firma ({getRow,getRows} genérico),
+    // solo recibe funciones ya ligadas a req.userId en vez de las crudas.
+    const resultado = await calcularScoringDinamico(req.params.id, {
+      getRow:  (sql, params) => withTenantRow(req.userId, sql, params),
+      getRows: (sql, params) => withTenantRows(req.userId, sql, params),
+    });
     if (!resultado) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
     res.json({ success: true, data: resultado });
@@ -5088,7 +5103,7 @@ Reglas:
   // `proyectos` (esquema realmente activo: TEXT ids, sin tenant_id) en vez de
   // `projects`, porque POST /api/proyectos inserta ahí, no en `projects`.
   app.post('/api/proyectos/:id/viabilidad-ia', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, tryCatch(async (req, res) => {
-    const proyecto = await getRow(
+    const proyecto = await withTenantRow(req.userId,
       'SELECT id, nombre, ficha_tecnica, presupuesto, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]
     );
@@ -5100,13 +5115,18 @@ Reglas:
     // en cada una en vez de fallar 500. Compartida con
     // POST /api/proyectos/:id/continuar-formulacion (proyectos.routes.js) —
     // única fuente de verdad, ya no duplicada (auditoría 2026-08-08).
-    const { ctx, fichaTecnica } = await recolectarContextoViabilidad(proyecto, req.userId, { getRow, getRows });
+    // Mismo adaptador escopado que proyectos.routes.js ya usa para esta misma función.
+    const scopedDeps = {
+      getRow:  (sql, params) => withTenantRow(req.userId, sql, params),
+      getRows: (sql, params) => withTenantRows(req.userId, sql, params),
+    };
+    const { ctx, fichaTecnica } = await recolectarContextoViabilidad(proyecto, req.userId, scopedDeps);
     const resultado = await calcularViabilidadIA(ctx, req.userGeminiKeys);
 
     // Persistencia real dentro de ficha_tecnica (columna JSON ya existente) —
     // evita depender de una columna/tabla nueva que requeriría DDL.
     const fichaActualizada = { ...fichaTecnica, viabilidad_ia: resultado };
-    await runSql(
+    await withTenantRun(req.userId,
       'UPDATE proyectos SET ficha_tecnica = ?, updated_at = ? WHERE id = ? AND org_id = ?',
       [JSON.stringify(fichaActualizada), new Date().toISOString(), req.params.id, req.userId]
     );

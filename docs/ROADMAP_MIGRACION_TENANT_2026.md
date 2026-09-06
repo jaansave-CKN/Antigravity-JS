@@ -96,6 +96,20 @@
 >   incluida una prueba hostil explícita: un `withTenant()` con el tenant
 >   INCORRECTO (el id del admin) contra la fila de un usuario objetivo afecta
 >   0 filas — RLS rechaza la intrusión a nivel de base de datos.
+> - **Fase 5, Bloque 3 (Módulo de Proyectos / Core de Negocio) — ✅ COMPLETADO
+>   (2026-09-06):** ~30 call sites migrados en el Motor de Coherencia (árbol de
+>   objetivos, indicadores, teoría de cambio, postulaciones, ficha técnica,
+>   scoring dinámico, viabilidad IA). GRANT en
+>   `064_rls_scoped_grants_fase5_bloque3.sql` (`postulaciones_entidad` y
+>   `match_scores`). Hallazgo real: `convocatorias` tiene RLS activo sin
+>   ninguna política (deny-all) -- se separó `backend/pipeline/matchScore.js`
+>   para que solo `convocatorias` use un import crudo, mientras
+>   `proyectos`/`match_scores` sí escopan. Segundo hallazgo real: el INSERT de
+>   `match_scores` no incluía `org_id` (caía al default `''::text`, siempre
+>   rechazado por RLS) -- corregido y verificado con una prueba dedicada.
+>   24/24 pruebas passed, incluida una prueba de fuego cruzado explícita en
+>   las 11 rutas del bloque (un Tenant A no puede leer ni mutar ningún recurso
+>   de un Tenant B, verificado en BD que cero filas cambiaron).
 > - **Regla para la próxima sesión**: antes de elegir el siguiente lote,
 >   re-verificar con `grep -c` real (getRow/getRows/runSql vs withTenant\*) en
 >   cada archivo de la tabla de abajo — este documento puede volver a
@@ -117,7 +131,7 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 
 | Ubicación | Call sites (`getRow`/`getRows`/`runSql`) | Estado |
 |---|---:|---|
-| `server.js` (núcleo, Fase 5) | 263 → ~222 pendientes + 26 withTenant (Bloque 1: auth/sesión) + 15 withTenant (Bloque 2: admin usuarios) | **Bloque 1 y Bloque 2 MIGRADOS** (2026-09-06) — resto del archivo pendiente |
+| `server.js` (núcleo, Fase 5) | 263 → 184 pendientes (verificado `grep -c` en vivo) + 26 withTenant (Bloque 1) + 15 withTenant (Bloque 2) + ~30 withTenant (Bloque 3) | **Bloque 1, 2 y 3 MIGRADOS** (2026-09-06) — resto del archivo pendiente (Radar/IA) |
 | `backend/routes/anexos.routes.js` | 30 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05) |
 | `backend/routes/biblioteca.routes.js` | 20 → withTenant | **MIGRADO COMPLETO** (2026-09-06, este documento) |
 | `backend/routes/proyectos.routes.js` | 25 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05) |
@@ -132,12 +146,13 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 | `matrizRaci.routes.js` / `copiloto.routes.js` / `entradaIA.routes.js` / `estresFinanciero.routes.js` / `valorExponencial.routes.js` | 1 c/u (`checkOwnership` crudo) | **RESIDUO por re-verificar** (ver nota arriba) |
 | `backend/routes/reporte.routes.js` | 6 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05, adelantado desde Fase 2) |
 
-**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): ~228 call sites** — ~222 en `server.js`
-(263 menos los 26 del Bloque 1 y los 15 del Bloque 2 de Fase 5 — el resto incluye tanto trabajo pendiente real como
-las excepciones globales ya documentadas de ambos bloques) + 5 residuos de `checkOwnership()` crudo (ver hallazgo
-arriba) + 1 en `presupuesto.routes.js` que es la excepción deliberada de `catalogo_rendimientos`, no deuda real.
-Fase 1, Fase 2, Fase 3 (lotes 1 y 2) y Fase 4 quedan 100% cerradas; Fase 5 (`server.js`) tiene su Bloque 1
-(auth/sesión) y Bloque 2 (admin de usuarios) completos — el resto del archivo sigue pendiente.
+**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): 184 call sites en `server.js`** (el resto
+incluye tanto trabajo pendiente real — Radar, IA/Copiloto, y otros módulos no tocados aún — como las excepciones
+globales ya documentadas de los Bloques 1/2/3) + 5 residuos de `checkOwnership()` crudo (ver hallazgo arriba) + 1
+en `presupuesto.routes.js` que es la excepción deliberada de `catalogo_rendimientos`, no deuda real. Fase 1, Fase 2,
+Fase 3 (lotes 1 y 2) y Fase 4 quedan 100% cerradas; Fase 5 (`server.js`) tiene sus Bloques 1 (auth/sesión), 2 (admin
+de usuarios) y 3 (proyectos/core de negocio) completos — quedan los bloques de Radar e IA/Copiloto, y cualquier
+resto no cubierto por ninguno de los 3.
 
 **Cobertura de tests hoy:** 13 tests totales (`test:smoke` 8 + `test:security` 5) para ~397 call sites — insuficiente
 para migrar con confianza sin ampliarla primero. Ver Fase 0.
@@ -363,6 +378,45 @@ la intrusión a nivel de base de datos, no solo por lógica de aplicación —, 
 sesión, y la cascada completa de `purgar` verificada en las 7 tablas (todas realmente borradas para el usuario
 purgado) con aislamiento cruzado verificado en las mismas 7 tablas contra un segundo usuario con datos paralelos
 (ninguna fila suya se tocó). `test:smoke` 8/8 y `test:security` 5/5 (100%).
+
+**Bloque 3 — ✅ COMPLETADO (2026-09-06) — Módulo de Proyectos / Core de Negocio.** ~30 call sites migrados a
+`withTenantRow()`/`withTenantRows()`/`withTenantRun()` en el "Motor de Coherencia" (Módulo 3 Formulador): árbol de
+objetivos (`checkProyectoOwnership`, generar/leer/editar/confirmar), indicadores (`project_indicators`), teoría de
+cambio (`project_change_theory`), postulaciones por entidad (`checkPostulacionOwnership`, CRUD completo), merge de
+ficha técnica, scoring dinámico del dashboard y viabilidad IA. GRANT en `064_rls_scoped_grants_fase5_bloque3.sql`
+(`postulaciones_entidad` y `match_scores` — el resto de las tablas del lote ya tenía GRANT de fases previas).
+
+**Patrón de adaptador reutilizado de Fase 1** (`proyectos.routes.js`, sin tocarlo): `calcularScoringDinamico()` y
+`recolectarContextoViabilidad()` no cambiaron su firma (siguen recibiendo `{getRow, getRows}` genérico) — solo se
+les pasa un adaptador con closures ligadas a `req.userId` en vez de las funciones crudas, exactamente como
+`proyectos.routes.js` ya hacía para `recolectarContextoViabilidad()`.
+
+**Refactor real (no solo wrapper) en `backend/pipeline/matchScore.js`:** `runMatchPipeline()` mezclaba en los mismos
+3 parámetros crudos (`getRow`/`getRows`/`runSql`) accesos a `proyectos`/`match_scores` (datos de tenant) Y a
+`convocatorias` (catálogo global). Verificado en vivo: `convocatorias` tiene RLS ACTIVO pero CERO políticas
+definidas (deny-all, mismo hallazgo que `catalogo_rendimientos`/`admin_audit_log`) — pasar un único `getRows`
+escopado habría devuelto 0 candidatas SIEMPRE, rompiendo el Match Score para todo el mundo. Se separaron los dos
+accesos: `pgBulkMatch()` importa `getRows` crudo directo de `database.config.js` (exclusivo para `convocatorias`),
+mientras `runMatchPipeline(proyectoId, tenantId, getRow, runSql)` recibe funciones ya escopadas por el caller para
+`proyectos`/`match_scores`.
+
+**Hallazgo real durante la reconnaissance (no relacionado con lógica de negocio, capturado ANTES de escribir
+código):** la política RLS de `match_scores` exige `org_id = app.org_id`, pero el INSERT original no incluía la
+columna `org_id` (cae al default `''::text`, nunca coincide con ningún tenant real) — bajo el pool escopado el
+INSERT habría sido rechazado siempre. Corregido añadiendo `org_id = tenantId` explícito al INSERT, verificado con
+una prueba dedicada que reproduce el fallo sin el fix y confirma el éxito con él.
+
+**EXCLUSIÓN DELIBERADA fuera de este bloque:** `POST /api/radar/persistir-barrido` (Módulo Radar, no Proyectos) y
+`resolveGoogleApiKey()` (lee `user_credentials`, la misma tabla BYOK ya excluida en el Bloque 1) quedan sin tocar —
+pertenecen a otras áreas funcionales, para los bloques finales (Radar / IA).
+
+24/24 pruebas passed: 22 de fuego cruzado vía HTTP real contra el backend vivo (2 tenants con proyecto propio,
+nodo de árbol, indicador, teoría de cambio y postulación reales) — un Tenant A intentando leer/mutar CADA recurso
+de un Tenant B por URL/payload manipulado recibe 404 en las 11 rutas migradas, con verificación directa en BD de
+que ninguna mutación ocurrió (texto del nodo, indicador, teoría de cambio, postulación y ficha técnica de B
+permanecen intactos), más 2 controles positivos (operación propia de A funciona, merge legítimo de B sí escribe en
+su propia fila) — y 2 pruebas aisladas confirmando el hallazgo/fix de `match_scores` (sin `org_id` el INSERT falla
+bajo RLS; con `org_id=tenantId` funciona). `test:smoke` 8/8 y `test:security` 5/5 (100%).
 
 ---
 
