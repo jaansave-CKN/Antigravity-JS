@@ -40,8 +40,8 @@ export class StripeProvider extends PaymentProvider {
     return resolvePlan(priceId, this._priceToPlan);
   }
 
-  async getOrCreateCustomer(email, nombre, tenantId, { runSql, getRow }) {
-    const sub = await getRow('SELECT stripe_customer_id FROM user_subscriptions WHERE user_id = $1', [tenantId]);
+  async getOrCreateCustomer(email, nombre, tenantId, { withTenantRow, withTenantRun }) {
+    const sub = await withTenantRow(tenantId, 'SELECT stripe_customer_id FROM user_subscriptions WHERE user_id = $1', [tenantId]);
     if (sub?.stripe_customer_id) return sub.stripe_customer_id;
     if (!this._stripe) throw new Error('Stripe no configurado en este entorno');
 
@@ -52,7 +52,7 @@ export class StripeProvider extends PaymentProvider {
     // tenant_id — su policy RLS real usa user_id (ver línea 44 de este mismo
     // archivo, consistente con subscriptionEvents.js/subscriptions.routes.js).
     // Causaba "column tenant_id does not exist" cada vez que se ejecutaba.
-    await runSql('UPDATE user_subscriptions SET stripe_customer_id = $1 WHERE user_id = $2', [customer.id, tenantId]);
+    await withTenantRun(tenantId, 'UPDATE user_subscriptions SET stripe_customer_id = $1 WHERE user_id = $2', [customer.id, tenantId]);
     return customer.id;
   }
 

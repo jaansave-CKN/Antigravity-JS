@@ -5076,7 +5076,7 @@ Reglas:
   }));
 
   // V8.0 — Suscripciones y Puente M2
-  registerSubscriptionRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
+  registerSubscriptionRoutes(app, { authenticateToken, tryCatch });
 
   // V8.0 — Formulador: M4 Motor Dialéctico
   registerMotorDialecticoRoutes(app, { authenticateToken, tryCatch });
