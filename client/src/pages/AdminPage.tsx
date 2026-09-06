@@ -163,6 +163,7 @@ function TelemetriaTab() {
           src={POSTHOG_HOST}
           style={{ width: '100%', height: 'calc(100vh - 420px)', border: '1px solid #e5e7eb', borderRadius: 10, background: '#fff' }}
           referrerPolicy="no-referrer"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         />
       )}
     </div>
