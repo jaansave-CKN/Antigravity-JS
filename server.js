@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { createRequire } from 'module';
 import path from 'path';
 import fs from 'fs';
@@ -11,7 +12,7 @@ import { authenticator } from 'otplib';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, entradaCampoLimiter, slowDown, financialPipelineLimiter } from './backend/middlewares/SecurityMiddleware.js';
-import { authenticateToken, requireAdmin } from './backend/middlewares/auth.middleware.js';
+import { authenticateToken, requireAdmin, extractToken, AUTH_COOKIE_NAME } from './backend/middlewares/auth.middleware.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
 import { startScheduler, runManualIngest, pauseScheduler, resumeScheduler } from './backend/pipeline/CronScheduler.js';
 import { classifySectors } from './backend/services/sectorClassifier.js';
@@ -85,6 +86,94 @@ process.on('unhandledRejection', (reason) => { console.error('[Fatal] Unhandled 
 // ── Configuración y Seguridad ────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// ── Fase 1 Dual-Mode — cookie httpOnly de sesión (Prioridad Amarilla, 2026-09-05) ──
+// Aditiva, no reemplaza nada: authenticateToken (auth.middleware.js) intenta
+// la cookie primero y cae al header Authorization si no está, y el frontend
+// (sin tocar en esta fase) sigue leyendo `token` del body y mandando el
+// header como siempre. La cookie queda inerte para el tráfico real hasta que
+// una fase futura actualice apiClient.ts con `credentials:'include'` — hoy
+// el navegador ni siquiera la reenvía en el fetch actual (sin credentials),
+// así que esto es cero impacto para los usuarios actuales, verificado por
+// diseño, no supuesto: sin ese cambio de frontend, authenticateToken siempre
+// cae al header exactamente como hace hoy.
+//
+// SOLO se pone esta cookie en los 4 endpoints que emiten un token de SESIÓN
+// real (login sin MFA, login post-MFA, auto-login post-activación, trial) —
+// verificado leyendo los 8 jwt.sign() de este archivo uno por uno antes de
+// tocar nada: los otros 4 (decisión de admin por correo, preAuthToken de
+// MFA de 5 min, activación de cuenta ×2, reset de contraseña) son tokens de
+// un solo uso para enlaces de correo/handoff, nunca pensados como sesión de
+// navegador. authenticateToken NO valida `payload.purpose` — ponerle la
+// cookie de sesión general a, por ejemplo, un token de reset de contraseña
+// habría dejado a cualquiera que abriera ese correo con una cookie de
+// "sesión iniciada" antes de siquiera cambiar la contraseña. Ver
+// docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §12 para el detalle completo.
+// AUTH_COOKIE_NAME se importa de auth.middleware.js (arriba) — una sola
+// fuente de verdad del nombre, compartida con extractToken().
+const MS_24H = 24 * 60 * 60 * 1000;
+const MS_7D  = 7 * MS_24H;
+function authCookieOptions(maxAgeMs) {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: maxAgeMs,
+    path: '/',
+  };
+}
+
+// ── Fase 2 — CSRF de doble-submit cookie (Prioridad Amarilla, 2026-09-05) ──────
+// XSRF-TOKEN es a propósito NO httpOnly (el frontend la lee y la reenvía
+// como header X-CSRF-Token en mutaciones) — el patrón funciona porque un
+// origen atacante no puede leer una cookie de otro origen (same-origin
+// policy), así que solo un cliente que ya "es" el frontend real puede
+// producir cookie+header coincidentes.
+//
+// CSRF_ENFORCE en false por defecto (env var, no código): el frontend actual
+// (sin tocar en esta fase, por instrucción explícita) nunca manda el header
+// X-CSRF-Token — si el middleware bloqueara (403) desde ya, el 100% de las
+// mutaciones de la app en producción se rompería el día del deploy sin que
+// ningún cambio de frontend estuviera siquiera escrito todavía. Se registra
+// el hallazgo (log de advertencia) en cada request que fallaría, para poder
+// verificar en logs reales que el patrón funciona ANTES de activarlo — mismo
+// patrón standby que ANTHROPIC_API_KEY/Stripe/Wompi en este mismo repo.
+// Activar: CSRF_ENFORCE=true en el entorno, después de que apiClient.ts
+// mande el header (fase de frontend, fuera de alcance de esta pasada).
+const XSRF_COOKIE_NAME = 'XSRF-TOKEN';
+const CSRF_ENFORCE = process.env.CSRF_ENFORCE === 'true';
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function issueXsrfCookie(req, res, next) {
+  if (!req.cookies?.[XSRF_COOKIE_NAME]) {
+    res.cookie(XSRF_COOKIE_NAME, crypto.randomBytes(24).toString('hex'), {
+      httpOnly: false, // legible por JS a propósito — es el punto del patrón doble-submit
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: MS_7D,
+      path: '/',
+    });
+  }
+  next();
+}
+
+function verifyCsrf(req, res, next) {
+  if (!MUTATING_METHODS.has(req.method)) return next();
+  const cookieToken = req.cookies?.[XSRF_COOKIE_NAME];
+  const headerToken = req.headers['x-csrf-token'];
+  const coincide = !!cookieToken && cookieToken === headerToken;
+  if (!coincide) {
+    logger.warn('[csrf] Token ausente o no coincide', {
+      path: req.path, method: req.method,
+      tieneCookie: !!cookieToken, tieneHeader: !!headerToken,
+      enforce: CSRF_ENFORCE,
+    });
+    if (CSRF_ENFORCE) {
+      return res.status(403).json({ success: false, code: 'CSRF_TOKEN_INVALID', message: 'Token CSRF ausente o inválido.' });
+    }
+  }
+  next();
+}
 
 // Usuario de desarrollo para 'demo-mode-token' (solo NODE_ENV !== 'production').
 // UUID fijo y reconocible (todo ceros salvo el último dígito) — nunca debe
@@ -1262,10 +1351,20 @@ async function start() {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
   app.set('etag', false);
+  app.use(cookieParser());
 
   // WOMPI WEBHOOK — a diferencia de Stripe, Wompi firma sobre el JSON ya
   // parseado (no bytes crudos), así que va DESPUÉS de express.json() normal.
   app.post('/api/wompi/webhook', wompiWebhookHandler);
+
+  // Fase 1/2 Dual-Mode (Prioridad Amarilla, 2026-09-05) — registradas DESPUÉS
+  // de los 2 webhooks de arriba a propósito: Express corta la cadena en el
+  // handler de webhook (responde y no llama next()), así que Stripe/Wompi
+  // nunca pasan por aquí — no necesitan excluirse por ruta, quedan afuera
+  // solo por el orden de registro, mismo principio que ya usa este archivo
+  // para el raw body de Stripe (comentario de arriba).
+  app.use('/api', issueXsrfCookie);
+  app.use('/api', verifyCsrf);
 
   // ── Slowdown progresivo (antes del hard limit) ────────────────────────────
   app.use('/api', slowDown);
@@ -1533,6 +1632,7 @@ async function start() {
     }
 
     const token = jwt.sign({ sub: user.id, role: user.tipousuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
+    res.cookie(AUTH_COOKIE_NAME, token, authCookieOptions(MS_7D));
     res.json({
       success: true,
       token,
@@ -1566,6 +1666,7 @@ async function start() {
     if (!valido) return res.status(401).json({ success: false, message: 'Código incorrecto.' });
 
     const token = jwt.sign({ sub: user.id, role: user.tipousuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
+    res.cookie(AUTH_COOKIE_NAME, token, authCookieOptions(MS_7D));
     res.json({
       success: true,
       token,
@@ -1689,6 +1790,7 @@ async function start() {
 
     await revokeToken(token, user.id, payload.exp, runSql);
     const sessionToken = jwt.sign({ sub: user.id, role: user.tipousuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
+    res.cookie(AUTH_COOKIE_NAME, sessionToken, authCookieOptions(MS_7D));
     res.json({
       success: true,
       token: sessionToken,
@@ -2108,6 +2210,7 @@ async function start() {
       JWT_SECRET,
       { algorithm: 'HS256', expiresIn: '24h' }
     );
+    res.cookie(AUTH_COOKIE_NAME, token, authCookieOptions(MS_24H));
     res.json({
       success: true,
       token,
@@ -2124,7 +2227,12 @@ async function start() {
   // POST /api/auth/logout
   // Triple garantía: blacklist individual + bulk timestamp + Clear-Site-Data al navegador
   app.post('/api/auth/logout', authenticateToken, tryCatch(async (req, res) => {
-    const rawToken = req.headers.authorization.slice(7);
+    // FIX (Fase 1 Dual-Mode, 2026-09-05): asumía Authorization siempre
+    // presente — con la cookie como fuente válida de auth, una sesión
+    // autenticada solo por cookie (sin header) habría explotado este
+    // `.slice(7)` contra `undefined`. extractToken() es la misma fuente de
+    // verdad que ya usó authenticateToken para autenticar este request.
+    const rawToken = extractToken(req);
 
     // 1. Revocar token individual: añade al revokedSet (memoria O(1)) y persiste en BD
     const payload = jwt.decode(rawToken);
@@ -2134,7 +2242,10 @@ async function start() {
     // 2. Invalidación bulk: todos los tokens con iat < NOW() quedan rechazados
     await revokeUserSession(req.userId, runSql);
 
-    // 3. Purgar datos de sesión en el navegador (cookies HTTP-only + Web Storage)
+    // 3. Purgar datos de sesión en el navegador (cookies HTTP-only + Web Storage).
+    // clearCookie() explícito además de Clear-Site-Data: el soporte de este
+    // header varía entre navegadores, no es defensa suficiente por sí solo.
+    res.clearCookie(AUTH_COOKIE_NAME, authCookieOptions(0));
     res.setHeader('Clear-Site-Data', '"cookies", "storage"');
     res.json({ success: true, message: 'Sesión cerrada' });
   }));
