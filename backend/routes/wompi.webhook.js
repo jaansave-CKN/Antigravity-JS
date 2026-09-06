@@ -11,7 +11,10 @@
  * Variables requeridas: WOMPI_PUBLIC_KEY, WOMPI_INTEGRITY_SECRET,
  * WOMPI_EVENTS_SECRET (ver backend/payments/wompiProvider.js).
  */
-import { pool, runSql, getRow } from '../db.js';
+// wompi_events es un ledger de idempotencia GLOBAL, no dato de tenant —
+// EXCEPCIÓN DELIBERADA a withTenant() (Fase 4 roadmap tenant, 2026-09-06).
+// Ver nota de cabecera en backend/payments/subscriptionEvents.js.
+import { runSql, getRow } from '../db.js';
 import { paymentProvider } from '../payments/index.js';
 import { applyPaymentEvent } from '../payments/subscriptionEvents.js';
 
@@ -80,7 +83,7 @@ export async function wompiWebhookHandler(req, res) {
       console.warn('[wompi] Evento sin tenantId resoluble desde `reference` — ignorando:', event.providerEventId);
     } else {
       const planConfig = paymentProvider.resolvePlanFor(event.priceId);
-      await applyPaymentEvent(event, planConfig, { pool });
+      await applyPaymentEvent(event, planConfig);
     }
     await _recordEvent(event.providerEventId, event.type, event.tenantId, event.raw);
   } catch (err) {

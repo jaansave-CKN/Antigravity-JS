@@ -1,14 +1,15 @@
 import crypto from 'crypto';
 import { paymentProvider } from '../payments/index.js';
 import { PLANES } from '../config/planes.config.js';
+import { withTenantRow, withTenantRun } from '../config/database.config.js';
 
 export { PLANES };
 
-export function registerSubscriptionRoutes(app, { authenticateToken, runSql, getRow, tryCatch }) {
+export function registerSubscriptionRoutes(app, { authenticateToken, tryCatch }) {
 
   // GET /api/subscription — suscripción del usuario actual
   app.get('/api/subscription', authenticateToken, tryCatch(async (req, res) => {
-    const sub = await getRow(
+    const sub = await withTenantRow(req.userId,
       'SELECT plan, access_radar, access_formulador, created_at, updated_at FROM user_subscriptions WHERE user_id = ?',
       [req.userId]
     );
@@ -36,18 +37,22 @@ export function registerSubscriptionRoutes(app, { authenticateToken, runSql, get
 
     // ── PATH ADMIN: activación directa en BD (sin Stripe) ─────────────────────
     if (req.userRole === 'admin') {
+      // tenantId = userId (el dueño real, target_user_id si el admin activa el
+      // plan de OTRO usuario) — NUNCA req.userId. Mismo criterio que el
+      // admin-bypass de compliance.routes.js: RLS bloquearía en silencio la
+      // escritura si se escopara por el id del admin en vez del dueño real.
       const userId = target_user_id || req.userId;
       const planData = PLANES[plan];
-      const existing = await getRow('SELECT id FROM user_subscriptions WHERE user_id = ?', [userId]);
+      const existing = await withTenantRow(userId, 'SELECT id FROM user_subscriptions WHERE user_id = ?', [userId]);
       if (existing) {
-        await runSql(
+        await withTenantRun(userId,
           `UPDATE user_subscriptions
            SET plan = ?, access_radar = ?, access_formulador = ?, updated_at = CURRENT_TIMESTAMP
            WHERE user_id = ?`,
           [plan, planData.access_radar, planData.access_formulador, userId]
         );
       } else {
-        await runSql(
+        await withTenantRun(userId,
           `INSERT INTO user_subscriptions (id, user_id, plan, access_radar, access_formulador)
            VALUES (?, ?, ?, ?, ?)`,
           [crypto.randomUUID(), userId, plan, planData.access_radar, planData.access_formulador]
@@ -70,10 +75,10 @@ export function registerSubscriptionRoutes(app, { authenticateToken, runSql, get
       });
     }
 
-    const user = await getRow('SELECT email, nombre FROM usuarios WHERE id = ?', [req.userId]);
+    const user = await withTenantRow(req.userId, 'SELECT email, nombre FROM usuarios WHERE id = ?', [req.userId]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
-    const customerId = await paymentProvider.getOrCreateCustomer(user.email, user.nombre, req.userId, { runSql, getRow });
+    const customerId = await paymentProvider.getOrCreateCustomer(user.email, user.nombre, req.userId, { withTenantRow, withTenantRun });
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const session = await paymentProvider.createCheckoutSession({
@@ -89,7 +94,7 @@ export function registerSubscriptionRoutes(app, { authenticateToken, runSql, get
 
   // POST /api/bridge/transfer — M2 Puente: valida acceso + crea proyecto borrador desde convocatoria
   app.post('/api/bridge/transfer', authenticateToken, tryCatch(async (req, res) => {
-    const sub = await getRow(
+    const sub = await withTenantRow(req.userId,
       'SELECT access_formulador FROM user_subscriptions WHERE user_id = ?',
       [req.userId]
     );
@@ -112,7 +117,7 @@ export function registerSubscriptionRoutes(app, { authenticateToken, runSql, get
     const proyectoId = crypto.randomUUID();
     const nombre = `Formulación: ${(convocatoria.titulo || 'Sin título').substring(0, 80)}`;
 
-    await runSql(
+    await withTenantRun(req.userId,
       `INSERT INTO proyectos (id, user_id, org_id, nombre, estado, problem_statement)
        VALUES (?, ?, ?, ?, 'Borrador', ?)`,
       [proyectoId, req.userId, req.userId, nombre, convocatoria.descripcion || '']

@@ -14,7 +14,10 @@
  * Registrado en server.js con express.raw() ANTES de express.json()
  * (Stripe firma sobre el body crudo, no sobre JSON parseado).
  */
-import { pool, runSql, getRow } from '../db.js';
+// stripe_events es un ledger de idempotencia GLOBAL, no dato de tenant —
+// EXCEPCIÓN DELIBERADA a withTenant() (Fase 4 roadmap tenant, 2026-09-06).
+// Ver nota de cabecera en backend/payments/subscriptionEvents.js.
+import { runSql, getRow } from '../db.js';
 import { paymentProvider } from '../payments/index.js';
 import { applyPaymentEvent } from '../payments/subscriptionEvents.js';
 
@@ -85,7 +88,7 @@ export async function stripeWebhookHandler(req, res) {
     }
     const planConfig = paymentProvider.resolvePlanFor(priceId);
 
-    await applyPaymentEvent(event, planConfig, { pool });
+    await applyPaymentEvent(event, planConfig);
     await _recordEvent(event.providerEventId, event.type, event.tenantId, event.raw);
   } catch (err) {
     console.error('[stripe] Error procesando evento:', err.message);
