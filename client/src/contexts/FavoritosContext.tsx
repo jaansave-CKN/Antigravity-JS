@@ -2,10 +2,24 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { apiService } from '../services/api';
 import { leerAuthToken, esEventoDeSesion } from '../lib/authStorage';
 
+/** Forma real de una convocatoria guardada — verificada contra los accesos
+ *  defensivos de FavoritosView.tsx (fecha_cierre/fechaCierre/fecha_limite,
+ *  donante/fuente): los datos vienen de fuentes con nombres de campo
+ *  inconsistentes, por eso todo es opcional en vez de un tipo estricto. */
+export interface GrantData {
+  titulo?: string;
+  donante?: string;
+  fuente?: string;
+  estado?: string;
+  fecha_cierre?: string;
+  fechaCierre?: string;
+  fecha_limite?: string;
+}
+
 export interface Favorito {
   id: string;
   grant_id: string;
-  grant_data: any;
+  grant_data: GrantData;
   saved_at: string;
 }
 

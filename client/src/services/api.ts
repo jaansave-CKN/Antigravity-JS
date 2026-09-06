@@ -99,7 +99,7 @@ export const apiService = {
     return fetchApi('/api/scheduler/now', { method: 'POST' });
   },
 
-  async getEntidadesIndexadas(filtros?: any): Promise<ApiResponse<any>> {
+  async getEntidadesIndexadas(filtros?: { tipo?: string; pais?: string }): Promise<ApiResponse<any>> {
     return fetchApi('/api/entidades/indexadas', { method: 'POST', body: JSON.stringify({ filtros }) });
   },
 
@@ -120,7 +120,10 @@ export const apiService = {
     return fetchApi('/api/proyectos');
   },
 
-  async crearProyecto(data: any): Promise<ApiResponse<any>> {
+  // Sin caller real en el repo (grep: 0 usos de apiService.crearProyecto) ni
+  // lectura del body en el backend correspondiente — `unknown` en vez de
+  // inventar una forma no verificada para un parámetro muerto.
+  async crearProyecto(data: unknown): Promise<ApiResponse<any>> {
     return fetchApi('/api/proyectos', { method: 'POST', body: JSON.stringify(data) });
   },
 
@@ -148,7 +151,10 @@ export const apiService = {
     return fetchApi('/api/radar/barrido', { method: 'POST' });
   },
 
-  async aplicarFiltros(filtros: any): Promise<ApiResponse<any>> {
+  // POST /api/convocatorias/filtros (server.js) ignora el body por completo
+  // (`(req, res) => res.json({success:true, data:[]})`) — `unknown` en vez de
+  // inventar una forma para un parámetro que ni el backend lee.
+  async aplicarFiltros(filtros: unknown): Promise<ApiResponse<any>> {
     return fetchApi('/api/convocatorias/filtros', { method: 'POST', body: JSON.stringify({ filtros }) });
   },
 
