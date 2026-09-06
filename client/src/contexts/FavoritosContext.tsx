@@ -80,11 +80,21 @@ export function FavoritosProvider({ children }: { children: React.ReactNode }) {
     if (!resp.success) {
       throw new Error(resp.error || 'No se pudo guardar en la base de datos. Intenta nuevamente.');
     }
+    // FIX (purga de `any`, 2026-09-05): leía resp.data?.data?.id — un nivel de
+    // más de anidamiento que nunca existió. El backend real (server.js,
+    // POST /api/favorites) responde `{ success, message, id }` plano, sin
+    // envolver en `data` — fetchApi() ya pone TODO el JSON del backend en
+    // `resp.data`, así que el id real vivía en `resp.data.id`. Con `any` esto
+    // caía siempre al `crypto.randomUUID()` de respaldo: cada favorito
+    // guardado quedaba con un id inventado en el cliente, distinto al id
+    // real de la fila en la base de datos — eliminarFavorito(id) contra ese
+    // id nunca habría podido borrar la fila correcta. saved_at sí sigue con
+    // fallback local: el backend no lo devuelve en el POST (solo en el GET).
     const nuevo: Favorito = {
-      id: resp.data?.data?.id ?? crypto.randomUUID(),
+      id: resp.data?.id ?? crypto.randomUUID(),
       grant_id: String(grantId),
       grant_data: grantData,
-      saved_at: resp.data?.data?.saved_at ?? new Date().toISOString(),
+      saved_at: new Date().toISOString(),
     };
     setFavoritos(prev => [nuevo, ...prev]);
   }, []);
