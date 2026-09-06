@@ -1466,15 +1466,20 @@ async function start() {
   // por el estado del pool del servidor, que no le aplica.
   app.get('/api/ia/estado-cuota', authenticateToken, tryCatch(async (req, res) => {
     const retryAt = geminiCB.getEarliestRetryAt();
-    if (!retryAt) return res.json({ success: true, data: { exhausted: false, retryAt: null } });
+    if (!retryAt) return res.json({ success: true, data: { exhausted: false, retryAt: null, esEstimado: false } });
     const { exento, llaves } = await resolverContextoBYOK(req.userId, { getRow, getRows });
     // No exento: usa su propio pool BYOK (withUserKeyRotation), nunca el del
     // servidor — el agotamiento de ESTE pool no le aplica en absoluto.
     // Exento CON llave propia guardada: la usará como válvula de escape
     // (ver byokGate.js) — el próximo intento real SÍ pasaría, no está
     // bloqueado de verdad, aunque el pool del servidor lo esté.
-    if (!exento || llaves.length) return res.json({ success: true, data: { exhausted: false, retryAt: null } });
-    res.json({ success: true, data: { exhausted: true, retryAt: retryAt.toISOString() } });
+    if (!exento || llaves.length) return res.json({ success: true, data: { exhausted: false, retryAt: null, esEstimado: false } });
+    // esEstimado (2026-09-06): true si retryAt es un cooldown fijo de sondeo
+    // (5 min), no un retryDelay real reportado por Google — ver
+    // geminiCircuitBreaker.js::esRetryEstimado(). La UI usa esto para no
+    // prometer una hora de reset que puede no cumplirse (típico cuando la
+    // causa real es cuota diaria agotada, que se libera a medianoche UTC).
+    res.json({ success: true, data: { exhausted: true, retryAt: retryAt.toISOString(), esEstimado: geminiCB.esRetryEstimado() } });
   }));
 
   // ── Healthcheck ──────────────────────────────────────────────────────────

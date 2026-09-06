@@ -26,7 +26,7 @@ function wrap(fn) {
       // frontend pueda mostrar el conteo real, no un "intenta en unos minutos"
       // genérico.
       const body = { success: false, message: err.status ? err.message : 'Error interno del servidor. Si el problema persiste, contacta al administrador.' };
-      if (err.retryAt) body.retryAt = new Date(err.retryAt).toISOString();
+      if (err.retryAt) { body.retryAt = new Date(err.retryAt).toISOString(); body.esEstimado = !!err.esEstimado; }
       res.status(err.status || 500).json(body);
     }
   };

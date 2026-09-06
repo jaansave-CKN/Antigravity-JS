@@ -260,32 +260,75 @@ class GeminiCircuitBreaker {
    *  nunca el reset diario (dailyResetAt), que no es la causa real de este
    *  tipo de 429 (RPM del free tier, no cuota diaria). Devuelve `null` si al
    *  menos una llave ya está disponible ahora mismo. */
-  getEarliestRetryAt() {
+  // FIX (2026-08-25, "sigue bloqueado" verificado en vivo): esta función
+  // era una lectura pura que nunca revisaba si el cooldown de una llave
+  // OPEN ya había vencido — solo canCall() hacía esa transición, y
+  // canCall() solo se invoca en un intento REAL. Resultado real observado:
+  // gemini_key_state seguía con state='OPEN' varios minutos después de que
+  // el retryAt calculado ya había quedado en el pasado, porque nadie había
+  // vuelto a intentar una llamada real — este endpoint de solo-lectura
+  // reportaba "todavía agotado" con una hora de reset que ya pasó. Ahora
+  // una llave OPEN cuyo cooldown ya venció cuenta como disponible aquí
+  // también (mismo criterio que canCall(), sin mutar estado — el mutado
+  // real sigue pasando solo en un intento real).
+  //
+  // FIX (2026-09-06, "el banner miente — cuenta regresiva a una hora fija que
+  // nunca se cumple"): cuando Google NO reportó un retryDelay real (ks.retryAfterMs
+  // === null), este método SIEMPRE usaba HALF_OPEN_PROBE_MS (5 min fijos) como
+  // si fuera un dato confiable. Ese fijo es solo "cuándo volveremos a INTENTAR
+  // un sondeo", no "cuándo la cuota real vuelve" — si la causa real es RPD
+  // (cuota diaria agotada, se libera a medianoche UTC, no en 5 min), el sondeo
+  // vuelve a fallar, se abre un NUEVO cooldown fijo de 5 min, y el ciclo se
+  // repite indefinidamente mostrándole al usuario una hora de reset que nunca
+  // se cumple. Se separa el cálculo en _computeRetryInfo() para exponer
+  // también si el retryAt es una ESTIMACIÓN (ver esRetryEstimado() abajo) — la
+  // UI decide con eso si mostrar una cuenta regresiva a una hora concreta
+  // (dato real de Google) o un aviso honesto sin hora prometida (estimación).
+  _computeRetryInfo() {
     this.keyStates.forEach(ks => this._checkDailyReset(ks));
-    // FIX (2026-08-25, "sigue bloqueado" verificado en vivo): esta función
-    // era una lectura pura que nunca revisaba si el cooldown de una llave
-    // OPEN ya había vencido — solo canCall() hacía esa transición, y
-    // canCall() solo se invoca en un intento REAL. Resultado real observado:
-    // gemini_key_state seguía con state='OPEN' varios minutos después de que
-    // el retryAt calculado ya había quedado en el pasado, porque nadie había
-    // vuelto a intentar una llamada real — este endpoint de solo-lectura
-    // reportaba "todavía agotado" con una hora de reset que ya pasó. Ahora
-    // una llave OPEN cuyo cooldown ya venció cuenta como disponible aquí
-    // también (mismo criterio que canCall(), sin mutar estado — el mutado
-    // real sigue pasando solo en un intento real).
     const abiertas = this.keyStates.filter(ks => {
       if (ks.state !== 'OPEN') return false;
       const cooldown = ks.retryAfterMs ?? HALF_OPEN_PROBE_MS;
       const vencida = Date.now() - (ks.lastQuotaError?.getTime() ?? 0) >= cooldown;
       return !vencida;
     });
-    if (abiertas.length < this.keyStates.length) return null; // al menos una llave ya sirve
-    if (!abiertas.length) return null;
+    if (abiertas.length < this.keyStates.length) return { retryAt: null, esEstimado: false }; // al menos una llave ya sirve
+    if (!abiertas.length) return { retryAt: null, esEstimado: false };
     const tiempos = abiertas.map(ks => {
       const cooldown = ks.retryAfterMs ?? HALF_OPEN_PROBE_MS;
       return (ks.lastQuotaError?.getTime() ?? Date.now()) + cooldown;
     });
-    return new Date(Math.min(...tiempos));
+    return {
+      retryAt: new Date(Math.min(...tiempos)),
+      // Si CUALQUIER llave que sigue contando para el mínimo no tiene un
+      // retryAfterMs real, el resultado es una estimación — no se puede
+      // prometer esa hora como cierta.
+      esEstimado: abiertas.some(ks => ks.retryAfterMs == null),
+    };
+  }
+
+  getEarliestRetryAt() {
+    return this._computeRetryInfo().retryAt;
+  }
+
+  /** true si getEarliestRetryAt() es una ESTIMACIÓN (cooldown fijo de sondeo,
+   *  sin dato real de Google) en vez de un retryDelay real reportado por la
+   *  API — la UI no debe presentar una estimación como una hora de reset
+   *  garantizada (mandato 2026-09-06).
+   *
+   *  Mapeo conceptual (Gemini reporta `status: "RESOURCE_EXHAUSTED"` para
+   *  ambos casos — no hay un código de error distinto tipo
+   *  rate_limit_exceeded/insufficient_quota como en otras APIs; el retryDelay
+   *  real es la única señal confiable disponible para distinguirlos):
+   *    esRetryEstimado() === false → rate_limit_exceeded temporal: Google
+   *      incluyó "Please retry in Ns" (RPM del free tier, se libera en
+   *      segundos) — cronómetro real y confiable, mostrar countdown.
+   *    esRetryEstimado() === true  → posible insufficient_quota / cuota
+   *      agotada: sin retryDelay real (típico de RPD, cuota diaria, que se
+   *      libera a medianoche UTC, no en los 5 min del cooldown de sondeo) —
+   *      no prometer una hora, mensaje definitivo + acción real (BYOK). */
+  esRetryEstimado() {
+    return this._computeRetryInfo().esEstimado;
   }
 
   /** Retorna el estado completo para el endpoint /api/admin/quota-status.
@@ -395,13 +438,17 @@ export function isQuotaError(err) {
 
 /** Se lanza cuando TODAS las llaves del pool fallaron/están en cooldown.
  *  `retryAt` (opcional, Date): momento real en que la primera llave vuelve
- *  a estar disponible — ver GeminiCircuitBreaker.getEarliestRetryAt(). */
+ *  a estar disponible — ver GeminiCircuitBreaker.getEarliestRetryAt().
+ *  `esEstimado` (2026-09-06): true si `retryAt` es una estimación (cooldown
+ *  fijo de sondeo, sin dato real de Google) — ver esRetryEstimado(). La UI
+ *  no debe prometer esa hora como un reset garantizado cuando es true. */
 export class GeminiPoolExhaustedError extends Error {
-  constructor(message = 'Límite de IA agotado en todas las llaves configuradas — intenta de nuevo en unos minutos.', retryAt = null) {
+  constructor(message = 'Límite de IA agotado en todas las llaves configuradas — intenta de nuevo en unos minutos.', retryAt = null, esEstimado = false) {
     super(message);
     this.name = 'GeminiPoolExhaustedError';
     this.status = 429;
     this.retryAt = retryAt;
+    this.esEstimado = esEstimado;
   }
 }
 
@@ -442,5 +489,5 @@ export async function withKeyRotation(attemptFn) {
     }
   }
 
-  throw new GeminiPoolExhaustedError(undefined, geminiCB.getEarliestRetryAt());
+  throw new GeminiPoolExhaustedError(undefined, geminiCB.getEarliestRetryAt(), geminiCB.esRetryEstimado());
 }
