@@ -81,6 +81,21 @@
 >   contraseña con revocación bulk verificada, reset de contraseña con
 >   anti-replay verificado en BD, logout, aislamiento cruzado entre 2 usuarios
 >   reales).
+> - **Fase 5, Bloque 2 (Administración de Usuarios) — ✅ COMPLETADO
+>   (2026-09-06):** 15 call sites migrados en las 8 rutas admin-bypass
+>   (`aprobar`, `rechazar`, `permisos`, `dev/make-admin`, `aprobar-por-correo`,
+>   `rechazar-por-correo`, `purgar` + el helper `registrarAuditoriaAdmin`).
+>   GRANT en `063_rls_scoped_grants_fase5_bloque2.sql` (solo `user_favorites`).
+>   `DELETE /usuarios/:id/purgar` consolidado en una sola
+>   `withTenantTransaction()` atómica (mejora real de atomicidad, antes solo
+>   una parte de la cascada estaba en transacción). Vistas admin genuinamente
+>   globales (`auditoria`, `usuarios/pendientes`, `usuarios`, `finops`) quedan
+>   sin escopar a propósito — RLS no puede expresar "todas las filas de todos
+>   los tenants"; `admin_audit_log`/`ai_token_logs` además tienen RLS activo
+>   sin ninguna política (deny-all verificado en vivo). 28/28 pruebas passed,
+>   incluida una prueba hostil explícita: un `withTenant()` con el tenant
+>   INCORRECTO (el id del admin) contra la fila de un usuario objetivo afecta
+>   0 filas — RLS rechaza la intrusión a nivel de base de datos.
 > - **Regla para la próxima sesión**: antes de elegir el siguiente lote,
 >   re-verificar con `grep -c` real (getRow/getRows/runSql vs withTenant\*) en
 >   cada archivo de la tabla de abajo — este documento puede volver a
@@ -102,7 +117,7 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 
 | Ubicación | Call sites (`getRow`/`getRows`/`runSql`) | Estado |
 |---|---:|---|
-| `server.js` (núcleo, Fase 5) | 263 → 237 pendientes + 26 withTenant (Bloque 1: auth/sesión) | **Bloque 1 MIGRADO** (2026-09-06) — Bloque 2 (admin usuarios) y resto pendientes |
+| `server.js` (núcleo, Fase 5) | 263 → ~222 pendientes + 26 withTenant (Bloque 1: auth/sesión) + 15 withTenant (Bloque 2: admin usuarios) | **Bloque 1 y Bloque 2 MIGRADOS** (2026-09-06) — resto del archivo pendiente |
 | `backend/routes/anexos.routes.js` | 30 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05) |
 | `backend/routes/biblioteca.routes.js` | 20 → withTenant | **MIGRADO COMPLETO** (2026-09-06, este documento) |
 | `backend/routes/proyectos.routes.js` | 25 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05) |
@@ -117,11 +132,12 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 | `matrizRaci.routes.js` / `copiloto.routes.js` / `entradaIA.routes.js` / `estresFinanciero.routes.js` / `valorExponencial.routes.js` | 1 c/u (`checkOwnership` crudo) | **RESIDUO por re-verificar** (ver nota arriba) |
 | `backend/routes/reporte.routes.js` | 6 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05, adelantado desde Fase 2) |
 
-**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): ~243 call sites** — 237 en `server.js`
-(263 menos los 26 del Bloque 1 de Fase 5) + 5 residuos de `checkOwnership()` crudo (ver hallazgo arriba) + 1 en
-`presupuesto.routes.js` que es la excepción deliberada de `catalogo_rendimientos`, no deuda real. Fase 1, Fase 2,
-Fase 3 (lotes 1 y 2) y Fase 4 quedan 100% cerradas; Fase 5 (`server.js`) arrancó con su Bloque 1 (auth/sesión)
-completo — Bloque 2 (admin de usuarios) y el resto del archivo siguen pendientes.
+**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): ~228 call sites** — ~222 en `server.js`
+(263 menos los 26 del Bloque 1 y los 15 del Bloque 2 de Fase 5 — el resto incluye tanto trabajo pendiente real como
+las excepciones globales ya documentadas de ambos bloques) + 5 residuos de `checkOwnership()` crudo (ver hallazgo
+arriba) + 1 en `presupuesto.routes.js` que es la excepción deliberada de `catalogo_rendimientos`, no deuda real.
+Fase 1, Fase 2, Fase 3 (lotes 1 y 2) y Fase 4 quedan 100% cerradas; Fase 5 (`server.js`) tiene su Bloque 1
+(auth/sesión) y Bloque 2 (admin de usuarios) completos — el resto del archivo sigue pendiente.
 
 **Cobertura de tests hoy:** 13 tests totales (`test:smoke` 8 + `test:security` 5) para ~397 call sites — insuficiente
 para migrar con confianza sin ampliarla primero. Ver Fase 0.
@@ -306,11 +322,47 @@ además directo en BD que `revoked_tokens` sí recibió el hash), `logout` con v
 queda rechazado de inmediato, y `trial` como sanity check de que la ruta más simple del bloque sigue intacta.
 `test:smoke` 8/8 y `test:security` 5/5 (100%).
 
-**Bloque 2 — pendiente:** panel de administración de usuarios en `server.js` (~40 call sites: listar, aprobar,
-rechazar, activar/desactivar, promover a admin, purgar con cascada de borrado, estadísticas por agente). Tiene
-patrones de admin-bypass reales por diseño (un admin actuando sobre OTRO usuario) — mismo criterio que
-`compliance.routes.js`/`subscriptions.routes.js`: el tenantId de cualquier escritura debe ser el usuario objetivo
-(`targetId`/`req.params.id`), nunca `req.userId` del admin.
+**Bloque 2 — ✅ COMPLETADO (2026-09-06) — Administración de Usuarios.** 15 call sites migrados a
+`withTenantRow()`/`withTenantRun()`/`withTenantTransaction()` en: `registrarAuditoriaAdmin` (lectura del propio
+admin), `POST /admin/usuarios/:id/aprobar`, `POST /admin/usuarios/:id/rechazar`, `PATCH /admin/usuarios/:id/permisos`
+(matriz de módulos + vigencia + bloqueo), `POST /dev/make-admin` (dev-only), `GET /admin/usuarios/:id/aprobar-por-correo`,
+`GET /admin/usuarios/:id/rechazar-por-correo` y `DELETE /usuarios/:id/purgar`. GRANT en
+`063_rls_scoped_grants_fase5_bloque2.sql` (solo `user_favorites` — el resto de las 6 tablas objetivo ya tenía GRANT
+de fases previas).
+
+**REGLA DE ORO aplicada en las 8 rutas anteriores: el tenantId de toda escritura es el usuario OBJETIVO
+(`targetId`/`req.params.id`/`payload.sub`), nunca `req.userId` del admin** — incluso en las 2 rutas de "un clic desde
+el correo" (`aprobar-por-correo`/`rechazar-por-correo`), que no tienen sesión de admin real (usan un sentinel
+`admin_id='sistema-correo-1clic'` solo para el audit log) pero SÍ operan sobre un usuario objetivo real.
+
+`DELETE /usuarios/:id/purgar` — la cascada de borrado (Habeas Data, Ley 1581) — se consolidó en UNA sola llamada a
+`withTenantTransaction(targetId, queries)` cubriendo las 7 escrituras (loop de `versiones_proyecto`/`project_budgets`
+por proyecto + `proyectos` + `user_favorites` + `user_subscriptions` + `user_gemini_keys` + `usuarios`), incluyendo
+el `set_config('app.allow_pvh_purge', 'true', true)` como primera query de la misma transacción — mejora real de
+atomicidad frente al código anterior (antes solo el DELETE de `proyectos` estaba envuelto en una transacción; un
+fallo a mitad de la cascada podía dejar una purga parcial).
+
+**EXCLUSIONES DELIBERADAS, verificadas en vivo (no son deuda pendiente, son vistas de admin genuinamente
+GLOBALES/cross-tenant por diseño, o chequeos que necesitan ver TODOS los tenants):**
+- `GET /admin/auditoria`, `GET /admin/usuarios/pendientes`, `GET /admin/usuarios`, `GET /admin/finops` — reportes
+  administrativos cross-tenant por naturaleza (un admin necesita ver TODOS los usuarios/toda la auditoría/todo el
+  consumo de IA, no solo un tenant) — RLS no puede expresar "todas las filas de todos los tenants", solo "las filas
+  de UN tenant". Protegidas por el chequeo `req.userRole==='admin'`, no por RLS.
+- `admin_audit_log` y `ai_token_logs` — verificado en vivo: RLS ACTIVO pero CERO políticas definidas (deny-all para
+  `rf360_rls_scoped` sin importar el GRANT) — refuerza que estas 2 tablas nunca debieron tenant-escoparse.
+- El chequeo "último admin activo" (`PATCH /permisos` y `DELETE /purgar`) — debe ver admins de TODOS los tenants
+  para decidir si queda alguno más; escoparlo por el tenant objetivo lo volvería inútil.
+- Búsqueda por email en `POST /dev/make-admin` (chicken-and-egg, tenant desconocido hasta resolver el email).
+
+28/28 pruebas passed vía HTTP real contra el backend vivo, con fixtures reales (1 admin + 4 usuarios objetivo, nunca
+contra cuentas reales de producción): admin-bypass verificado en `aprobar`/`permisos` con aislamiento cruzado
+explícito (la cuenta del admin y la de un tercer usuario de control quedan intactas), **prueba hostil explícita**:
+una llamada directa a `withTenant(adminId, ...)` intentando escribir sobre la fila de `targetA` usando el tenant
+INCORRECTO (el id del admin, simulando el bug exacto que la Regla de Oro previene) afecta **0 filas** — RLS rechaza
+la intrusión a nivel de base de datos, no solo por lógica de aplicación —, el flujo de aprobación de un clic sin
+sesión, y la cascada completa de `purgar` verificada en las 7 tablas (todas realmente borradas para el usuario
+purgado) con aislamiento cruzado verificado en las mismas 7 tablas contra un segundo usuario con datos paralelos
+(ninguna fila suya se tocó). `test:smoke` 8/8 y `test:security` 5/5 (100%).
 
 ---
 
