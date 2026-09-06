@@ -1,13 +1,25 @@
 import crypto from 'crypto';
+// withTenant() (Fase 3 roadmap tenant, 2026-09-06): los 7 call sites de este
+// archivo (proyectos/config_logistica/logistica_tramos) migran al rol
+// rf360_rls_scoped. config_logistica y logistica_tramos ya tenían GRANT
+// (059_rls_scoped_grants_fase2.sql y 055_rls_scoped_grants_fase1.sql
+// respectivamente); proyectos desde 053. El DELETE+INSERTs atómico de
+// logistica-tramos (antes runTransaction() de db.js, pool principal
+// BYPASSRLS) pasa a withTenantTransaction() — mismo helper del cierre de
+// Fase 2. logistica_tramos no tiene columna de tenant propia: su política
+// tenant_isolation valida via EXISTS contra proyectos.org_id — funciona
+// igual con withTenant(req.userId, ...) porque set_config('app.org_id', ...)
+// es lo único que esa política necesita, sin importar en qué columna vive.
+import { withTenantRow, withTenantRows, withTenantRun, withTenantTransaction } from '../config/database.config.js';
 
-export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, runTransaction, getRow, getRows, tryCatch }) {
+export function registerConfigLogisticaRoutes(app, { authenticateToken, tryCatch }) {
 
   // SECURITY: valida propiedad de :proyectoId antes de tocar config_logistica —
   // ver mismo fix aplicado en compliance.routes.js/marcoNormativo.routes.js/
   // motorDialectico.routes.js (auditoría 2026-08-08, hallazgo BOLA en tablas hijas
   // del Formulador que solo filtraban por user_id, no por dueño real del proyecto).
   async function checkOwnership(proyectoId, userId) {
-    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
   // GET /api/m5/logistica/:proyectoId
@@ -15,7 +27,7 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, 
     const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const row = await getRow(
+    const row = await withTenantRow(req.userId,
       'SELECT * FROM config_logistica WHERE proyecto_id = ? AND user_id = ?',
       [req.params.proyectoId, req.userId]
     );
@@ -34,13 +46,13 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, 
       equipo_director = '', equipo_coordinador = '',
     } = req.body;
 
-    const existing = await getRow(
+    const existing = await withTenantRow(req.userId,
       'SELECT id FROM config_logistica WHERE proyecto_id = ? AND user_id = ?',
       [req.params.proyectoId, req.userId]
     );
 
     if (existing) {
-      await runSql(
+      await withTenantRun(req.userId,
         `UPDATE config_logistica
          SET proponente_nombre=?, proponente_nit=?, tipo_entidad=?,
              departamento=?, municipio=?, zona=?,
@@ -55,7 +67,7 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, 
          req.params.proyectoId, req.userId]
       );
     } else {
-      await runSql(
+      await withTenantRun(req.userId,
         `INSERT INTO config_logistica
          (id, proyecto_id, user_id, proponente_nombre, proponente_nit, tipo_entidad,
           departamento, municipio, zona, fecha_inicio, duracion_meses,
@@ -80,7 +92,7 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, 
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const tramos = await getRows(
+    const tramos = await withTenantRows(req.userId,
       `SELECT id, numero, origen, destino, duracion, distancia_km, medio, estado_via,
               calidad, tipo_transporte, orden_publico, seleccionado
        FROM logistica_tramos WHERE proyecto_id = ? ORDER BY numero ASC`,
@@ -122,7 +134,7 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, runSql, 
         ],
       })),
     ];
-    await runTransaction(queries);
+    await withTenantTransaction(req.userId, queries);
     res.json({ success: true, message: `${tramos.length} tramo(s) guardado(s)` });
   }));
 }

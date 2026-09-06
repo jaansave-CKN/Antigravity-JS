@@ -23,6 +23,12 @@
 >   para el sello atómico de Ficha Técnica (M12), reutilizable en Fase 3 para
 >   `presupuesto.routes.js`/`configLogistica.routes.js`, que el roadmap original
 >   ya anticipaba con "mismo patrón de transacción atómica".
+> - **Fase 3, lote 1 — ✅ COMPLETADO (2026-09-06):** `presupuesto.routes.js` y
+>   `configLogistica.routes.js` migrados. GRANT en
+>   `060_rls_scoped_grants_fase3.sql` (solo `project_budgets`). Primer uso real
+>   de `withTenantTransaction()` fuera de Ficha Técnica. `catalogo_rendimientos`
+>   excluida a propósito (RLS activo sin política = deny-all sin BYPASSRLS, sin
+>   columna de tenant — catálogo global). 14/14 pruebas passed.
 > - **Regla para la próxima sesión**: antes de elegir el siguiente lote,
 >   re-verificar con `grep -c` real (getRow/getRows/runSql vs withTenant\*) en
 >   cada archivo de la tabla de abajo — este documento puede volver a
@@ -52,7 +58,7 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 | `backend/routes/compliance.routes.js` | 9 withTenant | **MIGRADO COMPLETO** (2026-09-06, cierre de Fase 2) |
 | `backend/routes/marcoNormativo.routes.js` | 8 → withTenant | **MIGRADO COMPLETO** (2026-09-06, este documento) |
 | `backend/routes/subscriptions.routes.js` | 7 | Sin migrar |
-| `backend/routes/presupuesto.routes.js` / `configLogistica.routes.js` | 6 c/u | Sin migrar |
+| `backend/routes/presupuesto.routes.js` / `configLogistica.routes.js` | 7 c/u → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 3 lote 1) |
 | `backend/routes/radicacion.routes.js` / `motorDialectico.routes.js` / `exportacion.routes.js` / `authGoogle.controller.js` | 5 c/u | Sin migrar |
 | `backend/routes/reporte.routes.js` | 6 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05, adelantado desde Fase 2) |
 | `backend/routes/wompi.webhook.js` / `stripe.webhook.js` | 2 c/u | Sin migrar — **ver nota de riesgo abajo** |
@@ -117,12 +123,22 @@ Excepciones documentadas, ambas deliberadas (no deuda pendiente):
   leyéndola) y no bajo el id del admin.
 
 ### Fase 3 — Rutas con escritura de datos de negocio (riesgo medio)
-`presupuesto.routes.js` (6), `configLogistica.routes.js` (6), `radicacion.routes.js` (5),
-`motorDialectico.routes.js` (5), `exportacion.routes.js` (5), `authGoogle.controller.js` (5).
 `compliance.routes.js` se adelantó y ya quedó migrado al cierre de Fase 2 (ver arriba).
-`presupuesto.routes.js`/`configLogistica.routes.js` pueden reutilizar `withTenantTransaction()`
-(`database.config.js`, agregado en el cierre de Fase 2) para su escritura atómica — mismo patrón ya usado en el
-sello de Ficha Técnica.
+
+**Lote 1 — ✅ COMPLETADO 2026-09-06:** `presupuesto.routes.js` (7 call sites) y `configLogistica.routes.js` (7)
+migrados a `withTenant()`. GRANT en `060_rls_scoped_grants_fase3.sql` (solo `project_budgets` — `config_logistica`,
+`logistica_tramos` y `proyectos` ya tenían GRANT de fases previas). El INSERT masivo de ítems APU y el
+DELETE+INSERTs de tramos de logística pasan a `withTenantTransaction()` — primer uso real del helper fuera de
+Ficha Técnica. 14/14 pruebas de regresión + aislamiento cruzado passed.
+
+Exclusión deliberada verificada en vivo antes de tocar código: `catalogo_rendimientos` (presupuesto.routes.js)
+tiene RLS **activo pero sin ninguna política** y no tiene columna de tenant — es un catálogo de referencia GLOBAL
+(rendimientos de obra), no datos por tenant. En Postgres, RLS habilitado sin política es deny-all para cualquier
+rol sin BYPASSRLS (el GRANT no lo arregla: controla el permiso de la operación, no qué filas se ven). Se queda en
+el pool principal (`getRow`/`getRows`), mismo criterio que `gemini_key_state`/`trial_sessions` (sección 4).
+
+**Lote 2 — pendiente:** `radicacion.routes.js` (5), `motorDialectico.routes.js` (5), `exportacion.routes.js` (5),
+`authGoogle.controller.js` (5).
 
 ### Fase 4 — Pagos y suscripciones (riesgo alto — tratar aparte, con ventana de mantenimiento)
 `subscriptions.routes.js` (7), `wompi.webhook.js` (2), `stripe.webhook.js` (2). Los webhooks de pasarela son el

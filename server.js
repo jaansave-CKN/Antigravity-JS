@@ -5077,7 +5077,7 @@ Reglas:
   registerMotorDialecticoRoutes(app, { authenticateToken, runSql, getRow, tryCatch });
 
   // V8.0 — Formulador: M5 Configuración Logística
-  registerConfigLogisticaRoutes(app, { authenticateToken, runSql, runTransaction, getRow, getRows, tryCatch });
+  registerConfigLogisticaRoutes(app, { authenticateToken, tryCatch });
 
   // Matriz RACI (módulo nuevo, 2026-08-24 — diseño revisado por architect)
   registerMatrizRaciRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch, financialPipelineLimiter });
@@ -5098,7 +5098,7 @@ Reglas:
   registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, runTransaction, getRow, getRows, verifyPassword, aiLimiter });
 
   // M4: Presupuesto APU por proyecto
-  registerPresupuestoRoutes(app, { authenticateToken, runSql, getRow, getRows });
+  registerPresupuestoRoutes(app, { authenticateToken });
 
   // Anexos: CRUD real contra project_anexos (migración 013) — reemplaza localStorage de AnexosView.tsx
   await registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows, financialPipelineLimiter });
