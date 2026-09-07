@@ -7,6 +7,7 @@
  */
 import { simularEscenario, listarEscenarios } from '../services/EstresadoFinancieroService.js';
 import { captureError } from '../config/sentry.config.js';
+import { withTenantRow } from '../config/database.config.js';
 
 function wrap(fn) {
   return async (req, res) => {
@@ -23,9 +24,9 @@ function wrap(fn) {
   };
 }
 
-export async function registerEstresFinancieroRoutes(app, { authenticateToken, getRow, financialPipelineLimiter }) {
+export async function registerEstresFinancieroRoutes(app, { authenticateToken, financialPipelineLimiter }) {
   async function checkOwnership(proyectoId, userId) {
-    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
   app.post('/api/proyectos/:id/estres-financiero', authenticateToken, financialPipelineLimiter, wrap(async (req, res) => {

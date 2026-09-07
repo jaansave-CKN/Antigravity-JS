@@ -13,6 +13,7 @@
  */
 import crypto from 'crypto';
 import { calcularResumenRaci } from '../services/raciService.js';
+import { withTenantRow } from '../config/database.config.js';
 // withTenant() (005_INGENIERO_BACKEND, 2026-09-04): raci_tareas/raci_roles/
 // raci_asignaciones tenían RLS completamente desactivado (relrowsecurity=
 // false, verificado en vivo) Y el rol "anon" de Supabase tenía GRANT
@@ -41,7 +42,7 @@ const SIGLAS_VALIDAS = new Set(['R', 'A', 'C', 'I', 'V', 'IA']);
 const NOMBRE_MAX = 300;
 const DESCRIPCION_MAX = 5000;
 
-export function registerMatrizRaciRoutes(app, { authenticateToken, getRow, tryCatch, financialPipelineLimiter }) {
+export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, financialPipelineLimiter }) {
   const limiteEscritura = financialPipelineLimiter ? [financialPipelineLimiter] : [];
 
   // Mismo patrón de aislamiento multi-tenant que configLogistica.routes.js/
@@ -49,7 +50,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, getRow, tryCa
   // (raci_tareas/raci_roles/raci_asignaciones no tienen columna propia de
   // dueño, la propiedad se resuelve transitivamente).
   async function checkOwnership(proyectoId, userId) {
-    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
   // ── TAREAS (filas de la matriz) ───────────────────────────────────────────

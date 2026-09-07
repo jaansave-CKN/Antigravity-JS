@@ -358,9 +358,9 @@ function tryCatch(fn) {
 }
 
 // Resuelve la API key de IA: primero clave personal del usuario, luego clave del sistema
-async function resolveGoogleApiKey(userId, getRow) {
+async function resolveGoogleApiKey(userId, getRowFn) {
   const systemKey = process.env.GOOGLE_API_KEY || '';
-  const cred = await getRow('SELECT api_key_enc FROM user_credentials WHERE user_id = ?', [userId]);
+  const cred = await getRowFn('SELECT api_key_enc FROM user_credentials WHERE user_id = ?', [userId]);
   const enc  = process.env.ENCRYPTION_KEY;
   if (!enc) throw new Error('ENCRYPTION_KEY no configurada — credenciales de usuario no disponibles');
   if (cred?.api_key_enc) {
@@ -389,13 +389,13 @@ async function resolveGoogleApiKey(userId, getRow) {
 // cambios; no exento sin llave propia válida corta con 428 antes de tocar
 // Gemini. req.userGeminiKeys queda null (exento) o array (no exento) para
 // que cada handler lo pase al agente/servicio correspondiente.
-const byokGate = requireByokOrExento({ getRow, getRows });
+const byokGate = requireByokOrExento(); // no toma deps — construye sus propios adaptadores escopados por request (byokGate.js)
 
 // V8.0 RBAC: verifica suscripción por módulo (radar | formulador)
 function requireAccess(module) {
   return tryCatch(async (req, res, next) => {
     if (req.userRole === 'admin') return next();
-    const sub = await getRow(
+    const sub = await withTenantRow(req.userId,
       'SELECT access_radar, access_formulador FROM user_subscriptions WHERE user_id = ?',
       [req.userId]
     );
@@ -2467,7 +2467,7 @@ async function start() {
 
   // GET /api/credentials/status
   app.get('/api/credentials/status', authenticateToken, tryCatch(async (req, res) => {
-    const cred = await getRow('SELECT api_key_enc FROM user_credentials WHERE user_id = ?', [req.userId]);
+    const cred = await withTenantRow(req.userId, 'SELECT api_key_enc FROM user_credentials WHERE user_id = ?', [req.userId]);
     res.json({ success: true, hasCredentials: !!(cred?.api_key_enc) });
   }));
 
@@ -2480,24 +2480,24 @@ async function start() {
     if (!enc) return res.status(503).json({ success: false, message: 'Servicio de credenciales no disponible — ENCRYPTION_KEY no configurada' });
     const apiKeyEnc = encryptKey(apiKey, enc);
     const nbKeyEnc = notebookKey ? encryptKey(notebookKey, enc) : null;
-    const existing = await getRow('SELECT id FROM user_credentials WHERE user_id = ?', [req.userId]);
+    const existing = await withTenantRow(req.userId, 'SELECT id FROM user_credentials WHERE user_id = ?', [req.userId]);
     if (existing) {
-      await runSql('UPDATE user_credentials SET api_key_enc = ?, notebook_key_enc = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [apiKeyEnc, nbKeyEnc, req.userId]);
+      await withTenantRun(req.userId, 'UPDATE user_credentials SET api_key_enc = ?, notebook_key_enc = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [apiKeyEnc, nbKeyEnc, req.userId]);
     } else {
-      await runSql('INSERT INTO user_credentials (id, user_id, api_key_enc, notebook_key_enc) VALUES (?, ?, ?, ?)', [id, req.userId, apiKeyEnc, nbKeyEnc]);
+      await withTenantRun(req.userId, 'INSERT INTO user_credentials (id, user_id, api_key_enc, notebook_key_enc) VALUES (?, ?, ?, ?)', [id, req.userId, apiKeyEnc, nbKeyEnc]);
     }
     res.json({ success: true, message: 'Credenciales guardadas' });
   }));
 
   // DELETE /api/credentials/:servicio
   app.delete('/api/credentials/:servicio', authenticateToken, tryCatch(async (req, res) => {
-    await runSql('DELETE FROM user_credentials WHERE user_id=? AND service=?', [req.userId, req.params.servicio]);
+    await withTenantRun(req.userId, 'DELETE FROM user_credentials WHERE user_id=? AND service=?', [req.userId, req.params.servicio]);
     res.json({ success: true });
   }));
 
   // GET /api/credenciales/validar (alias legacy)
   app.get('/api/credenciales/validar', authenticateToken, tryCatch(async (req, res) => {
-    const cred = await getRow('SELECT api_key_enc FROM user_credentials WHERE user_id = ?', [req.userId]);
+    const cred = await withTenantRow(req.userId, 'SELECT api_key_enc FROM user_credentials WHERE user_id = ?', [req.userId]);
     res.json({ success: true, valid: !!(cred?.api_key_enc) });
   }));
 
@@ -3622,7 +3622,7 @@ Reglas:
 
   // GET /api/favorites
   app.get('/api/favorites', authenticateToken, tryCatch(async (req, res) => {
-    const rows = await getRows('SELECT id, grant_id, grant_data, saved_at FROM user_favorites WHERE user_id = ? ORDER BY saved_at DESC', [req.userId]);
+    const rows = await withTenantRows(req.userId, 'SELECT id, grant_id, grant_data, saved_at FROM user_favorites WHERE user_id = ? ORDER BY saved_at DESC', [req.userId]);
     res.json({ success: true, data: rows });
   }));
 
@@ -3632,7 +3632,7 @@ Reglas:
     if (!grant_id) return res.status(400).json({ success: false, message: 'grant_id requerido' });
     const id = crypto.randomUUID();
     try {
-      await runSql(
+      await withTenantRun(req.userId,
         'INSERT INTO user_favorites (id, user_id, grant_id, grant_data) VALUES (?, ?, ?, ?)',
         [id, req.userId, grant_id, JSON.stringify(grant_data || {})]
       );
@@ -3645,7 +3645,7 @@ Reglas:
 
    // DELETE /api/favorites/:grantId
    app.delete('/api/favorites/:grantId', authenticateToken, tryCatch(async (req, res) => {
-     await runSql('DELETE FROM user_favorites WHERE user_id = ? AND grant_id = ?', [req.userId, req.params.grantId]);
+     await withTenantRun(req.userId, 'DELETE FROM user_favorites WHERE user_id = ? AND grant_id = ?', [req.userId, req.params.grantId]);
      res.json({ success: true, message: 'Eliminado de favoritos' });
    }));
 
@@ -3655,17 +3655,17 @@ Reglas:
      const userId = req.userId;
 
      // Check if already in favorites
-     const existing = await getRow('SELECT id FROM user_favorites WHERE user_id = ? AND grant_id = ?', [userId, convocatoriaId]);
+     const existing = await withTenantRow(userId, 'SELECT id FROM user_favorites WHERE user_id = ? AND grant_id = ?', [userId, convocatoriaId]);
 
      let isFavorito = false;
      if (existing) {
        // Remove from favorites
-       await runSql('DELETE FROM user_favorites WHERE user_id = ? AND grant_id = ?', [userId, convocatoriaId]);
+       await withTenantRun(userId, 'DELETE FROM user_favorites WHERE user_id = ? AND grant_id = ?', [userId, convocatoriaId]);
        isFavorito = false;
      } else {
        // Add to favorites
        const grantData = JSON.stringify({ tipo: 'convocatoria', id: convocatoriaId });
-       await runSql(
+       await withTenantRun(userId,
          'INSERT INTO user_favorites (id, user_id, grant_id, grant_data) VALUES (?, ?, ?, ?)',
          [crypto.randomUUID(), userId, convocatoriaId, grantData]
        );
@@ -4255,6 +4255,9 @@ Reglas:
   }));
   // Proyectos (GET/POST/PATCH/:id gestionados por proyectos.routes.js)
   // GET /api/admin/deleted — papelera: usuarios/proyectos/convocatorias con soft-delete
+  // Sin escopar a propósito: papelera GLOBAL cross-tenant por diseño (un admin
+  // necesita ver los borrados de TODOS los tenants para poder restaurarlos),
+  // mismo criterio que /api/admin/usuarios (Fase 5 Bloque 2).
   app.get('/api/admin/deleted', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Acceso exclusivo de administradores' });
 
@@ -4275,10 +4278,27 @@ Reglas:
     const tabla = ADMIN_RESTORE_TABLES[req.params.tipo];
     if (!tabla) return res.status(400).json({ success: false, message: `tipo inválido — usa: ${Object.keys(ADMIN_RESTORE_TABLES).join(', ')}` });
 
-    const row = await getRow(`SELECT id FROM ${tabla} WHERE id = ? AND deleted_at IS NOT NULL`, [req.params.id]);
+    if (req.params.tipo === 'convocatoria') {
+      // Sin escopar a propósito: catálogo global, sin concepto de tenant
+      // (verificado en vivo, Fase 5 Bloque 4 -- convocatorias ni siquiera
+      // tiene columna org_id).
+      const row = await getRow('SELECT id FROM convocatorias WHERE id = ? AND deleted_at IS NOT NULL', [req.params.id]);
+      if (!row) return res.status(404).json({ success: false, message: 'Elemento no encontrado en la papelera' });
+      await runSql('UPDATE convocatorias SET deleted_at = NULL WHERE id = ?', [req.params.id]);
+      return res.json({ success: true, message: 'convocatoria restaurado correctamente' });
+    }
+
+    // usuario/proyecto: ADMIN-BYPASS -- el lookup inicial se queda sin
+    // escopar a propósito (el admin restaura el registro de OTRO tenant; no
+    // se puede escopar por un tenant que aún no se conoce, mismo problema
+    // del huevo y la gallina que compliance.routes.js). El tenantId de la
+    // ESCRITURA es el dueño REAL (su propio id para usuarios, org_id para
+    // proyectos), NUNCA req.userId del admin.
+    const columnaTenant = req.params.tipo === 'usuario' ? 'id' : 'org_id';
+    const row = await getRow(`SELECT ${columnaTenant} AS tenant_id FROM ${tabla} WHERE id = ? AND deleted_at IS NOT NULL`, [req.params.id]);
     if (!row) return res.status(404).json({ success: false, message: 'Elemento no encontrado en la papelera' });
 
-    await runSql(`UPDATE ${tabla} SET deleted_at = NULL WHERE id = ?`, [req.params.id]);
+    await withTenantRun(row.tenant_id, `UPDATE ${tabla} SET deleted_at = NULL WHERE id = ?`, [req.params.id]);
     res.json({ success: true, message: `${req.params.tipo} restaurado correctamente` });
   }));
   app.post('/api/ia/busqueda-semantica', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
@@ -4543,11 +4563,11 @@ Reglas:
 
     const apiKeyEnc = encryptKey(apiKeyMotorBusqueda, enc);
     const nbKeyEnc  = cuentaGoogleNotebook ? encryptKey(cuentaGoogleNotebook, enc) : null;
-    const existing  = await getRow('SELECT id FROM user_credentials WHERE user_id = ?', [req.userId]);
+    const existing  = await withTenantRow(req.userId, 'SELECT id FROM user_credentials WHERE user_id = ?', [req.userId]);
     if (existing) {
-      await runSql('UPDATE user_credentials SET api_key_enc = ?, notebook_key_enc = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [apiKeyEnc, nbKeyEnc, req.userId]);
+      await withTenantRun(req.userId, 'UPDATE user_credentials SET api_key_enc = ?, notebook_key_enc = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [apiKeyEnc, nbKeyEnc, req.userId]);
     } else {
-      await runSql('INSERT INTO user_credentials (id, user_id, api_key_enc, notebook_key_enc) VALUES (?, ?, ?, ?)', [crypto.randomUUID(), req.userId, apiKeyEnc, nbKeyEnc]);
+      await withTenantRun(req.userId, 'INSERT INTO user_credentials (id, user_id, api_key_enc, notebook_key_enc) VALUES (?, ?, ?, ?)', [crypto.randomUUID(), req.userId, apiKeyEnc, nbKeyEnc]);
     }
     res.json({ success: true, message: 'Configuración guardada correctamente' });
   }));
@@ -5051,7 +5071,7 @@ Reglas:
 
   // F4-04: Módulo 7 - Match Score Pipeline (requiere plan formulador + GOOGLE_API_KEY)
   app.post('/api/modulo7/match/:proyectoId', authenticateToken, setTenantContext, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
-    const apiKey = await resolveGoogleApiKey(req.userId, getRow);
+    const apiKey = await resolveGoogleApiKey(req.userId, (sql, params) => withTenantRow(req.userId, sql, params));
     if (!apiKey) {
       return res.status(503).json({
         success: false,
@@ -5175,7 +5195,7 @@ Reglas:
   registerConfigLogisticaRoutes(app, { authenticateToken, tryCatch });
 
   // Matriz RACI (módulo nuevo, 2026-08-24 — diseño revisado por architect)
-  registerMatrizRaciRoutes(app, { authenticateToken, runSql, getRow, getRows, tryCatch, financialPipelineLimiter });
+  registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, financialPipelineLimiter });
 
   // V8.0 — Formulador: M8 Marco Normativo
   registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch });
@@ -5200,8 +5220,8 @@ Reglas:
   // Biblioteca Gubernamental: clon aislado de Anexos (migración 039) — bucket
   // de Storage propio, sin pipeline financiero (ExtractorService/AuditorForenseService)
   await registerBibliotecaRoutes(app, { authenticateToken });
-  await registerEstresFinancieroRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
-  await registerValorExponencialRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
+  await registerEstresFinancieroRoutes(app, { authenticateToken, financialPipelineLimiter });
+  await registerValorExponencialRoutes(app, { authenticateToken, financialPipelineLimiter });
   await registerCopilotoRoutes(app, { authenticateToken, aiLimiter });
 
   registerByokCredentialsRoutes(app, { authenticateToken, aiLimiter });
@@ -5215,7 +5235,7 @@ Reglas:
   registerExportacionRoutes(app, { authenticateToken, tryCatch });
 
   // F5-02: Módulo 9 — Exportación Certificada (reporte PDF SSR)
-  registerReporteRoutes(app, { authenticateToken, getRow, getRows });
+  registerReporteRoutes(app, { authenticateToken });
 
   // Google Auth routes
   registerGoogleAuthRoutes(app, { authenticateToken, encryptKey, JWT_SECRET });

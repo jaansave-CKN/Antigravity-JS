@@ -1,5 +1,12 @@
 # Roadmap — Migración del Pool Principal a `withTenant()` (RadFor-360)
 
+> ## ✅ ROADMAP OFICIALMENTE COMPLETADO — 2026-09-06
+> Las 5 fases (incluidos los 5 bloques de la Fase 5) quedan cerradas y verificadas en vivo. El pool `BYPASSRLS` está
+> erradicado de todo el flujo transaccional real de usuarios — lo único que sigue en ese pool es inicialización de
+> arranque, catálogos/config genuinamente globales (sin columna de tenant o con RLS sin ninguna política), vistas
+> administrativas cross-tenant por diseño, y resoluciones "huevo y la gallina" antes de conocer el tenant — los 4
+> tipos de excepción documentados explícitamente en la sección 4 de este documento. Detalle completo abajo.
+
 > **ACTUALIZACIÓN 2026-09-06 (re-verificado en vivo, no supuesto):** este documento
 > quedó desactualizado por 2 sesiones de trabajo real que no lo tocaron. Estado
 > real confirmado contra el código y la BD antes de escribir esta nota:
@@ -52,15 +59,12 @@
 >   `cancel_at_period_end` es INTEGER, el código bindeaba un boolean de JS —
 >   nunca se había ejecutado porque Stripe está dormido en este entorno
 >   (llaves vacías). 17/17 pruebas passed.
-> - **Hallazgo de Fase 4, RESUELTO PARCIALMENTE en Fase 5 Bloque 4
->   (2026-09-06):** de los 5 archivos con `checkOwnership()` crudo residual
->   (`matrizRaci.routes.js`, `copiloto.routes.js`, `entradaIA.routes.js`,
->   `estresFinanciero.routes.js`, `valorExponencial.routes.js`), `copiloto` y
->   `entradaIA` quedaron migrados en el Bloque 4 (son Módulo IA/Copiloto por
->   nombre). Siguen pendientes `matrizRaci.routes.js`, `estresFinanciero.routes.js`
->   y `valorExponencial.routes.js` (1 `checkOwnership` crudo c/u) — no son
->   Radar ni IA/Copiloto, quedan para el bloque que cubra ese resto de
->   `server.js`/módulos periféricos.
+> - **Hallazgo de Fase 4, RESUELTO POR COMPLETO entre Fase 5 Bloques 4 y 5
+>   (2026-09-06):** de los 5 archivos con `checkOwnership()` crudo residual,
+>   `copiloto.routes.js`/`entradaIA.routes.js` se migraron en el Bloque 4
+>   (Módulo IA/Copiloto) y `matrizRaci.routes.js`/`estresFinanciero.routes.js`/
+>   `valorExponencial.routes.js` en el Bloque 5 (liquidación final) — los 5
+>   quedan cerrados.
 > - **Fase 5, Bloque 1 (Auth & Sesión en `server.js`) — ✅ COMPLETADO
 >   (2026-09-06):** 26 call sites migrados (`register`, `login`, `mfa/*`,
 >   `verify`, `validar-por-correo`, `me`, `change-password`, `reset-password`,
@@ -123,10 +127,25 @@
 >   Tenant A leyendo el historial del Copiloto de un Tenant B recibe 404, y A
 >   inyectando el `proyectoId` de B en un barrido del Radar recibe 404 antes
 >   de poder leer el embedding de B.
-> - **Regla para la próxima sesión**: antes de elegir el siguiente lote,
->   re-verificar con `grep -c` real (getRow/getRows/runSql vs withTenant\*) en
->   cada archivo de la tabla de abajo — este documento puede volver a
->   desactualizarse si otra sesión migra código sin actualizarlo aquí.
+> - **Fase 5, Bloque 5 (Liquidación final) — ✅ COMPLETADO (2026-09-06):**
+>   hallazgo de mayor impacto del bloque: `requireAccess()`, el middleware
+>   que protege TODAS las rutas radar/formulador de la app entera, leía
+>   `user_subscriptions` crudo. También migrados: `/api/credentials/*`
+>   (verificado que `user_credentials` ya tenía GRANT+política real, excluido
+>   por prudencia en bloques anteriores sin haberlo verificado), `/api/favorites`,
+>   y los 3 residuos externos (`matrizRaci`/`estresFinanciero`/
+>   `valorExponencial.routes.js`, 1 línea c/u — sus servicios internos ya
+>   usaban `withTenant()`). `POST /api/admin/restore/:tipo/:id` migrado con
+>   patrón admin-bypass de tabla dinámica. Sin migración SQL nueva — todas las
+>   tablas ya tenían GRANT de fases previas. Con esto, **la Fase 5 y el
+>   roadmap completo quedan oficialmente cerrados** — ver sección 4 para el
+>   detalle final y el perímetro de exclusión permanente. 16/16 pruebas
+>   passed, incluida la prueba hostil del mandato: A no puede forzar un
+>   cálculo de estrés financiero ni la matriz RACI de B, y un admin restaura
+>   un proyecto ajeno sin cambiarle el dueño real.
+> - **Regla para la próxima sesión**: cualquier módulo NUEVO que se agregue
+>   a partir de ahora debe nacer usando `withTenant()` desde el primer
+>   commit — no hay razón para volver a acumular deuda de este tipo.
 
 **Fecha:** 2026-09-04/05. **Contexto:** `docs/AUDITORIA_SEGURIDAD_2026-09-04.md` §3 dejó documentada la deuda —
 el pool principal (rol `postgres`, `BYPASSRLS=true`) sigue sirviendo ~397 call sites reales sin backstop de RLS,
@@ -144,7 +163,7 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 
 | Ubicación | Call sites (`getRow`/`getRows`/`runSql`) | Estado |
 |---|---:|---|
-| `server.js` (núcleo, Fase 5) | 263 → 183 pendientes (verificado `grep -c` en vivo) + 26 withTenant (Bloque 1) + 15 withTenant (Bloque 2) + ~30 withTenant (Bloque 3) + 2 withTenant (Bloque 4, dentro de server.js) | **Bloque 1, 2, 3 y 4 MIGRADOS** (2026-09-06) — resto del archivo pendiente |
+| `server.js` (núcleo, Fase 5) | 263 → 167 restantes verificados `grep -c` en vivo (67 boot-time no-escopables + ~100 excepciones globales/admin-cross-tenant/huevo-y-gallina, cada una re-verificada individualmente) + 96 withTenant repartidos en los 5 Bloques | **FASE 5 COMPLETA — 100%** (2026-09-06) |
 | `backend/routes/byokCredentials.routes.js` | 3 → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 5 Bloque 4) |
 | `backend/routes/copiloto.routes.js` | 1 → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 5 Bloque 4) |
 | `backend/routes/entradaIA.routes.js` | 7 → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 5 Bloque 4) |
@@ -159,20 +178,16 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 | `backend/routes/presupuesto.routes.js` / `configLogistica.routes.js` | 7 c/u → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 3 lote 1) |
 | `backend/routes/radicacion.routes.js` / `motorDialectico.routes.js` / `exportacion.routes.js` / `authGoogle.controller.js` | 5 c/u → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 3 lote 2) |
 | `backend/routes/wompi.webhook.js` / `stripe.webhook.js` | 2 c/u sin tenant (a propósito — ledger de idempotencia global) | **EXCEPCIÓN DOCUMENTADA** (2026-09-06, Fase 4) |
-| `matrizRaci.routes.js` / `estresFinanciero.routes.js` / `valorExponencial.routes.js` | 1 c/u (`checkOwnership` crudo) | **RESIDUO pendiente** (no son Radar/IA, ver nota arriba) |
+| `matrizRaci.routes.js` / `estresFinanciero.routes.js` / `valorExponencial.routes.js` | 1 c/u → withTenantRow | **MIGRADO COMPLETO** (2026-09-06, Fase 5 Bloque 5) |
 | `backend/routes/reporte.routes.js` | 6 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05, adelantado desde Fase 2) |
 
-**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): 183 call sites en `server.js`** — de ellos,
-un tramo real es catálogos GLOBALES intocables verificados en el Bloque 4 (`convocatorias`, `app_settings`,
-`agentes_registro`, `admin_audit_log`, `ai_token_logs`) y el resto es trabajo pendiente genuino en módulos aún no
-auditados de `server.js` — más 3 residuos de `checkOwnership()` crudo (`matrizRaci`/`estresFinanciero`/
-`valorExponencial.routes.js`, ver hallazgo arriba) + 1 en `presupuesto.routes.js` que es la excepción deliberada de
-`catalogo_rendimientos`, no deuda real. Fase 1, Fase 2, Fase 3 (lotes 1 y 2) y Fase 4 quedan 100% cerradas; Fase 5
-(`server.js`) tiene sus Bloques 1 (auth/sesión), 2 (admin de usuarios), 3 (proyectos/core de negocio) y 4
-(Radar/IA-Copiloto) completos — queda el resto de `server.js` sin bloque asignado todavía (pagos ya migrados en
-Fase 4, así que lo que resta es principalmente lógica de negocio dispersa: matriz RACI, motor de coherencia
-estructural, exportaciones adicionales, utilidades varias) y los 3 residuos de `checkOwnership` en archivos
-externos periféricos.
+**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): 167 call sites en `server.js`** — de ellos,
+67 son inicialización de arranque (`initDb()`, sin contexto de request) y ~100 son excepciones verificadas
+individualmente (catálogos globales, vistas cross-tenant de admin, resoluciones huevo-y-gallina) — **cero call
+sites genuinamente tenant-escopables sin migrar**. + 1 en `presupuesto.routes.js` (excepción deliberada de
+`catalogo_rendimientos`, no deuda real). **Fase 1, Fase 2, Fase 3 (lotes 1 y 2), Fase 4 y Fase 5 (los 5 bloques)
+quedan 100% cerradas — el roadmap está oficialmente completo.** Ver sección 4 para el detalle del cierre y el
+perímetro de exclusión permanente.
 
 **Cobertura de tests hoy:** 13 tests totales (`test:smoke` 8 + `test:security` 5) para ~397 call sites — insuficiente
 para migrar con confianza sin ampliarla primero. Ver Fase 0.
@@ -483,9 +498,91 @@ pasa el ownership check; A consultando `/api/credenciales/gemini` nunca ve una l
 en BD con una etiqueta distintiva, mientras B sí ve la suya; A disparando `generar-ai-nombre` sobre el proyecto de
 B recibe 404. `test:smoke` 8/8 y `test:security` 5/5 (100%).
 
+**Bloque 5 — ✅ COMPLETADO (2026-09-06) — Liquidación final: RACI, financieros, favoritos, credenciales y admin
+recovery.** Reconocimiento exhaustivo de los 183 call sites crudos que quedaban en `server.js`: 67 son inicialización
+de arranque (`initDb()` — `CREATE TABLE`/`CREATE EXTENSION`/seeding, sin contexto de request, no tenant-escopables
+por naturaleza) y ~100 caen en las 4 categorías ya establecidas (tabla global sin política, búsqueda por email antes
+de conocer el tenant, vista cross-tenant de admin, o lookup inicial de un admin-bypass ya seguido de una escritura
+escopada) — **verificado línea por línea, no una sola quedó sin categorizar**. De ese resto, se migraron los que sí
+eran deuda real:
+- **`requireAccess(module)`** — el middleware que protege TODAS las rutas `radar`/`formulador` de la aplicación
+  entera (decenas de endpoints) — leía `user_subscriptions` crudo en cada request. Es el hallazgo de mayor impacto
+  de este bloque: un solo `getRow()` sin escopar detrás del gate de acceso más usado del sistema.
+- **`resolveGoogleApiKey()`** (usada por `/api/modulo7/match/:proyectoId`) y **`/api/credentials/*` +
+  `/api/credenciales/validar` + `/api/configuracion/guardar`** — verificado en vivo que `user_credentials` YA
+  tenía política RLS real y GRANT completo desde fases previas (a diferencia de lo asumido en Bloques 1/3/4, donde
+  se excluyó por prudencia sin haber verificado el GRANT) — se migraron los 6 call sites restantes.
+- **`/api/favorites` (GET/POST/DELETE) y `/api/convocatorias/:id/favorito`** — `user_favorites` ya tenía GRANT
+  desde el Bloque 2 (otorgado preventivamente durante el fix de la cascada de purga) pero sus propias rutas CRUD
+  nunca se habían migrado — 5 call sites.
+- **`matrizRaci.routes.js`, `estresFinanciero.routes.js`, `valorExponencial.routes.js`** (los 3 residuos externos
+  nombrados en el mandato) — verificado que en los 3 casos el servicio interno (`raciService.js` vía `withTenant`
+  directo, `EstresadoFinancieroService.js`, `ValorExponencialService.js`) YA usaba `withTenant()` completamente;
+  el único punto crudo en cada archivo era su propio `checkOwnership()` — 1 línea por archivo.
+- **`POST /api/admin/restore/:tipo/:id`** — patrón admin-bypass nuevo con selector de tabla dinámico (usuario/
+  proyecto/convocatoria): resuelve el dueño real sin escopar (mismo problema del huevo y la gallina), y solo
+  entonces escopa la escritura por ese dueño (su propio `id` para usuarios, `org_id` para proyectos);
+  `convocatoria` se queda íntegramente sin escopar por ser el catálogo global. `GET /api/admin/deleted` se
+  queda como vista cross-tenant genuina, mismo criterio que `/api/admin/usuarios`.
+- Limpieza de deuda vestigial: `registerReporteRoutes`/`registerMatrizRaciRoutes` recibían `getRow`/`getRows`/
+  `runSql` sin usarlos (`reporte.routes.js` ya estaba 100% migrado desde el commit `1118e61`, verificado en vivo
+  que la afirmación del roadmap era correcta esta vez) — parámetros no usados eliminados de ambos call sites.
+
+**Sin migración SQL nueva en este bloque**: verificado en vivo que `raci_tareas`/`raci_roles`/`raci_asignaciones`,
+`user_favorites` y `user_credentials` ya tenían GRANT completo a `rf360_rls_scoped` de fases previas — nada que
+otorgar.
+
+**Perímetro de exclusión final, re-confirmado tabla por tabla:** `convocatorias` (sin columna `org_id`),
+`directorio_entidades`, `app_settings`, `system_config`, `system_logs`, `crawl_log`, `admin_audit_log`,
+`ai_token_logs`, `agentes_registro` — todas con RLS activo y CERO políticas o sin ninguna columna de tenant,
+verificadas en vivo en este bloque o en bloques anteriores. Ninguna se tocó.
+
+16/16 pruebas de fuego cruzado passed vía HTTP real con 4 tenants reales (A, B, C, admin): A no puede leer ni
+mutar la matriz RACI de B (ni siquiera con ids de tarea/rol reales y válidos, verificado que la celda de B no
+cambió en BD); A no puede forzar un escenario de estrés financiero ni listar los de B; A no puede descargar el
+impacto social/SROI de B ni disparar su cálculo; A nunca ve el favorito ni la credencial guardada de B, mientras
+B sí ve los suyos; y el admin restaura un proyecto borrado de un tercer tenant C sin que el registro cambie de
+dueño (`org_id`/`user_id` siguen siendo de C tras la restauración), devolviéndole a C el acceso real a su propio
+proyecto. `test:smoke` 8/8 y `test:security` 5/5 (100%).
+
 ---
 
-## 4. Qué NO hace este roadmap
+## 4. Cierre — Fase 5 y roadmap OFICIALMENTE COMPLETADOS (2026-09-06)
+
+Los 5 bloques de la Fase 5 (Auth & Sesión, Administración de Usuarios, Proyectos/Core de Negocio, Radar/IA-Copiloto,
+y la liquidación final de RACI/financieros/favoritos/credenciales/admin recovery) quedan cerrados y verificados en
+vivo. Junto con las Fases 1-4 (ya cerradas en sesiones anteriores de este mismo día), **el pool principal
+`BYPASSRLS` queda erradicado de todo el flujo transaccional real de usuarios** — todo lo que queda sobre ese pool
+es, verificado explícitamente tabla por tabla:
+
+1. **Inicialización de arranque** (`initDb()`) — DDL y seeding que corre una sola vez al iniciar el proceso, antes
+   de que exista ningún request/tenant. No es tenant-escopable por definición, no es deuda.
+2. **Catálogos y config verdaderamente globales** — `convocatorias`, `directorio_entidades`, `app_settings`,
+   `system_config`, `system_logs`, `crawl_log`, `admin_audit_log`, `ai_token_logs`, `agentes_registro`,
+   `catalogo_rendimientos`, `gemini_key_state`, `trial_sessions`, `revoked_tokens`, `stripe_events`/`wompi_events`.
+   Todas verificadas en vivo: o tienen RLS activo sin ninguna política (deny-all para el rol escopado, el GRANT no
+   lo arregla), o no tienen ninguna columna de tenant, o ambas. Forzar `withTenant()` aquí no sería "más seguro",
+   sería incorrecto — romperían la función que cumplen (catálogos compartidos, ledgers de seguridad/idempotencia
+   globales).
+3. **Vistas administrativas genuinamente cross-tenant** (`GET /admin/usuarios`, `/admin/auditoria`,
+   `/admin/finops`, `/admin/deleted`, el chequeo "último admin activo") — un admin necesita ver TODOS los
+   tenants a la vez; RLS solo puede expresar "las filas de UN tenant", nunca "todas las filas de todos los
+   tenants". Protegidas por `req.userRole === 'admin'`, no por RLS — ese es el control correcto para este caso.
+4. **Resoluciones "huevo y la gallina"** (`authenticateToken`, `setTenantContext`, búsquedas por email en
+   login/register/forgot-password/dev-make-admin) — no se puede escopar una consulta por un tenant que la propia
+   consulta es la que va a determinar. Documentadas explícitamente en cada punto, con la escritura POSTERIOR (una
+   vez resuelto el tenant) siempre escopada.
+
+Todo lo demás — cada ruta que lee o escribe datos propiedad de un usuario/proyecto específico, en los 5 bloques de
+Fase 5 y las 4 fases anteriores — corre exclusivamente por `withTenant()`/`withTenantRow()`/`withTenantRows()`/
+`withTenantRun()`/`withTenantTransaction()` sobre el rol `rf360_rls_scoped` (sin `BYPASSRLS`), con las políticas
+`tenant_isolation` como barrera real verificada en vivo con pruebas de fuego cruzado en cada bloque — no solo por
+el filtro `WHERE org_id = ?` de la aplicación, que sigue existiendo como primera línea de defensa pero ya no es la
+única.
+
+---
+
+## 5. Qué NO hace este roadmap
 No fija fechas — depende de cuánto tiempo de sesión/presupuesto se asigne a cada fase, y la Fase 0 es un
 prerrequisito real, no opcional. No incluye la migración de `gemini_key_state`/`trial_sessions` a `withTenant()`
 porque, verificado en la migración 054, ninguna de las 2 tiene columna de tenant — no son candidatas a este

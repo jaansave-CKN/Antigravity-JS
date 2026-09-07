@@ -6,6 +6,7 @@
  */
 import { calcularSROI, calcularMapeoODS, obtenerImpactoSocial } from '../services/ValorExponencialService.js';
 import { captureError } from '../config/sentry.config.js';
+import { withTenantRow } from '../config/database.config.js';
 
 function wrap(fn) {
   return async (req, res) => {
@@ -22,9 +23,9 @@ function wrap(fn) {
   };
 }
 
-export async function registerValorExponencialRoutes(app, { authenticateToken, getRow, financialPipelineLimiter }) {
+export async function registerValorExponencialRoutes(app, { authenticateToken, financialPipelineLimiter }) {
   async function checkOwnership(proyectoId, userId) {
-    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
   app.post('/api/proyectos/:id/calcular-sroi', authenticateToken, financialPipelineLimiter, wrap(async (req, res) => {
