@@ -1467,7 +1467,14 @@ async function start() {
   app.get('/api/ia/estado-cuota', authenticateToken, tryCatch(async (req, res) => {
     const retryAt = geminiCB.getEarliestRetryAt();
     if (!retryAt) return res.json({ success: true, data: { exhausted: false, retryAt: null, esEstimado: false } });
-    const { exento, llaves } = await resolverContextoBYOK(req.userId, { getRow, getRows });
+    // Adaptador escopado (mismo patrón que byokGate.js) -- REGLA DE ORO: la
+    // resolución de llaves BYOK de un tenant nunca debe poder leer/consumir
+    // las de otro. resolverContextoBYOK() no cambia su firma ({getRow,getRows}
+    // genérico), solo recibe funciones ya ligadas a req.userId.
+    const { exento, llaves } = await resolverContextoBYOK(req.userId, {
+      getRow:  (sql, params) => withTenantRow(req.userId, sql, params),
+      getRows: (sql, params) => withTenantRows(req.userId, sql, params),
+    });
     // No exento: usa su propio pool BYOK (withUserKeyRotation), nunca el del
     // servidor — el agotamiento de ESTE pool no le aplica en absoluto.
     // Exento CON llave propia guardada: la usará como válvula de escape
@@ -4552,7 +4559,10 @@ Reglas:
     if (!texto?.trim() && !proyectoId) return res.status(400).json({ success: false, message: 'texto o proyectoId requerido' });
     let qVec;
     if (proyectoId) {
-      const proy = await getRow('SELECT embedding FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, req.userId]);
+      // proyectos es dato de tenant -- escopado. Las búsquedas de convocatorias
+      // más abajo NO se escopan a propósito: es el catálogo global (sin
+      // columna org_id, RLS sin políticas -- ver 065_rls_scoped_grants_fase5_bloque4.sql).
+      const proy = await withTenantRow(req.userId, 'SELECT embedding FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, req.userId]);
       if (!proy) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
       qVec = proy.embedding ? deserializeEmbedding(proy.embedding) : null;
     }
@@ -5192,11 +5202,11 @@ Reglas:
   await registerBibliotecaRoutes(app, { authenticateToken });
   await registerEstresFinancieroRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
   await registerValorExponencialRoutes(app, { authenticateToken, getRow, financialPipelineLimiter });
-  await registerCopilotoRoutes(app, { authenticateToken, getRow, getRows, aiLimiter });
+  await registerCopilotoRoutes(app, { authenticateToken, aiLimiter });
 
-  registerByokCredentialsRoutes(app, { authenticateToken, getRow, getRows, runSql, aiLimiter });
+  registerByokCredentialsRoutes(app, { authenticateToken, aiLimiter });
   // Entrada (M1) — "Generar con AI" a partir de la carpeta "Investigación" de Anexos
-  await registerEntradaIARoutes(app, { authenticateToken, getRow, getRows, runSql, requireAccess, aiLimiter, entradaCampoLimiter });
+  await registerEntradaIARoutes(app, { authenticateToken, requireAccess, aiLimiter, entradaCampoLimiter });
 
   // F5-01: Módulo 9 — Cross-Check Pipeline & Radicación
   registerRadicacionRoutes(app, { authenticateToken });

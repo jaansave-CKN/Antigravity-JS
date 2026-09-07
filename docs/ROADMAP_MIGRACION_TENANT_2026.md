@@ -52,20 +52,15 @@
 >   `cancel_at_period_end` es INTEGER, el código bindeaba un boolean de JS —
 >   nunca se había ejecutado porque Stripe está dormido en este entorno
 >   (llaves vacías). 17/17 pruebas passed.
-> - **Hallazgo pendiente de re-verificar en la próxima sesión (no es deuda de
->   Fase 4, es un residuo de fases anteriores marcadas "ya migradas" sin
->   re-chequear a fondo):** `matrizRaci.routes.js`, `copiloto.routes.js`,
->   `entradaIA.routes.js`, `estresFinanciero.routes.js` y
->   `valorExponencial.routes.js` tienen cada uno 1 `getRow()` crudo restante —
->   un `checkOwnership(proyectoId, userId)` que consulta `proyectos` en el
->   pool principal ANTES de delegar a un service que sí usa `withTenant()`.
->   No es una fuga de datos hoy (el filtro `WHERE id = ? AND org_id = ?` ya es
->   correcto a nivel de app), pero es exactamente el mismo patrón de
->   `checkOwnership` que se migró en `motorDialectico.routes.js` (Fase 3 Lote
->   2) — la tabla `inventario real` de la sección 1 los listaba como "Ya
->   migrados" sin haber re-verificado este detalle. Bajo riesgo, bajo costo de
->   arreglar (5 archivos × 1 línea), candidato natural para un lote de cierre
->   rápido antes o durante la Fase 5.
+> - **Hallazgo de Fase 4, RESUELTO PARCIALMENTE en Fase 5 Bloque 4
+>   (2026-09-06):** de los 5 archivos con `checkOwnership()` crudo residual
+>   (`matrizRaci.routes.js`, `copiloto.routes.js`, `entradaIA.routes.js`,
+>   `estresFinanciero.routes.js`, `valorExponencial.routes.js`), `copiloto` y
+>   `entradaIA` quedaron migrados en el Bloque 4 (son Módulo IA/Copiloto por
+>   nombre). Siguen pendientes `matrizRaci.routes.js`, `estresFinanciero.routes.js`
+>   y `valorExponencial.routes.js` (1 `checkOwnership` crudo c/u) — no son
+>   Radar ni IA/Copiloto, quedan para el bloque que cubra ese resto de
+>   `server.js`/módulos periféricos.
 > - **Fase 5, Bloque 1 (Auth & Sesión en `server.js`) — ✅ COMPLETADO
 >   (2026-09-06):** 26 call sites migrados (`register`, `login`, `mfa/*`,
 >   `verify`, `validar-por-correo`, `me`, `change-password`, `reset-password`,
@@ -110,6 +105,24 @@
 >   24/24 pruebas passed, incluida una prueba de fuego cruzado explícita en
 >   las 11 rutas del bloque (un Tenant A no puede leer ni mutar ningún recurso
 >   de un Tenant B, verificado en BD que cero filas cambiaron).
+> - **Fase 5, Bloque 4 (Módulo Radar / Módulo IA-Copiloto) — ✅ COMPLETADO
+>   (2026-09-06):** reconocimiento exhaustivo del cluster completo de Radar
+>   (~20 rutas) confirmó que el 100% opera solo sobre catálogos GLOBALES
+>   (`convocatorias` -- verificado que ni siquiera TIENE columna `org_id`;
+>   `app_settings`; `agentes_registro`) -- cero call sites migrados ahí, por
+>   diseño verificado, no por omisión. El riesgo real estaba en el contexto de
+>   IA: `GET /api/ia/estado-cuota` (`resolverContextoBYOK`), el ownership check
+>   dentro de `barridoMasivoHandler`, y dos archivos que un comentario de
+>   `byokGate.js` sugería (incorrectamente) que ya estaban migrados --
+>   `backend/routes/byokCredentials.routes.js` (CRUD de llaves Gemini propias)
+>   y `backend/routes/copiloto.routes.js` (`checkOwnership` del historial del
+>   Copiloto) -- y `backend/routes/entradaIA.routes.js` (Módulo IA de Entrada,
+>   6 call sites + checkOwnership). GRANT en
+>   `065_rls_scoped_grants_fase5_bloque4.sql` (solo `tenant_audit_logs`).
+>   9/9 pruebas passed, incluida la prueba hostil nombrada en el mandato: un
+>   Tenant A leyendo el historial del Copiloto de un Tenant B recibe 404, y A
+>   inyectando el `proyectoId` de B en un barrido del Radar recibe 404 antes
+>   de poder leer el embedding de B.
 > - **Regla para la próxima sesión**: antes de elegir el siguiente lote,
 >   re-verificar con `grep -c` real (getRow/getRows/runSql vs withTenant\*) en
 >   cada archivo de la tabla de abajo — este documento puede volver a
@@ -131,7 +144,10 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 
 | Ubicación | Call sites (`getRow`/`getRows`/`runSql`) | Estado |
 |---|---:|---|
-| `server.js` (núcleo, Fase 5) | 263 → 184 pendientes (verificado `grep -c` en vivo) + 26 withTenant (Bloque 1) + 15 withTenant (Bloque 2) + ~30 withTenant (Bloque 3) | **Bloque 1, 2 y 3 MIGRADOS** (2026-09-06) — resto del archivo pendiente (Radar/IA) |
+| `server.js` (núcleo, Fase 5) | 263 → 183 pendientes (verificado `grep -c` en vivo) + 26 withTenant (Bloque 1) + 15 withTenant (Bloque 2) + ~30 withTenant (Bloque 3) + 2 withTenant (Bloque 4, dentro de server.js) | **Bloque 1, 2, 3 y 4 MIGRADOS** (2026-09-06) — resto del archivo pendiente |
+| `backend/routes/byokCredentials.routes.js` | 3 → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 5 Bloque 4) |
+| `backend/routes/copiloto.routes.js` | 1 → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 5 Bloque 4) |
+| `backend/routes/entradaIA.routes.js` | 7 → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 5 Bloque 4) |
 | `backend/routes/anexos.routes.js` | 30 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05) |
 | `backend/routes/biblioteca.routes.js` | 20 → withTenant | **MIGRADO COMPLETO** (2026-09-06, este documento) |
 | `backend/routes/proyectos.routes.js` | 25 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05) |
@@ -143,16 +159,20 @@ avanzar a la siguiente, es la única forma de hacer esto sin apagón.
 | `backend/routes/presupuesto.routes.js` / `configLogistica.routes.js` | 7 c/u → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 3 lote 1) |
 | `backend/routes/radicacion.routes.js` / `motorDialectico.routes.js` / `exportacion.routes.js` / `authGoogle.controller.js` | 5 c/u → withTenant | **MIGRADO COMPLETO** (2026-09-06, Fase 3 lote 2) |
 | `backend/routes/wompi.webhook.js` / `stripe.webhook.js` | 2 c/u sin tenant (a propósito — ledger de idempotencia global) | **EXCEPCIÓN DOCUMENTADA** (2026-09-06, Fase 4) |
-| `matrizRaci.routes.js` / `copiloto.routes.js` / `entradaIA.routes.js` / `estresFinanciero.routes.js` / `valorExponencial.routes.js` | 1 c/u (`checkOwnership` crudo) | **RESIDUO por re-verificar** (ver nota arriba) |
+| `matrizRaci.routes.js` / `estresFinanciero.routes.js` / `valorExponencial.routes.js` | 1 c/u (`checkOwnership` crudo) | **RESIDUO pendiente** (no son Radar/IA, ver nota arriba) |
 | `backend/routes/reporte.routes.js` | 6 withTenant | **MIGRADO COMPLETO** (commit `1118e61`, 2026-09-05, adelantado desde Fase 2) |
 
-**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): 184 call sites en `server.js`** (el resto
-incluye tanto trabajo pendiente real — Radar, IA/Copiloto, y otros módulos no tocados aún — como las excepciones
-globales ya documentadas de los Bloques 1/2/3) + 5 residuos de `checkOwnership()` crudo (ver hallazgo arriba) + 1
-en `presupuesto.routes.js` que es la excepción deliberada de `catalogo_rendimientos`, no deuda real. Fase 1, Fase 2,
-Fase 3 (lotes 1 y 2) y Fase 4 quedan 100% cerradas; Fase 5 (`server.js`) tiene sus Bloques 1 (auth/sesión), 2 (admin
-de usuarios) y 3 (proyectos/core de negocio) completos — quedan los bloques de Radar e IA/Copiloto, y cualquier
-resto no cubierto por ninguno de los 3.
+**Restante real verificado 2026-09-06 (`grep -c` directo, no estimado): 183 call sites en `server.js`** — de ellos,
+un tramo real es catálogos GLOBALES intocables verificados en el Bloque 4 (`convocatorias`, `app_settings`,
+`agentes_registro`, `admin_audit_log`, `ai_token_logs`) y el resto es trabajo pendiente genuino en módulos aún no
+auditados de `server.js` — más 3 residuos de `checkOwnership()` crudo (`matrizRaci`/`estresFinanciero`/
+`valorExponencial.routes.js`, ver hallazgo arriba) + 1 en `presupuesto.routes.js` que es la excepción deliberada de
+`catalogo_rendimientos`, no deuda real. Fase 1, Fase 2, Fase 3 (lotes 1 y 2) y Fase 4 quedan 100% cerradas; Fase 5
+(`server.js`) tiene sus Bloques 1 (auth/sesión), 2 (admin de usuarios), 3 (proyectos/core de negocio) y 4
+(Radar/IA-Copiloto) completos — queda el resto de `server.js` sin bloque asignado todavía (pagos ya migrados en
+Fase 4, así que lo que resta es principalmente lógica de negocio dispersa: matriz RACI, motor de coherencia
+estructural, exportaciones adicionales, utilidades varias) y los 3 residuos de `checkOwnership` en archivos
+externos periféricos.
 
 **Cobertura de tests hoy:** 13 tests totales (`test:smoke` 8 + `test:security` 5) para ~397 call sites — insuficiente
 para migrar con confianza sin ampliarla primero. Ver Fase 0.
@@ -417,6 +437,51 @@ que ninguna mutación ocurrió (texto del nodo, indicador, teoría de cambio, po
 permanecen intactos), más 2 controles positivos (operación propia de A funciona, merge legítimo de B sí escribe en
 su propia fila) — y 2 pruebas aisladas confirmando el hallazgo/fix de `match_scores` (sin `org_id` el INSERT falla
 bajo RLS; con `org_id=tenantId` funciona). `test:smoke` 8/8 y `test:security` 5/5 (100%).
+
+**Bloque 4 — ✅ COMPLETADO (2026-09-06) — Módulo Radar / Módulo IA-Copiloto.** Reconocimiento exhaustivo del cluster
+completo de Radar en `server.js` (~20 rutas: `status`, `start`/`stop`, `trigger`, `rastreo1`, `expirar`,
+`cerrar-ids`, `reparar-fuente`, `buscar-masivo`, `buscar`, `keywords`, `barrido-gemini`, `persistir-barrido`) y del
+registro de agentes (`GET /modulo8/agentes`): **el 100% de esas rutas opera exclusivamente sobre catálogos GLOBALES
+verificados en vivo** — `convocatorias` (RLS activo, CERO políticas, **y sin columna `org_id` en absoluto** —
+verificado con `information_schema.columns`, no solo vacía: no existe), `app_settings` (config global, el propio
+código ya la documentaba como "no por-tenant") y `agentes_registro` (RLS activo, cero políticas, sin ninguna
+columna de tenant). **Conclusión verificada, no supuesta: no existe ningún "`org_id` equivocado" posible en el
+Módulo Radar puro, porque esa tabla nunca tuvo el concepto de tenant** — se dejan intactas en el pool principal,
+mismo criterio que `catalogo_rendimientos`/`admin_audit_log`/`ai_token_logs`.
+
+El riesgo real de fuga de tenant en este bloque no estaba en el Radar en sí, sino en el **contexto que se le
+inyecta a la IA** (la Regla de Oro Técnica del mandato), y ahí sí aparecieron hallazgos:
+- `GET /api/ia/estado-cuota` (server.js) llamaba `resolverContextoBYOK()` con `{getRow, getRows}` crudos —
+  resuelve `usuarios.byok_exento` y las llaves Gemini propias del usuario (`user_gemini_keys`). Migrado al mismo
+  patrón de adaptador escopado que `byokGate.js` ya usa (Prioridad Roja, 2026-09-05) para las 7 acciones de IA
+  gateadas.
+- `barridoMasivoHandler` (compartido por `/api/radar/barrido` y `/api/radar/barrido-masivo`) hace una excepción
+  real dentro del mismo handler: la lectura del embedding del `proyectoId` recibido (dato de tenant) se escopó;
+  la búsqueda de `convocatorias` por similitud vectorial se queda cruda a propósito (mismo criterio que arriba).
+- **`backend/routes/byokCredentials.routes.js` (CRUD de llaves Gemini propias — GET/POST/DELETE
+  `/api/credenciales/gemini`) y `backend/routes/copiloto.routes.js` (`checkOwnership` del historial del Copiloto)
+  seguían en el pool principal pese a un comentario de `byokGate.js` que sugería (incorrectamente) que ya estaban
+  cubiertos** — ese comentario solo era cierto para el gate en sí (`requireByokOrExento()`), no para estos 2
+  archivos, que nunca lo usan. Migrados ambos: `byokCredentials.routes.js` con el mismo patrón de adaptador;
+  `copiloto.routes.js`'s `checkOwnership` a `withTenantRow` (el resto del archivo — `obtenerHistorial`/
+  `chatConCopiloto` en `CopilotoService.js` — ya usaba `withTenant()` internamente desde antes, verificado en vivo
+  antes de tocar nada).
+- **`backend/routes/entradaIA.routes.js`** ("Generar con AI" de Entrada, el propio Módulo IA por nombre) tenía el
+  mismo `checkOwnership` crudo MÁS 6 call sites que inyectaban `{getRow, getRows, runSql}` crudos a las funciones
+  de `EntradaIAService.js` (que a su vez alimentan `calcularScoringDinamico` como contexto) — todos migrados con un
+  helper local `scopedDeps(userId)` reutilizado en las 6 rutas, sin tocar `EntradaIAService.js`.
+
+GRANT en `065_rls_scoped_grants_fase5_bloque4.sql`: solo `tenant_audit_logs` (usada por el registro de auditoría de
+`guardarLlaveUsuario()`) tenía GRANT pendiente — `user_gemini_keys`/`usuarios`/`proyectos` ya lo tenían de fases
+previas.
+
+9/9 pruebas passed vía HTTP real contra el backend vivo, con 2 tenants reales: un Tenant A leyendo el historial del
+Copiloto de un Tenant B (con un mensaje real insertado) recibe 404, mientras B sí lee su propio mensaje real y A
+lee su propio proyecto vacío sin ninguna filtración; A inyectando el `proyectoId` de B en el body de
+`/api/radar/barrido-masivo` recibe 404 antes de poder leer el embedding de B, mientras B con su propio proyectoId
+pasa el ownership check; A consultando `/api/credenciales/gemini` nunca ve una llave de B insertada directamente
+en BD con una etiqueta distintiva, mientras B sí ve la suya; A disparando `generar-ai-nombre` sobre el proyecto de
+B recibe 404. `test:smoke` 8/8 y `test:security` 5/5 (100%).
 
 ---
 

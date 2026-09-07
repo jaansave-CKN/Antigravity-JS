@@ -7,6 +7,7 @@
 import { obtenerHistorial, chatConCopiloto } from '../services/CopilotoService.js';
 import { requireByokOrExento } from '../middlewares/byokGate.js';
 import { captureError } from '../config/sentry.config.js';
+import { withTenantRow } from '../config/database.config.js';
 
 function wrap(fn) {
   return async (req, res) => {
@@ -23,11 +24,13 @@ function wrap(fn) {
   };
 }
 
-export async function registerCopilotoRoutes(app, { authenticateToken, getRow, getRows, aiLimiter }) {
+export async function registerCopilotoRoutes(app, { authenticateToken, aiLimiter }) {
   const byokGate = requireByokOrExento(); // ya no toma deps — ver byokGate.js (Prioridad Roja, 2026-09-05)
 
+  // obtenerHistorial/chatConCopiloto (CopilotoService.js) ya usan withTenant()
+  // internamente -- este checkOwnership era el único punto crudo del archivo.
   async function checkOwnership(proyectoId, userId) {
-    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
   app.get('/api/proyectos/:id/copiloto/historial', authenticateToken, wrap(async (req, res) => {

@@ -13,6 +13,21 @@
 import { generarEntradaDesdeInvestigacion, generarCampoIndividual, generarProblematicasTerritorio, generarPosiblesSoluciones, generarNombreProyecto, generarPitchProyecto, CAMPOS_INDIVIDUALES } from '../services/EntradaIAService.js';
 import { requireByokOrExento } from '../middlewares/byokGate.js';
 import { captureError } from '../config/sentry.config.js';
+import { withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
+
+// Adaptador escopado (Fase 5 Bloque 4, 2026-09-06) — las funciones de
+// EntradaIAService.js no cambian su firma ({getRow,getRows,runSql} genérico,
+// ya reciben orgId como parámetro propio); solo reciben closures ligadas al
+// tenant real de la request en vez de las funciones crudas. REGLA DE ORO: el
+// contexto que se le inyecta a la IA (project_anexos, motor_dialectico,
+// proyectos) nunca debe poder filtrarse entre tenants.
+function scopedDeps(userId) {
+  return {
+    getRow:  (sql, params) => withTenantRow(userId, sql, params),
+    getRows: (sql, params) => withTenantRows(userId, sql, params),
+    runSql:  (sql, params) => withTenantRun(userId, sql, params),
+  };
+}
 
 function wrap(fn) {
   return async (req, res) => {
@@ -32,18 +47,18 @@ function wrap(fn) {
   };
 }
 
-export function registerEntradaIARoutes(app, { authenticateToken, getRow, getRows, runSql, requireAccess, aiLimiter, entradaCampoLimiter }) {
+export function registerEntradaIARoutes(app, { authenticateToken, requireAccess, aiLimiter, entradaCampoLimiter }) {
   const byokGate = requireByokOrExento(); // ya no toma deps — ver byokGate.js (Prioridad Roja, 2026-09-05)
 
   async function checkOwnership(proyectoId, userId) {
-    return getRow('SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
+    return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
   app.post('/api/proyectos/:id/entrada/generar-ai', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const data = await generarEntradaDesdeInvestigacion(req.params.id, req.userId, { getRow, getRows, runSql, userGeminiKeys: req.userGeminiKeys });
+    const data = await generarEntradaDesdeInvestigacion(req.params.id, req.userId, { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys });
     res.json({ success: true, data });
   }));
 
@@ -65,7 +80,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, getRow, getRow
       req.params.id, req.userId, campo,
       contextoPrevio && typeof contextoPrevio === 'object' ? contextoPrevio : {},
       demografia && typeof demografia === 'object' ? demografia : {},
-      { getRows, runSql, userGeminiKeys: req.userGeminiKeys }
+      { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys }
     );
     res.json({ success: true, data });
   }));
@@ -82,7 +97,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, getRow, getRow
     const data = await generarProblematicasTerritorio(
       req.params.id, req.userId,
       demografia && typeof demografia === 'object' ? demografia : {},
-      { getRows, runSql, userGeminiKeys: req.userGeminiKeys }
+      { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys }
     );
     res.json({ success: true, data });
   }));
@@ -100,7 +115,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, getRow, getRow
       req.params.id, req.userId,
       contextoPrevio && typeof contextoPrevio === 'object' ? contextoPrevio : {},
       demografia && typeof demografia === 'object' ? demografia : {},
-      { getRows, runSql, userGeminiKeys: req.userGeminiKeys }
+      { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys }
     );
     res.json({ success: true, data });
   }));
@@ -124,7 +139,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, getRow, getRow
         problematica: problematica && typeof problematica === 'object' ? problematica : null,
         demografia: demografia && typeof demografia === 'object' ? demografia : {},
       },
-      { getRow, getRows, userGeminiKeys: req.userGeminiKeys }
+      { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys }
     );
     res.json({ success: true, data });
   }));
@@ -144,7 +159,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, getRow, getRow
         problematica: problematica && typeof problematica === 'object' ? problematica : null,
         demografia: demografia && typeof demografia === 'object' ? demografia : {},
       },
-      { getRow, getRows, userGeminiKeys: req.userGeminiKeys }
+      { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys }
     );
     res.json({ success: true, data });
   }));
