@@ -19,6 +19,13 @@ import {
   eliminarLlaveUsuario,
 } from '../services/byokService.js';
 import { captureError } from '../config/sentry.config.js';
+// REGLA DE ORO (Fase 5 Bloque 4, 2026-09-06): las llaves Gemini son crédito
+// real de UN tenant -- withTenantRow/withTenantRun (RLS real sobre
+// user_gemini_keys/usuarios/tenant_audit_logs) backstoppean el WHERE user_id=?
+// ya presente en cada función de byokService.js. Mismo patrón que byokGate.js
+// ya usa para el gate de las 7 acciones de IA (Prioridad Roja, 2026-09-05) --
+// esta ruta gestiona las llaves en sí (guardar/listar/borrar), no las consume.
+import { withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
 
 function wrap(fn) {
   return async (req, res) => {
@@ -31,10 +38,10 @@ function wrap(fn) {
   };
 }
 
-export function registerByokCredentialsRoutes(app, { authenticateToken, getRow, getRows, runSql, aiLimiter }) {
+export function registerByokCredentialsRoutes(app, { authenticateToken, aiLimiter }) {
   app.get('/api/credenciales/gemini', authenticateToken, wrap(async (req, res) => {
-    const exento = await esExento(req.userId, { getRow });
-    const llaves = exento ? [] : await listarLlavesUsuario(req.userId, { getRows });
+    const exento = await esExento(req.userId, { getRow: (sql, params) => withTenantRow(req.userId, sql, params) });
+    const llaves = exento ? [] : await listarLlavesUsuario(req.userId, { getRows: (sql, params) => withTenantRows(req.userId, sql, params) });
     res.json({
       success: true,
       data: {
@@ -56,7 +63,10 @@ export function registerByokCredentialsRoutes(app, { authenticateToken, getRow, 
       return res.status(400).json({ success: false, message: 'key_slot y key son requeridos' });
     }
     const ip = req.ip || req.headers['x-forwarded-for'] || null;
-    const resultado = await guardarLlaveUsuario(req.userId, key_slot, key, label, ip, { runSql, getRow });
+    const resultado = await guardarLlaveUsuario(req.userId, key_slot, key, label, ip, {
+      runSql: (sql, params) => withTenantRun(req.userId, sql, params),
+      getRow: (sql, params) => withTenantRow(req.userId, sql, params),
+    });
     res.status(201).json({ success: true, data: resultado });
   }));
 
@@ -65,7 +75,7 @@ export function registerByokCredentialsRoutes(app, { authenticateToken, getRow, 
     if (![1, 2, 3].includes(slot)) {
       return res.status(400).json({ success: false, message: 'slot debe ser 1, 2 o 3' });
     }
-    await eliminarLlaveUsuario(req.userId, slot, { runSql });
+    await eliminarLlaveUsuario(req.userId, slot, { runSql: (sql, params) => withTenantRun(req.userId, sql, params) });
     res.json({ success: true });
   }));
 }
