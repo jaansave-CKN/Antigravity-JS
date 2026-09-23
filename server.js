@@ -335,12 +335,13 @@ async function getLoginSubscription(userId, withTenantRowFn) {
 async function setTenantContext(req, res, next) {
   if (!req.userId) return next(); // sin usuario autenticado — nada que fijar
 
-  try {
-    const user = await getRow('SELECT tenant_id FROM usuarios WHERE id = ?', [req.userId]);
-    req.tenantId = user?.tenant_id || req.userId; // fallback: modelo single-tenant-per-user
-  } catch {
-    req.tenantId = req.userId; // degradado — nunca bloquear la request por esto
-  }
+  // Modelo real: un tenant por usuario (app.org_id = usuarios.id, igual que
+  // withTenant(req.userId) en el resto del backend). FIX 2026-09-23: antes
+  // consultaba `SELECT tenant_id FROM usuarios`, columna que NO existe — cada
+  // request a estas 3 rutas generaba un error pg + reintento REST antes de
+  // caer siempre a req.userId. Verificado en BD: los 67 usuarios tienen
+  // org_id vacío o igual a su id, así que el resultado no cambia.
+  req.tenantId = req.userId;
 
   req.withTenant = (callback) => withTenant(req.tenantId, callback);
   next();
@@ -846,7 +847,14 @@ async function initDb() {
   // certificación (ver POST /api/m12/ficha/:proyectoId y
   // POST /api/modulo9/radicar/:proyectoId).
   await addColumnSafe("ALTER TABLE compliance_data ADD COLUMN estado_legal TEXT NOT NULL DEFAULT 'sin_evaluar'");
-  try { await runSql("ALTER TABLE compliance_data ADD CONSTRAINT compliance_data_estado_legal_check CHECK (estado_legal IN ('sin_evaluar','condicionado','despejado'))"); } catch {}
+  // Idempotente (2026-09-23): ADD CONSTRAINT no admite IF NOT EXISTS. Antes
+  // fallaba con "already exists" en CADA arranque y runSql lo reintentaba
+  // además por la Capa 2 (REST) antes de que el catch lo silenciara — error
+  // falso en el log de arranque + un viaje de red inútil.
+  try {
+    const yaExiste = await getRow("SELECT 1 AS ok FROM pg_constraint WHERE conname = 'compliance_data_estado_legal_check'");
+    if (!yaExiste) await runSql("ALTER TABLE compliance_data ADD CONSTRAINT compliance_data_estado_legal_check CHECK (estado_legal IN ('sin_evaluar','condicionado','despejado'))");
+  } catch {}
   await addColumnSafe("ALTER TABLE versiones_proyecto ADD COLUMN user_id TEXT NOT NULL DEFAULT ''");
   await addColumnSafe("ALTER TABLE user_subscriptions ADD COLUMN access_radar INTEGER DEFAULT 0");
   await addColumnSafe("ALTER TABLE user_subscriptions ADD COLUMN access_formulador INTEGER DEFAULT 0");
