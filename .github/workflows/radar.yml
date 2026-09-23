@@ -77,7 +77,6 @@ jobs:
             exit 1
           fi
           echo "Render deploy triggered: $(date)"
-          echo "DEPLOY_ID=$(jq -r '.id // empty' /tmp/render_response.json)" >> "$GITHUB_ENV"
           echo "## Deploy V9.0" >> $GITHUB_STEP_SUMMARY
           echo "- Render: deploy disparado (HTTP $HTTP_CODE)" >> $GITHUB_STEP_SUMMARY
           echo "- Fecha: $(date)" >> $GITHUB_STEP_SUMMARY
@@ -90,28 +89,34 @@ jobs:
         # (radfor360-production, snapshot de la app padre): el CI "desplegaba"
         # con HTTP 2xx pero producción nunca recibió main. Este paso espera el
         # estado final del deploy y exige que el commit desplegado sea el del push.
+        # FIX 2026-09-23: se busca el deploy POR COMMIT en la lista de Render,
+        # no por el id de la respuesta del POST — con otro deploy en curso,
+        # Render responde 202 con cuerpo VACÍO (lo encola) y el paso abortaba
+        # con "Render no devolvió id de deploy" (run 35928808277).
         run: |
-          if [ -z "$DEPLOY_ID" ]; then echo "::error::Render no devolvió id de deploy"; exit 1; fi
           for i in $(seq 1 90); do
-            curl -s "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys/$DEPLOY_ID" \
-              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" -H "Accept: application/json" > /tmp/deploy.json
-            STATUS=$(jq -r '.status' /tmp/deploy.json)
-            echo "Intento $i: $STATUS"
+            curl -s "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys?limit=20" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" -H "Accept: application/json" > /tmp/deploys.json
+            STATUS=$(jq -r --arg s "$GITHUB_SHA" '[.[] | .deploy | select(.commit.id == $s)][0].status // "no_encontrado"' /tmp/deploys.json)
+            echo "Intento $i: deploy de $GITHUB_SHA -> $STATUS"
             case "$STATUS" in
               live) break ;;
-              build_failed|update_failed|canceled|deactivated|pre_deploy_failed)
-                echo "::error::El deploy $DEPLOY_ID terminó en estado $STATUS (ver logs en el Dashboard de Render)"; exit 1 ;;
+              deactivated)
+                # Estuvo live y un deploy más nuevo lo reemplazó (push posterior) —
+                # no es un fallo de este commit; ese run hará su propio smoke test.
+                echo "::warning::El deploy de $GITHUB_SHA ya fue reemplazado por uno más nuevo"; STATUS=live; break ;;
+              build_failed|update_failed|canceled|pre_deploy_failed)
+                echo "::error::El deploy del commit $GITHUB_SHA terminó en estado $STATUS (ver logs en el Dashboard de Render)"; exit 1 ;;
+              no_encontrado)
+                if [ "$i" -ge 30 ]; then
+                  echo "::error::Render no tiene ningún deploy del commit $GITHUB_SHA tras 5 min — el servicio está construyendo otra rama. Debe ser 'main' (ver docs/DESPLIEGUE_RENDER.md)."
+                  exit 1
+                fi ;;
             esac
             sleep 10
           done
-          if [ "$STATUS" != "live" ]; then echo "::error::El deploy $DEPLOY_ID no quedó live en 15 minutos (último estado: $STATUS)"; exit 1; fi
-          DEPLOYED_SHA=$(jq -r '.commit.id' /tmp/deploy.json)
-          echo "Commit desplegado: $DEPLOYED_SHA | commit del push: $GITHUB_SHA"
-          if [ "$DEPLOYED_SHA" != "$GITHUB_SHA" ]; then
-            echo "::error::Render desplegó $DEPLOYED_SHA, no $GITHUB_SHA — el servicio está construyendo otra rama. Debe ser 'main' (ver docs/DESPLIEGUE_RENDER.md)."
-            exit 1
-          fi
-          echo "- Render: deploy $DEPLOY_ID live con commit $DEPLOYED_SHA" >> $GITHUB_STEP_SUMMARY
+          if [ "$STATUS" != "live" ]; then echo "::error::El deploy de $GITHUB_SHA no quedó live en 15 minutos (último estado: $STATUS)"; exit 1; fi
+          echo "- Render: deploy live con commit $GITHUB_SHA" >> $GITHUB_STEP_SUMMARY
 
   # ── Post-Deploy: Smoke Test contra el backend real ya desplegado (bloqueante) ──
   smoke-test:
