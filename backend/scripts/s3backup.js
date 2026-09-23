@@ -7,6 +7,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { logCriticalError } from '../services/logService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH   = path.join(__dirname, '..', 'radar.db');
@@ -31,8 +32,13 @@ function ts() {
  */
 export async function runS3Backup() {
   if (!AWS_S3_BUCKET || !AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
-    console.log('[S3Backup] Variables AWS no configuradas — backup omitido');
-    return { skipped: true, reason: 'AWS_S3_BUCKET / AWS credentials not set' };
+    // FIX (DIRECTIVA REMEDIACIÓN TOTAL, 2026-09-06): antes este skip era
+    // silencioso (solo console.log) — el cron corría a diario sin backup
+    // real y sin que nadie se enterara. Ahora queda una alerta persistida
+    // en system_logs (nivel ERROR) en cada ejecución omitida.
+    const reason = 'AWS_S3_BUCKET / AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY no configuradas';
+    await logCriticalError('S3Backup', `Backup diario omitido — ${reason}`, { reason });
+    return { skipped: true, reason };
   }
 
   let S3Client, PutObjectCommand;

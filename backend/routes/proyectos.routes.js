@@ -34,6 +34,10 @@ import { auditarViabilidadFinancieraIncompleta } from '../services/AuditorForens
 // queda ningún getRow/getRows plano reenviado desde este archivo.
 import { withTenant, withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
 import { captureError } from '../config/sentry.config.js';
+import {
+  validarBody, crearProyectoSchema, duplicarProyectoSchema, patchProyectoSchema,
+  deleteProyectoSchema, continuarFormulacionSchema, etapaConstruccionSchema,
+} from '../validators/zodSchemas.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -78,7 +82,9 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    *   presupuesto    object  { fasesNegra:[], fasesGris:[], fasesBlanca:[] } — Módulo 4
    */
   app.post('/api/proyectos', authenticateToken, requireAccess('formulador'), sanitizeFormuladorBody, wrap(async (req, res) => {
-    const { nombre, nombreArchivo, fichaTecnica = {}, presupuesto = {} } = req.body;
+    const validacion = validarBody(crearProyectoSchema, req.body);
+    if (!validacion.ok) return res.status(400).json({ success: false, message: validacion.message });
+    const { nombre, nombreArchivo, fichaTecnica = {}, presupuesto = {} } = validacion.data;
 
     if (contieneMonedaNoCOP(fichaTecnica) || contieneMonedaNoCOP(presupuesto)) {
       return res.status(422).json({ success: false, message: 'Todos los montos deben estar en Pesos Colombianos (COP) — se detectó otra moneda en la solicitud.' });
@@ -207,12 +213,14 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
 
-    const nombreNuevo = String(req.body?.nombre || `${original.nombre} (copia)`).trim().slice(0, 200);
+    const validacionDup = validarBody(duplicarProyectoSchema, req.body);
+    if (!validacionDup.ok) return res.status(400).json({ success: false, message: validacionDup.message });
+    const nombreNuevo = (validacionDup.data.nombre || `${original.nombre} (copia)`).trim().slice(0, 200);
     if (!nombreNuevo) {
       return res.status(400).json({ success: false, message: 'nombre es requerido' });
     }
-    const nombreArchivoNuevo = String(
-      req.body?.nombreArchivo || (original.nombre_archivo ? `${original.nombre_archivo} (copia)` : nombreNuevo)
+    const nombreArchivoNuevo = (
+      validacionDup.data.nombreArchivo || (original.nombre_archivo ? `${original.nombre_archivo} (copia)` : nombreNuevo)
     ).trim().slice(0, 60);
 
     const orgId = req.userId;
@@ -312,7 +320,8 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    * que no exista ventana entre "validar" y "borrar".
    */
   app.delete('/api/proyectos/:id', authenticateToken, wrap(async (req, res) => {
-    const { password } = req.body || {};
+    const validacionDelPw = validarBody(deleteProyectoSchema, req.body);
+    const password = validacionDelPw.ok ? validacionDelPw.data.password : undefined;
     if (!password) {
       return res.status(400).json({ success: false, message: 'Se requiere tu contraseña para confirmar el borrado.' });
     }
@@ -495,11 +504,9 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    */
   app.post('/api/proyectos/:id/continuar-formulacion', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, wrap(async (req, res) => {
     const proyectoId = req.params.id;
-    const { delta } = req.body;
-
-    if (!delta || typeof delta !== 'object' || Array.isArray(delta)) {
-      return res.status(400).json({ success: false, message: 'delta es requerido y debe ser un objeto' });
-    }
+    const validacionDelta = validarBody(continuarFormulacionSchema, req.body);
+    if (!validacionDelta.ok) return res.status(400).json({ success: false, message: 'delta es requerido y debe ser un objeto' });
+    const { delta } = validacionDelta.data;
     if (contieneMonedaNoCOP(delta)) {
       return res.status(422).json({ success: false, message: 'El delta debe expresarse únicamente en COP — se detectó un código de moneda distinto.' });
     }
@@ -737,11 +744,9 @@ export function registerProyectosRoutes(app, { authenticateToken, requireAccess,
    */
   app.put('/api/proyectos/:id/etapa-construccion', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyectoId = req.params.id;
-    const { etapa_construccion_finalizada } = req.body;
-
-    if (typeof etapa_construccion_finalizada !== 'boolean') {
-      return res.status(400).json({ success: false, message: 'etapa_construccion_finalizada es requerido y debe ser boolean' });
-    }
+    const validacionEtapa = validarBody(etapaConstruccionSchema, req.body);
+    if (!validacionEtapa.ok) return res.status(400).json({ success: false, message: 'etapa_construccion_finalizada es requerido y debe ser boolean' });
+    const { etapa_construccion_finalizada } = validacionEtapa.data;
 
     const proyecto = await withTenantRow(req.userId,
       'SELECT id, estado FROM proyectos WHERE id = ? AND org_id = ?',

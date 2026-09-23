@@ -40,6 +40,7 @@ import { captureError } from '../config/sentry.config.js';
 // en este archivo, org_id = user_id, mismo criterio que anexos.routes.js)
 // como primer argumento.
 import { withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
+import { validarBody, carpetaNombreSchema, anexoPatchSchema } from '../validators/zodSchemas.js';
 
 const BIBLIOTECA_BUCKET = 'biblioteca';
 
@@ -180,7 +181,9 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
+    const validacionCarpetaBib = validarBody(carpetaNombreSchema, req.body);
+    if (!validacionCarpetaBib.ok) return res.status(400).json({ success: false, message: validacionCarpetaBib.message });
+    const nombre = sanitizeTechnicalText(validacionCarpetaBib.data.nombre, 100).trim();
     if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
 
     const [{ maxOrden } = { maxOrden: -1 }] = await withTenantRows(req.userId,
@@ -203,7 +206,9 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
+    const validacionCarpetaBibRen = validarBody(carpetaNombreSchema, req.body);
+    if (!validacionCarpetaBibRen.ok) return res.status(400).json({ success: false, message: validacionCarpetaBibRen.message });
+    const nombre = sanitizeTechnicalText(validacionCarpetaBibRen.data.nombre, 100).trim();
     if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
 
     const carpeta = await withTenantRow(req.userId,
@@ -368,6 +373,11 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
       [req.params.docId, req.params.id]
     );
     if (!existente) return res.status(404).json({ success: false, message: 'Documento no encontrado' });
+
+    // Solo valida TIPO de lo que vino en el body — la semántica de presencia
+    // (`!== undefined`) de abajo sigue intacta, se lee de req.body como antes.
+    const validacionDocPatch = validarBody(anexoPatchSchema, req.body);
+    if (!validacionDocPatch.ok) return res.status(400).json({ success: false, message: validacionDocPatch.message });
 
     const descripcion = req.body?.descripcion !== undefined ? sanitizeTechnicalText(String(req.body.descripcion), 500) : existente.descripcion;
     const texto        = req.body?.texto !== undefined ? sanitizeTechnicalText(String(req.body.texto), 500) : existente.texto;

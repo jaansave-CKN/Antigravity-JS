@@ -138,24 +138,15 @@ function DictamenIACard() {
   );
 }
 
-// ── Montecarlo animated bell curve ───────────────────────────────────────────
+// ── Distribución de confianza estática (banda ilustrativa alrededor del score real) ──
+// FIX (DIRECTIVA REMEDIACIÓN TOTAL, 2026-09-06): antes `sigma` se animaba con
+// Math.sin(tick*0.6) en un loop de requestAnimationFrame — daba la falsa
+// impresión de una simulación Montecarlo recalculándose en vivo, cuando en
+// realidad no hay ningún motor estadístico detrás. Ahora es una banda fija,
+// derivada únicamente del score real recibido por props.
 function MontecarloChart({ score }: { score: number }) {
-  const [tick, setTick] = useState(0);
-  const rafRef = useRef<number>(0);
-  const t0Ref = useRef<number>(0);
-
-  useEffect(() => {
-    const loop = (ts: number) => {
-      if (!t0Ref.current) t0Ref.current = ts;
-      setTick((ts - t0Ref.current) * 0.001);
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    rafRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, []);
-
   const W = 500; const H = 170;
-  const sigma = 0.22 + Math.sin(tick * 0.6) * 0.04;
+  const sigma = 0.22;
   const mu = W * (0.2 + (score / 10) * 0.6);
 
   const curve = (s: number) => {
@@ -215,7 +206,7 @@ function MontecarloChart({ score }: { score: number }) {
 
 // ── AI Prediction Network — imagen Stitch como fondo + animación overlay ──────
 
-function MiroFishNetwork({ onAgentCount }: { onAgentCount?: (n: number) => void }) {
+function MiroFishNetwork() {
   const canvasRef  = useRef<HTMLCanvasElement>(null);
   const rafRef     = useRef<number>(0);
   const t0Ref      = useRef<number>(0);
@@ -252,17 +243,11 @@ function MiroFishNetwork({ onAgentCount }: { onAgentCount?: (n: number) => void 
       si: i % STREAM_COUNT, prog: i/180, spd:.0012+(i*7%13)*.00022, sz:1.2+(i%5)*.48,
     }));
 
-    let lastReported = -1;
-
     const loop = (ts: number) => {
       if (!t0Ref.current) t0Ref.current = ts;
       const t = (ts - t0Ref.current) * 0.001;
       const { W, H } = getSize();
       ctx.clearRect(0, 0, W, H);
-
-      // Contador de agentes (animado suavemente)
-      const agentCount = 19 + Math.floor(Math.sin(t * 0.28) * 4);
-      if (agentCount !== lastReported) { lastReported = agentCount; onAgentCount?.(agentCount); }
 
       // ── FONDO: imagen Stitch AI — cover mode sin distorsión ──────────────
       if (imgReady.current && imgRef.current) {
@@ -344,58 +329,33 @@ function MiroFishNetwork({ onAgentCount }: { onAgentCount?: (n: number) => void 
       ctx.textAlign = 'left'; ctx.textBaseline = 'top';
       ctx.fillText('AI PREDICTION CORE', panX+9, panY+9);
 
-      // Gráfico de líneas
-      const lcy = panY+29, lcW = panW-18, lcH = panH*.27;
-      ctx.globalAlpha = 0.28; ctx.fillStyle = 'rgba(0,16,50,0.5)';
-      ctx.fillRect(panX+9, lcy, lcW, lcH);
-      ctx.globalAlpha = 0.14; ctx.strokeStyle = '#007888'; ctx.lineWidth = 0.5;
-      for (let g = 1; g < 4; g++) {
-        ctx.beginPath();
-        ctx.moveTo(panX+9, lcy+lcH*g/4); ctx.lineTo(panX+9+lcW, lcy+lcH*g/4); ctx.stroke();
+      // ── Estado honesto del panel (radiografía 2026-09-07) ─────────────────
+      // Antes aquí se dibujaban 2 curvas + 8 barras "PREDICTION REPORT" + un
+      // gauge circular, todos calculados con Math.sin()/Math.cos() del reloj
+      // `t` — sin ningún dato real detrás (ni siquiera `score`), presentados
+      // bajo el rótulo "AI PREDICTION CORE" como si fueran analítica en vivo.
+      // Se retira la simulación; el fondo Stitch, las partículas, el orbe y
+      // el marco del panel (diseño real aprobado) quedan intactos — solo se
+      // reemplaza el contenido fabricado por un estado honesto, reusando los
+      // mismos tokens de color/fuente ya usados en este panel.
+      const bodyX = panX+9, bodyW = panW-18, bodyY = panY+29, bodyH = panH-38;
+      ctx.globalAlpha = 0.62; ctx.fillStyle = '#80d0ff';
+      ctx.font = `${Math.min(9.5,panW*.082)}px 'Public Sans',sans-serif`;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      const msg = 'Módulo de predicción IA en espera de datos reales de ejecución.';
+      const words = msg.split(' ');
+      let line = '', ly2 = bodyY + bodyH*0.38;
+      const lineH = 13;
+      for (const w of words) {
+        const test = line ? `${line} ${w}` : w;
+        if (ctx.measureText(test).width > bodyW && line) {
+          ctx.fillText(line, bodyX, ly2);
+          line = w; ly2 += lineH;
+        } else {
+          line = test;
+        }
       }
-      ctx.globalAlpha = 0.94;
-      ctx.beginPath();
-      for (let li = 0; li <= 26; li++) {
-        const lx = panX+9+(li/26)*lcW;
-        const hv = Math.sin(li*.44+t*.8)*.19 + Math.sin(li*.28+t*.4)*.14 + .43;
-        const ly = lcy+lcH*(1-hv);
-        li===0 ? ctx.moveTo(lx,ly) : ctx.lineTo(lx,ly);
-      }
-      ctx.strokeStyle = '#a855f7'; ctx.lineWidth = 1.8; ctx.stroke();
-      ctx.beginPath();
-      for (let li = 0; li <= 26; li++) {
-        const lx = panX+9+(li/26)*lcW;
-        const hv = Math.sin(li*.36+t*.6+1)*.14 + Math.cos(li*.52+t*.5)*.12 + .58;
-        const ly = lcy+lcH*(1-hv);
-        li===0 ? ctx.moveTo(lx,ly) : ctx.lineTo(lx,ly);
-      }
-      ctx.strokeStyle = '#00d8ff'; ctx.lineWidth = 1.8; ctx.stroke();
-
-      // "PREDICTION REPORT"
-      const bry = lcy+lcH+14, brH = panH*.24;
-      ctx.globalAlpha = 0.74; ctx.fillStyle = '#80d0ff';
-      ctx.font = `bold ${Math.min(9,panW*.078)}px 'Public Sans',sans-serif`;
-      ctx.fillText('PREDICTION REPORT', panX+9, bry-10);
-      const nb = 8, bgap = (lcW*.78) / nb;
-      for (let bi = 0; bi < nb; bi++) {
-        const bh = (0.28 + Math.abs(Math.sin(bi*.78+t*.5))*.46) * brH;
-        const bx2 = panX+9+bi*bgap+bgap*.08, bw = bgap*.80;
-        const bg2 = ctx.createLinearGradient(0, bry+brH-bh, 0, bry+brH);
-        bg2.addColorStop(0, bi%3===2 ? '#a855f7' : '#00d8ff');
-        bg2.addColorStop(1, bi%3===2 ? '#5800a0' : '#002878');
-        ctx.globalAlpha = 0.88; ctx.fillStyle = bg2;
-        ctx.fillRect(bx2, bry+brH-bh, bw, bh);
-      }
-      const dox = panX+panW*.84, doy = bry+brH*.52;
-      const dor = Math.min(panW,panH)*.09;
-      ctx.globalAlpha = 0.68;
-      ctx.beginPath(); ctx.arc(dox,doy,dor,0,Math.PI*2);
-      ctx.strokeStyle='rgba(0,45,90,.55)'; ctx.lineWidth=dor*.40; ctx.stroke();
-      const arc1 = Math.PI*2*(.62+Math.sin(t*.28)*.06);
-      ctx.beginPath(); ctx.arc(dox,doy,dor,-Math.PI/2,-Math.PI/2+arc1);
-      ctx.strokeStyle='#a855f7'; ctx.lineWidth=dor*.40; ctx.stroke();
-      ctx.beginPath(); ctx.arc(dox,doy,dor,-Math.PI/2+arc1,-Math.PI/2+arc1+Math.PI*2*.22);
-      ctx.strokeStyle='#00d8ff'; ctx.lineWidth=dor*.40; ctx.stroke();
+      if (line) ctx.fillText(line, bodyX, ly2);
 
       ctx.restore();
       rafRef.current = requestAnimationFrame(loop);
@@ -403,7 +363,7 @@ function MiroFishNetwork({ onAgentCount }: { onAgentCount?: (n: number) => void 
 
     rafRef.current = requestAnimationFrame(loop);
     return () => { cancelAnimationFrame(rafRef.current); ro.disconnect(); };
-  }, [onAgentCount]);
+  }, []);
 
   return (
     <canvas
@@ -437,7 +397,6 @@ export default function ViabilidadPage() {
   const [selecciones, setSelecciones] = useState<Record<string, string>>({});
   const [analisis, setAnalisis] = useState<AnalisisViabilidad>(() => estadoVacio());
   const [estado, setEstado] = useState<EstadoFormulador | null>(null);
-  const [agentCount, setAgentCount] = useState(0);
 
   useEffect(() => {
     const est = ejecutarFormulador();
@@ -525,13 +484,9 @@ export default function ViabilidadPage() {
           <div className="viab__card-header viab__card-header--dark">
             <span className="material-symbols-outlined">hub</span>
             Red de Agentes
-            <span className="viab__agent-counter">
-              <span className="viab__agent-dot" />
-              {agentCount} agentes activos
-            </span>
           </div>
           <div className="viab__card-body viab__card-body--canvas">
-            <MiroFishNetwork onAgentCount={setAgentCount} />
+            <MiroFishNetwork />
           </div>
         </div>
 

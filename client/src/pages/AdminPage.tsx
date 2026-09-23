@@ -305,15 +305,21 @@ function WompiTab() {
           </div>
 
           <div style={{ padding: '16px 20px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, color: '#92400e', fontSize: 13, marginBottom: 20 }}>
+            {/* FIX (DIRECTIVA OMEGA-BUSINESS, 2026-09-07): este aviso afirmaba
+                que wompiProvider.js tenia 3 metodos pendientes -- falso, releido
+                el archivo real: createCheckoutSession, verifyAndParseWebhook y
+                la firma de integridad estan completos contra la doc real de
+                Wompi, y /api/wompi/webhook ya esta registrado en server.js. Lo
+                unico que falta es cargar credenciales reales. */}
             {status.wompi === 'STANDBY'
-              ? <>Wompi no tiene credenciales configuradas (<code>WOMPI_PUBLIC_KEY</code>/<code>WOMPI_PRIVATE_KEY</code>). Aunque se configuren, <code>backend/payments/wompiProvider.js</code> todavía tiene los 3 métodos de integración marcados como pendientes — completar contra la documentación real de Wompi antes de activar transacciones reales (ver comentario de cabecera del archivo).</>
-              : <>Credenciales presentes, pero la lógica de integración en <code>wompiProvider.js</code> sigue pendiente de completar contra la API real de Wompi.</>
+              ? <>Wompi no tiene credenciales configuradas (<code>WOMPI_PUBLIC_KEY</code>/<code>WOMPI_PRIVATE_KEY</code>/<code>WOMPI_EVENTS_SECRET</code>/<code>WOMPI_INTEGRITY_SECRET</code>). La integración en <code>backend/payments/wompiProvider.js</code> y el webhook <code>/api/wompi/webhook</code> ya están completos y probados contra la documentación real de Wompi — solo falta cargar las 4 llaves en el entorno y fijar <code>PAYMENT_PROVIDER=wompi</code> para activarlo.</>
+              : <>Credenciales presentes — la integración en <code>wompiProvider.js</code> está completa. Sin transacciones reales todavía porque no se ha procesado ningún checkout desde que se cargaron las llaves.</>
             }
           </div>
 
           <h2 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 10px' }}>Transacciones y suscripciones</h2>
           <p style={{ fontSize: 12.5, color: '#6b7280', fontStyle: 'italic' }}>
-            Sin datos — Wompi todavía no procesa transacciones reales en este entorno (ver aviso arriba). Esta sección se poblará automáticamente en cuanto <code>wompiProvider.js</code> quede implementado y se reciban los primeros webhooks reales.
+            Sin datos — Wompi todavía no ha procesado ninguna transacción real en este entorno (ver aviso arriba). Esta sección se poblará automáticamente en cuanto lleguen los primeros webhooks reales a <code>/api/wompi/webhook</code>.
           </p>
         </>
       )}

@@ -4,7 +4,7 @@ import { resolve } from 'path';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const apiTarget = 'http://localhost:8000'; // proxy target fijo
+  const apiTarget = 'http://127.0.0.1:8000'; // IPv4 explícito: el backend local escucha solo en 127.0.0.1 (AUTH-001)
 
   return {
     plugins: [react()],
@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      host: true,
+      host: '127.0.0.1', // AUTH-001 (2026-09-23): solo loopback, no la LAN
       port: 5173,
       allowedHosts: true,
       watch: { usePolling: true, interval: 100 },

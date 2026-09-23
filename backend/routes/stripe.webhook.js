@@ -20,6 +20,7 @@
 import { runSql, getRow } from '../db.js';
 import { paymentProvider } from '../payments/index.js';
 import { applyPaymentEvent } from '../payments/subscriptionEvents.js';
+import { logCriticalError } from '../services/logService.js';
 
 _ensureStripeEventsTable(runSql);
 
@@ -70,7 +71,10 @@ export async function stripeWebhookHandler(req, res) {
   try {
     event = await paymentProvider.verifyAndParseWebhook(req.body, req.headers);
   } catch (err) {
-    console.error('[stripe] Firma inválida o error de verificación:', err.message);
+    // Persistido en system_logs (antes solo console.error) — mismo criterio
+    // aplicado en wompi.webhook.js: un webhook de pagos rechazado no debe
+    // quedar solo en stdout efímero.
+    await logCriticalError('StripeWebhook', `Firma inválida o error de verificación: ${err.message}`, {});
     return res.status(400).json({ error: `Webhook Error: ${err.message}` });
   }
 
@@ -91,7 +95,10 @@ export async function stripeWebhookHandler(req, res) {
     await applyPaymentEvent(event, planConfig);
     await _recordEvent(event.providerEventId, event.type, event.tenantId, event.raw);
   } catch (err) {
-    console.error('[stripe] Error procesando evento:', err.message);
+    // Persistido en system_logs — mismo criterio que wompi.webhook.js: un
+    // fallo de negocio en un evento de pago debe quedar registrado, no solo
+    // en stdout efímero.
+    await logCriticalError('StripeWebhook', `Error procesando evento ${event.type}: ${err.message}`, { providerEventId: event.providerEventId, tenantId: event.tenantId });
     // Retornar 200 igual — Stripe no debe reintentar por errores de lógica
     // de negocio. Ya quedó en logs; se puede reprocesar manualmente.
   }

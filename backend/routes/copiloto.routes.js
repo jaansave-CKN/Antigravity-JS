@@ -8,6 +8,7 @@ import { obtenerHistorial, chatConCopiloto } from '../services/CopilotoService.j
 import { requireByokOrExento } from '../middlewares/byokGate.js';
 import { captureError } from '../config/sentry.config.js';
 import { withTenantRow } from '../config/database.config.js';
+import { validarBody, copilotoChatSchema } from '../validators/zodSchemas.js';
 
 function wrap(fn) {
   return async (req, res) => {
@@ -52,7 +53,9 @@ export async function registerCopilotoRoutes(app, { authenticateToken, aiLimiter
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const { mensaje, moduloActivo } = req.body || {};
+    const validacionChat = validarBody(copilotoChatSchema, req.body);
+    if (!validacionChat.ok) return res.status(400).json({ success: false, message: validacionChat.message });
+    const { mensaje, moduloActivo } = validacionChat.data;
     const resultado = await chatConCopiloto(req.params.id, req.userId, { mensaje, moduloActivo, userGeminiKeys: req.userGeminiKeys });
     res.status(201).json({ success: true, data: resultado });
   }));

@@ -34,7 +34,9 @@ module.exports = {
     {
       name: 'radar-frontend',
       script: 'node_modules/vite/bin/vite.js',
-      args: '--port 5173 --host',
+      // Sin --host (AUTH-001, 2026-09-23): el flag abría Vite —y su proxy
+      // /api hacia el backend— a toda la red; ahora usa host de vite.config.ts.
+      args: '--port 5173',
       cwd: __dirname,
       autorestart: true,
       watch: false,

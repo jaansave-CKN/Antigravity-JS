@@ -11,24 +11,51 @@ import './EntradaPage.css';
 
 // FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
 // versionada para que un futuro cambio de forma del estado (ESTADO_INICIAL)
-// pueda ignorar datos viejos en vez de romper JSON.parse — NUNCA un renombre
-// ciego: este formulario está bajo mandato explícito de cero pérdida de
-// datos, así que leerEntradaStorage() migra la clave vieja sin tocar nada
-// visible para el usuario.
-const STORAGE_KEY = 'radar360_entrada_m1:v1';
-const STORAGE_KEY_LEGACY = 'radar360_entrada_m1';
-function leerEntradaStorage(): string | null {
-  const actual = localStorage.getItem(STORAGE_KEY);
+// pueda ignorar datos viejos en vez de romper JSON.parse.
+//
+// FIX (2026-09-07, "se perdió la información que ya tenía guardada"): esta
+// clave era GLOBAL (una sola para TODOS los proyectos del navegador). Al
+// abrir un proyecto distinto al último editado, la hidratación de abajo veía
+// "ya hay algo en localStorage" (el draft del OTRO proyecto, o uno vacío) y
+// por diseño NUNCA volvía a pedirle los datos reales al servidor — el
+// formulario se veía vacío/desactualizado aunque la BD tuviera todo intacto
+// (verificado en vivo contra la BD real: los datos nunca se borraron). Ahora
+// la clave incluye el proyectoId — mismo patrón que `claveAutoCarga` más
+// abajo — así cada proyecto tiene su propio draft y nunca pisa el de otro.
+const STORAGE_KEY_BASE = 'radar360_entrada_m1:v1';
+const STORAGE_KEY_LEGACY = 'radar360_entrada_m1'; // sin versión, anterior a 2026-09-05
+const STORAGE_KEY_LEGACY_GLOBAL = STORAGE_KEY_BASE; // sin proyectoId, anterior a 2026-09-07
+const claveEntrada = (proyectoId: string | null) => proyectoId ? `${STORAGE_KEY_BASE}:${proyectoId}` : STORAGE_KEY_BASE;
+function leerEntradaStorage(proyectoId: string | null): string | null {
+  const actual = localStorage.getItem(claveEntrada(proyectoId));
   if (actual) return actual;
   const legado = localStorage.getItem(STORAGE_KEY_LEGACY);
   if (legado) {
-    localStorage.setItem(STORAGE_KEY, legado);
+    localStorage.setItem(claveEntrada(proyectoId), legado);
     localStorage.removeItem(STORAGE_KEY_LEGACY);
+    return legado;
   }
-  return legado;
+  return null;
 }
 const ACTIVE_PROJECT_KEY      = 'rf360_proyecto_activo';
 const ACTIVE_PROJECT_NAME_KEY = 'rf360_proyecto_nombre';
+
+// FIX (2026-09-08, mismo hallazgo que hidratacionListaRef en el componente):
+// el bug de la condición de carrera ya dejó borradores VACÍOS grabados bajo
+// la clave por-proyecto en navegadores reales (el auto-save alcanzó a
+// escribir ESTADO_INICIAL antes de que existiera este fix). Ese borrador
+// fantasma sigue ahí y, sin este chequeo, `leerEntradaStorage` lo trataría
+// como un draft real y bloquearía el fetch al servidor PARA SIEMPRE — el fix
+// de la carrera por sí solo no limpia lo que el bug viejo ya escribió. Un
+// borrador se considera "vacío" (no confiable como línea base) si ninguno de
+// estos campos de contenido real tiene algo — coincide exactamente con
+// ESTADO_INICIAL salvo por metodologias, que siempre trae el default.
+function borradorEstaVacio(parsed: Record<string, unknown>): boolean {
+  const s = parsed as Partial<EntradaState>;
+  return !s.nombre && !s.pitch && !s.enfoque && !s.municipio && !s.vereda &&
+    !s.categoriaPoblacion && !(s.sectores?.length) && !(s.detallePoblacion?.length) &&
+    !s.numeroBeneficiarios && !s.coberturaGeografica;
+}
 
 // ── Catálogos ─────────────────────────────────────────────────────────────────
 
@@ -258,11 +285,34 @@ const ESTADO_INICIAL: EntradaState = {
 const claveAutoCarga = (proyectoId: string) => `radar360_c1_autocarga_${proyectoId}`;
 
 export default function EntradaPage() {
+  // FIX (2026-09-08, "sigue vacío incluso tras el fix de la clave por
+  // proyecto" — causa raíz real encontrada con logs del backend en vivo: CERO
+  // peticiones a GET /api/proyectos/:id llegaron al servidor, ni una sola,
+  // pese a recargas reales del usuario). El efecto de auto-save (más abajo)
+  // corre en CADA montaje, incluido el primero, con `st = ESTADO_INICIAL`
+  // (nada hidratado todavía) — y React ejecuta los efectos en el orden en que
+  // se declaran, así que ese auto-save se dispara ANTES que el efecto de
+  // hidratación de abajo. Sin este guard, el auto-save escribía el estado
+  // vacío en la clave por-proyecto (ya) EN EL PRIMER RENDER, y cuando la
+  // hidratación preguntaba "¿ya hay draft local de este proyecto?" encontraba
+  // ese vacío recién escrito por sí misma un instante antes — se autoengañaba
+  // y JAMÁS llegaba a hacer el fetch al servidor. 100% reproducible en
+  // cualquier proyecto sin draft local previo, no una condición de carrera
+  // esporádica. `hidratacionListaRef` bloquea el auto-save hasta que la
+  // hidratación (de localStorage YA existente, o del fetch al servidor) haya
+  // corrido al menos una vez.
+  const hidratacionListaRef = useRef(false);
   const [st, setSt] = useState<EntradaState>(() => {
     try {
-      const raw = leerEntradaStorage();
+      const raw = leerEntradaStorage(localStorage.getItem(ACTIVE_PROJECT_KEY));
       if (!raw) return ESTADO_INICIAL;
       const parsed = JSON.parse(raw);
+      // Un draft "vacío" ya escrito por el bug de la carrera (ver comentario
+      // de arriba) NO cuenta como hidratación real — si se marcara aquí, la
+      // hidratación de abajo nunca volvería a preguntarle al servidor y el
+      // usuario quedaría atascado viendo el formulario en blanco para
+      // siempre, incluso con este fix ya desplegado.
+      if (!borradorEstaVacio(parsed)) hidratacionListaRef.current = true;
       // Merge profundo de contextoMeta/soluciones: una sesión guardada ANTES
       // de estos mandatos (2026-08-23/24) no trae tipoFormulacion ni
       // soluciones — un spread superficial dejaría undefined en vez de
@@ -406,27 +456,65 @@ export default function EntradaPage() {
   const toggleBloqueo = (id: string) =>
     setSt(p => ({ ...p, camposBloqueados: { ...p.camposBloqueados, [id]: !p.camposBloqueados[id] } }));
 
-  // Auto-save: persiste cada cambio sin necesidad de presionar SAVE
+  // Auto-save: persiste cada cambio sin necesidad de presionar SAVE.
+  // Clave por proyecto (ver claveEntrada) — nunca pisa el draft de otro.
+  // Bloqueado hasta que la hidratación de abajo corra al menos una vez (ver
+  // comentario de hidratacionListaRef) — si no, este efecto escribe el
+  // ESTADO_INICIAL vacío ANTES de que la hidratación tenga oportunidad de
+  // preguntarle al servidor, y esa escritura hace que la hidratación se
+  // autoengañe pensando que ya hay un draft local real.
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
+    if (!hidratacionListaRef.current) return;
+    const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
+    localStorage.setItem(claveEntrada(proyectoId), JSON.stringify(st));
   }, [st]);
 
-  // Hidratación desde servidor SOLO si no había nada en localStorage (ej.
-  // primera vez en este navegador/dispositivo) — evita pisar ediciones en
-  // curso con una copia potencialmente más vieja del servidor.
+  // Hidratación: prioridad real de datos para EL PROYECTO ACTIVO actual —
+  //   1. Draft local YA GUARDADO para este proyectoId específico (edición en
+  //      curso en este navegador, más reciente que lo último sincronizado).
+  //   2. Si no hay draft local para este proyecto: SIEMPRE se pregunta al
+  //      servidor (antes esto se saltaba si CUALQUIER draft de CUALQUIER otro
+  //      proyecto vivía en la clave global — ver comentario de STORAGE_KEY_BASE
+  //      arriba, esa es la causa raíz confirmada del reporte "se perdió la
+  //      información que ya tenía guardada": la BD nunca perdió nada).
+  //   3. Solo si el servidor NO tiene entrada_completa (proyecto nuevo, nunca
+  //      sincronizado) se recupera el draft huérfano de la clave global vieja
+  //      (pre-2026-09-07, sin proyectoId) — mandato de cero pérdida de datos
+  //      para un draft que nunca llegó a guardarse en el servidor.
   useEffect(() => {
-    if (leerEntradaStorage()) return;
     const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
-    if (!proyectoId) return;
+    const draftLocal = leerEntradaStorage(proyectoId);
+    // Un draft vacío (ver borradorEstaVacio) NO cuenta como "ya hidratado" —
+    // sin este chequeo, un draft fantasma ya escrito por el bug de la carrera
+    // bloquearía el fetch al servidor para siempre, incluso con el fix de la
+    // carrera ya desplegado (el fix evita ESCRIBIR nuevos fantasmas, pero no
+    // limpia por sí solo los que ya existían en el navegador del usuario).
+    let draftEsReal = false;
+    if (draftLocal) {
+      try { draftEsReal = !borradorEstaVacio(JSON.parse(draftLocal)); } catch { draftEsReal = false; }
+    }
+    if (draftEsReal) { hidratacionListaRef.current = true; return; } // ya hay draft local REAL de ESTE proyecto
+    if (!proyectoId) { hidratacionListaRef.current = true; return; } // sin proyecto activo — nada que hidratar
     (async () => {
       try {
         const body = await fetch(`/api/proyectos/${proyectoId}`, { headers: { ...getAuthHeaders() }, credentials: 'include' })
           .then(r => r.json());
-        const entrada = body?.data?.ficha_tecnica?.entrada_completa;
+        let entrada = body?.data?.ficha_tecnica?.entrada_completa;
+        if (!entrada) {
+          // Proyecto sin entrada_completa en servidor — único caso en que un
+          // draft huérfano de la clave global vieja es seguro de recuperar
+          // (no puede estar pisando datos reales de OTRO proyecto ya
+          // sincronizado, porque este todavía no tiene ninguno).
+          const huerfano = localStorage.getItem(STORAGE_KEY_LEGACY_GLOBAL);
+          if (huerfano) {
+            try { entrada = JSON.parse(huerfano); } catch { /* descartar si está corrupto */ }
+            localStorage.removeItem(STORAGE_KEY_LEGACY_GLOBAL);
+          }
+        }
         // Mismo merge profundo que la hidratación desde localStorage arriba
-        // (FIX 2026-08-24) — este camino solo corre cuando NO hay nada en
-        // localStorage (primera vez en el navegador), pero el objeto que
-        // llega del servidor puede ser igual de viejo/incompleto.
+        // (FIX 2026-08-24) — este camino solo corre cuando NO hay draft local
+        // de este proyecto, pero el objeto que llega del servidor puede ser
+        // igual de viejo/incompleto.
         // FIX (react-doctor no-impure-state-updater, 2026-09-05): el merge y
         // la escritura del ref vivían dentro del updater de setSt — React
         // puede reintentar/descartar un updater, así que un side effect ahí
@@ -448,6 +536,13 @@ export default function EntradaPage() {
           setSt(merged);
         }
       } catch { /* sin conexión — se queda con ESTADO_INICIAL */ }
+      finally {
+        // El intento de hidratación (con o sin éxito) ya corrió — desbloquea
+        // el auto-save. Si esto se marcara ANTES del fetch (o nunca), se
+        // reproduce el bug real: el auto-save gana la carrera y escribe un
+        // vacío que la próxima recarga confunde con un draft real.
+        hidratacionListaRef.current = true;
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -563,13 +658,12 @@ export default function EntradaPage() {
     if (guardandoRef.current) return;
     guardandoRef.current = true;
     setGuardando(true);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
-
     // Antes SAVE solo escribía localStorage — de las 11 secciones de Entrada
     // solo "nombre" llegaba al servidor (vía sincronizarProyectoActivo). Aquí
     // se persiste el resto (enfoque, sectores, población, contexto, etc.)
     // como una clave dentro de ficha_tecnica, igual que ya hace ContextoPage.
     const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
+    localStorage.setItem(claveEntrada(proyectoId), JSON.stringify(st));
     // FIX (2026-08-24, "SAVE se queda en rojo sin ningún aviso"): antes esto
     // era un `return` mudo — sin proyecto activo, el botón se quedaba rojo
     // para siempre sin ninguna pista de por qué. Ahora se avisa explícito,
@@ -599,8 +693,9 @@ export default function EntradaPage() {
   };
 
   const limpiar = () => {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(claveEntrada(localStorage.getItem(ACTIVE_PROJECT_KEY)));
     localStorage.removeItem(STORAGE_KEY_LEGACY);
+    localStorage.removeItem(STORAGE_KEY_LEGACY_GLOBAL);
     // Limpieza total: incluso las metodologías con valor por defecto (Marco Lógico)
     // quedan sin marcar — LIMPIAR deja el formulario completamente en blanco.
     setSt({ ...JSON.parse(JSON.stringify(ESTADO_INICIAL)), metodologias: [] });

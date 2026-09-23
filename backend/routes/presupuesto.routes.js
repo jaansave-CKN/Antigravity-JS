@@ -32,6 +32,7 @@ import { captureError } from '../config/sentry.config.js';
 // getRendimientoRef() (apuEngine.js) reciben como dependencia inyectada —
 // esa función SOLO consulta catalogo_rendimientos, nunca datos de proyecto.
 import { withTenantRow, withTenantRows, withTenantRun, withTenantTransaction, getRow, getRows } from '../config/database.config.js';
+import { validarBody, presupuestoItemsSchema } from '../validators/zodSchemas.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -72,18 +73,10 @@ export function registerPresupuestoRoutes(app, { authenticateToken }) {
    */
   app.post('/api/proyectos/:id/presupuesto', authenticateToken, wrap(async (req, res) => {
     const proyectoId = req.params.id;
-    const { items }  = req.body;
+    const validacionItems = validarBody(presupuestoItemsSchema, req.body);
+    if (!validacionItems.ok) return res.status(400).json({ success: false, message: validacionItems.message });
+    const { items } = validacionItems.data;
 
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ success: false, message: 'items[] es requerido y no puede estar vacio' });
-    }
-    // FIX (auditoría SRE Red Team 2026-08-10, Capa 3): sin tope superior, un
-    // array de miles de ítems pequeños cabe bajo el límite de 1MB de
-    // express.json() y satura tanto la transacción (miles de INSERT) como el
-    // render de la tabla en el cliente.
-    if (items.length > 500) {
-      return res.status(413).json({ success: false, message: 'Máximo 500 ítems de presupuesto por guardado.' });
-    }
     if (contieneMonedaNoCOP(items)) {
       return res.status(422).json({ success: false, message: 'El presupuesto debe expresarse únicamente en COP — se detectó un código de moneda distinto.' });
     }

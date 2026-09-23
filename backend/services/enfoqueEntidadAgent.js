@@ -62,6 +62,7 @@ export async function generarEnfoqueEntidad(ctx, userGeminiKeys = null) {
             temperature: 0.4,
             max_tokens: 400,
           }),
+          signal: AbortSignal.timeout(30_000),
         }
       );
 

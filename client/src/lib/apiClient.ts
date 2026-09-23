@@ -156,11 +156,24 @@ function backoffMs(attempt: number, baseMs: number): number {
 // "No se pudo conectar con el servidor" sin ningún reintento, con el
 // backend sano un segundo después. Mismo backoff ya probado en producción
 // para el resto de la app, ninguna lógica nueva.
+// Timeout por defecto para toda llamada JSON de la app — antes ninguna
+// tenía límite y un backend colgado (ej. esperando a Gemini sin su propio
+// timeout, ver backend/services/*.js) dejaba el `loading` girando
+// indefinidamente. 60s da margen a operaciones pesadas reales (export PDF,
+// generación IA) sin dejar una request colgada para siempre. Respeta un
+// `signal` que el caller ya haya pasado (cancelación por unmount, etc.) en
+// vez de reemplazarlo.
+function withDefaultTimeout(init: RequestInit, ms = 60_000): RequestInit {
+  const timeoutSignal = AbortSignal.timeout(ms);
+  const signal = init.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal;
+  return { ...init, signal };
+}
+
 export async function fetchWithRetry(url: string, init: RequestInit, retries = 3): Promise<Response> {
   let lastError: Error = new Error('Network error');
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const resp = await fetch(url, init);
+      const resp = await fetch(url, withDefaultTimeout(init));
       if (resp.status === 502 || resp.status === 503) {
         if (attempt < retries) {
           await new Promise(r => setTimeout(r, backoffMs(attempt, 1000)));

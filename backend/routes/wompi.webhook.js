@@ -17,6 +17,7 @@
 import { runSql, getRow } from '../db.js';
 import { paymentProvider } from '../payments/index.js';
 import { applyPaymentEvent } from '../payments/subscriptionEvents.js';
+import { logCriticalError } from '../services/logService.js';
 
 _ensureWompiEventsTable(runSql);
 
@@ -67,7 +68,10 @@ export async function wompiWebhookHandler(req, res) {
   try {
     event = await paymentProvider.verifyAndParseWebhook(req.body, req.headers);
   } catch (err) {
-    console.error('[wompi] Firma inválida o error de verificación:', err.message);
+    // FIX (DIRECTIVA OMEGA-BUSINESS, 2026-09-07): antes solo console.error —
+    // un webhook de pagos rechazado (firma invalida, secreto mal configurado)
+    // no debe quedar solo en stdout efimero, queda persistido en system_logs.
+    await logCriticalError('WompiWebhook', `Firma inválida o error de verificación: ${err.message}`, {});
     return res.status(400).json({ error: `Webhook Error: ${err.message}` });
   }
 
@@ -87,7 +91,10 @@ export async function wompiWebhookHandler(req, res) {
     }
     await _recordEvent(event.providerEventId, event.type, event.tenantId, event.raw);
   } catch (err) {
-    console.error('[wompi] Error procesando evento:', err.message);
+    // Persistido (antes solo console.error) — misma razón que el catch de
+    // arriba: un fallo de negocio en un evento de pago debe quedar en
+    // system_logs, no solo en stdout efímero.
+    await logCriticalError('WompiWebhook', `Error procesando evento ${event.type}: ${err.message}`, { providerEventId: event.providerEventId, tenantId: event.tenantId });
     // Retornar 200 igual — no se debe reintentar por errores de lógica de
     // negocio. Ya quedó en logs; se puede reprocesar manualmente.
   }

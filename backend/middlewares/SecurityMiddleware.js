@@ -100,6 +100,33 @@ export const entradaCampoLimiter = rateLimit({
   },
 });
 
+// ── Rate limiting dedicado para la cadena de Formulación Integral
+// (2026-09-22, GP_Formulador) — una sola ejecución de este endpoint puede
+// hacer hasta 3 llamadas reales a Gemini (Entrada → Árbol → Viabilidad), a
+// diferencia del resto de rutas de IA que hacen 1 llamada por request. Bajo
+// el aiLimiter compartido (20/hora) eso sería 3 unidades de gasto real de
+// cuota contadas como 1 sola unidad visible — asimetría aceptada de forma
+// explícita como riesgo por el usuario para el resto de endpoints, pero NO
+// para este, que puede agotar la cuota real 3x más rápido de lo que el
+// contador compartido refleja. Ventana más angosta (6/hora — suficiente
+// para formular varios proyectos por hora sin abrir la puerta a que 1 sola
+// cuenta agote las 3 llaves del pool de geminiCircuitBreaker.js en minutos).
+export const formulacionIntegralLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 6,
+  store: new PostgresRateLimitStore('formulacionIntegralLimiter'),
+  keyGenerator: (req) => req.userId ? ipKeyGenerator(req.userId) : getRateLimitKey(req),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      success: false,
+      code: 'FORMULACION_INTEGRAL_RATE_LIMITED',
+      message: 'Límite de formulación integral alcanzado (6/hora — cada ejecución puede hacer hasta 3 llamadas reales a Gemini). Reintenta en unos minutos.',
+    });
+  },
+});
+
 // ── Rate limiting para endpoints de IA ─────────────────────────────────────
 export const aiLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -248,10 +275,31 @@ setInterval(() => {
   }
 }, SLOW_WINDOW_MS);
 
+// FIX (2026-09-08, "se perdió la información que ya tenía guardada" —
+// investigación completa): `sameSite: 'strict'` en la cookie httpOnly
+// `auth_token` es la causa real confirmada de por qué las páginas del
+// Formulador (Entrada, Anexos, Biblioteca, RACI, etc.) veían datos vacíos
+// incluso con la sesión real intacta. Evidencia:
+//   1. leerAuthToken() (client/src/lib/authStorage.ts) desde la migración
+//      Fase 1 Dual-Mode (2026-09-05) SOLO devuelve 'demo-mode-token' o null
+//      — para una sesión real nunca hay JWT legible por JS, así que
+//      getAuthHeaders() NUNCA manda Authorization: Bearer. TODA la
+//      autenticación de una sesión real depende exclusivamente de esta
+//      cookie desde esa fecha.
+//   2. Logs reales de producción (PM2 radar-backend, verificados en vivo):
+//      86 rechazos "[auth] Rechazo 401 ... sin_cookie_ni_header_valido"
+//      contra endpoints de Formulador desde el 2026-09-05, exactamente
+//      coincidiendo con la migración de arriba — la cookie no viaja en
+//      estas peticiones fetch() aunque la sesión sí sea válida.
+//   3. `Strict` retiene la cookie en escenarios de fetch/proxy (Vite dev
+//      proxy localhost:5173 → Express :8000) donde `Lax` (el estándar de
+//      facto para cookies de sesión de una SPA) no la retiene — Lax sigue
+//      bloqueando el vector real que SameSite previene (envío cross-site
+//      desde un sitio de terceros), no debilita la protección para esta app.
 export const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
+  sameSite: 'lax',
   maxAge: 24 * 60 * 60 * 1000,
   path: '/',
 };

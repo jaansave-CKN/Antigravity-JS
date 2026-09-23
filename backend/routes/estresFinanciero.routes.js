@@ -8,6 +8,7 @@
 import { simularEscenario, listarEscenarios } from '../services/EstresadoFinancieroService.js';
 import { captureError } from '../config/sentry.config.js';
 import { withTenantRow } from '../config/database.config.js';
+import { validarBody, estresFinancieroSchema } from '../validators/zodSchemas.js';
 
 function wrap(fn) {
   return async (req, res) => {
@@ -33,7 +34,9 @@ export async function registerEstresFinancieroRoutes(app, { authenticateToken, f
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const { nombreEscenario, porcentajeIncremento } = req.body || {};
+    const validacionEstres = validarBody(estresFinancieroSchema, req.body);
+    if (!validacionEstres.ok) return res.status(400).json({ success: false, message: validacionEstres.message });
+    const { nombreEscenario, porcentajeIncremento } = validacionEstres.data;
     const resultado = await simularEscenario(req.params.id, req.userId, { nombreEscenario, porcentajeIncremento });
     res.status(201).json({ success: true, data: resultado });
   }));

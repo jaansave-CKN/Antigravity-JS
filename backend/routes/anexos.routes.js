@@ -51,6 +51,7 @@ import { supabaseStorage } from '../config/supabase.config.js';
 // en este archivo, org_id = user_id) como primer argumento.
 import { withTenant, withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
 import { sanitizeTechnicalText, sanitizeUrl } from '../middlewares/SecurityMiddleware.js';
+import { validarBody, carpetaNombreSchema, anexoPatchSchema } from '../validators/zodSchemas.js';
 import { parseAndSanitizeExcel } from '../services/ExtractorService.js';
 import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js';
 import { convertBufferToMarkdown } from '../services/markitdownService.js';
@@ -271,7 +272,9 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
+    const validacionCarpeta = validarBody(carpetaNombreSchema, req.body);
+    if (!validacionCarpeta.ok) return res.status(400).json({ success: false, message: validacionCarpeta.message });
+    const nombre = sanitizeTechnicalText(validacionCarpeta.data.nombre, 100).trim();
     if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
 
     const [{ maxOrden } = { maxOrden: -1 }] = await withTenantRows(req.userId,
@@ -294,7 +297,9 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const nombre = sanitizeTechnicalText(String(req.body?.nombre || ''), 100).trim();
+    const validacionCarpetaRen = validarBody(carpetaNombreSchema, req.body);
+    if (!validacionCarpetaRen.ok) return res.status(400).json({ success: false, message: validacionCarpetaRen.message });
+    const nombre = sanitizeTechnicalText(validacionCarpetaRen.data.nombre, 100).trim();
     if (!nombre) return res.status(400).json({ success: false, message: 'El nombre de la carpeta es obligatorio' });
 
     const carpeta = await withTenantRow(req.userId,
@@ -653,6 +658,11 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
       [req.params.anexoId, req.params.id]
     );
     if (!existente) return res.status(404).json({ success: false, message: 'Anexo no encontrado' });
+
+    // Solo valida TIPO de lo que vino en el body — la semántica de presencia
+    // (`!== undefined`) de abajo sigue intacta, se lee de req.body como antes.
+    const validacionAnexoPatch = validarBody(anexoPatchSchema, req.body);
+    if (!validacionAnexoPatch.ok) return res.status(400).json({ success: false, message: validacionAnexoPatch.message });
 
     // FIX (auditoría 2026-08-23): mismo límite que en el POST de arriba —
     // 20000, no 500 (ver comentario completo en el POST).
