@@ -80,3 +80,6 @@ scripts/diseno_aprobado.json
 # Credenciales MCP (contienen API keys — nunca versionar)
 .mcp.json
 config/.mcp.json
+
+# Auditoría: detalle completo (IP LAN, infraestructura, hallazgos abiertos con archivo:línea). El repo es público — solo se versiona la versión redactada de audit/.
+audit/privado/
