@@ -27,10 +27,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Node.js 20
+      - name: Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'  # undici 8.x exige Node >= 22.19 (ver playwright.yml)
           cache: 'npm'
 
       - name: Instalar dependencias
@@ -123,10 +123,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Node.js 20
+      - name: Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'  # undici 8.x exige Node >= 22.19 (ver playwright.yml)
           cache: 'npm'
 
       - name: Instalar dependencias
@@ -160,10 +160,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Node.js 20
+      - name: Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'  # undici 8.x exige Node >= 22.19 (ver playwright.yml)
           cache: 'npm'
 
       - name: Instalar dependencias

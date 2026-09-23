@@ -15,7 +15,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, no 20: undici 8.x (dependencia directa) exige Node >= 22.19; con 20 el
+          # backend no arrancaba (webidl.util.markAsUncloneable is not a function).
+          node-version: 22
           cache: npm
 
       - name: Instalar dependencias
@@ -37,6 +39,7 @@ jobs:
           DATABASE_URL=${{ secrets.DATABASE_URL }}
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
           NODE_ENV=test
           EOF
           # client/.env (gitignored): el frontend exige VITE_API_URL
