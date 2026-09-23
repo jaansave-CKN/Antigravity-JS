@@ -191,7 +191,10 @@ function MontecarloChart({ score }: { score: number }) {
       <path d={`M ${p2} L ${W},${H} L 0,${H} Z`} fill="url(#g1)" opacity="0.18" />
       <path d={`M ${p1} L ${W},${H} L 0,${H} Z`} fill="url(#g2)" opacity="0.6" />
       {/* Main curve line */}
-      <polyline points={p1} fill="none" stroke="url(#g1)" strokeWidth="2.5"
+      {/* points de <polyline> no admite la sintaxis de path (" L "): con ella el
+          navegador descartaba el atributo y la línea principal nunca se dibujaba
+          (error de consola verificado 2026-09-23). Los <path> de arriba sí la usan. */}
+      <polyline points={p1.split(' L ').join(' ')} fill="none" stroke="url(#g1)" strokeWidth="2.5"
         strokeLinejoin="round" filter="url(#glow)" />
       {/* Score marker */}
       <line x1={mu} y1={0} x2={mu} y2={H} stroke="#0041a3" strokeWidth="1.5" strokeDasharray="5,4" opacity="0.7" />

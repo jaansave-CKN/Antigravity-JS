@@ -319,14 +319,30 @@ export default function PanelPage() {
   // Keywords state
   const [keywords, setKeywords] = useState<SearchKeyword[]>(loadKeywords);
 
-  // Al montar: localStorage es la fuente de verdad para la UI.
-  // El backend (DB) es solo para que el rastreo R2 conozca las keywords activas.
-  // → Siempre empujamos localStorage → DB (nunca al revés), para evitar reset en F5.
+  // Al montar: la BD (config GLOBAL que usa el rastreo R2) manda. FIX
+  // 2026-09-23: antes se empujaba SIEMPRE localStorage → BD al abrir el Panel;
+  // con localStorage vacío (otro navegador/dispositivo) loadKeywords()
+  // devuelve DEFAULT_KEYWORDS y un admin sobrescribía en silencio las keywords
+  // globales curadas. Ahora: si la BD tiene keywords se adoptan; solo si está
+  // vacía se sube lo local (mantiene la protección contra el reset en F5).
   useEffect(() => {
-    const local = loadKeywords();
-    // Solo admins pueden escribir esta config global (server.js exige rol admin) —
-    // para no-admins el 403 es esperado y se ignora silenciosamente aquí.
-    http.put('/api/panel/keywords', { keywords: local }).catch(() => {});
+    let cancelado = false;
+    fetch('/api/panel/keywords', { credentials: 'include' })
+      .then(r => r.json())
+      .then(j => {
+        if (cancelado) return;
+        const remotas: SearchKeyword[] = Array.isArray(j?.keywords) ? j.keywords : [];
+        if (remotas.length > 0) {
+          try { localStorage.setItem(KEYWORDS_KEY, JSON.stringify(remotas)); } catch {}
+          setKeywords(remotas);
+        } else {
+          // Solo admins pueden escribir esta config global (server.js exige
+          // rol admin) — para no-admins el 403 es esperado y se ignora.
+          http.put('/api/panel/keywords', { keywords: loadKeywords() }).catch(() => {});
+        }
+      })
+      .catch(() => {});
+    return () => { cancelado = true; };
   }, []);
 
   function updateKeyword(id: number, changes: Partial<SearchKeyword>) {

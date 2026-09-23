@@ -76,7 +76,10 @@ export default defineConfig(({ mode }) => {
         interval: 100,
       },
       proxy: {
-        '/api': {
+        // '/api/' con barra final (2026-09-23): como '/api' era un PREFIJO y capturaba
+        // también /apis (ruta del frontend), que terminaba proxiada al backend →
+        // pantalla en blanco al recargar /apis, /importar o /settings en desarrollo.
+        '/api/': {
           target: apiTarget,
           changeOrigin: true,
           secure: false,
