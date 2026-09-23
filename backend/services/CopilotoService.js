@@ -114,6 +114,7 @@ async function llamarGemini(messages, userId, userGeminiKeys) {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'gemini-3.6-flash', messages, temperature: 0.3, max_tokens: 1024 }),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');

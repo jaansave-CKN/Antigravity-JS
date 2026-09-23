@@ -317,7 +317,7 @@ export default function ControlPanel() {
   // { gemini: true } sin importar si GOOGLE_API_KEY existía o no).
   const [engines, setEngines] = useState({ gemini: false });
   useEffect(() => {
-    fetch(`${API_BASE}/system/engines-status`, { headers: { ...getAuthHeaders() }, credentials: 'include' })
+    fetch(`${API_BASE}/api/system/engines-status`, { headers: { ...getAuthHeaders() }, credentials: 'include' })
       .then(r => r.json())
       .then(body => { if (body?.success) setEngines(body.data); })
       .catch(() => {});

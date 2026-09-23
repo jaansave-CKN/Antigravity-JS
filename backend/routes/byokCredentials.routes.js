@@ -26,6 +26,7 @@ import { captureError } from '../config/sentry.config.js';
 // ya usa para el gate de las 7 acciones de IA (Prioridad Roja, 2026-09-05) --
 // esta ruta gestiona las llaves en sí (guardar/listar/borrar), no las consume.
 import { withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
+import { validarBody, credencialGeminiSchema } from '../validators/zodSchemas.js';
 
 function wrap(fn) {
   return async (req, res) => {
@@ -58,10 +59,9 @@ export function registerByokCredentialsRoutes(app, { authenticateToken, aiLimite
   // abierto de saturación/proxy no throttled hacia la API de Google. Mismo
   // aiLimiter (20/h por usuario) ya usado en las 7 acciones de IA gateadas.
   app.post('/api/credenciales/gemini', authenticateToken, aiLimiter, wrap(async (req, res) => {
-    const { key_slot, key, label } = req.body || {};
-    if (!key_slot || !key) {
-      return res.status(400).json({ success: false, message: 'key_slot y key son requeridos' });
-    }
+    const validacion = validarBody(credencialGeminiSchema, req.body);
+    if (!validacion.ok) return res.status(400).json({ success: false, message: validacion.message });
+    const { key_slot, key, label } = validacion.data;
     const ip = req.ip || req.headers['x-forwarded-for'] || null;
     const resultado = await guardarLlaveUsuario(req.userId, key_slot, key, label, ip, {
       runSql: (sql, params) => withTenantRun(req.userId, sql, params),

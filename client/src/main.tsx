@@ -65,16 +65,6 @@ import './lib/posthog';
 // Falla rápido y explícito si faltan llaves críticas — evita arranques fantasma en producción
 validateEnv();
 
-// Bootstrap de una sola vez: activa el proyecto "Cantagallo - Patico (UMIS)"
-// si el usuario todavía no tiene ningún proyecto activo — evita que los
-// anexos capturados en modo "sin proyecto" (ver AnexosCalcoView.tsx) se
-// queden huérfanos. Se autodesactiva tras la primera ejecución.
-if (!localStorage.getItem('rf360_proyecto_activo') && !localStorage.getItem('rf360_bootstrap_cantagallo')) {
-  localStorage.setItem('rf360_proyecto_activo', '132c2bb8-e181-4c04-9385-6fb76d4fdb99');
-  localStorage.setItem('rf360_proyecto_nombre', 'Cantagallo - Patico (UMIS)');
-  localStorage.setItem('rf360_bootstrap_cantagallo', '1');
-}
-
 // Bootstrap de una sola vez: purga una sesión "demo-mode-token" atascada.
 // AuthContextNew.tsx carga esa sesión falsa sin red apenas la ve en
 // localStorage (nunca reintenta el login real) — quedó así por un bug de CSP

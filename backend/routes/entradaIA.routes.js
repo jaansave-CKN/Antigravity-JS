@@ -14,6 +14,10 @@ import { generarEntradaDesdeInvestigacion, generarCampoIndividual, generarProble
 import { requireByokOrExento } from '../middlewares/byokGate.js';
 import { captureError } from '../config/sentry.config.js';
 import { withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
+import {
+  validarBody, entradaCampoSchema, entradaProblematicasSchema,
+  entradaSolucionesSchema, entradaNombreOPitchSchema,
+} from '../validators/zodSchemas.js';
 
 // Adaptador escopado (Fase 5 Bloque 4, 2026-09-06) — las funciones de
 // EntradaIAService.js no cambian su firma ({getRow,getRows,runSql} genérico,
@@ -72,8 +76,10 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const { campo, contextoPrevio, demografia } = req.body || {};
-    if (!campo || !CAMPOS_INDIVIDUALES.includes(campo)) {
+    const validacionCampo = validarBody(entradaCampoSchema, req.body);
+    if (!validacionCampo.ok) return res.status(400).json({ success: false, message: validacionCampo.message });
+    const { campo, contextoPrevio, demografia } = validacionCampo.data;
+    if (!CAMPOS_INDIVIDUALES.includes(campo)) {
       return res.status(400).json({ success: false, message: `campo debe ser uno de: ${CAMPOS_INDIVIDUALES.join(', ')}` });
     }
     const data = await generarCampoIndividual(
@@ -93,7 +99,9 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const { demografia } = req.body || {};
+    const validacionProblematicas = validarBody(entradaProblematicasSchema, req.body);
+    if (!validacionProblematicas.ok) return res.status(400).json({ success: false, message: validacionProblematicas.message });
+    const { demografia } = validacionProblematicas.data;
     const data = await generarProblematicasTerritorio(
       req.params.id, req.userId,
       demografia && typeof demografia === 'object' ? demografia : {},
@@ -110,7 +118,9 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const { contextoPrevio, demografia } = req.body || {};
+    const validacionSoluciones = validarBody(entradaSolucionesSchema, req.body);
+    if (!validacionSoluciones.ok) return res.status(400).json({ success: false, message: validacionSoluciones.message });
+    const { contextoPrevio, demografia } = validacionSoluciones.data;
     const data = await generarPosiblesSoluciones(
       req.params.id, req.userId,
       contextoPrevio && typeof contextoPrevio === 'object' ? contextoPrevio : {},
@@ -131,7 +141,9 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const { contextoPrevio, problematica, demografia } = req.body || {};
+    const validacionNombre = validarBody(entradaNombreOPitchSchema, req.body);
+    if (!validacionNombre.ok) return res.status(400).json({ success: false, message: validacionNombre.message });
+    const { contextoPrevio, problematica, demografia } = validacionNombre.data;
     const data = await generarNombreProyecto(
       req.params.id, req.userId,
       {
@@ -151,7 +163,9 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const { contextoPrevio, problematica, demografia } = req.body || {};
+    const validacionPitch = validarBody(entradaNombreOPitchSchema, req.body);
+    if (!validacionPitch.ok) return res.status(400).json({ success: false, message: validacionPitch.message });
+    const { contextoPrevio, problematica, demografia } = validacionPitch.data;
     const data = await generarPitchProyecto(
       req.params.id, req.userId,
       {

@@ -2,18 +2,18 @@ export default function PrivacidadPage() {
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '32px 24px', fontFamily: "'Public Sans', sans-serif", color: '#191c1e', lineHeight: 1.6 }}>
       <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '12px 16px', marginBottom: 28, fontSize: 13, color: '#92400e' }}>
-        <strong>Borrador base — no publicar sin revisión legal.</strong> Este documento cubre los elementos mínimos exigidos por la Ley 1581 de 2012 y el Decreto 1377 de 2013, pero los campos entre corchetes [ ] deben completarse (identificación real del responsable, correo del área encargada) y el contenido debe ser validado por un abogado antes de entrar en vigencia.
+        <strong>Borrador base — no publicar sin revisión legal.</strong> Este documento cubre los elementos mínimos exigidos por la Ley 1581 de 2012 y el Decreto 1377 de 2013, y los datos de identificación del responsable ya son reales, pero el contenido debe ser validado por un abogado antes de entrar en vigencia.
       </div>
 
       <h1 style={{ fontSize: 26, fontWeight: 700, marginBottom: 4 }}>Política de Tratamiento de Datos Personales</h1>
-      <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 24 }}>Última actualización: [FECHA] · Versión 0.1 (borrador) · Conforme a la Ley 1581 de 2012 y el Decreto 1377 de 2013 (Colombia)</p>
+      <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 24 }}>Última actualización: 2026-09-07 · Versión 0.1 (borrador) · Conforme a la Ley 1581 de 2012 y el Decreto 1377 de 2013 (Colombia)</p>
 
       <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 24 }}>1. Responsable del tratamiento</h2>
       <p>
-        Razón social: [RAZÓN SOCIAL]<br />
-        NIT: [NIT]<br />
-        Domicilio: [DIRECCIÓN, CIUDAD, COLOMBIA]<br />
-        Correo de contacto para temas de datos personales: [EMAIL DE CONTACTO DATOS]
+        Razón social: JAIRO SALINAS VELASCO<br />
+        NIT: 91477168-1<br />
+        Domicilio: Bucaramanga, Colombia<br />
+        Correo de contacto para temas de datos personales: jaansave@gmail.com
       </p>
 
       <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 24 }}>2. Datos que recolectamos</h2>
@@ -44,16 +44,16 @@ export default function PrivacidadPage() {
       </ul>
 
       <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 24 }}>6. Procedimiento para ejercer sus derechos</h2>
-      <p>Las consultas, reclamos o solicitudes relacionadas con sus datos personales pueden dirigirse a [EMAIL DE CONTACTO DATOS]. Las consultas serán atendidas en un término máximo de diez (10) días hábiles contados a partir de la fecha de recibo, y los reclamos en un término máximo de quince (15) días hábiles, prorrogable por ocho (8) días hábiles adicionales cuando no sea posible atenderlo dentro de dicho plazo, conforme lo establece la Ley 1581 de 2012.</p>
+      <p>Las consultas, reclamos o solicitudes relacionadas con sus datos personales pueden dirigirse a jaansave@gmail.com. Las consultas serán atendidas en un término máximo de diez (10) días hábiles contados a partir de la fecha de recibo, y los reclamos en un término máximo de quince (15) días hábiles, prorrogable por ocho (8) días hábiles adicionales cuando no sea posible atenderlo dentro de dicho plazo, conforme lo establece la Ley 1581 de 2012.</p>
 
       <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 24 }}>7. Seguridad de la información</h2>
       <p>Implementamos medidas técnicas y organizativas razonables para proteger sus datos personales contra pérdida, uso indebido o acceso no autorizado, incluyendo cifrado de contraseñas, control de acceso basado en autenticación por token, y aislamiento de la información entre distintos clientes de la Plataforma (arquitectura multi-tenant).</p>
 
       <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 24 }}>8. Vigencia</h2>
-      <p>Esta política rige a partir de [FECHA] y permanecerá vigente mientras se realice tratamiento de datos personales conforme a las finalidades descritas, o hasta que sea sustituida por una versión posterior publicada en la Plataforma.</p>
+      <p>Esta política rige a partir de 2026-09-07 y permanecerá vigente mientras se realice tratamiento de datos personales conforme a las finalidades descritas, o hasta que sea sustituida por una versión posterior publicada en la Plataforma.</p>
 
       <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 24 }}>9. Contacto</h2>
-      <p>Para ejercer sus derechos como titular de datos personales: [EMAIL DE CONTACTO DATOS].</p>
+      <p>Para ejercer sus derechos como titular de datos personales: jaansave@gmail.com.</p>
     </div>
   );
 }

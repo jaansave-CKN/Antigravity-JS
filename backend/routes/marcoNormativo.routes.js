@@ -9,6 +9,7 @@ import { generarNormasAplicables } from '../agents/normativoAgent.js';
 // cada call site es solo agregar el tenantId (siempre `req.userId` en este
 // archivo, org_id = user_id) como primer argumento.
 import { withTenantRow, withTenantRun } from '../config/database.config.js';
+import { validarBody, marcoNormativoGenerarSchema, marcoNormativoGuardarSchema } from '../validators/zodSchemas.js';
 
 export function registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch }) {
 
@@ -33,10 +34,9 @@ export function registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch 
   // POST /api/m8/normas/generar
   // Genera normas aplicables a partir del sector y municipio del proyecto.
   app.post('/api/m8/normas/generar', authenticateToken, tryCatch(async (req, res) => {
-    const { proyecto_id, sector, municipio } = req.body;
-    if (!proyecto_id || !sector) {
-      return res.status(400).json({ success: false, message: 'proyecto_id y sector son requeridos' });
-    }
+    const validacionNormGen = validarBody(marcoNormativoGenerarSchema, req.body);
+    if (!validacionNormGen.ok) return res.status(400).json({ success: false, message: validacionNormGen.message });
+    const { proyecto_id, sector, municipio } = validacionNormGen.data;
     const proyecto = await checkOwnership(proyecto_id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -74,7 +74,9 @@ export function registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch 
     const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const { normas_aplicables = [], citas_bibliograficas = [], notas_adicionales = '' } = req.body;
+    const validacionNormGuardar = validarBody(marcoNormativoGuardarSchema, req.body);
+    if (!validacionNormGuardar.ok) return res.status(400).json({ success: false, message: validacionNormGuardar.message });
+    const { normas_aplicables = [], citas_bibliograficas = [], notas_adicionales = '' } = validacionNormGuardar.data;
 
     const existing = await withTenantRow(req.userId,
       'SELECT id FROM marco_normativo WHERE proyecto_id = ? AND user_id = ?',

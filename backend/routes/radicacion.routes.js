@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { runCrossCheck } from '../validators/crossCheckValidator.js';
 import { captureError } from '../config/sentry.config.js';
 import { withTenantRow, withTenantRun } from '../config/database.config.js';
+import { validarBody, radicacionSchema } from '../validators/zodSchemas.js';
 
 function wrap(fn) {
   return async (req, res, next) => {
@@ -44,14 +45,14 @@ export function registerRadicacionRoutes(app, { authenticateToken }) {
    */
   app.post('/api/modulo9/radicar/:proyectoId', authenticateToken, wrap(async (req, res) => {
     const { proyectoId } = req.params;
-    const { fichaTecnica, presupuesto } = req.body;
-
-    if (!fichaTecnica || !presupuesto) {
+    const validacionRadicar = validarBody(radicacionSchema, req.body);
+    if (!validacionRadicar.ok) {
       return res.status(400).json({
         success: false,
         message: 'fichaTecnica y presupuesto son requeridos',
       });
     }
+    const { fichaTecnica, presupuesto } = validacionRadicar.data;
 
     // SECURITY FIX: user_id en WHERE evita enumeration (403 vs 404 leakage)
     const proyecto = await withTenantRow(req.userId,

@@ -28,6 +28,7 @@ import { withTenantRow } from '../config/database.config.js';
 // getRows (rol "postgres", BYPASSRLS=true) a withTenant(req.userId, ...)
 // — mismo patrón ya usado en proyectos.routes.js/anexos.routes.js.
 import { withTenant } from '../config/database.config.js';
+import { validarBody, raciTareaSchema, raciTareaPatchSchema, raciRolSchema, raciAsignacionSchema } from '../validators/zodSchemas.js';
 
 const SIGLAS_VALIDAS = new Set(['R', 'A', 'C', 'I', 'V', 'IA']);
 
@@ -70,12 +71,11 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const nombre = String(req.body?.nombre || '').trim();
-    if (!nombre) return res.status(400).json({ success: false, message: 'nombre es requerido' });
-    if (nombre.length > NOMBRE_MAX) return res.status(400).json({ success: false, message: `nombre supera ${NOMBRE_MAX} caracteres` });
-    const descripcion = String(req.body?.descripcion || '');
-    if (descripcion.length > DESCRIPCION_MAX) return res.status(400).json({ success: false, message: `descripcion supera ${DESCRIPCION_MAX} caracteres` });
-    const orden = Number.isFinite(req.body?.orden) ? req.body.orden : 0;
+    const validacionTarea = validarBody(raciTareaSchema, req.body);
+    if (!validacionTarea.ok) return res.status(400).json({ success: false, message: validacionTarea.message });
+    const nombre = validacionTarea.data.nombre;
+    const descripcion = validacionTarea.data.descripcion || '';
+    const orden = validacionTarea.data.orden ?? 0;
 
     const id = crypto.randomUUID();
     await withTenant(req.userId, client => client.query(
@@ -95,6 +95,11 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
     ));
     const existente = existenteRes.rows?.[0];
     if (!existente) return res.status(404).json({ success: false, message: 'Tarea no encontrada' });
+
+    // Solo valida TIPO de lo que vino — el fallback a `existente` de abajo
+    // sigue decidido por presencia (`!== undefined`) sobre req.body, intacto.
+    const validacionTareaPatch = validarBody(raciTareaPatchSchema, req.body);
+    if (!validacionTareaPatch.ok) return res.status(400).json({ success: false, message: validacionTareaPatch.message });
 
     const nombre = req.body?.nombre !== undefined ? String(req.body.nombre).trim() : existente.nombre;
     const descripcion = req.body?.descripcion !== undefined ? String(req.body.descripcion) : existente.descripcion;
@@ -140,10 +145,10 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const nombre = String(req.body?.nombre || '').trim();
-    if (!nombre) return res.status(400).json({ success: false, message: 'nombre es requerido' });
-    if (nombre.length > NOMBRE_MAX) return res.status(400).json({ success: false, message: `nombre supera ${NOMBRE_MAX} caracteres` });
-    const orden = Number.isFinite(req.body?.orden) ? req.body.orden : 0;
+    const validacionRol = validarBody(raciRolSchema, req.body);
+    if (!validacionRol.ok) return res.status(400).json({ success: false, message: validacionRol.message });
+    const nombre = validacionRol.data.nombre;
+    const orden = validacionRol.data.orden ?? 0;
 
     const id = crypto.randomUUID();
     await withTenant(req.userId, client => client.query(
@@ -163,6 +168,10 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
     ));
     const existente = existenteRes.rows?.[0];
     if (!existente) return res.status(404).json({ success: false, message: 'Rol no encontrado' });
+
+    // Solo valida TIPO — el fallback a `existente` sigue por presencia sobre req.body.
+    const validacionRolPatch = validarBody(raciRolSchema.partial(), req.body);
+    if (!validacionRolPatch.ok) return res.status(400).json({ success: false, message: validacionRolPatch.message });
 
     const nombre = req.body?.nombre !== undefined ? String(req.body.nombre).trim() : existente.nombre;
     const orden = req.body?.orden !== undefined && Number.isFinite(req.body.orden) ? req.body.orden : existente.orden;
@@ -224,7 +233,9 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
     if (!tarea) return res.status(404).json({ success: false, message: 'Tarea no encontrada en este proyecto' });
     if (!rol) return res.status(404).json({ success: false, message: 'Rol no encontrado en este proyecto' });
 
-    const sigla = req.body?.sigla ?? null;
+    const validacionAsignacion = validarBody(raciAsignacionSchema, req.body);
+    if (!validacionAsignacion.ok) return res.status(400).json({ success: false, message: validacionAsignacion.message });
+    const sigla = validacionAsignacion.data.sigla ?? null;
     if (sigla === null) {
       await withTenant(req.userId, client => client.query(
         'DELETE FROM raci_asignaciones WHERE tarea_id = $1 AND rol_id = $2',

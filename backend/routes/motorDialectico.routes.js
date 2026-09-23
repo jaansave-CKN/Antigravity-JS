@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { withTenantRow, withTenantRun } from '../config/database.config.js';
+import { validarBody, motorDialecticoSchema } from '../validators/zodSchemas.js';
 
 export function registerMotorDialecticoRoutes(app, { authenticateToken, tryCatch }) {
 
@@ -36,10 +37,12 @@ export function registerMotorDialecticoRoutes(app, { authenticateToken, tryCatch
     const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
+    const validacionDialectico = validarBody(motorDialecticoSchema, req.body);
+    if (!validacionDialectico.ok) return res.status(400).json({ success: false, message: validacionDialectico.message });
     const {
       tono = '', lista_oro = [], lista_negra = [], enfasis = '',
       interlocutor = '', enfoque = '', humanizacion = '', adicionales = [],
-    } = req.body;
+    } = validacionDialectico.data;
 
     const existing = await withTenantRow(req.userId,
       'SELECT id FROM motor_dialectico WHERE proyecto_id = ? AND user_id = ?',

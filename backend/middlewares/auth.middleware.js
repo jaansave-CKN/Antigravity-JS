@@ -30,11 +30,11 @@ export function extractToken(req) {
   return null;
 }
 
-// Usuario de desarrollo para 'demo-mode-token' (solo NODE_ENV !== 'production').
-// UUID fijo y reconocible (todo ceros salvo el último dígito) — nunca debe
-// existir con este id en una base de datos de producción real. Sembrado en
-// 015_seed_dev_user.sql y en el bootstrap de server.js (gateado a no-producción).
-export const DEV_USER_ID = '00000000-0000-0000-0000-000000000001';
+// ELIMINADO (AUTH-001, auditoría 2026-09-23): el bypass 'demo-mode-token'
+// (rol admin sin credenciales si NODE_ENV!=='production') y su DEV_USER_ID.
+// Con el .env local en development apuntando a la BD real y el backend en
+// 0.0.0.0, cualquier equipo de la red Wi-Fi obtenía admin sobre 81 cuentas
+// reales (verificado en vivo). No hay sustituto: en local se usa una cuenta real.
 
 function verifyToken(token) {
   try { return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }); }
@@ -57,41 +57,58 @@ function logAuthRejection(req, motivo, extra) {
   logger.warn('[auth] Rechazo 401', { path: req.path, method: req.method, motivo, ...extra });
 }
 
-export async function authenticateToken(req, res, next) {
+// Núcleo compartido por authenticateToken (401 si falla) y optionalAuth
+// (sigue como anónimo si falla). Devuelve { ok:true, userId, role } o
+// { ok:false, message, code? }. `registrar=false` evita escribir un "Rechazo
+// 401" por cada visita anónima a una ruta de acceso opcional.
+async function resolveSession(req, { registrar = true } = {}) {
+  const log = registrar ? logAuthRejection : () => {};
   // Cookie primero (Fase 1 Dual-Mode), header Authorization como fallback —
-  // ver extractToken() arriba. El frontend actual (sin tocar en esta fase)
-  // nunca manda la cookie de vuelta (fetch sin credentials), así que hoy
-  // esto SIEMPRE cae al header, igual que antes de este cambio.
+  // ver extractToken() arriba.
   const token = extractToken(req);
   if (!token) {
     const auth = req.headers.authorization;
-    logAuthRejection(req, 'sin_cookie_ni_header_valido', { tieneCookie: !!req.cookies?.[AUTH_COOKIE_NAME], authPresente: !!auth, authPrefijo: auth ? auth.slice(0, 15) : null });
-    return res.status(401).json({ success: false, message: 'Token requerido' });
-  }
-
-  // DEV: demo-mode-token es aceptado en entorno local para no bloquear el trabajo de desarrollo.
-  // Debe ser un UUID real (no 'dev-user-001') porque proyectos.user_id/org_id y
-  // projects.tenant_id son columnas UUID con FK a usuarios(id) — un valor no-UUID
-  // hace fallar cualquier INSERT/UPDATE autenticado con este token (500 de BD).
-  // El usuario correspondiente se siembra en 015_seed_dev_user.sql / bootstrap.
-  if (process.env.NODE_ENV !== 'production' && token === 'demo-mode-token') {
-    req.userId = DEV_USER_ID;
-    req.userRole = 'admin';
-    return next();
+    // DIAGNÓSTICO TEMPORAL (2026-09-16, investigación en vivo del reporte
+    // "se perdió mi información" — quitar una vez identificada la causa real
+    // de por qué la cookie httpOnly no llega en estas peticiones concretas):
+    // se necesita el header Cookie CRUDO, no solo si req.cookies ya la
+    // encontró parseada — para distinguir "el navegador no mandó Cookie en
+    // absoluto" (credentials:'include' ausente o cookie nunca seteada) de
+    // "mandó Cookie pero sin auth_token" (dominio/path no coincide).
+    log(req, 'sin_cookie_ni_header_valido', {
+      tieneCookie: !!req.cookies?.[AUTH_COOKIE_NAME],
+      authPresente: !!auth,
+      authPrefijo: auth ? auth.slice(0, 15) : null,
+      cookieHeaderCrudo: req.headers.cookie || null,
+      origin: req.headers.origin || null,
+      referer: req.headers.referer || null,
+    });
+    return { ok: false, message: 'Token requerido' };
   }
 
   const payload = verifyToken(token);
   if (!payload) {
-    logAuthRejection(req, 'jwt_verify_fallo', { tokenPrefijo: token.slice(0, 12) });
-    return res.status(401).json({ success: false, message: 'Token invalido' });
+    log(req, 'jwt_verify_fallo', { tokenPrefijo: token.slice(0, 12) });
+    return { ok: false, message: 'Token invalido' };
+  }
+
+  // AUTH-002 (auditoría 2026-09-23): los tokens de un solo uso (mfa_pending,
+  // password_reset, account_activated, admin_pending_decision) se firman con
+  // el mismo JWT_SECRET y llevan `purpose`; los de sesión ({sub, role}) nunca.
+  // Sin este corte, el preAuthToken de MFA (emitido con solo la contraseña)
+  // servía como sesión completa por header Bearer. Cada uno sigue siendo
+  // válido en su propio endpoint, que lo verifica por su cuenta.
+  if (payload.purpose !== undefined) {
+    log(req, 'token_de_proposito_no_es_sesion', { userId: payload.sub, purpose: payload.purpose });
+    return { ok: false, message: 'Token invalido' };
   }
 
   // Sesión revocada: blacklist por-token (logout) o invalidación bulk (Stripe/admin)
   const revocado = isRevoked(token);
   const sesionValida = await checkSessionValid(payload.sub, payload.iat, getRow);
   if (revocado || !sesionValida) {
-    logAuthRejection(req, 'sesion_revocada', { userId: payload.sub, revocadoPorBlacklist: revocado, sesionValida, iat: payload.iat });
-    return res.status(401).json({ success: false, message: 'Sesión revocada' });
+    log(req, 'sesion_revocada', { userId: payload.sub, revocadoPorBlacklist: revocado, sesionValida, iat: payload.iat });
+    return { ok: false, message: 'Sesión revocada' };
   }
 
   // Bloqueo manual / vigencia de membresía — chequeo en vivo en CADA request,
@@ -99,12 +116,37 @@ export async function authenticateToken(req, res, next) {
   // todavía válido) se corta de inmediato si un admin la bloquea o expira.
   const accountStatus = await checkAccountStatus(payload.sub, payload.role, getRow);
   if (!accountStatus.ok) {
-    logAuthRejection(req, 'account_status', { userId: payload.sub, code: accountStatus.code, roleEnToken: payload.role });
-    return res.status(401).json({ success: false, code: accountStatus.code, message: accountStatus.message });
+    log(req, 'account_status', { userId: payload.sub, code: accountStatus.code, roleEnToken: payload.role });
+    return { ok: false, code: accountStatus.code, message: accountStatus.message };
   }
 
-  req.userId = payload.sub;
-  req.userRole = payload.role;
+  return { ok: true, userId: payload.sub, role: payload.role };
+}
+
+export async function authenticateToken(req, res, next) {
+  const sesion = await resolveSession(req);
+  if (!sesion.ok) {
+    return res.status(401).json({ success: false, ...(sesion.code ? { code: sesion.code } : {}), message: sesion.message });
+  }
+  req.userId = sesion.userId;
+  req.userRole = sesion.role;
+  next();
+}
+
+// Para rutas públicas cuyo contenido varía según la sesión (p. ej. el
+// catálogo del Radar: muestra para anónimos, completo para plan Radar).
+// Con sesión válida puebla req.userId/req.userRole; sin ella sigue como
+// anónimo, sin 401 y sin log de rechazo.
+export async function optionalAuth(req, _res, next) {
+  try {
+    const sesion = await resolveSession(req, { registrar: false });
+    if (sesion.ok) {
+      req.userId = sesion.userId;
+      req.userRole = sesion.role;
+    }
+  } catch (e) {
+    logger.warn('[auth] optionalAuth: error resolviendo sesión, se trata como anónimo', { err: e.message });
+  }
   next();
 }
 

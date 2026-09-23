@@ -6,6 +6,7 @@
  */
 import { generarMGA, generarBID, generarOXI } from '../services/exportGenerator.js';
 import { withTenantRow, withTenantRows } from '../config/database.config.js';
+import { validarBody, exportarGraficosSchema } from '../validators/zodSchemas.js';
 
 function safeJson(v, fallback = {}) {
   if (v == null) return fallback;
@@ -37,8 +38,13 @@ export function registerExportacionRoutes(app, { authenticateToken, tryCatch }) 
   // ya renderizados en el navegador — solo llega por POST (GET no soporta
   // body HTTP de forma confiable, y un SVG puede pesar varios KB). El GET
   // se conserva intacto para no romper enlaces de descarga existentes.
+  // Best-effort a propósito: un payload de graficos malformado nunca debe
+  // bloquear la exportación del PDF (los datos reales del proyecto ya se
+  // cargaron en cargarContexto) — se descarta en silencio, mismo criterio
+  // que el `Array.isArray` original.
   function graficosDe(req) {
-    return Array.isArray(req.body?.graficos) ? req.body.graficos : [];
+    const validacion = validarBody(exportarGraficosSchema, req.body);
+    return validacion.ok ? (validacion.data.graficos || []) : [];
   }
 
   app.get('/api/proyectos/:id/exportar/mga', authenticateToken, tryCatch(async (req, res) => {

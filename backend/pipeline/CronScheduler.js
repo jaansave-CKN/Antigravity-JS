@@ -153,7 +153,11 @@ export function startScheduler() {
     console.log('[Cron] ▶ Iniciando backup S3...');
     try {
       const result = await withTimeout(() => runS3Backup(), BACKUP_TIMEOUT, 'BackupS3');
-      if (result.skipped) console.log('[Cron] Backup S3 omitido:', result.reason);
+      // FIX (DIRECTIVA OMEGA-BUSINESS, 2026-09-07): un backup omitido es una
+      // negligencia operativa, no un evento informativo — console.error para
+      // que haga ruido real en los logs (runS3Backup() ya persiste el detalle
+      // en system_logs vía logCriticalError, ver s3backup.js).
+      if (result.skipped) console.error('[Cron] ✗ Backup S3 omitido:', result.reason);
       else console.log('[Cron] ✓ Backup S3 completado:', result.key || result.error);
     } catch (err) {
       console.error('[Cron] ✗ Error en backup S3:', err.message);

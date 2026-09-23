@@ -7,6 +7,7 @@
 import { calcularSROI, calcularMapeoODS, obtenerImpactoSocial } from '../services/ValorExponencialService.js';
 import { captureError } from '../config/sentry.config.js';
 import { withTenantRow } from '../config/database.config.js';
+import { validarBody, sroiSchema } from '../validators/zodSchemas.js';
 
 function wrap(fn) {
   return async (req, res) => {
@@ -32,7 +33,9 @@ export async function registerValorExponencialRoutes(app, { authenticateToken, f
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const sroi = await calcularSROI(req.params.id, req.userId, { ratioConversion: req.body?.ratioConversion });
+    const validacionSroi = validarBody(sroiSchema, req.body);
+    if (!validacionSroi.ok) return res.status(400).json({ success: false, message: validacionSroi.message });
+    const sroi = await calcularSROI(req.params.id, req.userId, { ratioConversion: validacionSroi.data.ratioConversion });
     const ods = await calcularMapeoODS(req.params.id, req.userId);
     res.status(201).json({ success: true, data: { sroi, ods } });
   }));

@@ -25,6 +25,7 @@
  */
 
 import crypto from 'crypto';
+import { logCriticalError } from '../services/logService.js';
 
 // ── Set en memoria: fuente primaria O(1) para logout por-token ───────────────
 const revokedSet = new Set();
@@ -91,7 +92,11 @@ export async function revokeUserSession(userId, runSql) {
     );
     console.log(`[blacklist] Sesiones invalidadas para user: ${userId}`);
   } catch (e) {
-    console.error('[blacklist] Error en revokeUserSession:', e.message);
+    // FIX (radiografía 2026-09-07): antes solo console.error — un fallo aquí
+    // (ej. cancelación de Stripe, kick de admin) dejaba sesiones de otros
+    // dispositivos sin invalidar, sin que quedara ningún rastro persistente
+    // para investigarlo después. Ahora queda en system_logs.
+    await logCriticalError('TokenBlacklist', `revokeUserSession falló para user ${userId}: ${e.message}`, { userId });
   }
 }
 

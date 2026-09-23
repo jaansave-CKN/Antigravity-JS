@@ -14,17 +14,20 @@ interface EventoCal {
   tipo: 'primary' | 'today' | 'neutral-green' | 'neutral-secondary' | 'error';
 }
 
-const EVENTOS: EventoCal[] = [
-  { dia: 5,  mes: 2, anio: 2024, titulo: 'USAID Local - 12:00',        tipo: 'primary' },
-  { dia: 6,  mes: 2, anio: 2024, titulo: 'Fundación FORD - 15:00',     tipo: 'today' },
-  { dia: 14, mes: 2, anio: 2024, titulo: 'MinCiencias - 17:00',        tipo: 'neutral-green' },
-  { dia: 14, mes: 2, anio: 2024, titulo: 'SENA Fondo Emprender',       tipo: 'neutral-secondary' },
-  { dia: 20, mes: 2, anio: 2024, titulo: 'Cierre CAF - 23:59',         tipo: 'error' },
-];
+// FIX (DIRECTIVA REMEDIACIÓN TOTAL, 2026-09-06): antes era un array de
+// eventos hardcodeado y fechado en 2024, sin ningún fetch — se mostraba
+// siempre igual sin importar los datos reales del usuario. Sin un endpoint
+// real de "fechas críticas de convocatorias" todavía construido, el estado
+// honesto es un calendario vacío (no datos fabricados) sobre el mes/año
+// real vigente, no un mock.
+const EVENTOS: EventoCal[] = [];
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const DIAS = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-const HOY = { dia: 6, mes: 2, anio: 2024 }; // Today indicator de la fuente
+const HOY = (() => {
+  const d = new Date();
+  return { dia: d.getDate(), mes: d.getMonth(), anio: d.getFullYear() };
+})();
 
 // Pura, sin estado del componente — a nivel de módulo
 // (react-doctor/prefer-module-scope-pure-function).
@@ -44,8 +47,8 @@ function exportarICS() {
 }
 
 export default function CalendarioPage() {
-  const [anio, setAnio] = useState(2024);
-  const [mes, setMes] = useState(2); // Marzo 2024 — mes de la fuente Stitch
+  const [anio, setAnio] = useState(() => HOY.anio);
+  const [mes, setMes] = useState(() => HOY.mes);
   const [vista, setVista] = useState<'mes' | 'semana'>('mes');
 
   const celdas = useMemo(() => {

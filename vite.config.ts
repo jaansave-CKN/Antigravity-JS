@@ -34,7 +34,17 @@ export default defineConfig(({ mode }) => {
           // Fase 6 — separa vendor "core" (siempre necesario) de vendor
           // "pesado" (leaflet, xlsx, jspdf, sentry, framer-motion), que ya
           // solo se cargan cuando se visita la página que los usa gracias al
-          // React.lazy() de main.tsx — esto es refuerzo, no sustituto de eso.
+          // lazy() de main.tsx — esto es refuerzo, no sustituto de eso.
+          //
+          // FIX (radiografía 2026-09-07): mermaid, recharts, posthog-js,
+          // lucide-react y dompurify (dependencia de mermaid) caían todos en
+          // el catch-all "vendor" — un solo archivo de 4.5MB. Como
+          // lucide-react se usa en casi toda la app, visitar CUALQUIER
+          // página forzaba a descargar ese archivo completo, incluyendo
+          // mermaid/recharts aunque esa página no los usara. Separarlos no
+          // cambia CUÁNDO carga cada uno (eso ya lo decide el lazy() de
+          // arriba vía import() dinámico) — solo evita que compartan un
+          // mismo archivo con librerías no relacionadas.
           manualChunks(id) {
             if (!id.includes('node_modules')) return undefined;
             if (/react-router-dom|\/react\/|\/react-dom\//.test(id)) return 'vendor-core';
@@ -43,13 +53,21 @@ export default defineConfig(({ mode }) => {
             if (/jspdf/.test(id)) return 'vendor-jspdf';
             if (/@sentry/.test(id)) return 'vendor-sentry';
             if (/framer-motion/.test(id)) return 'vendor-motion';
+            if (/mermaid/.test(id)) return 'vendor-mermaid';
+            if (/recharts|d3-/.test(id)) return 'vendor-recharts';
+            if (/posthog-js/.test(id)) return 'vendor-posthog';
+            if (/lucide-react/.test(id)) return 'vendor-icons';
+            if (/dompurify/.test(id)) return 'vendor-dompurify';
             return 'vendor';
           },
         },
       },
     },
     server: {
-      host: true,
+      // AUTH-001 (auditoría 2026-09-23): antes `true` (todas las interfaces).
+      // El proxy /api de abajo reenvía al backend local, así que exponer el
+      // dev server en la LAN exponía también el backend (y su BD real).
+      host: '127.0.0.1',
       port: 5173,
       // allowedHosts habilitado para entornos como Replit/Cloud IDEs
       allowedHosts: true,

@@ -11,6 +11,7 @@ import crypto from 'crypto';
 // igual con withTenant(req.userId, ...) porque set_config('app.org_id', ...)
 // es lo único que esa política necesita, sin importar en qué columna vive.
 import { withTenantRow, withTenantRows, withTenantRun, withTenantTransaction } from '../config/database.config.js';
+import { validarBody, configLogisticaSchema, logisticaTramosSchema } from '../validators/zodSchemas.js';
 
 export function registerConfigLogisticaRoutes(app, { authenticateToken, tryCatch }) {
 
@@ -39,12 +40,14 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, tryCatch
     const proyectoOwned = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyectoOwned) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
+    const validacionCfgLog = validarBody(configLogisticaSchema, req.body);
+    if (!validacionCfgLog.ok) return res.status(400).json({ success: false, message: validacionCfgLog.message });
     const {
       proponente_nombre = '', proponente_nit = '',
       tipo_entidad = '', departamento = '', municipio = '',
       zona = 'Urbana', fecha_inicio = '', duracion_meses = 0,
       equipo_director = '', equipo_coordinador = '',
-    } = req.body;
+    } = validacionCfgLog.data;
 
     const existing = await withTenantRow(req.userId,
       'SELECT id FROM config_logistica WHERE proyecto_id = ? AND user_id = ?',
@@ -106,14 +109,9 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, tryCatch
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const { tramos } = req.body;
-    if (!Array.isArray(tramos)) return res.status(400).json({ success: false, message: 'tramos debe ser array' });
-    // FIX (auditoría SRE Red Team 2026-08-10, Capa 3): mismo motivo que
-    // presupuesto.routes.js — sin tope, miles de tramos pequeños caben bajo
-    // el límite de 1MB y saturan la transacción DELETE+INSERT y la tabla del cliente.
-    if (tramos.length > 500) {
-      return res.status(413).json({ success: false, message: 'Máximo 500 tramos por guardado.' });
-    }
+    const validacionTramos = validarBody(logisticaTramosSchema, req.body);
+    if (!validacionTramos.ok) return res.status(400).json({ success: false, message: validacionTramos.message });
+    const { tramos } = validacionTramos.data;
 
     // FIX (auditoría SRE 2026-08-08, Capa 5): DELETE + N INSERTs envueltos en
     // una única transacción atómica (mismo patrón ya usado en presupuesto.routes.js)

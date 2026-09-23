@@ -24,6 +24,7 @@ import crypto from 'crypto';
 // no quien hace la request). Verificado con prueba dedicada (admin de
 // prueba + proyecto de otro tenant).
 import { withTenantRow, withTenantRun, getRow } from '../config/database.config.js';
+import { validarBody, complianceSchema, estadoLegalSchema } from '../validators/zodSchemas.js';
 
 export function registerComplianceRoutes(app, { authenticateToken, tryCatch }) {
 
@@ -52,6 +53,8 @@ export function registerComplianceRoutes(app, { authenticateToken, tryCatch }) {
     const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
+    const validacionCompliance = validarBody(complianceSchema, req.body);
+    if (!validacionCompliance.ok) return res.status(400).json({ success: false, message: validacionCompliance.message });
     const {
       riesgos               = [],
       sostenibilidad_ambiental = '',
@@ -59,7 +62,7 @@ export function registerComplianceRoutes(app, { authenticateToken, tryCatch }) {
       ods_alineados         = [],
       enfoque_genero        = false,
       enfoque_genero_texto  = '',
-    } = req.body;
+    } = validacionCompliance.data;
 
     const existing = await withTenantRow(req.userId,
       'SELECT id FROM compliance_data WHERE proyecto_id = ? AND user_id = ?',
@@ -103,13 +106,14 @@ export function registerComplianceRoutes(app, { authenticateToken, tryCatch }) {
   // Hard-Lock de certificación (POST /api/m12/ficha/:proyectoId).
   const ESTADOS_LEGALES_VALIDOS = new Set(['sin_evaluar', 'condicionado', 'despejado']);
   app.patch('/api/proyectos/:id/estado-legal', authenticateToken, tryCatch(async (req, res) => {
-    const { estado_legal } = req.body || {};
-    if (!ESTADOS_LEGALES_VALIDOS.has(estado_legal)) {
+    const validacionEstadoLegal = validarBody(estadoLegalSchema, req.body);
+    if (!validacionEstadoLegal.ok) {
       return res.status(400).json({
         success: false,
         message: `estado_legal debe ser uno de: ${[...ESTADOS_LEGALES_VALIDOS].join(', ')}`,
       });
     }
+    const { estado_legal } = validacionEstadoLegal.data;
 
     // Sin tenant-scope a propósito (ver comentario del import): un admin
     // gestionando el proyecto de OTRO usuario necesita poder leer esta fila

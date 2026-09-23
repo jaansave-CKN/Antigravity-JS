@@ -44,6 +44,7 @@ export class BrevoEmailAdapter {
         'api-key':      this.apiKey,
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {

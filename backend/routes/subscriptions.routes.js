@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { paymentProvider } from '../payments/index.js';
 import { PLANES } from '../config/planes.config.js';
 import { withTenantRow, withTenantRun } from '../config/database.config.js';
+import { validarBody, subscriptionActivateSchema, bridgeTransferSchema } from '../validators/zodSchemas.js';
 
 export { PLANES };
 
@@ -30,8 +31,10 @@ export function registerSubscriptionRoutes(app, { authenticateToken, tryCatch })
   //   (backend/payments/index.js) y devuelve checkout_url. Esta ruta no sabe
   //   ni le importa si la pasarela es Stripe, Wompi o cualquier otra.
   app.post('/api/subscription/activate', authenticateToken, tryCatch(async (req, res) => {
-    const { plan, target_user_id } = req.body;
-    if (!plan || !PLANES[plan]) {
+    const validacionActivate = validarBody(subscriptionActivateSchema, req.body);
+    if (!validacionActivate.ok) return res.status(400).json({ success: false, message: `Plan inválido. Opciones: ${Object.keys(PLANES).join(', ')}` });
+    const { plan, target_user_id } = validacionActivate.data;
+    if (!PLANES[plan]) {
       return res.status(400).json({ success: false, message: `Plan inválido. Opciones: ${Object.keys(PLANES).join(', ')}` });
     }
 
@@ -109,10 +112,9 @@ export function registerSubscriptionRoutes(app, { authenticateToken, tryCatch })
       });
     }
 
-    const { convocatoria } = req.body;
-    if (!convocatoria) {
-      return res.status(400).json({ success: false, message: 'convocatoria requerida' });
-    }
+    const validacionBridge = validarBody(bridgeTransferSchema, req.body);
+    if (!validacionBridge.ok) return res.status(400).json({ success: false, message: 'convocatoria requerida' });
+    const { convocatoria } = validacionBridge.data;
 
     const proyectoId = crypto.randomUUID();
     const nombre = `Formulación: ${(convocatoria.titulo || 'Sin título').substring(0, 80)}`;

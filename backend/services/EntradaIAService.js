@@ -380,6 +380,7 @@ async function llamarGemini(systemPrompt, orgId, userGeminiKeys) {
         temperature: 0.2,
         max_tokens: 4096,
       }),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (upstream.status === 429) {

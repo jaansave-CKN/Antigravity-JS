@@ -11,8 +11,22 @@ import jwt from 'jsonwebtoken';
 import { authenticator } from 'otplib';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, entradaCampoLimiter, slowDown, financialPipelineLimiter } from './backend/middlewares/SecurityMiddleware.js';
-import { authenticateToken, requireAdmin, extractToken, AUTH_COOKIE_NAME } from './backend/middlewares/auth.middleware.js';
+import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, entradaCampoLimiter, slowDown, financialPipelineLimiter, formulacionIntegralLimiter } from './backend/middlewares/SecurityMiddleware.js';
+import { authenticateToken, optionalAuth, requireAdmin, extractToken, AUTH_COOKIE_NAME } from './backend/middlewares/auth.middleware.js';
+import {
+  validarBody, registroUsuarioSchema, loginSchema, mfaChallengeSchema, mfaCodeSchema,
+  passwordSoloSchema, tokenSoloSchema, putAuthMeSchema, changePasswordSchema,
+  forgotPasswordSchema, resetPasswordSchema, reportErrorSchema, credentialsSchema,
+  permisosUsuarioSchema, crearEntidadSchema, patchEntidadUrlSchema,
+  patchEntidadStatusSchema, entidadScrapeAsyncSchema, entidadesIndexadasSchema,
+  favoritoSchema, panelKeywordsSchema, cerrarIdsSchema, convocatoriaEstadoSchema,
+  busquedaSemanticaSchema, iaBuscarQuerySchema, barridoMasivoSchema, aiGenerateSchema,
+  promptSoloSchema, promptBarridoGeminiSchema, convocatoriaAnalyzeSchema, triggersContextoSchema,
+  configuracionGuardarSchema, persistirBarridoSchema, patchProyectoSchema,
+  arbolGenerarSchema, arbolNodoPatchSchema, indicadorSchema, teoriaCambioSchema,
+  postulacionCrearSchema, postulacionPatchSchema, fichaTecnicaMergeSchema,
+  modulo8AgenteStatusSchema, validarEstructuraSchema, restoreImportarTipoSchema,
+} from './backend/validators/zodSchemas.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
 import { startScheduler, runManualIngest, pauseScheduler, resumeScheduler } from './backend/pipeline/CronScheduler.js';
 import { classifySectors } from './backend/services/sectorClassifier.js';
@@ -55,6 +69,7 @@ import { registerEstresFinancieroRoutes } from './backend/routes/estresFinancier
 import { registerValorExponencialRoutes } from './backend/routes/valorExponencial.routes.js';
 import { registerCopilotoRoutes } from './backend/routes/copiloto.routes.js';
 import { registerEntradaIARoutes } from './backend/routes/entradaIA.routes.js';
+import { registerFormulacionIntegralRoutes } from './backend/routes/formulacionIntegral.routes.js';
 import { requireByokOrExento } from './backend/middlewares/byokGate.js';
 import { registerByokCredentialsRoutes } from './backend/routes/byokCredentials.routes.js';
 import { radarCacheMiddleware, invalidateRadarCache } from './backend/middlewares/radarCache.js';
@@ -392,6 +407,24 @@ async function resolveGoogleApiKey(userId, getRowFn) {
 const byokGate = requireByokOrExento(); // no toma deps — construye sus propios adaptadores escopados por request (byokGate.js)
 
 // V8.0 RBAC: verifica suscripción por módulo (radar | formulador)
+// BIZ-001 (auditoría 2026-09-23): nivel de acceso al catálogo del Radar para
+// rutas públicas (va después de optionalAuth). 'full' = admin o plan con
+// access_radar; 'muestra' = anónimo, trial, free o cualquier error (cierra
+// en falso a propósito: ante la duda, muestra). El trial se corta antes de
+// consultar: su sub 'trial-xxxx' no es un UUID válido para user_subscriptions.
+function resolverNivelRadar(req, _res, next) {
+  (async () => {
+    if (!req.userId) return 'muestra';
+    if (req.userRole === 'admin') return 'full';
+    if (req.userRole === 'trial' || String(req.userId).startsWith('trial-')) return 'muestra';
+    const sub = await withTenantRow(req.userId,
+      'SELECT access_radar FROM user_subscriptions WHERE user_id = ?', [req.userId]);
+    return sub?.access_radar ? 'full' : 'muestra';
+  })()
+    .catch(e => { logger.warn('[radar] No se pudo resolver el plan, se sirve muestra', { userId: req.userId, err: e.message }); return 'muestra'; })
+    .then(nivel => { req.radarTier = nivel; next(); });
+}
+
 function requireAccess(module) {
   return tryCatch(async (req, res, next) => {
     if (req.userRole === 'admin') return next();
@@ -1560,10 +1593,9 @@ async function start() {
 
   // POST /api/auth/register
   app.post('/api/auth/register', authLimiter, sanitizeAuthBody, tryCatch(async (req, res) => {
-     const { email, password, nombre, role } = req.body;
-     if (!email || !password || !nombre) {
-       return res.status(400).json({ success: false, message: 'email, password y nombre son requeridos' });
-     }
+     const validacion = validarBody(registroUsuarioSchema, req.body);
+     if (!validacion.ok) return res.status(400).json({ success: false, message: validacion.message });
+     const { email, password, nombre, role } = validacion.data;
      const errorPassword = validarFortalezaPassword(password);
      if (errorPassword) return res.status(400).json({ success: false, message: errorPassword });
 
@@ -1627,8 +1659,9 @@ async function start() {
 
   // POST /api/auth/login
   app.post('/api/auth/login', authLimiter, sanitizeAuthBody, tryCatch(async (req, res) => {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ success: false, message: 'email y password requeridos' });
+    const validacionLogin = validarBody(loginSchema, req.body);
+    if (!validacionLogin.ok) return res.status(400).json({ success: false, message: validacionLogin.message });
+    const { email, password } = validacionLogin.data;
     // Sin escopar a propósito: búsqueda por email, tenant aún desconocido.
     const user = await getRow('SELECT * FROM usuarios WHERE email = ? AND deleted_at IS NULL', [email.trim().toLowerCase()]);
     if (!user) return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
@@ -1698,8 +1731,9 @@ async function start() {
   // POST /api/auth/mfa/challenge — segundo factor: consume el preAuthToken
   // de /login + el código TOTP de 6 dígitos, emite el JWT de sesión real.
   app.post('/api/auth/mfa/challenge', authLimiter, tryCatch(async (req, res) => {
-    const { preAuthToken, code } = req.body || {};
-    if (!preAuthToken || !code) return res.status(400).json({ success: false, message: 'preAuthToken y code son requeridos' });
+    const validacionMfa = validarBody(mfaChallengeSchema, req.body);
+    if (!validacionMfa.ok) return res.status(400).json({ success: false, message: validacionMfa.message });
+    const { preAuthToken, code } = validacionMfa.data;
 
     let payload;
     try {
@@ -1755,8 +1789,9 @@ async function start() {
   // POST /api/auth/mfa/confirmar — valida el primer código real generado
   // por la app del usuario antes de activar MFA de verdad.
   app.post('/api/auth/mfa/confirmar', authenticateToken, tryCatch(async (req, res) => {
-    const { code } = req.body || {};
-    if (!code) return res.status(400).json({ success: false, message: 'code es requerido' });
+    const validacionCode = validarBody(mfaCodeSchema, req.body);
+    if (!validacionCode.ok) return res.status(400).json({ success: false, message: validacionCode.message });
+    const { code } = validacionCode.data;
 
     const user = await withTenantRow(req.userId, 'SELECT mfa_secret FROM usuarios WHERE id = ?', [req.userId]);
     if (!user?.mfa_secret) return res.status(400).json({ success: false, message: 'No hay una configuración de MFA pendiente. Ejecuta /mfa/setup primero.' });
@@ -1771,8 +1806,9 @@ async function start() {
   // POST /api/auth/mfa/desactivar — exige la contraseña actual, no solo
   // estar autenticado (desactivar 2FA es una acción sensible).
   app.post('/api/auth/mfa/desactivar', authenticateToken, tryCatch(async (req, res) => {
-    const { password } = req.body || {};
-    if (!password) return res.status(400).json({ success: false, message: 'password es requerido' });
+    const validacionPw = validarBody(passwordSoloSchema, req.body);
+    if (!validacionPw.ok) return res.status(400).json({ success: false, message: validacionPw.message });
+    const { password } = validacionPw.data;
 
     const user = await withTenantRow(req.userId, 'SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
@@ -1816,7 +1852,9 @@ async function start() {
   // admin aprueba, el usuario recibe un único botón que lo mete directo al
   // portal ya con sesión iniciada.
   app.post('/api/auth/validar-por-correo', authLimiter, tryCatch(async (req, res) => {
-    const { token } = req.body || {};
+    const validacionTok = validarBody(tokenSoloSchema, req.body);
+    if (!validacionTok.ok) return res.status(400).json({ success: false, message: validacionTok.message });
+    const { token } = validacionTok.data;
     if (!token) return res.status(400).json({ success: false, message: 'token es requerido' });
     if (isRevoked(token)) {
       return res.status(400).json({ success: false, message: 'Este enlace ya fue usado. Inicia sesión normalmente con tu correo y contraseña.' });
@@ -1982,7 +2020,9 @@ async function start() {
     const target = await withTenantRow(targetId, 'SELECT id, email, tipousuario, is_active FROM usuarios WHERE id = ? AND deleted_at IS NULL', [targetId]);
     if (!target) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
-    const { access_radar, access_formulador, expires_at, is_active } = req.body || {};
+    const validacionPermisos = validarBody(permisosUsuarioSchema, req.body);
+    if (!validacionPermisos.ok) return res.status(400).json({ success: false, message: validacionPermisos.message });
+    const { access_radar, access_formulador, expires_at, is_active } = validacionPermisos.data;
 
     // Protección "último admin activo" — mismo patrón que DELETE /api/usuarios/:id/purgar.
     // Sin escopar a propósito: chequeo GLOBAL cross-tenant por naturaleza (debe
@@ -2044,25 +2084,11 @@ async function start() {
     });
   }));
 
-  // POST /api/dev/make-admin — utilidad SOLO de desarrollo local para elevar
-  // una cuenta a rol admin sin depender de acceso directo a la BD (Supabase
-  // MCP puede no estar disponible, como pasó esta sesión). Gateado a
-  // NODE_ENV !== 'production' — en el deploy real (Render, NODE_ENV=production
-  // confirmado) esta ruta ni siquiera se registra. Requiere sesión real
-  // (authenticateToken) pero NO rol admin — exigirlo sería circular, ya que
-  // el propósito es justamente obtenerlo.
-  if (process.env.NODE_ENV !== 'production') {
-    app.post('/api/dev/make-admin', authenticateToken, tryCatch(async (req, res) => {
-      const email = String(req.body?.email || '').trim().toLowerCase();
-      if (!email) return res.status(400).json({ success: false, message: 'email es requerido' });
-      // Sin escopar a propósito: búsqueda por email, tenant aún desconocido.
-      const user = await getRow('SELECT id, email, tipousuario FROM usuarios WHERE email = ?', [email]);
-      if (!user) return res.status(404).json({ success: false, message: `No existe ningún usuario con email ${email}` });
-      await withTenantRun(user.id, 'UPDATE usuarios SET tipousuario = ? WHERE email = ?', ['admin', email]);
-      console.warn(`[DEV] ${email} elevado a rol admin vía /api/dev/make-admin (por ${req.userId}).`);
-      res.json({ success: true, message: `${email} ahora tiene rol admin. Vuelve a iniciar sesión para que el token lo refleje.` });
-    }));
-  }
+  // ELIMINADO (AUTH-001, auditoría 2026-09-23): POST /api/dev/make-admin
+  // dejaba a CUALQUIER sesión elevar cualquier cuenta a admin cuando
+  // NODE_ENV!=='production' — y el .env local (development) apunta a la BD
+  // real. Para dar rol admin: UPDATE usuarios SET tipousuario='admin' directo
+  // en la BD, o desde el panel admin por otro admin.
 
   // GET /api/admin/finops — consumo agregado de IA (ai_token_logs, migración 034).
   // Usa SUM/GROUP BY — la Capa 2 (REST/PostgREST) de database.config.js no
@@ -2357,10 +2383,9 @@ async function start() {
 
    // POST /api/report-error
    app.post('/api/report-error', authenticateToken, tryCatch(async (req, res) => {
-     const { message, url } = req.body;
-     if (!message) {
-       return res.status(400).json({ success: false, message: 'Message required' });
-     }
+     const validacionErr = validarBody(reportErrorSchema, req.body);
+     if (!validacionErr.ok) return res.status(400).json({ success: false, message: validacionErr.message });
+     const { message, url } = validacionErr.data;
      // In a real implementation, you would store this in a database or send it to a logging service
      console.error('[Error Report]', { userId: req.userId, message, url, timestamp: new Date().toISOString() });
      res.json({ success: true, message: 'Error report submitted' });
@@ -2368,16 +2393,18 @@ async function start() {
 
   // PUT /api/auth/me
   app.put('/api/auth/me', authenticateToken, tryCatch(async (req, res) => {
-    const { nombre } = req.body;
-    if (!nombre) return res.status(400).json({ success: false, message: 'nombre requerido' });
+    const validacionMe = validarBody(putAuthMeSchema, req.body);
+    if (!validacionMe.ok) return res.status(400).json({ success: false, message: validacionMe.message });
+    const { nombre } = validacionMe.data;
     await withTenantRun(req.userId, 'UPDATE usuarios SET nombre = ? WHERE id = ?', [nombre.trim(), req.userId]);
     res.json({ success: true, message: 'Perfil actualizado' });
   }));
 
   // POST /api/auth/change-password
   app.post('/api/auth/change-password', authenticateToken, tryCatch(async (req, res) => {
-    const { old_password, new_password } = req.body;
-    if (!old_password || !new_password) return res.status(400).json({ success: false, message: 'Campos requeridos' });
+    const validacionCp = validarBody(changePasswordSchema, req.body);
+    if (!validacionCp.ok) return res.status(400).json({ success: false, message: validacionCp.message });
+    const { old_password, new_password } = validacionCp.data;
     const user = await withTenantRow(req.userId, 'SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
     const valid = await verifyPassword(old_password, user.password_hash);
@@ -2390,7 +2417,10 @@ async function start() {
 
   // POST /api/auth/forgot-password — envía email real si Brevo está configurado
   app.post('/api/auth/forgot-password', authLimiter, tryCatch(async (req, res) => {
-    const { email } = req.body;
+    // Validación best-effort: un payload malformado se trata igual que "sin
+    // email" más abajo (nunca 400 aquí — ver anti-enumeración en el comentario).
+    const validacionFp = validarBody(forgotPasswordSchema, req.body);
+    const email = validacionFp.ok ? validacionFp.data.email : undefined;
     // Respuesta idéntica exista o no el email (no revela enumeración de usuarios)
     res.json({ success: true, message: 'Si el email existe, recibirás un correo de recuperación' });
     if (!email) return;
@@ -2416,10 +2446,9 @@ async function start() {
   // en crudo), así un link filtrado (logs de correo, historial) no sirve
   // dos veces aunque no haya expirado todavía.
   app.post('/api/auth/reset-password', authLimiter, tryCatch(async (req, res) => {
-    const { token, newPassword } = req.body || {};
-    if (!token || !newPassword) {
-      return res.status(400).json({ success: false, message: 'token y newPassword son requeridos' });
-    }
+    const validacionRp = validarBody(resetPasswordSchema, req.body);
+    if (!validacionRp.ok) return res.status(400).json({ success: false, message: validacionRp.message });
+    const { token, newPassword } = validacionRp.data;
     const errorPassword = validarFortalezaPassword(newPassword);
     if (errorPassword) return res.status(400).json({ success: false, message: errorPassword });
 
@@ -2452,8 +2481,9 @@ async function start() {
 
   // POST /api/auth/validate-action
   app.post('/api/auth/validate-action', authenticateToken, tryCatch(async (req, res) => {
-    const { password } = req.body;
-    if (!password) return res.status(400).json({ success: false, message: 'Password requerido' });
+    const validacionVa = validarBody(passwordSoloSchema, req.body);
+    if (!validacionVa.ok) return res.status(400).json({ success: false, message: validacionVa.message });
+    const { password } = validacionVa.data;
     const user = await withTenantRow(req.userId, 'SELECT password_hash FROM usuarios WHERE id = ?', [req.userId]);
     if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
     const valid = await verifyPassword(password, user.password_hash);
@@ -2471,22 +2501,38 @@ async function start() {
     res.json({ success: true, hasCredentials: !!(cred?.api_key_enc) });
   }));
 
-  // POST /api/credentials
+  // GET /api/credentials — lista de "canales institucionales" vinculados
+  // (Serper/Groq/OpenAI en CredentialsPage.tsx). FIX (DIRECTIVA REMEDIACIÓN
+  // TOTAL, 2026-09-06): esta ruta no existía — el frontend la llamaba desde
+  // 2026-09-05 (comentario en CredentialsPage.tsx:68-71) contra una tabla
+  // que ya tenía las columnas `service`/`label`/`encrypted_key` reservadas
+  // para esto (migración previa) pero nunca usadas. Distinta de
+  // `api_key_enc`/`notebook_key_enc` (fila única, usada por
+  // POST /api/configuracion/guardar para el motor de búsqueda — no tocar).
+  app.get('/api/credentials', authenticateToken, tryCatch(async (req, res) => {
+    const rows = await withTenantRows(req.userId,
+      'SELECT id, service, label, updated_at FROM user_credentials WHERE user_id = ? AND service IS NOT NULL AND service != ? ORDER BY updated_at DESC',
+      [req.userId, 'api_key']);
+    res.json({ success: true, data: rows });
+  }));
+
+  // POST /api/credentials — vincula/reemplaza un canal institucional por
+  // `service` (antes ignoraba `service`/`label` del body y sobreescribía
+  // siempre la misma fila global del usuario — ver nota arriba).
   app.post('/api/credentials', authenticateToken, tryCatch(async (req, res) => {
-    const { apiKey, notebookKey } = req.body;
-    if (!apiKey) return res.status(400).json({ success: false, message: 'apiKey requerido' });
-    const id = crypto.randomUUID();
+    const validacionCred = validarBody(credentialsSchema, req.body);
+    if (!validacionCred.ok) return res.status(400).json({ success: false, message: validacionCred.message });
+    const { service, apiKey, label } = validacionCred.data;
     const enc = process.env.ENCRYPTION_KEY;
     if (!enc) return res.status(503).json({ success: false, message: 'Servicio de credenciales no disponible — ENCRYPTION_KEY no configurada' });
-    const apiKeyEnc = encryptKey(apiKey, enc);
-    const nbKeyEnc = notebookKey ? encryptKey(notebookKey, enc) : null;
-    const existing = await withTenantRow(req.userId, 'SELECT id FROM user_credentials WHERE user_id = ?', [req.userId]);
+    const encryptedKey = encryptKey(apiKey, enc);
+    const existing = await withTenantRow(req.userId, 'SELECT id FROM user_credentials WHERE user_id = ? AND service = ?', [req.userId, service]);
     if (existing) {
-      await withTenantRun(req.userId, 'UPDATE user_credentials SET api_key_enc = ?, notebook_key_enc = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [apiKeyEnc, nbKeyEnc, req.userId]);
+      await withTenantRun(req.userId, 'UPDATE user_credentials SET encrypted_key = ?, label = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND service = ?', [encryptedKey, label || '', req.userId, service]);
     } else {
-      await withTenantRun(req.userId, 'INSERT INTO user_credentials (id, user_id, api_key_enc, notebook_key_enc) VALUES (?, ?, ?, ?)', [id, req.userId, apiKeyEnc, nbKeyEnc]);
+      await withTenantRun(req.userId, 'INSERT INTO user_credentials (id, user_id, service, label, encrypted_key) VALUES (?, ?, ?, ?, ?)', [crypto.randomUUID(), req.userId, service, label || '', encryptedKey]);
     }
-    res.json({ success: true, message: 'Credenciales guardadas' });
+    res.json({ success: true, message: 'Canal vinculado correctamente' });
   }));
 
   // DELETE /api/credentials/:servicio
@@ -2506,7 +2552,35 @@ async function start() {
   // ════════════════════════════════════════════════════════════════════════════
 
   // GET /api/convocatorias
-  app.get('/api/convocatorias', radarCacheMiddleware, tryCatch(async (req, res) => {
+  // BIZ-001 (auditoría 2026-09-23): antes el catálogo completo era público
+  // (200 filas con url_convocatoria sin token, verificado en vivo) y el plan
+  // Radar solo se exigía en el frontend. Sin plan Radar: muestra fija de 3
+  // filas con campos recortados. Se ignoran filtros y búsqueda en ese modo, si
+  // no se podría extraer el catálogo de 3 en 3 variando entidad/sector/país.
+  // radarCacheMiddleware separa la caché por nivel (radarCache.js).
+  const RADAR_MUESTRA_FILAS = 3;
+  const RADAR_MUESTRA_CAMPOS = ['id', 'titulo', 'donante', 'estado', 'fecha_limite', 'sectores', 'paises_elegibles', 'entidad_nombre', 'entidad_sigla', 'created_at'];
+  function recortarFilaMuestra(r) {
+    const fila = { descripcion: '', url_convocatoria: '', monto_min: 0, monto_max: 0 };
+    for (const k of RADAR_MUESTRA_CAMPOS) fila[k] = r[k] ?? null;
+    return fila;
+  }
+
+  app.get('/api/convocatorias', optionalAuth, resolverNivelRadar, radarCacheMiddleware, tryCatch(async (req, res) => {
+    if (req.radarTier !== 'full') {
+      const total = Number((await getRow(
+        `SELECT COUNT(*) AS cnt FROM convocatorias c WHERE c.deleted_at IS NULL AND c.estado = 'abierta'`
+      ))?.cnt ?? 0);
+      const filas = await getRows(
+        `SELECT c.*, de.nombre AS entidad_nombre, de.sigla AS entidad_sigla FROM convocatorias c LEFT JOIN directorio_entidades de ON de.id = c.entidad_id WHERE c.deleted_at IS NULL AND c.estado = 'abierta' ORDER BY c.created_at DESC LIMIT ?`,
+        [RADAR_MUESTRA_FILAS]
+      );
+      return res.json({
+        success: true, data: filas.map(recortarFilaMuestra), total, page: 1, limit: RADAR_MUESTRA_FILAS,
+        muestra: true, upgrade_required: true, redirect_to: '/planes',
+      });
+    }
+
     const { q, estado, sector, pais, entidad_id, rastreo, page = 1, limit = 50 } = req.query;
 
     // Construir cláusula WHERE compartida para datos y COUNT
@@ -2669,8 +2743,9 @@ async function start() {
 
   // POST /api/entidades — crea nueva entidad desde URL o manualmente
   app.post('/api/entidades', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
-    const { nombre, sigla, tipo, pais, sitio_web, url_convocatorias, telefono, email, alcance } = req.body || {};
-    if (!nombre || !sitio_web) return res.status(400).json({ success: false, message: 'nombre y sitio_web son requeridos' });
+    const validacionEnt = validarBody(crearEntidadSchema, req.body);
+    if (!validacionEnt.ok) return res.status(400).json({ success: false, message: validacionEnt.message });
+    const { nombre, sigla, tipo, pais, sitio_web, url_convocatorias, telefono, email, alcance } = validacionEnt.data;
 
     // ── Chequeo de duplicado — fail-CLOSED: si hay duda, bloquea ────────────
     const entRoot = getApexDomain(sitio_web.trim()) || '';
@@ -3585,8 +3660,9 @@ Reglas:
   // PATCH /api/entidades/:id — actualiza url_convocatorias y dispara re-scraping
   app.patch('/api/entidades/:id', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const { id } = req.params;
-    const { url_convocatorias } = req.body;
-    if (!url_convocatorias) return res.status(400).json({ success: false, message: 'url_convocatorias requerida' });
+    const validacionUrlEnt = validarBody(patchEntidadUrlSchema, req.body);
+    if (!validacionUrlEnt.ok) return res.status(400).json({ success: false, message: validacionUrlEnt.message });
+    const { url_convocatorias } = validacionUrlEnt.data;
     await runSql(
       `UPDATE directorio_entidades SET url_convocatorias = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
       [url_convocatorias, new Date().toISOString(), id]
@@ -3605,10 +3681,9 @@ Reglas:
   // PATCH /api/entidades/:id/status — activa o deshabilita una entidad
   app.patch('/api/entidades/:id/status', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const { id } = req.params;
-    const { status } = req.body;
-    if (status !== 'active' && status !== 'disabled') {
-      return res.status(400).json({ success: false, message: 'status debe ser "active" o "disabled"' });
-    }
+    const validacionStatusEnt = validarBody(patchEntidadStatusSchema, req.body);
+    if (!validacionStatusEnt.ok) return res.status(400).json({ success: false, message: validacionStatusEnt.message });
+    const { status } = validacionStatusEnt.data;
     await runSql(
       "UPDATE directorio_entidades SET status = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
       [status, new Date().toISOString(), id]
@@ -3628,8 +3703,9 @@ Reglas:
 
   // POST /api/favorites
   app.post('/api/favorites', authenticateToken, tryCatch(async (req, res) => {
-    const { grant_id, grant_data } = req.body;
-    if (!grant_id) return res.status(400).json({ success: false, message: 'grant_id requerido' });
+    const validacionFav = validarBody(favoritoSchema, req.body);
+    if (!validacionFav.ok) return res.status(400).json({ success: false, message: validacionFav.message });
+    const { grant_id, grant_data } = validacionFav.data;
     const id = crypto.randomUUID();
     try {
       await withTenantRun(req.userId,
@@ -3737,7 +3813,9 @@ Reglas:
       return res.status(422).json({ success: false, message: error });
     }
 
-    const { tipo = 'convocatorias' } = req.body;
+    const validacionImportar = validarBody(restoreImportarTipoSchema, req.body);
+    if (!validacionImportar.ok) return res.status(400).json({ success: false, message: validacionImportar.message });
+    const { tipo = 'convocatorias' } = validacionImportar.data;
     let rows;
     try {
       rows = await parseFileBuffer(req.file.buffer, req.file.originalname);
@@ -3843,8 +3921,9 @@ Reglas:
     if (req.userRole !== 'admin') {
       return res.status(403).json({ success: false, message: 'Requiere rol admin' });
     }
-    const { keywords } = req.body;
-    if (!Array.isArray(keywords)) return res.status(400).json({ success: false, message: 'keywords debe ser array' });
+    const validacionKw = validarBody(panelKeywordsSchema, req.body);
+    if (!validacionKw.ok) return res.status(400).json({ success: false, message: validacionKw.message });
+    const { keywords } = validacionKw.data;
     const val = JSON.stringify(keywords);
     const now = new Date().toISOString();
     // Upsert compatible con Capa 1 (pg) y Capa 2 (REST): UPDATE primero, INSERT si no existía
@@ -4047,8 +4126,9 @@ Reglas:
 
   // POST /api/radar/cerrar-ids — Cierra manualmente convocatorias por array de IDs
   app.post('/api/radar/cerrar-ids', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
-    const { ids } = req.body;
-    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ success: false, message: 'ids requerido (array)' });
+    const validacionIds = validarBody(cerrarIdsSchema, req.body);
+    if (!validacionIds.ok) return res.status(400).json({ success: false, message: validacionIds.message });
+    const { ids } = validacionIds.data;
     let cerradas = 0;
     for (const id of ids) {
       await runSql('UPDATE convocatorias SET estado = ? WHERE id = ?', ['cerrada', id]);
@@ -4064,8 +4144,9 @@ Reglas:
     res.json({ success: true, message: 'Columna fuente reparada: R2=RASTREO_WEB_EXTERNO, R1=RASTREO_DIRECTORIO' });
   }));
   app.post('/api/radar/buscar-masivo', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
-    const { texto, limit = 20, threshold = 0.30 } = req.body;
-    if (!texto?.trim()) return res.status(400).json({ success: false, message: 'texto requerido' });
+    const validacionBm = validarBody(busquedaSemanticaSchema, req.body);
+    if (!validacionBm.ok) return res.status(400).json({ success: false, message: validacionBm.message });
+    const { texto, limit = 20, threshold = 0.30 } = validacionBm.data;
     const qVec   = await textToEmbedding(texto.trim());
     const vecStr = JSON.stringify(qVec); // "[0.1,-0.45,...]" — compatible con pgvector
     const usePg  = !!process.env.DATABASE_URL;
@@ -4190,7 +4271,9 @@ Reglas:
   // POST /api/entidades/scrape-async — dispara scraping en background (no bloquea la respuesta).
   // Body opcional: { entidadId } → escanea solo esa entidad; sin body → Directorio completo.
   app.post('/api/entidades/scrape-async', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
-    const { entidadId } = req.body || {};
+    const validacionScrapeAsync = validarBody(entidadScrapeAsyncSchema, req.body);
+    if (!validacionScrapeAsync.ok) return res.status(400).json({ success: false, message: validacionScrapeAsync.message });
+    const { entidadId } = validacionScrapeAsync.data;
     if (entidadId) {
       const entidad = await getRow('SELECT id FROM directorio_entidades WHERE id = ? AND deleted_at IS NULL', [entidadId]);
       if (!entidad) return res.status(404).json({ success: false, message: 'Entidad no encontrada' });
@@ -4207,7 +4290,9 @@ Reglas:
 
   // POST /api/entidades/indexadas — entidades ya validadas/indexadas (opuesto de la cola de validación)
   app.post('/api/entidades/indexadas', authenticateToken, tryCatch(async (req, res) => {
-    const { filtros = {} } = req.body || {};
+    const validacionIndexadas = validarBody(entidadesIndexadasSchema, req.body);
+    if (!validacionIndexadas.ok) return res.status(400).json({ success: false, message: validacionIndexadas.message });
+    const { filtros = {} } = validacionIndexadas.data;
     const cond   = [`deleted_at IS NULL`, `validation_status NOT ILIKE '%PENDIENTE%'`];
     const params = [];
     if (filtros.tipo)  { cond.push('tipo ILIKE ?');  params.push(`%${filtros.tipo}%`); }
@@ -4302,8 +4387,9 @@ Reglas:
     res.json({ success: true, message: `${req.params.tipo} restaurado correctamente` });
   }));
   app.post('/api/ia/busqueda-semantica', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
-    const { texto, limit = 10, threshold = 0.25 } = req.body;
-    if (!texto?.trim()) return res.status(400).json({ success: false, message: 'texto requerido' });
+    const validacionBs = validarBody(busquedaSemanticaSchema, req.body);
+    if (!validacionBs.ok) return res.status(400).json({ success: false, message: validacionBs.message });
+    const { texto, limit = 10, threshold = 0.25 } = validacionBs.data;
     const qVec   = await textToEmbedding(texto.trim());
     const vecStr = JSON.stringify(qVec);
     const usePg  = !!process.env.DATABASE_URL;
@@ -4333,8 +4419,9 @@ Reglas:
   // POST /api/ia/buscar — alias real de /api/ia/busqueda-semantica, body { query }
   // (AIChat.tsx envía "query"; busqueda-semantica espera "texto" — se traduce aquí).
   app.post('/api/ia/buscar', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
-    const texto = String(req.body?.query || '').trim();
-    if (!texto) return res.status(400).json({ success: false, message: 'query requerido' });
+    const validacionIaBuscar = validarBody(iaBuscarQuerySchema, req.body);
+    if (!validacionIaBuscar.ok) return res.status(400).json({ success: false, message: validacionIaBuscar.message });
+    const texto = validacionIaBuscar.data.query.trim();
     const qVec   = await textToEmbedding(texto);
     const vecStr = JSON.stringify(qVec);
     const usePg  = !!process.env.DATABASE_URL;
@@ -4369,9 +4456,9 @@ Reglas:
       return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
     }
 
-    const { messages, temperature = 0.7 } = req.body;
-    if (!Array.isArray(messages) || messages.length === 0)
-      return res.status(400).json({ success: false, message: 'messages[] requerido' });
+    const validacionAiGen = validarBody(aiGenerateSchema, req.body);
+    if (!validacionAiGen.ok) return res.status(400).json({ success: false, message: validacionAiGen.message });
+    const { messages, temperature = 0.7 } = validacionAiGen.data;
 
     // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): max_tokens venía
     // directo de req.body sin tope — el cliente podía pedir una salida
@@ -4441,9 +4528,9 @@ Reglas:
     const GEMINI_KEY = process.env.GOOGLE_API_KEY;
     if (!GEMINI_KEY) return res.status(503).json({ success: false, code: 'AI_NO_DISPONIBLE', message: 'GOOGLE_API_KEY no configurada.' });
 
-    const { prompt } = req.body;
-    if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 8_000)
-      return res.status(400).json({ success: false, message: 'prompt requerido (máx 8000 caracteres)' });
+    const validacionPromptBarrido = validarBody(promptBarridoGeminiSchema, req.body);
+    if (!validacionPromptBarrido.ok) return res.status(400).json({ success: false, message: validacionPromptBarrido.message });
+    const { prompt } = validacionPromptBarrido.data;
 
     if (!geminiCB.canCall()) {
       return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
@@ -4500,10 +4587,9 @@ Reglas:
     if (!GEMINI_KEY) return res.status(503).json({ success: false, code: 'AI_NO_DISPONIBLE', message: 'GOOGLE_API_KEY no configurada.' });
     if (!geminiCB.canCall()) return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
 
-    const { prompt, context } = req.body;
-    if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 32_000) {
-      return res.status(400).json({ success: false, message: 'prompt requerido (máx 32000 caracteres)' });
-    }
+    const validacionAnalyze = validarBody(convocatoriaAnalyzeSchema, req.body);
+    if (!validacionAnalyze.ok) return res.status(400).json({ success: false, message: validacionAnalyze.message });
+    const { prompt, context } = validacionAnalyze.data;
 
     const fullPrompt = context ? `${prompt}\n\nContexto adicional:\n${String(context).slice(0, 8000)}` : prompt;
     const GEMINI_MODEL = 'gemini-2.0-flash';
@@ -4537,7 +4623,9 @@ Reglas:
   // POST /api/triggers/run-with-context — registra el contexto de alertas/soportes
   // como traza de auditoría real en system_logs (tabla ya existente).
   app.post('/api/triggers/run-with-context', authenticateToken, tryCatch(async (req, res) => {
-    const { alertas = [], soportes = [] } = req.body || {};
+    const validacionTrig = validarBody(triggersContextoSchema, req.body);
+    if (!validacionTrig.ok) return res.status(400).json({ success: false, message: validacionTrig.message });
+    const { alertas = [], soportes = [] } = validacionTrig.data;
     const id = crypto.randomUUID();
     await runSql(
       `INSERT INTO system_logs (id, origen, mensaje, payload, nivel, created_at) VALUES (?,?,?,?,?,?)`,
@@ -4555,8 +4643,9 @@ Reglas:
   // POST /api/configuracion/guardar — persiste credenciales de IA por usuario
   // (mismo patrón cifrado que POST /api/credentials, tabla user_credentials).
   app.post('/api/configuracion/guardar', authenticateToken, tryCatch(async (req, res) => {
-    const { cuentaGoogleNotebook, apiKeyMotorBusqueda } = req.body || {};
-    if (!apiKeyMotorBusqueda) return res.status(400).json({ success: false, message: 'apiKeyMotorBusqueda requerido' });
+    const validacionCfgGuardar = validarBody(configuracionGuardarSchema, req.body);
+    if (!validacionCfgGuardar.ok) return res.status(400).json({ success: false, message: validacionCfgGuardar.message });
+    const { cuentaGoogleNotebook, apiKeyMotorBusqueda } = validacionCfgGuardar.data;
 
     const enc = process.env.ENCRYPTION_KEY;
     if (!enc) return res.status(503).json({ success: false, message: 'Servicio de configuración no disponible — ENCRYPTION_KEY no configurada' });
@@ -4575,8 +4664,9 @@ Reglas:
   // lógica (antes devolvía 501 diciendo "usa barrido-masivo"; ahora corre la
   // búsqueda vectorial directamente en vez de redirigir con un mensaje).
   const barridoMasivoHandler = tryCatch(async (req, res) => {
-    const { texto, proyectoId, limit = 50, threshold = 0.25 } = req.body;
-    if (!texto?.trim() && !proyectoId) return res.status(400).json({ success: false, message: 'texto o proyectoId requerido' });
+    const validacionBarridoMasivo = validarBody(barridoMasivoSchema, req.body);
+    if (!validacionBarridoMasivo.ok) return res.status(400).json({ success: false, message: validacionBarridoMasivo.message });
+    const { texto, proyectoId, limit = 50, threshold = 0.25 } = validacionBarridoMasivo.data;
     let qVec;
     if (proyectoId) {
       // proyectos es dato de tenant -- escopado. Las búsquedas de convocatorias
@@ -4627,10 +4717,9 @@ Reglas:
   // convocatorias/radar) y se valida el enum real de la columna.
   const ESTADOS_CONVOCATORIA_VALIDOS = ['abierta', 'cerrada', 'nueva'];
   app.put('/api/convocatorias/:id/estado', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
-    const { estado } = req.body;
-    if (!ESTADOS_CONVOCATORIA_VALIDOS.includes(estado)) {
-      return res.status(400).json({ success: false, message: `estado debe ser uno de: ${ESTADOS_CONVOCATORIA_VALIDOS.join(', ')}` });
-    }
+    const validacionEstadoConv = validarBody(convocatoriaEstadoSchema, req.body);
+    if (!validacionEstadoConv.ok) return res.status(400).json({ success: false, message: validacionEstadoConv.message });
+    const { estado } = validacionEstadoConv.data;
     await runSql('UPDATE convocatorias SET estado = ? WHERE id = ?', [estado, req.params.id]);
     res.json({ success: true });
   }));
@@ -4641,10 +4730,9 @@ Reglas:
 
   // F4-02: CRITICAL_DESIGN_EXCEPTION
   app.post('/api/formulador/validar-estructura', authenticateToken, setTenantContext, rejectMaterialsInput, tryCatch(async (req, res) => {
-    const { proyectoId, elementos } = req.body;
-    if (!proyectoId || !Array.isArray(elementos)) {
-      return res.status(400).json({ success: false, message: 'proyectoId y elementos[] requeridos' });
-    }
+    const validacionEstructura = validarBody(validarEstructuraSchema, req.body);
+    if (!validacionEstructura.ok) return res.status(400).json({ success: false, message: validacionEstructura.message });
+    const { proyectoId, elementos } = validacionEstructura.data;
     const { valid, exceptions } = validateStructuralElements(elementos, proyectoId);
     if (!valid) {
       // RLS-scoped: si proyectoId no pertenece al tenant del usuario, la
@@ -4683,8 +4771,9 @@ Reglas:
   // req.userGeminiKeys (byokGate → user_gemini_keys): null = exento → pool
   // del servidor; array = rota sobre las llaves propias del usuario.
   app.post('/api/modulo3b/arbol/generar', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, tryCatch(async (req, res) => {
-    const { proyectoId, objetivoCentral } = req.body;
-    if (!proyectoId || !objetivoCentral) return res.status(400).json({ success: false, message: 'proyectoId y objetivoCentral requeridos' });
+    const validacionArbolGen = validarBody(arbolGenerarSchema, req.body);
+    if (!validacionArbolGen.ok) return res.status(400).json({ success: false, message: validacionArbolGen.message });
+    const { proyectoId, objetivoCentral } = validacionArbolGen.data;
     if (!(await checkProyectoOwnership(proyectoId, req.userId))) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
@@ -4739,7 +4828,9 @@ Reglas:
     if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
-    const { texto, supuestos } = req.body;
+    const validacionNodo = validarBody(arbolNodoPatchSchema, req.body);
+    if (!validacionNodo.ok) return res.status(400).json({ success: false, message: validacionNodo.message });
+    const { texto, supuestos } = validacionNodo.data;
     const updates = [], params = [];
     if (texto !== undefined)     { updates.push('texto = ?');     params.push(texto); }
     if (supuestos !== undefined) { updates.push('supuestos = ?'); params.push(supuestos); }
@@ -4765,10 +4856,9 @@ Reglas:
     if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
-    const { nombre, tipo, linea_base = 0, meta_total, unidad_medida, fuente_verificacion = '' } = req.body;
-    if (!nombre || !tipo || meta_total === undefined || meta_total === '' || !unidad_medida) {
-      return res.status(400).json({ success: false, message: 'nombre, tipo, meta_total y unidad_medida son requeridos' });
-    }
+    const validacionIndicador = validarBody(indicadorSchema, req.body);
+    if (!validacionIndicador.ok) return res.status(400).json({ success: false, message: validacionIndicador.message });
+    const { nombre, tipo, linea_base = 0, meta_total, unidad_medida, fuente_verificacion = '' } = validacionIndicador.data;
     const id = crypto.randomUUID();
     await withTenantRun(req.userId,
       `INSERT INTO project_indicators (id, project_id, org_id, nombre, tipo, linea_base, meta_total, unidad_medida, fuente_verificacion)
@@ -4810,7 +4900,9 @@ Reglas:
     if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     }
-    const { insumos = [], actividades = [], productos = [], resultados_corto_plazo = [], impacto_largo_plazo = '' } = req.body;
+    const validacionTdc = validarBody(teoriaCambioSchema, req.body);
+    if (!validacionTdc.ok) return res.status(400).json({ success: false, message: validacionTdc.message });
+    const { insumos = [], actividades = [], productos = [], resultados_corto_plazo = [], impacto_largo_plazo = '' } = validacionTdc.data;
     const existing = await withTenantRow(req.userId, 'SELECT id FROM project_change_theory WHERE proyecto_id = ?', [req.params.id]);
     const vals = [JSON.stringify(insumos), JSON.stringify(actividades), JSON.stringify(productos), JSON.stringify(resultados_corto_plazo), impacto_largo_plazo];
     if (existing) {
@@ -4868,11 +4960,10 @@ Reglas:
     );
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const nombreEntidad = String(req.body?.nombre_entidad || '').trim().slice(0, 255);
-    const urlLineamientos = String(req.body?.url_lineamientos || '').trim().slice(0, 500);
-    if (!nombreEntidad) {
-      return res.status(400).json({ success: false, message: 'nombre_entidad es requerido' });
-    }
+    const validacionPostCrear = validarBody(postulacionCrearSchema, req.body);
+    if (!validacionPostCrear.ok) return res.status(400).json({ success: false, message: validacionPostCrear.message });
+    const nombreEntidad = validacionPostCrear.data.nombre_entidad.trim().slice(0, 255);
+    const urlLineamientos = (validacionPostCrear.data.url_lineamientos || '').trim().slice(0, 500);
 
     const { problematicaCentral, poblacionObjetivo } = extraerContextoMatriz(proyecto);
     const { enfoque, fuente } = await generarEnfoqueEntidad({
@@ -4925,11 +5016,9 @@ Reglas:
     if (!(await checkPostulacionOwnership(req.params.id, req.userId))) {
       return res.status(404).json({ success: false, message: 'Postulación no encontrada' });
     }
-    const { estado_postulacion, url_lineamientos, enfoque_generado_ia } = req.body;
-    const ESTADOS_VALIDOS = ['Borrador', 'Radicado', 'Aprobado', 'Rechazado'];
-    if (estado_postulacion !== undefined && !ESTADOS_VALIDOS.includes(estado_postulacion)) {
-      return res.status(400).json({ success: false, message: `estado_postulacion debe ser uno de: ${ESTADOS_VALIDOS.join(', ')}` });
-    }
+    const validacionPostPatch = validarBody(postulacionPatchSchema, req.body);
+    if (!validacionPostPatch.ok) return res.status(400).json({ success: false, message: validacionPostPatch.message });
+    const { estado_postulacion, url_lineamientos, enfoque_generado_ia } = validacionPostPatch.data;
     const updates = [], params = [];
     if (estado_postulacion !== undefined)  { updates.push('estado_postulacion = ?'); params.push(estado_postulacion); }
     if (url_lineamientos !== undefined)    { updates.push('url_lineamientos = ?');   params.push(String(url_lineamientos).slice(0, 500)); }
@@ -5021,10 +5110,9 @@ Reglas:
   // con path dinámico cierra la carrera del todo: el merge ocurre atómico
   // sobre el valor vivo de la fila, sin copia JS intermedia.
   app.patch('/api/proyectos/:id/ficha-tecnica-merge', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
-    const { key, value } = req.body;
-    if (!key || typeof key !== 'string') {
-      return res.status(400).json({ success: false, message: 'key (string) es requerido' });
-    }
+    const validacionFtMerge = validarBody(fichaTecnicaMergeSchema, req.body);
+    if (!validacionFtMerge.ok) return res.status(400).json({ success: false, message: validacionFtMerge.message });
+    const { key, value } = validacionFtMerge.data;
     const proyecto = await withTenantRow(req.userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -5045,10 +5133,9 @@ Reglas:
   // Antes esos resultados eran reales (no un mock) pero solo vivían en memoria
   // del navegador — desaparecían al recargar. Dedup por url_convocatoria.
   app.post('/api/radar/persistir-barrido', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
-    const { resultados } = req.body;
-    if (!Array.isArray(resultados) || resultados.length === 0) {
-      return res.status(400).json({ success: false, message: 'resultados (array) es requerido' });
-    }
+    const validacionPersistir = validarBody(persistirBarridoSchema, req.body);
+    if (!validacionPersistir.ok) return res.status(400).json({ success: false, message: validacionPersistir.message });
+    const { resultados } = validacionPersistir.data;
     let insertadas = 0, duplicadas = 0;
     for (const r of resultados.slice(0, 100)) {
       const url = String(r.enlace_oficial || '').trim();
@@ -5172,7 +5259,9 @@ Reglas:
   }));
   app.put('/api/modulo8/agentes/:nombre/status', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(401).json({ success: false });
-    const { status } = req.body;
+    const validacionAgenteStatus = validarBody(modulo8AgenteStatusSchema, req.body);
+    if (!validacionAgenteStatus.ok) return res.status(400).json({ success: false, message: validacionAgenteStatus.message });
+    const { status } = validacionAgenteStatus.data;
     const IMMUTABLE_AGENTS = ['validacion-estructural-v1', 'materials-filter-v1', 'crosscheck-validator-v1'];
     if (IMMUTABLE_AGENTS.includes(req.params.nombre) && status !== 'ACTIVE') {
       return res.status(403).json({
@@ -5228,6 +5317,9 @@ Reglas:
   // Entrada (M1) — "Generar con AI" a partir de la carpeta "Investigación" de Anexos
   await registerEntradaIARoutes(app, { authenticateToken, requireAccess, aiLimiter, entradaCampoLimiter });
 
+  // Formulación Integral — cadena "un clic" Entrada→Árbol→Viabilidad (2026-09-22)
+  registerFormulacionIntegralRoutes(app, { authenticateToken, requireAccess, formulacionIntegralLimiter });
+
   // F5-01: Módulo 9 — Cross-Check Pipeline & Radicación
   registerRadicacionRoutes(app, { authenticateToken });
 
@@ -5273,8 +5365,14 @@ Reglas:
     console.warn('[server] dist/ no encontrado — solo API disponible');
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[server] Activo en puerto ${PORT}`);
+  // AUTH-001 (auditoría 2026-09-23): fuera de producción escucha SOLO en
+  // loopback — antes 0.0.0.0 exponía el backend local (con la BD real) a
+  // toda la red Wi-Fi. Render/Docker fijan NODE_ENV=production (render.yaml,
+  // Dockerfile, docker-compose.yml) y necesitan 0.0.0.0. HOST permite
+  // abrirlo a propósito en local si alguna vez hace falta.
+  const LISTEN_HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : (process.env.HOST || '127.0.0.1');
+  app.listen(PORT, LISTEN_HOST, () => {
+    console.log(`[server] Activo en ${LISTEN_HOST}:${PORT}`);
     // Activar cron de actualización diaria de convocatorias (02:00 COT).
     // Si un admin lo detuvo con POST /api/radar/stop, respeta esa preferencia al reiniciar.
     try {

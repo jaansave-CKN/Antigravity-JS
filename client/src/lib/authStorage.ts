@@ -3,13 +3,24 @@
  * localStorage (react-doctor client-localstorage-no-version, 2026-09-05).
  *
  * FIX (Fase 1 frontend, Prioridad Amarilla, 2026-09-05): el JWT real de
- * sesión ya NO se guarda aquí — vive exclusivamente en la cookie httpOnly
- * `auth_token` que planta server.js (ver AUTH_COOKIE_NAME en
- * auth.middleware.js), invisible para JS por diseño. `auth_token:v1` en
- * localStorage sigue existiendo por una única razón: 'demo-mode-token', un
- * flag público (cadena hardcodeada en todo el repo, jamás un secreto) que
- * marca "modo demo sin backend real" y necesita sobrevivir un reload porque
- * no hay servidor del que revalidarlo. `auth_user:v1` cachea el PERFIL (no
+ * sesión dejó de guardarse aquí — pasó a vivir exclusivamente en la cookie
+ * httpOnly `auth_token` que planta server.js (ver AUTH_COOKIE_NAME en
+ * auth.middleware.js), invisible para JS por diseño.
+ *
+ * REVERTIDO PARCIALMENTE (2026-09-16, "se perdió mi información" — causa
+ * raíz real confirmada con logs de producción, 2026-09-05 a 2026-09-16):
+ * la cookie por sí sola no estaba llegando en un número amplio de endpoints
+ * reales (fetch() con credentials:'include' correctamente puesto, cookie
+ * correctamente emitida con sameSite:'lax' en login — la entrega fallaba de
+ * todas formas, causa exacta no aislada pese a auditoría profunda). El
+ * backend nunca dejó de mandar el JWT real en el body de login/mfa/
+ * activación/trial; AuthContextNew.tsx ahora SÍ lo persiste aquí de nuevo
+ * (ver persistSession()) como RESPALDO — la cookie sigue siendo la primera
+ * opción de extractToken() en el backend, este valor solo se usa cuando la
+ * cookie no llegó. `auth_token:v1` puede contener por tanto: un JWT real de
+ * sesión, o 'demo-mode-token' (flag público, nunca un secreto, para "modo
+ * demo sin backend real" — necesita sobrevivir un reload porque no hay
+ * servidor del que revalidarlo). `auth_user:v1` cachea el PERFIL (no
  * sensible: nombre/email/rol) tanto para sesiones demo como reales — para
  * las reales es solo un espejo de lo último que devolvió /api/auth/verify,
  * nunca la fuente de verdad de autenticación.
@@ -44,7 +55,7 @@ function leerConMigracion(actualKey: string, legadoKey: string): string | null {
   return legado;
 }
 
-/** Solo devuelve 'demo-mode-token' o null ahora — nunca un JWT real. */
+/** Devuelve el JWT real de sesión, 'demo-mode-token', o null. Ver docblock del archivo (revertido 2026-09-16). */
 export function leerAuthToken(): string | null {
   return leerConMigracion(AUTH_TOKEN_KEY, AUTH_TOKEN_KEY_LEGACY);
 }
@@ -54,7 +65,7 @@ export function leerAuthUser(): string | null {
   return leerConMigracion(AUTH_USER_KEY, AUTH_USER_KEY_LEGACY);
 }
 
-/** Solo debe invocarse con 'demo-mode-token' — ver docblock del archivo. */
+/** Acepta un JWT real de sesión o 'demo-mode-token' — ver docblock del archivo (revertido 2026-09-16). */
 export function escribirAuthToken(t: string): void {
   localStorage.setItem(AUTH_TOKEN_KEY, t);
   localStorage.removeItem(AUTH_TOKEN_KEY_LEGACY);

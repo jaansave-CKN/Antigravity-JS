@@ -156,7 +156,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // — con el JWT fuera de Web Storage, otra pestaña ya no puede detectar el
   // cambio de sesión observando storage, así que se hace explícito via
   // BroadcastChannel (ver authStorage.ts).
-  function persistSession(u: UserProfile) {
+  // FIX (2026-09-16, "se perdió mi información" — causa raíz real): la cookie
+  // httpOnly sigue siendo el mecanismo preferido (extractToken() en
+  // auth.middleware.js la revisa primero), pero 11 días de logs reales de
+  // producción (2026-09-05 a 2026-09-16, radar-backend) muestran fetch()
+  // con credentials:'include' NO entregándola en un número amplio de
+  // endpoints reales del Formulador (proyectos/:id, anexos, indicadores,
+  // scoring-dinamico, copiloto/historial, incluso /api/auth/verify) —
+  // "[auth] Rechazo 401 ... sin_cookie_ni_header_valido" repetido, con la
+  // sesión real intacta y los datos reales presentes en la BD (verificado
+  // en vivo contra la BD de producción). El backend NUNCA dejó de mandar el
+  // JWT real en el body de login/mfa/activación/trial (server.js:1704-1706 y
+  // símiles) — solo el frontend dejó de guardarlo (Fase 1, 2026-09-05). Se
+  // restaura como RESPALDO, no como reemplazo: si la cookie sí llega, sigue
+  // ganando por ser la primera opción del backend; si no llega, este header
+  // evita el 401 espurio en vez de dejar el formulario en blanco en silencio.
+  function persistSession(u: UserProfile, jwtReal?: string) {
+    if (jwtReal) escribirAuthToken(jwtReal);
     escribirAuthUser(u);
     setToken(SESSION_TOKEN);
     setUser(u);
@@ -190,16 +206,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         // Sesión rechazada por el backend (backend UP, respuesta explícita: 401/403).
-        // En dev, cambiar a demo-mode-token para no bloquear el trabajo local.
-        if (import.meta.env.DEV) {
-          const devUser = { id: 'dev-user-001', email: 'dev@antigravity.local', nombre: 'Desarrollador Local', role: 'admin' as const, plan: 'suite', created_at: new Date().toISOString(), is_active: true };
-          escribirAuthToken('demo-mode-token');
-          escribirAuthUser(devUser);
-          setToken('demo-mode-token');
-          setUser(devUser);
-        } else {
-          clearSession();
-        }
+        // Antes, en DEV, pasaba a 'demo-mode-token' con rol admin; el backend
+        // ya no acepta ese token (AUTH-001, 2026-09-23), así que eso dejaba una
+        // UI de admin sin datos. Ahora igual que en producción: pedir login.
+        clearSession();
         setLoading(false);
         return;
       }
@@ -314,9 +324,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { mfaRequired: true, preAuthToken: data.preAuthToken };
     }
 
-    const { user: userData, subscription } = data;
+    const { user: userData, subscription, token: jwtReal } = data;
     if (!userData) throw new Error('Respuesta inválida del servidor.');
-    persistSession(userData);
+    persistSession(userData, jwtReal);
     checkCredentials();
     // Notifica a SubscriptionContext (mismo tab) — ya no depende de localStorage events.
     window.dispatchEvent(new CustomEvent('auth-login'));
@@ -342,9 +352,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento.'); }
     if (!response.ok) throw new Error(data?.message || 'Código incorrecto.');
-    const { user: userData, subscription } = data;
+    const { user: userData, subscription, token: jwtReal } = data;
     if (!userData) throw new Error('Respuesta inválida del servidor.');
-    persistSession(userData);
+    persistSession(userData, jwtReal);
     checkCredentials();
     window.dispatchEvent(new CustomEvent('auth-login'));
     return subscription as LoginSubscription | undefined;
@@ -371,9 +381,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { data = JSON.parse(text); }
     catch { throw new Error('El servicio no está disponible en este momento.'); }
     if (!response.ok) throw new Error(data?.message || 'No se pudo validar la cuenta.');
-    const { user: userData } = data;
+    const { user: userData, token: jwtReal } = data;
     if (!userData) throw new Error('Respuesta inválida del servidor.');
-    persistSession(userData);
+    persistSession(userData, jwtReal);
     checkCredentials();
     window.dispatchEvent(new CustomEvent('auth-login'));
   }
@@ -395,9 +405,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let data: AuthApiResponse;
     try { data = JSON.parse(text); } catch { throw new Error('Respuesta inválida del servidor.'); }
     if (!response.ok || !data.success) throw new Error(data?.message || 'Error al iniciar sesión trial.');
-    const { user: trialUser } = data;
+    const { user: trialUser, token: jwtReal } = data;
     if (!trialUser) throw new Error('Respuesta inválida del servidor.');
-    persistSession(trialUser);
+    persistSession(trialUser, jwtReal);
     setHasCreds(false);
   }
 

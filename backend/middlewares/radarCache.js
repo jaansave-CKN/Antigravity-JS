@@ -9,9 +9,9 @@
  *   · Endpoints de autenticación o suscripciones
  *
  * ESTRATEGIA:
- *   · Clave = hash de la URL completa + query params (varía por filtros)
+ *   · Clave = nivel de acceso (full/muestra) + URL completa con query params
  *   · TTL   = 900 000 ms (15 minutos)
- *   · Cache-Control header para clientes HTTP
+ *   · Cache-Control: private + Vary: Cookie, Authorization (varía por sesión)
  *   · Invalidación automática por TTL (sin stale-while-revalidate intencional)
  *   · No se cachea si la respuesta tiene error (success: false)
  *
@@ -26,9 +26,14 @@ const cache = new Map();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// BIZ-001 (auditoría 2026-09-23): la clave incluye el nivel de acceso
+// (req.radarTier, puesto por resolverNivelRadar en server.js). Antes era solo
+// la URL: una respuesta completa cacheada para un usuario con plan Radar se
+// habría servido a un anónimo con la misma URL. La muestra ignora la query,
+// así que tiene una sola entrada.
 function buildKey(req) {
   const url = req.originalUrl || req.url;
-  return `radar:${url}`;
+  return req.radarTier === 'full' ? `radar:full:${url}` : 'radar:muestra';
 }
 
 function isExpired(entry) {
@@ -63,7 +68,10 @@ export function radarCacheMiddleware(req, res, next) {
   if (!bypassCache && cached && !isExpired(cached)) {
     res.setHeader('X-Cache',         'HIT');
     res.setHeader('X-Cache-Age',     String(Math.round((Date.now() - cached.timestamp) / 1000)));
-    res.setHeader('Cache-Control',   `public, max-age=${Math.round((CACHE_TTL_MS - (Date.now() - cached.timestamp)) / 1000)}`);
+    // private + Vary (BIZ-001): el contenido depende de la sesión; un proxy/CDN
+    // compartido (Render va detrás de Cloudflare) no debe reutilizarlo.
+    res.setHeader('Vary',            'Cookie, Authorization');
+    res.setHeader('Cache-Control',   `private, max-age=${Math.round((CACHE_TTL_MS - (Date.now() - cached.timestamp)) / 1000)}`);
     return res.json(cached.data);
   }
 
@@ -82,7 +90,8 @@ export function radarCacheMiddleware(req, res, next) {
       cache.set(key, { data, timestamp: Date.now() });
 
       res.setHeader('X-Cache',       'MISS');
-      res.setHeader('Cache-Control', `public, max-age=${CACHE_TTL_MS / 1000}`);
+      res.setHeader('Vary',          'Cookie, Authorization');
+      res.setHeader('Cache-Control', `private, max-age=${CACHE_TTL_MS / 1000}`);
     }
 
     return originalJson(data);
