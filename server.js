@@ -11,7 +11,7 @@ import jwt from 'jsonwebtoken';
 import { authenticator } from 'otplib';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, entradaCampoLimiter, slowDown, financialPipelineLimiter, formulacionIntegralLimiter } from './backend/middlewares/SecurityMiddleware.js';
+import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, entradaCampoLimiter, slowDown, esHealthCheck, financialPipelineLimiter, formulacionIntegralLimiter } from './backend/middlewares/SecurityMiddleware.js';
 import { authenticateToken, optionalAuth, requireAdmin, extractToken, AUTH_COOKIE_NAME } from './backend/middlewares/auth.middleware.js';
 import {
   validarBody, registroUsuarioSchema, loginSchema, mfaChallengeSchema, mfaCodeSchema,
@@ -1363,7 +1363,12 @@ async function start() {
       directives: {
         defaultSrc:     ["'self'"],
         scriptSrc:      ["'self'"],
-        styleSrc:       ["'self'", 'https://fonts.googleapis.com', 'https://unpkg.com'],
+        // 'unsafe-inline' en estilos (2026-09-23): 11 componentes inyectan
+        // <style> propio (TopNavBar, LoginPage, SelectionPage, main.tsx…) y
+        // mermaid/leaflet generan estilos inline. Sin esto, en producción
+        // —único entorno con CSP— la navegación y el layout salían sin
+        // estilos. Los SCRIPTS siguen estrictos ('self' solamente).
+        styleSrc:       ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://unpkg.com'],
         fontSrc:        ["'self'", 'https://fonts.gstatic.com'],
         imgSrc:         ["'self'", 'data:', 'https:'],
         connectSrc:     ["'self'", 'https://generativelanguage.googleapis.com', 'https://api.frankfurter.app'],
@@ -1425,6 +1430,8 @@ async function start() {
   app.use('/api', rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 300,
+    // Health check exento (2026-09-23): el sondeo de Render agotaba el cupo — ver esHealthCheck().
+    skip: esHealthCheck,
     standardHeaders: true,
     legacyHeaders: false,
     // FIX (auditoría SRE 2026-08-08): mismo bypass de XFF corregido en

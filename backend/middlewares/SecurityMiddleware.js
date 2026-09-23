@@ -238,6 +238,13 @@ export function sanitizeFormuladorBody(req, res, next) {
   next();
 }
 
+// GET /api/health (o /health): sondeo de disponibilidad de Render y del CI.
+// Sin BD ni datos: no hay nada que proteger con rate limiting.
+export function esHealthCheck(req) {
+  const ruta = req.originalUrl?.split('?')[0];
+  return req.method === 'GET' && (ruta === '/api/health' || ruta === '/health');
+}
+
 // ── Slowdown anti-DDoS — retraso progresivo antes de bloquear ─────────────────
 // Después de `freeRequests` por ventana, cada request adicional añade `delayMs`
 const _slowStore = new Map(); // ip → { count, resetAt }
@@ -247,6 +254,11 @@ const SLOW_DELAY_MS     = 500;             // ms añadidos por request extra
 const SLOW_MAX_DELAY_MS = 10_000;          // tope: 10 s
 
 export function slowDown(req, res, next) {
+  // Health check exento (2026-09-23): el sondeo de Render (cada pocos
+  // segundos, misma IP) pasaba las 100 peticiones libres en ~8 min, cada
+  // sondeo sumaba +500 ms, superaba el timeout de 5 s y Render reiniciaba la
+  // instancia en bucle (evento server_failed → 503 en producción).
+  if (esHealthCheck(req)) return next();
   // FIX (auditoría SRE 2026-08-08): mismo bypass de XFF que getRateLimitKey — ver arriba.
   const ip  = req.ip || 'unknown';
   const now = Date.now();

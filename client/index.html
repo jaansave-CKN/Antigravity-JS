@@ -47,23 +47,10 @@
        app sin depender de qué .css se haya importado. -->
   <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet"/>
-  <!-- ERROR CATCHER: muestra errores JS en pantalla antes de que React monte -->
-  <script>
-    window.__errors = [];
-    window.onerror = function(msg, src, line, col, err) {
-      var d = document.createElement('div');
-      d.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#b91c1c;color:#fff;padding:16px;font:13px monospace;z-index:99999;white-space:pre-wrap;word-break:break-all';
-      d.textContent = 'JS ERROR: ' + msg + '\nArchivo: ' + src + ':' + line + ':' + col;
-      document.body ? document.body.appendChild(d) : document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(d); });
-      window.__errors.push(msg);
-    };
-    window.addEventListener('unhandledrejection', function(e) {
-      var d = document.createElement('div');
-      d.style.cssText = 'position:fixed;top:60px;left:0;right:0;background:#92400e;color:#fff;padding:16px;font:13px monospace;z-index:99999;white-space:pre-wrap;word-break:break-all';
-      d.textContent = 'PROMISE REJECT: ' + (e.reason?.message || e.reason || e);
-      document.body ? document.body.appendChild(d) : document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(d); });
-    });
-  </script>
+  <!-- ERROR CATCHER: errores JS en pantalla antes de que React monte. Archivo
+       estático (client/public/error-catcher.js): la CSP de producción bloquea
+       scripts inline. -->
+  <script src="/error-catcher.js"></script>
   <style>
     html, body { min-height: 100vh; width: 100%; margin: 0; padding: 0; }
     #root { min-height: 100vh; }
