@@ -3252,7 +3252,7 @@ async function start() {
       if (apiKey) try {
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({
-          model: 'gemini-2.0-flash',
+          model: 'gemini-2.5-flash', // LLM-001: gemini-2.0-flash retirado
           tools: [{ googleSearch: {} }],
         });
         const deepPrompt =
@@ -3371,7 +3371,7 @@ Reglas:
     let geminiResult = null;
     if (geminiCB.canCall()) {
       const apiKeys = [process.env.GOOGLE_API_KEY, process.env.GEMINI_API_KEY_FALLBACK, process.env.GEMINI_API_KEY].filter(Boolean);
-      const models  = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+      const models  = ['gemini-2.5-flash', 'gemini-3.6-flash']; // LLM-001 (2026-09-23): 2.0/1.5-flash ya no existen en la API
       const userMsg = `URL: ${url}\nNombre detectado: ${pageTitle}\nContenido de la página (primeros 3000 chars):\n${pageText.slice(0, 3000)}`;
       outer: for (const apiKey of apiKeys) {
         for (const modelName of models) {
@@ -4523,7 +4523,7 @@ Reglas:
     }
 
     // Endpoint OpenAI-compatible de Google — acepta el mismo formato de messages[]
-    const GEMINI_MODEL = 'gemini-2.0-flash';
+    const GEMINI_MODEL = 'gemini-2.5-flash'; // LLM-001: gemini-2.0-flash retirado
     let upstream;
     try {
       upstream = await fetch(
@@ -4573,7 +4573,7 @@ Reglas:
       return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
     }
 
-    const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash-lite', 'gemini-2.0-flash'];
+    const MODELS = ['gemini-2.5-flash', 'gemini-3.6-flash']; // LLM-001: 2.0-flash(-lite) retirados
     let lastErr = null;
     for (const model of MODELS) {
       try {
@@ -4629,7 +4629,7 @@ Reglas:
     const { prompt, context } = validacionAnalyze.data;
 
     const fullPrompt = context ? `${prompt}\n\nContexto adicional:\n${String(context).slice(0, 8000)}` : prompt;
-    const GEMINI_MODEL = 'gemini-2.0-flash';
+    const GEMINI_MODEL = 'gemini-2.5-flash'; // LLM-001: gemini-2.0-flash retirado
     let upstream;
     try {
       upstream = await fetch(
