@@ -17,7 +17,13 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:5173',
+    // El NAVEGADOR usa el mismo origen que VITE_API_URL (client/.env):
+    // el frontend arma URLs absolutas con esa variable, y con otro origen la
+    // CSP (connect-src 'self') bloquea el login — verificado 2026-09-23 con
+    // 127.0.0.1 aquí y localhost en VITE_API_URL. Las comprobaciones del
+    // lado Node (webServer.url, global-setup) sí van a 127.0.0.1: el backend
+    // escucha solo en loopback IPv4 y Node puede resolver localhost a ::1.
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173',
     trace: 'on-first-retry',
   },
   projects: [
@@ -29,13 +35,13 @@ export default defineConfig({
   webServer: [
     {
       command: 'npm run dev:backend',
-      url: 'http://localhost:8000/api/health',
+      url: 'http://127.0.0.1:8000/api/health',
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
     },
     {
       command: 'npm run dev:frontend',
-      url: 'http://localhost:5173',
+      url: 'http://127.0.0.1:5173',
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
     },

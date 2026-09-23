@@ -22,7 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * Email único por corrida (Date.now()) — mismo patrón ya usado en
  * backend/scripts/smokeTest.js — evita colisión "ya existe" en reruns.
  */
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173';
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5173';
 const STATE_DIR = path.join(__dirname, '.auth');
 const STATE_FILE = path.join(STATE_DIR, 'e2e-state.json');
 
@@ -31,7 +31,10 @@ export default async function globalSetup() {
     throw new Error('DATABASE_URL no está definida — global-setup necesita acceso directo a la BD para aprobar al usuario E2E y otorgar access_formulador (fuera del alcance de cualquier endpoint público).');
   }
 
-  const email = `e2e_formulador_${Date.now()}@radfor360.e2e-test`;
+  // example.com (RFC 2606, reservado para pruebas, nunca entrega correo).
+  // Antes '@radfor360.e2e-test': el TLD con guion no pasa z.string().email()
+  // de registroUsuarioSchema (backend/validators/zodSchemas.js) -> 400.
+  const email = `e2e_formulador_${Date.now()}@example.com`;
   const password = 'E2eFormulador1234!';
   const nombre = 'E2E Formulador Bot';
 

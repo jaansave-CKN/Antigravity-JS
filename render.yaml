@@ -2,6 +2,14 @@ services:
   - type: web
     name: radarfondos-360
     runtime: node
+    # Rama y raíz verificadas en GitHub (2026-09-23): el repo
+    # jaansave-CKN/Antigravity-JS aloja DOS apps — `main` = RadarFondos 360
+    # (este archivo, server.js en la RAÍZ) y `master` = app padre
+    # "Antigravity OS" (su propio render.yaml, servicio radar-formulador-360).
+    # La ruta proyectos/Proy_03_RadarFondos NO existe en ninguna rama remota,
+    # así que no hay rootDir: la raíz de `main` ya es el proyecto. Un servicio
+    # apuntado a `master` sirve la otra app (causa del smoke test fallido).
+    branch: main
     plan: starter                          # $7/mes — necesario para disco persistente (SQLite fallback)
     buildCommand: npm install && npm run build
     startCommand: node server.js
@@ -50,6 +58,12 @@ services:
       # URL pública del frontend en Firebase (sin trailing slash)
       # Ej: https://antigravity-jairo-2026.web.app
       - key: FRONTEND_URL
+        sync: false
+      # Obligatoria EN BUILD: `npm run build` la incrusta en el bundle y
+      # client/src/utils/envValidator.ts hace que la app no arranque si falta
+      # (client/.env está en .gitignore, Render no la tiene). Valor = la URL
+      # pública de ESTE servicio (mismo origen que sirve dist/ y /api).
+      - key: VITE_API_URL
         sync: false
 
       # ── Email transaccional (Brevo) ──────────────────────────────────────────

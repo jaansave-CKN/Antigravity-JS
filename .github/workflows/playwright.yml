@@ -39,6 +39,11 @@ jobs:
           ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}
           NODE_ENV=test
           EOF
+          # client/.env (gitignored): el frontend exige VITE_API_URL
+          # (client/src/utils/envValidator.ts lanza sin ella y la app no
+          # arranca en ninguna página). Mismo origen que baseURL de
+          # playwright.config.ts; si difiere, la CSP bloquea las llamadas.
+          echo "VITE_API_URL=http://localhost:5173" > client/.env
 
       - name: Ejecutar suite E2E (levanta backend+frontend vía webServer de Playwright)
         run: npm run test:e2e

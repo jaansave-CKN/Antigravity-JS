@@ -61,7 +61,7 @@ test.describe('Formulador — flujo financiero (COP)', () => {
     await page.goto('/login');
     await page.getByPlaceholder('operador@institucion.gov').fill(estado.email);
     await page.getByPlaceholder('••••••••••••').fill(estado.password);
-    await page.getByRole('button', { name: /ejecutar autenticación/i }).click();
+    await page.getByRole('button', { name: /^iniciar sesión$/i }).click();
     // Regresión real (2026-08-08): esto rebotaba a "/" un instante después de
     // llegar a /checklist — race entre el <Navigate> declarativo que main.tsx
     // montaba para /login y el navigate() imperativo de LoginPage (ver
@@ -100,7 +100,7 @@ test.describe('Formulador — flujo financiero (COP)', () => {
     const excelBuffer = generarExcelApuCOP();
 
     const api = await pwRequest.newContext({
-      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173',
+      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5173',
       extraHTTPHeaders: { Authorization: `Bearer ${estado.token}` },
     });
 
