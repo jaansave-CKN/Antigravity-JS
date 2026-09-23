@@ -71,7 +71,13 @@ async function run() {
 
   // ── 5. Registro + Login + Proyecto (flujo real) ───────────────────────────
   console.log('\n[5/6] Flujo autenticado (register → login → proyecto)...');
-  const testEmail = `smoketest_${Date.now()}@radar360.test`;
+  // Email FIJO (2026-09-23): antes era `smoketest_${Date.now()}` y cada
+  // deploy dejaba una cuenta sin aprobar en la BD real (16 acumuladas) y un
+  // correo al admin. Con email fijo, la primera corrida crea la cuenta y las
+  // siguientes caen en la rama anti-enumeración de /api/auth/register, que
+  // responde EXACTAMENTE lo mismo (201 + pendingApproval) sin crear filas —
+  // el check sigue probando el gate. Dominio .test (RFC 2606): no entrega correo.
+  const testEmail = 'smoketest@radar360.test';
   const reg = await fetchJSON('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify({ email: testEmail, password: 'SmokeTest1234!', nombre: 'Smoke Test Bot' }),

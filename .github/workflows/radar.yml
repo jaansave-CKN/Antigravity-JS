@@ -61,10 +61,10 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Trigger Render deploy
-        # API oficial de Render (autenticada), no un Deploy Hook: el servicio
-        # ya tiene autoDeploy=yes en Render (deploya solo con cada push a
-        # main, sin esperar al CI) — este paso, gateado por needs:ci, es lo
-        # que realmente aporta: bloquear el deploy hasta que build/tsc pasen.
+        # API oficial de Render (autenticada), no un Deploy Hook. El servicio
+        # debe tener autoDeploy=no (render.yaml) para que este paso, gateado
+        # por needs:ci, sea el ÚNICO disparador: nada llega a producción sin
+        # que tsc/build pasen.
         run: |
           HTTP_CODE=$(curl -s -o /tmp/render_response.json -w "%{http_code}" -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
             -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
@@ -77,10 +77,41 @@ jobs:
             exit 1
           fi
           echo "Render deploy triggered: $(date)"
+          echo "DEPLOY_ID=$(jq -r '.id // empty' /tmp/render_response.json)" >> "$GITHUB_ENV"
           echo "## Deploy V9.0" >> $GITHUB_STEP_SUMMARY
           echo "- Render: deploy disparado (HTTP $HTTP_CODE)" >> $GITHUB_STEP_SUMMARY
           echo "- Fecha: $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "- Fecha: $(date)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Esperar a que ESE deploy quede live y verificar su commit
+        # Antes el smoke test arrancaba apenas se DISPARABA el deploy: Render
+        # tarda minutos en construir y mientras tanto sigue sirviendo la
+        # versión anterior, así que se probaba código viejo. Además, entre el
+        # 2026-08-16 y el 2026-09-23 el servicio construía otra rama
+        # (radfor360-production, snapshot de la app padre): el CI "desplegaba"
+        # con HTTP 2xx pero producción nunca recibió main. Este paso espera el
+        # estado final del deploy y exige que el commit desplegado sea el del push.
+        run: |
+          if [ -z "$DEPLOY_ID" ]; then echo "::error::Render no devolvió id de deploy"; exit 1; fi
+          for i in $(seq 1 90); do
+            curl -s "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys/$DEPLOY_ID" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" -H "Accept: application/json" > /tmp/deploy.json
+            STATUS=$(jq -r '.status' /tmp/deploy.json)
+            echo "Intento $i: $STATUS"
+            case "$STATUS" in
+              live) break ;;
+              build_failed|update_failed|canceled|deactivated|pre_deploy_failed)
+                echo "::error::El deploy $DEPLOY_ID terminó en estado $STATUS (ver logs en el Dashboard de Render)"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          if [ "$STATUS" != "live" ]; then echo "::error::El deploy $DEPLOY_ID no quedó live en 15 minutos (último estado: $STATUS)"; exit 1; fi
+          DEPLOYED_SHA=$(jq -r '.commit.id' /tmp/deploy.json)
+          echo "Commit desplegado: $DEPLOYED_SHA | commit del push: $GITHUB_SHA"
+          if [ "$DEPLOYED_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Render desplegó $DEPLOYED_SHA, no $GITHUB_SHA — el servicio está construyendo otra rama. Debe ser 'main' (ver docs/DESPLIEGUE_RENDER.md)."
+            exit 1
+          fi
+          echo "- Render: deploy $DEPLOY_ID live con commit $DEPLOYED_SHA" >> $GITHUB_STEP_SUMMARY
 
   # ── Post-Deploy: Smoke Test contra el backend real ya desplegado (bloqueante) ──
   smoke-test:
