@@ -79,7 +79,12 @@ async function resolveSession(req, { registrar = true } = {}) {
       tieneCookie: !!req.cookies?.[AUTH_COOKIE_NAME],
       authPresente: !!auth,
       authPrefijo: auth ? auth.slice(0, 15) : null,
-      cookieHeaderCrudo: req.headers.cookie || null,
+      // LOG-001 (2026-09-23): solo los NOMBRES de las cookies, nunca sus
+      // valores (antes quedaba el token XSRF en logs planos). Basta para
+      // distinguir "no llegó Cookie" de "llegó Cookie sin auth_token".
+      cookiesPresentes: req.headers.cookie
+        ? req.headers.cookie.split(';').map(c => c.split('=')[0].trim()).filter(Boolean)
+        : null,
       origin: req.headers.origin || null,
       referer: req.headers.referer || null,
     });

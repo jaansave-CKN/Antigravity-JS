@@ -449,32 +449,65 @@ function validarFortalezaPassword(password) {
   return null;
 }
 
-async function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex');
+// ── Hash de contraseñas (AUTH-004, 2026-09-23) ──────────────────────────────
+// PBKDF2-SHA512 con 210.000 iteraciones (recomendación OWASP vigente; antes
+// 100.000). Formato nuevo, autodescriptivo: pbkdf2_sha512$<iter>$<salt>$<hash>.
+// verifyPassword sigue aceptando el formato legado "salt:hash" (100.000) — los
+// hashes existentes se migran solos en el siguiente login exitoso (needsRehash).
+const PBKDF2_ITERACIONES = 210000;
+const PBKDF2_PREFIJO = 'pbkdf2_sha512';
+
+function pbkdf2Async(password, salt, iteraciones) {
   return new Promise((resolve, reject) => {
-    crypto.pbkdf2(password, salt, 100000, 64, 'sha512', (err, key) => {
-      if (err) reject(err);
-      else resolve(`${salt}:${key.toString('hex')}`);
-    });
+    crypto.pbkdf2(password, salt, iteraciones, 64, 'sha512', (err, key) => err ? reject(err) : resolve(key));
   });
 }
 
-async function verifyPassword(password, stored) {
+async function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const key = await pbkdf2Async(password, salt, PBKDF2_ITERACIONES);
+  return `${PBKDF2_PREFIJO}$${PBKDF2_ITERACIONES}$${salt}$${key.toString('hex')}`;
+}
+
+// Devuelve { salt, hash, iteraciones } o null si el formato no es reconocible.
+// Defensivo: acota las iteraciones leídas de la BD (100k–1M) para que un valor
+// adulterado no pueda usarse para tumbar el servidor con PBKDF2 gigantes.
+function parsearHash(stored) {
+  if (typeof stored !== 'string' || !stored) return null;
+  if (stored.startsWith(PBKDF2_PREFIJO + '$')) {
+    const [, iter, salt, hash] = stored.split('$');
+    const n = Number(iter);
+    if (!Number.isInteger(n) || n < 100000 || n > 1000000 || !salt || !hash) return null;
+    return { salt, hash, iteraciones: n };
+  }
   const [salt, hash] = stored.split(':');
-  return new Promise((resolve, reject) => {
-    crypto.pbkdf2(password, salt, 100000, 64, 'sha512', (err, key) => {
-      if (err) return reject(err);
-      // Comparación de tiempo constante — timingSafeEqual exige buffers del
-      // mismo largo; un hash corrupto/con formato distinto ya es inválido
-      // por definición, así que ese caso corto-circuita a false sin llegar
-      // a comparar (no hay nada secreto que filtrar en esa longitud: viene
-      // de datos ya almacenados, no de la entrada del atacante).
-      const hashBuf = Buffer.from(hash || '', 'hex');
-      const keyBuf  = key;
-      if (hashBuf.length !== keyBuf.length) return resolve(false);
-      resolve(crypto.timingSafeEqual(keyBuf, hashBuf));
-    });
-  });
+  return salt && hash ? { salt, hash, iteraciones: 100000 } : null;
+}
+
+async function verifyPassword(password, stored) {
+  const p = parsearHash(stored);
+  if (!p || typeof password !== 'string') return false;
+  const key = await pbkdf2Async(password, p.salt, p.iteraciones);
+  // Comparación de tiempo constante — timingSafeEqual exige buffers del
+  // mismo largo; un hash corrupto/con formato distinto ya es inválido.
+  const hashBuf = Buffer.from(p.hash, 'hex');
+  if (hashBuf.length !== key.length) return false;
+  return crypto.timingSafeEqual(key, hashBuf);
+}
+
+// true si el hash guardado usa menos iteraciones que las actuales (legado).
+function needsRehash(stored) {
+  const p = parsearHash(stored);
+  return !!p && p.iteraciones < PBKDF2_ITERACIONES;
+}
+
+// Hash señuelo (AUTH-003): cuando el email no existe, /login igual ejecuta un
+// PBKDF2 del mismo costo, para que el tiempo de respuesta no revele si la
+// cuenta existe. Se genera una vez, perezosamente.
+let _hashSenuelo = null;
+async function hashSenuelo() {
+  if (!_hashSenuelo) _hashSenuelo = hashPassword(crypto.randomBytes(24).toString('hex'));
+  return _hashSenuelo;
 }
 
 // ── Inicialización BD ────────────────────────────────────────────────────────
@@ -1563,7 +1596,11 @@ async function start() {
   // producción para desacoplarlo por completo.
   app.post('/api/system/production-ready', tryCatch(async (req, res) => {
     const smokeToken = req.headers['x-smoke-token'] || '';
-    const expected = process.env.SMOKE_TEST_TOKEN || JWT_SECRET;
+    // SMOKE-001 (2026-09-23): sin respaldo a JWT_SECRET — obligaba a repartir
+    // el secreto maestro de firma a quien corriera el smoke test. Sin
+    // SMOKE_TEST_TOKEN configurado, el endpoint queda deshabilitado (503).
+    const expected = process.env.SMOKE_TEST_TOKEN;
+    if (!expected) return res.status(503).json({ success: false, message: 'SMOKE_TEST_TOKEN no configurado' });
     const a = Buffer.from(String(smokeToken));
     const b = Buffer.from(String(expected));
     const valido = a.length === b.length && crypto.timingSafeEqual(a, b);
@@ -1662,13 +1699,12 @@ async function start() {
     const { email, password } = validacionLogin.data;
     // Sin escopar a propósito: búsqueda por email, tenant aún desconocido.
     const user = await getRow('SELECT * FROM usuarios WHERE email = ? AND deleted_at IS NULL', [email.trim().toLowerCase()]);
-    if (!user) return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
-    if (!user.is_active) return res.status(403).json({ success: false, message: 'Cuenta desactivada' });
-    if (user.tipousuario !== 'admin') {
-      const sub = await withTenantRow(user.id, 'SELECT expires_at FROM user_subscriptions WHERE user_id = ?', [user.id]);
-      if (sub?.expires_at && new Date(sub.expires_at).getTime() < Date.now()) {
-        return res.status(403).json({ success: false, code: 'SUBSCRIPTION_EXPIRED', message: 'Tu membresía expiró. Contacta al administrador para renovarla.' });
-      }
+    // AUTH-003 (2026-09-23): el email inexistente ejecuta el MISMO costo de
+    // PBKDF2 contra un hash señuelo y responde el mismo 401 — antes respondía
+    // al instante (diferencia de tiempo medible) y revelaba qué cuentas existen.
+    if (!user) {
+      await verifyPassword(password, await hashSenuelo());
+      return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
     }
 
     // Bloqueo por CUENTA (no solo por IP como authLimiter) — un atacante con
@@ -1696,6 +1732,30 @@ async function start() {
       }
       await withTenantRun(user.id, 'UPDATE usuarios SET failed_login_attempts = ? WHERE id = ?', [intentos, user.id]);
       return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
+    }
+
+    // AUTH-004: migración transparente del hash legado (100k → 210k
+    // iteraciones) aprovechando la contraseña en claro, que solo existe aquí
+    // (el challenge MFA no la recibe) — por eso va ANTES de la rama MFA.
+    // Nunca bloquea el login si el UPDATE falla.
+    if (needsRehash(user.password_hash)) {
+      try {
+        await withTenantRun(user.id, 'UPDATE usuarios SET password_hash = ? WHERE id = ?', [await hashPassword(password), user.id]);
+      } catch (e) {
+        console.warn('[login] No se pudo migrar el hash de contraseña (el login sigue):', e.message);
+      }
+    }
+
+    // AUTH-003: estos chequeos antes iban ANTES de validar la contraseña —
+    // revelaban a cualquiera, sin la clave, que la cuenta existe y si estaba
+    // desactivada o con membresía vencida. Con la contraseña correcta, los
+    // mensajes son exactamente los mismos de antes.
+    if (!user.is_active) return res.status(403).json({ success: false, message: 'Cuenta desactivada' });
+    if (user.tipousuario !== 'admin') {
+      const sub = await withTenantRow(user.id, 'SELECT expires_at FROM user_subscriptions WHERE user_id = ?', [user.id]);
+      if (sub?.expires_at && new Date(sub.expires_at).getTime() < Date.now()) {
+        return res.status(403).json({ success: false, code: 'SUBSCRIPTION_EXPIRED', message: 'Tu membresía expiró. Contacta al administrador para renovarla.' });
+      }
     }
 
     if (!user.is_approved) {
@@ -3995,7 +4055,9 @@ Reglas:
   app.post('/api/radar/barrido', authenticateToken, requireAccess('radar'), aiLimiter, (req, res, next) => barridoMasivoHandler(req, res, next));
 
   // POST /api/radar/sweep — Barrido retroactivo endsWith: vincula R2 ↔ Directorio
-  app.post('/api/radar/sweep', authenticateToken, tryCatch(async (_req, res) => {
+  // AUTHZ-001 (2026-09-23): UPDATE masivo sobre la tabla GLOBAL convocatorias —
+  // antes lo podía disparar cualquier cuenta autenticada (incluida free).
+  app.post('/api/radar/sweep', authenticateToken, requireAdmin, tryCatch(async (_req, res) => {
     const n = await sweepEndsWith();
     res.json({ success: true, vinculadas: n });
   }));
@@ -5438,7 +5500,13 @@ Reglas:
       console.log('[Sectores] Backfill al arranque desactivado (SECTORES_BACKFILL_AL_ARRANQUE != true) — las nuevas se clasifican al ingresar.');
     }
     // Enriquecimiento de montos: 90s después (evita concurrencia con sectores)
-    setTimeout(() => enriquecerMontosBatch(300).catch(e => console.warn('[Montos] startup error:', e.message)), 90_000);
+    // DESACTIVADO por defecto (2026-09-23): en cada arranque consultaba las
+    // mismas 300 URLs externas y terminaba siempre con "0 montos actualizados"
+    // (verificado en logs locales y de producción). Sigue disponible a demanda
+    // en POST /api/radar/enrich-montos, o aquí con MONTOS_ENRIQUECER_AL_ARRANQUE=true.
+    if (process.env.MONTOS_ENRIQUECER_AL_ARRANQUE === 'true') {
+      setTimeout(() => enriquecerMontosBatch(300).catch(e => console.warn('[Montos] startup error:', e.message)), 90_000);
+    }
   });
 }
 

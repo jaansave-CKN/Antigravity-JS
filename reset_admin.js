@@ -11,10 +11,13 @@ import { runSql } from './backend/config/database.config.js';
 // Pendiente manual (no lo hace este fix): rotar la password real de
 // test@radar360.co en la BD de producción — no se hizo aquí porque cambia
 // el acceso de una cuenta real y es una decisión del usuario, no del código.
+// Mismo formato que hashPassword() de server.js desde AUTH-004 (2026-09-23):
+// pbkdf2_sha512$<iteraciones>$<salt>$<hash>, 210.000 iteraciones.
 function hashPassword(password) {
+  const iteraciones = 210000;
   const salt = crypto.randomBytes(16).toString('hex');
-  const hashed = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-  return `${salt}:${hashed}`;
+  const hashed = crypto.pbkdf2Sync(password, salt, iteraciones, 64, 'sha512').toString('hex');
+  return `pbkdf2_sha512$${iteraciones}$${salt}$${hashed}`;
 }
 
 const [, , email, password] = process.argv;

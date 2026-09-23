@@ -19,7 +19,15 @@ import { paymentProvider } from '../payments/index.js';
 import { applyPaymentEvent } from '../payments/subscriptionEvents.js';
 import { logCriticalError } from '../services/logService.js';
 
-_ensureWompiEventsTable(runSql);
+// PAY-001 (2026-09-23): antes se creaba al IMPORTAR el módulo (server.js lo
+// importa antes de loadEnv() y de que el pool pg exista) — el CREATE fallaba
+// y solo quedaba un console.warn: wompi_events NO existe en la BD real.
+// Ahora se asegura en el primer evento real, con el pool ya listo.
+let _tablaLista = null;
+function asegurarTabla() {
+  if (!_tablaLista) _tablaLista = _ensureWompiEventsTable(runSql).then(ok => { if (!ok) _tablaLista = null; return ok; });
+  return _tablaLista;
+}
 
 async function _ensureWompiEventsTable(runSqlFn) {
   try {
@@ -32,18 +40,19 @@ async function _ensureWompiEventsTable(runSqlFn) {
         raw_payload      JSONB
       )
     `);
+    return true;
   } catch (e) {
     console.warn('[wompi] No se pudo crear tabla wompi_events:', e.message);
+    return false;
   }
 }
 
+// Fail-CLOSED (PAY-001): antes devolvía false ante cualquier error (p.ej. tabla
+// inexistente) y el evento se procesaba de nuevo en cada reintento de Wompi.
+// Ahora el error sube y el handler responde 500 → Wompi reintenta más tarde.
 async function _isEventProcessed(eventId) {
-  try {
-    const row = await getRow('SELECT 1 FROM wompi_events WHERE wompi_event_id = $1', [eventId]);
-    return !!row;
-  } catch {
-    return false; // tabla aún no existe — no bloquear el procesamiento
-  }
+  const row = await getRow('SELECT 1 FROM wompi_events WHERE wompi_event_id = $1', [eventId]);
+  return !!row;
 }
 
 async function _recordEvent(providerEventId, eventType, tenantId, rawPayload) {
@@ -76,8 +85,21 @@ export async function wompiWebhookHandler(req, res) {
   }
 
   console.log(`[wompi] Evento recibido: ${event.type} | id: ${event.providerEventId}`);
+  if (event.montoInvalido) {
+    // PAY-001: pago APPROVED cuyo monto/moneda no coincide con el plan — NO se
+    // aplica (type=unhandled); queda en system_logs para revisión manual.
+    await logCriticalError('WompiWebhook', 'Monto o moneda no coinciden con el plan — plan NO activado', { providerEventId: event.providerEventId, tenantId: event.tenantId, ...event.montoInvalido });
+  }
 
-  if (await _isEventProcessed(event.providerEventId)) {
+  let yaProcesado;
+  try {
+    if (!(await asegurarTabla())) throw new Error('tabla wompi_events no disponible');
+    yaProcesado = await _isEventProcessed(event.providerEventId);
+  } catch (err) {
+    await logCriticalError('WompiWebhook', `Idempotencia no verificable, se pide reintento: ${err.message}`, { providerEventId: event.providerEventId });
+    return res.status(500).json({ error: 'Idempotencia no verificable, reintentar' });
+  }
+  if (yaProcesado) {
     console.log(`[wompi] Evento duplicado ignorado: ${event.providerEventId}`);
     return res.json({ received: true, idempotent: true });
   }

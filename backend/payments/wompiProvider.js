@@ -143,7 +143,10 @@ export class WompiProvider extends PaymentProvider {
     const cadena = valores.join('') + timestamp + this._eventsSecret;
     const checksumCalculado = crypto.createHash('sha256').update(cadena).digest('hex').toUpperCase();
 
-    if (checksumCalculado !== String(checksumRecibido).toUpperCase()) {
+    // Comparación en tiempo constante (PAY-001, 2026-09-23).
+    const a = Buffer.from(checksumCalculado);
+    const b = Buffer.from(String(checksumRecibido).toUpperCase());
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
       throw new Error('Firma de webhook Wompi inválida (checksum no coincide).');
     }
 
@@ -152,7 +155,16 @@ export class WompiProvider extends PaymentProvider {
 
     const base = { providerEventId: `${tx?.id || tx?.reference}:${timestamp}`, raw: body, tenantId, priceId: plan, customerId: tenantId };
 
-    if (tx?.status === 'APPROVED') return { ...base, type: 'checkout.completed' };
+    if (tx?.status === 'APPROVED') {
+      // PAY-001 (2026-09-23): antes se otorgaba el plan codificado en `reference`
+      // sin mirar el monto — un pago por menos valor que el plan lo habría
+      // activado igual. Ahora se exige monto y moneda exactos del catálogo.
+      const esperado = PLANES[plan]?.precio ? Math.round(PLANES[plan].precio * 100) : null;
+      if (esperado === null || Number(tx.amount_in_cents) !== esperado || tx.currency !== 'COP') {
+        return { ...base, type: 'unhandled', montoInvalido: { plan, esperado, recibido: tx?.amount_in_cents, moneda: tx?.currency } };
+      }
+      return { ...base, type: 'checkout.completed' };
+    }
     if (tx?.status === 'DECLINED' || tx?.status === 'ERROR') return { ...base, type: 'payment.failed' };
     // PENDING/VOIDED u otros estados intermedios: se registra pero no se aplica.
     return { ...base, type: 'unhandled' };
