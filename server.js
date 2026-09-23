@@ -5422,8 +5422,21 @@ Reglas:
     setImmediate(() => backfillRootDomains().catch(e => console.warn('[backfill] root_domain error:', e.message)));
     // Barrido endsWith: vincula convocatorias R2 al Directorio tras el backfill
     setImmediate(() => sweepEndsWith().catch(e => console.warn('[sweep/endsWith] startup error:', e.message)));
-    // Clasificación de sectores en background: 30s después del arranque para no interferir con otros inits
-    setTimeout(() => clasificarSectoresEnBatch(500).catch(e => console.warn('[Sectores] startup error:', e.message)), 30_000);
+    // Clasificación de sectores al arranque: DESACTIVADA por defecto
+    // (2026-09-23). Reprocesaba en CADA arranque/deploy (local y producción,
+    // mismas llaves Gemini) las mismas 93 convocatorias que Gemini no puede
+    // clasificar (títulos basura, descripción casi vacía — quedan en '[]' y
+    // se vuelven a seleccionar siempre): era el único consumidor de IA
+    // registrado en 7 días y agotaba la cuota gratuita (20 req/día por
+    // proyecto en gemini-3.6-flash) que necesitan Copiloto/Generar con AI.
+    // Las convocatorias NUEVAS se clasifican al ingresar (DataIngestor.js,
+    // EntityScraper.js); el backfill sigue disponible a demanda en
+    // POST /api/radar/clasificar-sectores, o aquí con SECTORES_BACKFILL_AL_ARRANQUE=true.
+    if (process.env.SECTORES_BACKFILL_AL_ARRANQUE === 'true') {
+      setTimeout(() => clasificarSectoresEnBatch(500).catch(e => console.warn('[Sectores] startup error:', e.message)), 30_000);
+    } else {
+      console.log('[Sectores] Backfill al arranque desactivado (SECTORES_BACKFILL_AL_ARRANQUE != true) — las nuevas se clasifican al ingresar.');
+    }
     // Enriquecimiento de montos: 90s después (evita concurrencia con sectores)
     setTimeout(() => enriquecerMontosBatch(300).catch(e => console.warn('[Montos] startup error:', e.message)), 90_000);
   });
