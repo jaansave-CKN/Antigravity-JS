@@ -1,0 +1,24 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SoloSubirBackupsBajoElPrefijo",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "arn:aws:s3:::NOMBRE_DEL_BUCKET/backups/postgres/*",
+        "arn:aws:s3:::NOMBRE_DEL_BUCKET/backups/sqlite/*"
+      ]
+    },
+    {
+      "Sid": "SoloPorHTTPS",
+      "Effect": "Deny",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::NOMBRE_DEL_BUCKET",
+        "arn:aws:s3:::NOMBRE_DEL_BUCKET/*"
+      ],
+      "Condition": { "Bool": { "aws:SecureTransport": "false" } }
+    }
+  ]
+}

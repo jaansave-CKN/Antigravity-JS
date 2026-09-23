@@ -43,7 +43,7 @@ import { dbStatus, withTenant, withTenantRow, withTenantRun, withTenantRows, wit
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { geminiCB, isQuotaError, AI_LIMIT_EXCEEDED_RESPONSE, loadPersistedKeyState } from './backend/services/geminiCircuitBreaker.js';
+import { geminiCB, isQuotaError, AI_LIMIT_EXCEEDED_RESPONSE, loadPersistedKeyState, registrarLlamadaLLM } from './backend/services/geminiCircuitBreaker.js';
 import { resolverContextoBYOK } from './backend/services/byokService.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
 import { wompiWebhookHandler } from './backend/routes/wompi.webhook.js';
@@ -356,6 +356,10 @@ function tryCatch(fn) {
       // (crashes fatales) — un error de BD/cálculo atrapado aquí adentro nunca
       // llegaba a ese nivel y quedaba invisible fuera del log local.
       sentryCaptureError(err, { method: req.method, path: req.path, userId: req.userId });
+      // Guardián anti-bucle de IA (geminiCircuitBreaker.js) → 429 claro, no 500.
+      if (err.code === 'LLM_LOOP_GUARD') {
+        return res.status(429).json({ success: false, code: 'LLM_LOOP_GUARD', message: err.message });
+      }
       // Errores de IA por clave faltante → 503 con mensaje claro para el usuario
       if (err.message?.includes('EMBEDDINGS_ERROR') || err.message?.includes('GOOGLE_API_KEY')) {
         return res.status(503).json({
@@ -499,6 +503,20 @@ async function verifyPassword(password, stored) {
 function needsRehash(stored) {
   const p = parsearHash(stored);
   return !!p && p.iteraciones < PBKDF2_ITERACIONES;
+}
+
+// Piso de tiempo para respuestas fallidas de /login (AUTH-003). Debe superar el
+// camino más lento (hash legado + UPDATE de intentos + bloqueo); en producción
+// el más rápido ronda ~1 s. Configurable con LOGIN_TIEMPO_MINIMO_MS.
+const LOGIN_TIEMPO_MINIMO_MS = Number(process.env.LOGIN_TIEMPO_MINIMO_MS) || 2000;
+async function igualarTiempoLogin(inicio) {
+  const objetivo = LOGIN_TIEMPO_MINIMO_MS + crypto.randomInt(0, 100);
+  const transcurrido = Date.now() - inicio;
+  if (transcurrido > LOGIN_TIEMPO_MINIMO_MS) {
+    console.warn(`[login] respuesta fallida tardó ${transcurrido} ms (> piso ${LOGIN_TIEMPO_MINIMO_MS} ms) — subir LOGIN_TIEMPO_MINIMO_MS`);
+  }
+  const resto = objetivo - transcurrido;
+  if (resto > 0) await new Promise(r => setTimeout(r, resto));
 }
 
 // Hash señuelo (AUTH-003): cuando el email no existe, /login igual ejecuta un
@@ -1247,6 +1265,9 @@ async function start() {
   // 043) — evita que un restart le haga creer a la app que hay cuota
   // disponible cuando Google la sigue negando del lado real.
   await loadPersistedKeyState();
+  // Precalcula el hash señuelo del login (AUTH-003) para que la PRIMERA
+  // petición con email inexistente no pague un PBKDF2 extra (tiempo delator).
+  await hashSenuelo();
   // A-1: Purgar tokens expirados cada hora (Set + tabla revoked_tokens)
   setInterval(() => purgeExpiredTokens(runSql).catch(e => console.warn('[blacklist] purge error:', e.message)), 60 * 60_000);
   await seedPredios();
@@ -1491,6 +1512,50 @@ async function start() {
   app.use('/api/modulo3b', rejectMaterialsInput);
   app.use('/api/radar/barrido-masivo', rejectMaterialsInput);
 
+  // ── Rutas construidas SIN interfaz (2026-09-23) ──────────────────────────────
+  // Rastreo integral: estos endpoints no tienen NINGÚN llamador en client/src
+  // (verificado con grep literal, incluidas URLs armadas por partes), ni en
+  // tests/, CI o scripts. Se desactivan (404) para reducir superficie de
+  // ataque SIN borrar código: los módulos siguen intactos y se reactivan con
+  // RUTAS_SIN_UI_HABILITADAS=true. Excluidos a propósito (sí se usan o son
+  // legítimos): webhooks de pago, enlaces de aprobación por correo, callback
+  // de Google, health, rutas /api/admin/*, hash de versión (lo prueba
+  // securityValidation.js) y operaciones de radar solo-admin.
+  const RUTAS_SIN_UI = [
+    ['POST', '^/api/ia/busqueda-semantica$'],
+    ['POST', '^/api/ia/buscar$'],
+    ['POST', '^/api/ai/generate$'],
+    ['POST', '^/api/ai/convocatoria-analyze$'],
+    ['POST', '^/api/radar/barrido-gemini$'],
+    ['POST', '^/api/radar/persistir-barrido$'],
+    ['POST', '^/api/triggers/run-with-context$'],
+    ['POST', '^/api/configuracion/guardar$'],
+    ['POST', '^/api/formulador/validar-estructura$'],
+    ['*',    '^/api/proyectos/[^/]+/teoria-cambio$'],
+    ['*',    '^/api/proyectos/[^/]+/postulaciones$'],
+    ['*',    '^/api/postulaciones/[^/]+(/regenerar-enfoque)?$'],
+    ['POST', '^/api/modulo7/match/[^/]+$'],
+    ['GET',  '^/api/proyectos/[^/]+/anexos/buscar$'],
+    ['*',    '^/api/m5/logistica/[^/]+$'],
+    ['POST', '^/api/proyectos/[^/]+/entrada/generar-ai$'],
+    ['*',    '^/api/proyectos/[^/]+/estres-financiero$'],
+    ['POST', '^/api/proyectos/[^/]+/calcular-sroi$'],
+    ['GET',  '^/api/proyectos/[^/]+/impacto-social$'],
+    ['POST', '^/api/proyectos/[^/]+/continuar-formulacion$'],
+    ['POST', '^/api/proyectos/[^/]+/duplicar$'],
+    ['*',    '^/api/m12/ficha/[^/]+$'],
+    ['GET',  '^/api/m12/verificar/[^/]+$'],
+    ['GET',  '^/api/modulo9/radicar/[^/]+/sello$'],
+  ].map(([m, patron]) => [m, new RegExp(patron)]);
+  if (process.env.RUTAS_SIN_UI_HABILITADAS !== 'true') {
+    app.use((req, res, next) => {
+      const ruta = req.originalUrl.split('?')[0];
+      const bloqueada = RUTAS_SIN_UI.some(([m, re]) => (m === '*' || m === req.method) && re.test(ruta));
+      if (bloqueada) return res.status(404).json({ success: false, message: 'Ruta no disponible' });
+      next();
+    });
+  }
+
   // ── Health Check (plataformas: Railway, Render, K8s liveness probe) ─────────
   app.get('/health', (_req, res) => {
     const db = dbStatus();
@@ -1693,7 +1758,18 @@ async function start() {
   }));
 
   // POST /api/auth/login
-  app.post('/api/auth/login', authLimiter, sanitizeAuthBody, tryCatch(async (req, res) => {
+  app.post('/api/auth/login', (req, _res, next) => { req._inicioLogin = Date.now(); next(); }, authLimiter, sanitizeAuthBody, tryCatch(async (req, res) => {
+    // AUTH-003 (tiempo constante, 2026-09-23): TODA respuesta fallida (401/403/
+    // 423) espera hasta un piso fijo + variación aleatoria — ningún camino
+    // (email inexistente, clave mala, cuenta bloqueada/desactivada) puede
+    // responder antes que otro. El login exitoso no se retrasa.
+    // Desde la LLEGADA de la petición (antes de authLimiter, que consulta la BD
+    // remota con latencia variable), no desde la entrada al handler.
+    const inicioLogin = req._inicioLogin || Date.now();
+    const responderFallo = async (status, cuerpo) => {
+      await igualarTiempoLogin(inicioLogin);
+      return res.status(status).json(cuerpo);
+    };
     const validacionLogin = validarBody(loginSchema, req.body);
     if (!validacionLogin.ok) return res.status(400).json({ success: false, message: validacionLogin.message });
     const { email, password } = validacionLogin.data;
@@ -1704,7 +1780,7 @@ async function start() {
     // al instante (diferencia de tiempo medible) y revelaba qué cuentas existen.
     if (!user) {
       await verifyPassword(password, await hashSenuelo());
-      return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
+      return responderFallo(401, { success: false, message: 'Credenciales incorrectas' });
     }
 
     // Bloqueo por CUENTA (no solo por IP como authLimiter) — un atacante con
@@ -1712,7 +1788,7 @@ async function start() {
     // por IP. 5 intentos fallidos → 15 minutos bloqueada.
     if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
       const minutosRestantes = Math.ceil((new Date(user.locked_until).getTime() - Date.now()) / 60000);
-      return res.status(423).json({
+      return responderFallo(423, {
         success: false, code: 'ACCOUNT_LOCKED',
         message: `Cuenta bloqueada temporalmente por múltiples intentos fallidos. Intenta de nuevo en ${minutosRestantes} minuto(s).`,
       });
@@ -1725,13 +1801,13 @@ async function start() {
       if (intentos >= LIMITE_INTENTOS) {
         const lockedUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
         await withTenantRun(user.id, 'UPDATE usuarios SET failed_login_attempts = ?, locked_until = ? WHERE id = ?', [0, lockedUntil, user.id]);
-        return res.status(423).json({
+        return responderFallo(423, {
           success: false, code: 'ACCOUNT_LOCKED',
           message: 'Cuenta bloqueada temporalmente por múltiples intentos fallidos. Intenta de nuevo en 15 minutos.',
         });
       }
       await withTenantRun(user.id, 'UPDATE usuarios SET failed_login_attempts = ? WHERE id = ?', [intentos, user.id]);
-      return res.status(401).json({ success: false, message: 'Credenciales incorrectas' });
+      return responderFallo(401, { success: false, message: 'Credenciales incorrectas' });
     }
 
     // AUTH-004: migración transparente del hash legado (100k → 210k
@@ -1750,16 +1826,16 @@ async function start() {
     // revelaban a cualquiera, sin la clave, que la cuenta existe y si estaba
     // desactivada o con membresía vencida. Con la contraseña correcta, los
     // mensajes son exactamente los mismos de antes.
-    if (!user.is_active) return res.status(403).json({ success: false, message: 'Cuenta desactivada' });
+    if (!user.is_active) return responderFallo(403, { success: false, message: 'Cuenta desactivada' });
     if (user.tipousuario !== 'admin') {
       const sub = await withTenantRow(user.id, 'SELECT expires_at FROM user_subscriptions WHERE user_id = ?', [user.id]);
       if (sub?.expires_at && new Date(sub.expires_at).getTime() < Date.now()) {
-        return res.status(403).json({ success: false, code: 'SUBSCRIPTION_EXPIRED', message: 'Tu membresía expiró. Contacta al administrador para renovarla.' });
+        return responderFallo(403, { success: false, code: 'SUBSCRIPTION_EXPIRED', message: 'Tu membresía expiró. Contacta al administrador para renovarla.' });
       }
     }
 
     if (!user.is_approved) {
-      return res.status(403).json({ success: false, code: 'PENDING_APPROVAL', message: 'Tu cuenta está pendiente de aprobación por el administrador. Te avisaremos cuando quede activa.' });
+      return responderFallo(403, { success: false, code: 'PENDING_APPROVAL', message: 'Tu cuenta está pendiente de aprobación por el administrador. Te avisaremos cuando quede activa.' });
     }
 
     // Login correcto — reiniciar contador de intentos fallidos.
@@ -3323,6 +3399,7 @@ async function start() {
           `/philanthropy, /csr, /social-impact, /giving, /convocatorias, /becas, /responsibility.\n\n` +
           `Responde EXCLUSIVAMENTE con JSON válido (sin bloques markdown ni texto extra):\n` +
           `{"aplica_colombia":true,"deep_url":"URL exacta de la página de grants encontrada","evidencia":"descripción breve de los programas","nombre_oficial":"nombre oficial de la organización"}`;
+        registrarLlamadaLLM('lookup-deepsearch'); // guardián anti-bucle (FinOps)
         const result = await model.generateContent(deepPrompt);
         const text = result.response.text().trim();
         const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -3438,6 +3515,7 @@ Reglas:
           try {
             const genAI = new GoogleGenerativeAI(apiKey);
             const model = genAI.getGenerativeModel({ model: modelName, systemInstruction: systemPrompt });
+            registrarLlamadaLLM('lookup-entidad'); // guardián anti-bucle (FinOps)
             const result = await model.generateContent(userMsg);
             const text = result.response.text().trim();
             const jsonMatch = text.match(/\{[\s\S]*\}/);

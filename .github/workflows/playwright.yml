@@ -33,15 +33,40 @@ jobs:
       # (DATABASE_URL, JWT_SECRET); todo lo demás (Stripe, Wompi, Sentry,
       # PostHog, Resend, Gemini) se queda en modo STANDBY sin bloquear nada,
       # igual que en local — ver docs/ARQUITECTURA_RADFOR360_2026-08-08.md §8-9.
-      - name: Generar .env para CI
+      # Los secretos entran como variables de entorno del paso (no interpolados
+      # en el texto del script) y GitHub los enmascara en cualquier salida. Si
+      # falta alguno, se falla aquí con un mensaje claro — antes el backend
+      # moría con "FATAL: JWT_SECRET not set" y el error parecía de la app.
+      - name: Verificar secretos requeridos (sin imprimir valores)
+        env:
+          S_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          S_JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          S_ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
         run: |
-          cat <<EOF > .env
-          DATABASE_URL=${{ secrets.DATABASE_URL }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}
-          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
-          NODE_ENV=test
-          EOF
+          faltan=""
+          [ -z "$S_DATABASE_URL" ]   && faltan="$faltan DATABASE_URL"
+          [ -z "$S_JWT_SECRET" ]     && faltan="$faltan JWT_SECRET"
+          [ -z "$S_ENCRYPTION_KEY" ] && faltan="$faltan ENCRYPTION_KEY"
+          if [ -n "$faltan" ]; then
+            echo "::error::Faltan secretos en GitHub (Settings > Secrets and variables > Actions):$faltan"
+            exit 1
+          fi
+          echo "Secretos requeridos presentes (valores enmascarados por GitHub)."
+
+      - name: Generar .env para CI
+        env:
+          S_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          S_JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          S_ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          S_SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          {
+            echo "DATABASE_URL=$S_DATABASE_URL"
+            echo "JWT_SECRET=$S_JWT_SECRET"
+            echo "ENCRYPTION_KEY=$S_ENCRYPTION_KEY"
+            echo "SUPABASE_SERVICE_KEY=$S_SUPABASE_SERVICE_KEY"
+            echo "NODE_ENV=test"
+          } > .env
           # client/.env (gitignored): el frontend exige VITE_API_URL
           # (client/src/utils/envValidator.ts lanza sin ella y la app no
           # arranca en ninguna página). Mismo origen que baseURL de

@@ -461,7 +461,39 @@ export class GeminiPoolExhaustedError extends Error {
  * de la API que no es de cuota). Fail-fast: sin sleep bloqueante — si todo
  * el pool falla/está en cooldown, lanza GeminiPoolExhaustedError enseguida.
  */
+// ── Guardián anti-bucle (FinOps, 2026-09-23) ─────────────────────────────────
+// Corta las llamadas a las llaves DEL SERVIDOR (las que paga el plan) si en
+// los últimos 60 s se superan LLM_MAX_LLAMADAS_POR_MINUTO (30 por defecto).
+// Motivo real: un lote de arranque reprocesaba en bucle las mismas 93 filas
+// y agotaba la cuota diaria completa en cada reinicio/deploy. Un uso humano
+// normal no se acerca a este techo; un bucle lo cruza en segundos. Las llaves
+// BYOK de cada usuario (withUserKeyRotation) no pasan por aquí: no son del plan.
+const _ventanaLLM = [];
+let _ultimoAvisoBucle = 0;
+export class LlmLoopGuardError extends Error {
+  constructor(limite) {
+    super(`Guardián anti-bucle: más de ${limite} llamadas de IA por minuto — se pausa para proteger la cuota. Intenta de nuevo en un minuto.`);
+    this.name = 'LlmLoopGuardError';
+    this.status = 429;
+    this.code = 'LLM_LOOP_GUARD';
+  }
+}
+export function registrarLlamadaLLM(origen = 'desconocido') {
+  const limite = Number(process.env.LLM_MAX_LLAMADAS_POR_MINUTO) || 30;
+  const ahora = Date.now();
+  while (_ventanaLLM.length && ahora - _ventanaLLM[0] > 60_000) _ventanaLLM.shift();
+  if (_ventanaLLM.length >= limite) {
+    if (ahora - _ultimoAvisoBucle > 60_000) {
+      _ultimoAvisoBucle = ahora;
+      console.error(`[GeminiCB] GUARDIÁN ANTI-BUCLE activado (${limite}/min) — origen de la llamada bloqueada: ${origen}`);
+    }
+    throw new LlmLoopGuardError(limite);
+  }
+  _ventanaLLM.push(ahora);
+}
+
 export async function withKeyRotation(attemptFn) {
+  registrarLlamadaLLM('withKeyRotation');
   if (!geminiCB.keys.length) {
     const e = new Error('La generación con IA no está configurada en el servidor (falta GOOGLE_API_KEY o GEMINI_API_KEY_1).');
     e.status = 503;
