@@ -83,3 +83,7 @@ config/.mcp.json
 
 # Auditoría: detalle completo (IP LAN, infraestructura, hallazgos abiertos con archivo:línea). El repo es público — solo se versiona la versión redactada de audit/.
 audit/privado/
+
+# Capturas de trabajo (calco/QA) — se conservan en disco, fuera del repo público (2026-09-23)
+/*.png
+*.pyc
