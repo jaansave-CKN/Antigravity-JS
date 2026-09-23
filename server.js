@@ -73,6 +73,7 @@ import { registerFormulacionIntegralRoutes } from './backend/routes/formulacionI
 import { requireByokOrExento } from './backend/middlewares/byokGate.js';
 import { registerByokCredentialsRoutes } from './backend/routes/byokCredentials.routes.js';
 import { radarCacheMiddleware, invalidateRadarCache } from './backend/middlewares/radarCache.js';
+import { resolverNivelRadar } from './backend/middlewares/radarTier.js';
 import { RENDIMIENTOS_CATALOGO } from './backend/pipeline/apuEngine.js';
 import { registerSubscriptionRoutes }    from './backend/routes/subscriptions.routes.js';
 import { registerMotorDialecticoRoutes } from './backend/routes/motorDialectico.routes.js';
@@ -407,24 +408,6 @@ async function resolveGoogleApiKey(userId, getRowFn) {
 const byokGate = requireByokOrExento(); // no toma deps — construye sus propios adaptadores escopados por request (byokGate.js)
 
 // V8.0 RBAC: verifica suscripción por módulo (radar | formulador)
-// BIZ-001 (auditoría 2026-09-23): nivel de acceso al catálogo del Radar para
-// rutas públicas (va después de optionalAuth). 'full' = admin o plan con
-// access_radar; 'muestra' = anónimo, trial, free o cualquier error (cierra
-// en falso a propósito: ante la duda, muestra). El trial se corta antes de
-// consultar: su sub 'trial-xxxx' no es un UUID válido para user_subscriptions.
-function resolverNivelRadar(req, _res, next) {
-  (async () => {
-    if (!req.userId) return 'muestra';
-    if (req.userRole === 'admin') return 'full';
-    if (req.userRole === 'trial' || String(req.userId).startsWith('trial-')) return 'muestra';
-    const sub = await withTenantRow(req.userId,
-      'SELECT access_radar FROM user_subscriptions WHERE user_id = ?', [req.userId]);
-    return sub?.access_radar ? 'full' : 'muestra';
-  })()
-    .catch(e => { logger.warn('[radar] No se pudo resolver el plan, se sirve muestra', { userId: req.userId, err: e.message }); return 'muestra'; })
-    .then(nivel => { req.radarTier = nivel; next(); });
-}
-
 function requireAccess(module) {
   return tryCatch(async (req, res, next) => {
     if (req.userRole === 'admin') return next();
@@ -2566,19 +2549,25 @@ async function start() {
     return fila;
   }
 
+  // Muestra fija compartida por todas las rutas públicas del catálogo
+  // (/api/convocatorias, /api/entidades/:id/convocatorias, /api/buscar):
+  // siempre las mismas 3 convocatorias abiertas más recientes, recortadas.
+  async function obtenerMuestraRadar() {
+    const total = Number((await getRow(
+      `SELECT COUNT(*) AS cnt FROM convocatorias c WHERE c.deleted_at IS NULL AND c.estado = 'abierta'`
+    ))?.cnt ?? 0);
+    const filas = await getRows(
+      `SELECT c.*, de.nombre AS entidad_nombre, de.sigla AS entidad_sigla FROM convocatorias c LEFT JOIN directorio_entidades de ON de.id = c.entidad_id WHERE c.deleted_at IS NULL AND c.estado = 'abierta' ORDER BY c.created_at DESC LIMIT ?`,
+      [RADAR_MUESTRA_FILAS]
+    );
+    return { data: filas.map(recortarFilaMuestra), total };
+  }
+  const RADAR_MUESTRA_FLAGS = { muestra: true, upgrade_required: true, redirect_to: '/planes' };
+
   app.get('/api/convocatorias', optionalAuth, resolverNivelRadar, radarCacheMiddleware, tryCatch(async (req, res) => {
     if (req.radarTier !== 'full') {
-      const total = Number((await getRow(
-        `SELECT COUNT(*) AS cnt FROM convocatorias c WHERE c.deleted_at IS NULL AND c.estado = 'abierta'`
-      ))?.cnt ?? 0);
-      const filas = await getRows(
-        `SELECT c.*, de.nombre AS entidad_nombre, de.sigla AS entidad_sigla FROM convocatorias c LEFT JOIN directorio_entidades de ON de.id = c.entidad_id WHERE c.deleted_at IS NULL AND c.estado = 'abierta' ORDER BY c.created_at DESC LIMIT ?`,
-        [RADAR_MUESTRA_FILAS]
-      );
-      return res.json({
-        success: true, data: filas.map(recortarFilaMuestra), total, page: 1, limit: RADAR_MUESTRA_FILAS,
-        muestra: true, upgrade_required: true, redirect_to: '/planes',
-      });
+      const { data, total } = await obtenerMuestraRadar();
+      return res.json({ success: true, data, total, page: 1, limit: RADAR_MUESTRA_FILAS, ...RADAR_MUESTRA_FLAGS });
     }
 
     const { q, estado, sector, pais, entidad_id, rastreo, page = 1, limit = 50 } = req.query;
@@ -2689,7 +2678,14 @@ async function start() {
   }));
 
   // GET /api/convocatorias/meta — valores distintos de pais y sector para filtros
-  app.get('/api/convocatorias/meta', tryCatch(async (req, res) => {
+  // BIZ-001 (2026-09-23): sin plan Radar los filtros se ignoran (ver
+  // /api/convocatorias), así que la muestra no expone los valores del catálogo.
+  // Cache-Control private: la respuesta depende de la sesión.
+  app.get('/api/convocatorias/meta', optionalAuth, resolverNivelRadar, tryCatch(async (req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store');
+    if (req.radarTier !== 'full') {
+      return res.json({ success: true, sectores: [], paises: [], ...RADAR_MUESTRA_FLAGS });
+    }
     const sectoresRows = await getRows(
       `SELECT DISTINCT sectores FROM convocatorias WHERE deleted_at IS NULL AND sectores != '[]' AND sectores != '' LIMIT 200`,
       []
@@ -3578,7 +3574,14 @@ Reglas:
   }));
 
   // GET /api/entidades/:id/convocatorias — convocatorias vinculadas a una entidad
-  app.get('/api/entidades/:id/convocatorias', tryCatch(async (req, res) => {
+  // BIZ-001 (2026-09-23): sin plan Radar, la misma muestra fija que
+  // /api/convocatorias (se ignora :id; si no, se extrae el catálogo entidad por entidad).
+  app.get('/api/entidades/:id/convocatorias', optionalAuth, resolverNivelRadar, tryCatch(async (req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store');
+    if (req.radarTier !== 'full') {
+      const { data, total } = await obtenerMuestraRadar();
+      return res.json({ success: true, data, total, ...RADAR_MUESTRA_FLAGS });
+    }
     const { id } = req.params;
     const { page = 1, limit = 50 } = req.query;
     const rows = await getRows(
@@ -4211,12 +4214,17 @@ Reglas:
   // GET /api/buscar?q= — búsqueda unificada por texto (ILIKE, sin costo de embeddings)
   // sobre convocatorias y directorio_entidades. No usa vectores: pensado para
   // búsquedas rápidas de coincidencia literal, complementario a la semántica.
-  app.get('/api/buscar', tryCatch(async (req, res) => {
+  // BIZ-001 (2026-09-23): sin plan Radar, `convocatorias` es la muestra fija
+  // (se ignora q, si no se extrae el catálogo término por término). `entidades`
+  // no cambia: el Directorio ya es público vía GET /api/entidades.
+  app.get('/api/buscar', optionalAuth, resolverNivelRadar, tryCatch(async (req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store');
     const q = String(req.query.q || '').trim();
     if (!q) return res.status(400).json({ success: false, message: 'q requerido' });
     const like = `%${q}%`;
+    const esMuestra = req.radarTier !== 'full';
     const [convocatorias, entidades] = await Promise.all([
-      getRows(
+      esMuestra ? obtenerMuestraRadar().then(m => m.data) : getRows(
         `SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado, fuente
          FROM convocatorias
          WHERE deleted_at IS NULL AND (titulo ILIKE ? OR donante ILIKE ? OR descripcion ILIKE ?)
@@ -4231,7 +4239,10 @@ Reglas:
         [like, like]
       ).catch(() => []),
     ]);
-    res.json({ success: true, data: { convocatorias, entidades }, total: convocatorias.length + entidades.length });
+    res.json({
+      success: true, data: { convocatorias, entidades }, total: convocatorias.length + entidades.length,
+      ...(esMuestra ? RADAR_MUESTRA_FLAGS : {}),
+    });
   }));
 
   // GET /api/fuentes — fuentes de datos reales del radar, agrupadas con conteo.
@@ -4254,7 +4265,18 @@ Reglas:
   }));
 
   // GET /api/scraped-results — historial real de ejecuciones de scraping (crawl_log)
-  app.get('/api/scraped-results', tryCatch(async (req, res) => {
+  // BIZ-001 (2026-09-23): sin plan Radar, solo metadatos de las 3 ejecuciones
+  // más recientes, sin `resultado` (puede traer URLs/datos de lo rastreado).
+  app.get('/api/scraped-results', optionalAuth, resolverNivelRadar, tryCatch(async (req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store');
+    if (req.radarTier !== 'full') {
+      const filas = await getRows(
+        `SELECT id, tipo, fuente, subvenciones_encontradas, ejecutada_en
+         FROM crawl_log ORDER BY ejecutada_en DESC LIMIT ?`,
+        [RADAR_MUESTRA_FILAS]
+      );
+      return res.json(filas);
+    }
     const limit = Math.min(Number(req.query.limit) || 50, 200);
     const rows = await getRows(
       `SELECT id, tipo, fuente, subvenciones_encontradas, resultado, ejecutada_en
