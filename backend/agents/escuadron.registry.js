@@ -38,7 +38,6 @@
  */
 
 import { generarArbolConIA } from './arbolObjetivosAgent.js';
-import { generarEnfoqueEntidad } from '../services/enfoqueEntidadAgent.js';
 import { generarEntradaDesdeInvestigacion } from '../services/EntradaIAService.js';
 import { calcularViabilidadIA, recolectarContextoViabilidad, calcularPuntoEquilibrio } from '../services/viabilidadAgent.js';
 import { classifySectors } from '../services/sectorClassifier.js';
@@ -84,13 +83,6 @@ export const ESCUADRON = {
       llamaLLM: true,
       invocadoDesde: 'server.js',
       exporta: { generarArbolConIA },
-    },
-    {
-      nombre: 'enfoqueEntidadAgent',
-      descripcion: 'Adapta la narrativa del proyecto matriz al lenguaje/prioridades de la entidad a la que se postula.',
-      llamaLLM: true,
-      invocadoDesde: 'server.js',
-      exporta: { generarEnfoqueEntidad },
     },
     {
       nombre: 'EntradaIAService',

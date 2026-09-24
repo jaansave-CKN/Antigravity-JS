@@ -595,39 +595,6 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
     });
   }));
 
-  /**
-   * GET /api/proyectos/:id/anexos/buscar?q=texto
-   * Búsqueda semántica (pgvector, coseno) sobre descripcion+texto+contenido
-   * extraído del archivo. Requiere Capa 1 (pg directo) — en Capa 2 (REST) la
-   * columna embedding_vec puede no estar poblada (ver USE_PG arriba).
-   */
-  app.get('/api/proyectos/:id/anexos/buscar', authenticateToken, wrap(async (req, res) => {
-    const proyecto = await checkOwnership(req.params.id, req.userId);
-    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-
-    const q = String(req.query?.q || '').trim();
-    if (!q) return res.status(400).json({ success: false, message: 'Parámetro "q" requerido' });
-    if (!USE_PG) return res.status(503).json({ success: false, message: 'Búsqueda semántica no disponible sin conexión directa a la base de datos' });
-
-    let vector;
-    try {
-      vector = await textToEmbedding(q);
-    } catch (e) {
-      return res.status(502).json({ success: false, message: `No se pudo generar el embedding de la búsqueda: ${e.message}` });
-    }
-    const vecStr = serializeEmbedding(vector);
-
-    const resultados = await withTenantRows(req.userId,
-      `SELECT id, nombre_archivo, categoria, descripcion, texto, link, created_at,
-              (1 - (embedding_vec <=> ?::vector)) AS similitud
-       FROM project_anexos
-       WHERE project_id = ? AND embedding_vec IS NOT NULL
-       ORDER BY embedding_vec <=> ?::vector
-       LIMIT 20`,
-      [vecStr, req.params.id, vecStr]
-    );
-    res.json({ success: true, data: resultados });
-  }));
 
   /**
    * PATCH /api/proyectos/:id/anexos/:anexoId — edita los campos narrativos

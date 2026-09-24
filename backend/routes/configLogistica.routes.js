@@ -10,8 +10,8 @@ import crypto from 'crypto';
 // tenant_isolation valida via EXISTS contra proyectos.org_id — funciona
 // igual con withTenant(req.userId, ...) porque set_config('app.org_id', ...)
 // es lo único que esa política necesita, sin importar en qué columna vive.
-import { withTenantRow, withTenantRows, withTenantRun, withTenantTransaction } from '../config/database.config.js';
-import { validarBody, configLogisticaSchema, logisticaTramosSchema } from '../validators/zodSchemas.js';
+import { withTenantRow, withTenantRows, withTenantTransaction } from '../config/database.config.js';
+import { validarBody, logisticaTramosSchema } from '../validators/zodSchemas.js';
 
 export function registerConfigLogisticaRoutes(app, { authenticateToken, tryCatch }) {
 
@@ -23,69 +23,7 @@ export function registerConfigLogisticaRoutes(app, { authenticateToken, tryCatch
     return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
-  // GET /api/m5/logistica/:proyectoId
-  app.get('/api/m5/logistica/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
-    const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
-    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const row = await withTenantRow(req.userId,
-      'SELECT * FROM config_logistica WHERE proyecto_id = ? AND user_id = ?',
-      [req.params.proyectoId, req.userId]
-    );
-    res.json({ success: true, data: row || null });
-  }));
-
-  // POST /api/m5/logistica/:proyectoId
-  app.post('/api/m5/logistica/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
-    const proyectoOwned = await checkOwnership(req.params.proyectoId, req.userId);
-    if (!proyectoOwned) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-
-    const validacionCfgLog = validarBody(configLogisticaSchema, req.body);
-    if (!validacionCfgLog.ok) return res.status(400).json({ success: false, message: validacionCfgLog.message });
-    const {
-      proponente_nombre = '', proponente_nit = '',
-      tipo_entidad = '', departamento = '', municipio = '',
-      zona = 'Urbana', fecha_inicio = '', duracion_meses = 0,
-      equipo_director = '', equipo_coordinador = '',
-    } = validacionCfgLog.data;
-
-    const existing = await withTenantRow(req.userId,
-      'SELECT id FROM config_logistica WHERE proyecto_id = ? AND user_id = ?',
-      [req.params.proyectoId, req.userId]
-    );
-
-    if (existing) {
-      await withTenantRun(req.userId,
-        `UPDATE config_logistica
-         SET proponente_nombre=?, proponente_nit=?, tipo_entidad=?,
-             departamento=?, municipio=?, zona=?,
-             fecha_inicio=?, duracion_meses=?,
-             equipo_director=?, equipo_coordinador=?,
-             updated_at=CURRENT_TIMESTAMP
-         WHERE proyecto_id=? AND user_id=?`,
-        [proponente_nombre, proponente_nit, tipo_entidad,
-         departamento, municipio, zona,
-         fecha_inicio, duracion_meses,
-         equipo_director, equipo_coordinador,
-         req.params.proyectoId, req.userId]
-      );
-    } else {
-      await withTenantRun(req.userId,
-        `INSERT INTO config_logistica
-         (id, proyecto_id, user_id, proponente_nombre, proponente_nit, tipo_entidad,
-          departamento, municipio, zona, fecha_inicio, duracion_meses,
-          equipo_director, equipo_coordinador)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [crypto.randomUUID(), req.params.proyectoId, req.userId,
-         proponente_nombre, proponente_nit, tipo_entidad,
-         departamento, municipio, zona,
-         fecha_inicio, duracion_meses,
-         equipo_director, equipo_coordinador]
-      );
-    }
-
-    res.json({ success: true, message: 'Configuración logística guardada' });
-  }));
 
   // ── Tramos de logística (Fase 1.2) — dominio distinto de config_logistica:
   // tramos de transporte origen→destino, no datos del proponente/entidad. ──

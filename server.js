@@ -20,12 +20,12 @@ import {
   permisosUsuarioSchema, crearEntidadSchema, patchEntidadUrlSchema,
   patchEntidadStatusSchema, entidadScrapeAsyncSchema, entidadesIndexadasSchema,
   favoritoSchema, panelKeywordsSchema, cerrarIdsSchema, convocatoriaEstadoSchema,
-  busquedaSemanticaSchema, iaBuscarQuerySchema, barridoMasivoSchema, aiGenerateSchema,
-  promptSoloSchema, promptBarridoGeminiSchema, convocatoriaAnalyzeSchema, triggersContextoSchema,
-  configuracionGuardarSchema, persistirBarridoSchema, patchProyectoSchema,
-  arbolGenerarSchema, arbolNodoPatchSchema, indicadorSchema, teoriaCambioSchema,
-  postulacionCrearSchema, postulacionPatchSchema, fichaTecnicaMergeSchema,
-  modulo8AgenteStatusSchema, validarEstructuraSchema, restoreImportarTipoSchema,
+  busquedaSemanticaSchema, barridoMasivoSchema,
+  promptSoloSchema,
+  patchProyectoSchema,
+  arbolGenerarSchema, arbolNodoPatchSchema, indicadorSchema,
+  fichaTecnicaMergeSchema,
+  modulo8AgenteStatusSchema, restoreImportarTipoSchema,
 } from './backend/validators/zodSchemas.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
 import { startScheduler, runManualIngest, pauseScheduler, resumeScheduler } from './backend/pipeline/CronScheduler.js';
@@ -43,7 +43,7 @@ import { dbStatus, withTenant, withTenantRow, withTenantRun, withTenantRows, wit
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { geminiCB, isQuotaError, AI_LIMIT_EXCEEDED_RESPONSE, loadPersistedKeyState, registrarLlamadaLLM } from './backend/services/geminiCircuitBreaker.js';
+import { geminiCB, loadPersistedKeyState, registrarLlamadaLLM } from './backend/services/geminiCircuitBreaker.js';
 import { resolverContextoBYOK } from './backend/services/byokService.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
 import { wompiWebhookHandler } from './backend/routes/wompi.webhook.js';
@@ -51,12 +51,9 @@ import { isRevoked, checkSessionValid, checkAccountStatus, revokeToken, revokeUs
 import { seedPredios } from './backend/pipeline/seed-predios.js';
 import { rejectMaterialsInput } from './backend/middlewares/materialValidator.js';
 import { logger } from './backend/utils/logger.js';
-import { validateStructuralElements } from './backend/validators/structuralValidator.js';
 import { generarArbolConIA } from './backend/agents/arbolObjetivosAgent.js';
-import { runMatchPipeline } from './backend/pipeline/matchScore.js';
 import { calcularScoringDinamico } from './backend/services/scoringDinamico.js';
 import { calcularViabilidadIA, recolectarContextoViabilidad } from './backend/services/viabilidadAgent.js';
-import { generarEnfoqueEntidad } from './backend/services/enfoqueEntidadAgent.js';
 import { textToEmbedding, cosineSimilarity, deserializeEmbedding } from './backend/services/embeddingsService.js';
 import { registerRadicacionRoutes } from './backend/routes/radicacion.routes.js';
 import { registerProyectosRoutes } from './backend/routes/proyectos.routes.js';
@@ -65,8 +62,6 @@ import { registerMatrizRaciRoutes } from './backend/routes/matrizRaci.routes.js'
 import { registerPresupuestoRoutes } from './backend/routes/presupuesto.routes.js';
 import { registerAnexosRoutes } from './backend/routes/anexos.routes.js';
 import { registerBibliotecaRoutes } from './backend/routes/biblioteca.routes.js';
-import { registerEstresFinancieroRoutes } from './backend/routes/estresFinanciero.routes.js';
-import { registerValorExponencialRoutes } from './backend/routes/valorExponencial.routes.js';
 import { registerCopilotoRoutes } from './backend/routes/copiloto.routes.js';
 import { registerEntradaIARoutes } from './backend/routes/entradaIA.routes.js';
 import { registerFormulacionIntegralRoutes } from './backend/routes/formulacionIntegral.routes.js';
@@ -80,7 +75,6 @@ import { registerMotorDialecticoRoutes } from './backend/routes/motorDialectico.
 import { registerConfigLogisticaRoutes } from './backend/routes/configLogistica.routes.js';
 import { registerMarcoNormativoRoutes }  from './backend/routes/marcoNormativo.routes.js';
 import { registerComplianceRoutes }      from './backend/routes/compliance.routes.js';
-import { registerFichaTecnicaRoutes }    from './backend/routes/fichaTecnica.routes.js';
 import { registerExportacionRoutes }     from './backend/routes/exportacion.routes.js';
 import { registerScraperRoutes }         from './backend/routes/scraper.routes.js';
 import { sweepEndsWith }                  from './backend/services/sweepService.js';
@@ -378,32 +372,6 @@ function tryCatch(fn) {
   };
 }
 
-// Resuelve la API key de IA: primero clave personal del usuario, luego clave del sistema
-async function resolveGoogleApiKey(userId, getRowFn) {
-  const systemKey = process.env.GOOGLE_API_KEY || '';
-  const cred = await getRowFn('SELECT api_key_enc FROM user_credentials WHERE user_id = ?', [userId]);
-  const enc  = process.env.ENCRYPTION_KEY;
-  if (!enc) throw new Error('ENCRYPTION_KEY no configurada — credenciales de usuario no disponibles');
-  if (cred?.api_key_enc) {
-    try {
-      const userKey = decryptKey(cred.api_key_enc, enc);
-      if (userKey) return userKey;
-    } catch (e) {
-      // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 3, hallazgo 4): antes
-      // este catch era silencioso — a diferencia de todos los demás catches
-      // de este archivo, sin comentario ni log. Si ENCRYPTION_KEY rota en
-      // producción sin re-cifrar user_credentials.api_key_enc (error
-      // operacional plausible), decryptKey lanza, y el usuario seguía
-      // viendo "IA funcionando" con su árbol de objetivos/matching
-      // generándose con éxito — pero consumiendo la cuota del SISTEMA en
-      // vez de la suya, sin ningún aviso de que su clave personal dejó de
-      // funcionar. El fallback a systemKey se mantiene intacto (es
-      // deliberado, no un bug) — solo se agrega visibilidad de que ocurrió.
-      logger.warn('[resolveGoogleApiKey] No se pudo desencriptar la llave personal del usuario — cae a la llave del sistema', { userId, err: e.message });
-    }
-  }
-  return systemKey;
-}
 
 // BYOK (migración 045): gate compartido para las 7 acciones interactivas de
 // IA — exento (usuarios.byok_exento) sigue con el pool del servidor sin
@@ -1507,54 +1475,10 @@ async function start() {
   }));
 
   // ── Aplicación Reglas Materiales (F4-01) ─────────────────────────────────
-  app.use('/api/formulador', rejectMaterialsInput);
   app.use('/api/ia', rejectMaterialsInput);
   app.use('/api/modulo3b', rejectMaterialsInput);
   app.use('/api/radar/barrido-masivo', rejectMaterialsInput);
 
-  // ── Rutas construidas SIN interfaz (2026-09-23) ──────────────────────────────
-  // Rastreo integral: estos endpoints no tienen NINGÚN llamador en client/src
-  // (verificado con grep literal, incluidas URLs armadas por partes), ni en
-  // tests/, CI o scripts. Se desactivan (404) para reducir superficie de
-  // ataque SIN borrar código: los módulos siguen intactos y se reactivan con
-  // RUTAS_SIN_UI_HABILITADAS=true. Excluidos a propósito (sí se usan o son
-  // legítimos): webhooks de pago, enlaces de aprobación por correo, callback
-  // de Google, health, rutas /api/admin/*, hash de versión (lo prueba
-  // securityValidation.js) y operaciones de radar solo-admin.
-  const RUTAS_SIN_UI = [
-    ['POST', '^/api/ia/busqueda-semantica$'],
-    ['POST', '^/api/ia/buscar$'],
-    ['POST', '^/api/ai/generate$'],
-    ['POST', '^/api/ai/convocatoria-analyze$'],
-    ['POST', '^/api/radar/barrido-gemini$'],
-    ['POST', '^/api/radar/persistir-barrido$'],
-    ['POST', '^/api/triggers/run-with-context$'],
-    ['POST', '^/api/configuracion/guardar$'],
-    ['POST', '^/api/formulador/validar-estructura$'],
-    ['*',    '^/api/proyectos/[^/]+/teoria-cambio$'],
-    ['*',    '^/api/proyectos/[^/]+/postulaciones$'],
-    ['*',    '^/api/postulaciones/[^/]+(/regenerar-enfoque)?$'],
-    ['POST', '^/api/modulo7/match/[^/]+$'],
-    ['GET',  '^/api/proyectos/[^/]+/anexos/buscar$'],
-    ['*',    '^/api/m5/logistica/[^/]+$'],
-    ['POST', '^/api/proyectos/[^/]+/entrada/generar-ai$'],
-    ['*',    '^/api/proyectos/[^/]+/estres-financiero$'],
-    ['POST', '^/api/proyectos/[^/]+/calcular-sroi$'],
-    ['GET',  '^/api/proyectos/[^/]+/impacto-social$'],
-    ['POST', '^/api/proyectos/[^/]+/continuar-formulacion$'],
-    ['POST', '^/api/proyectos/[^/]+/duplicar$'],
-    ['*',    '^/api/m12/ficha/[^/]+$'],
-    ['GET',  '^/api/m12/verificar/[^/]+$'],
-    ['GET',  '^/api/modulo9/radicar/[^/]+/sello$'],
-  ].map(([m, patron]) => [m, new RegExp(patron)]);
-  if (process.env.RUTAS_SIN_UI_HABILITADAS !== 'true') {
-    app.use((req, res, next) => {
-      const ruta = req.originalUrl.split('?')[0];
-      const bloqueada = RUTAS_SIN_UI.some(([m, re]) => (m === '*' || m === req.method) && re.test(ruta));
-      if (bloqueada) return res.status(404).json({ success: false, message: 'Ruta no disponible' });
-      next();
-    });
-  }
 
   // ── Health Check (plataformas: Railway, Render, K8s liveness probe) ─────────
   app.get('/health', (_req, res) => {
@@ -4563,280 +4487,10 @@ Reglas:
     await withTenantRun(row.tenant_id, `UPDATE ${tabla} SET deleted_at = NULL WHERE id = ?`, [req.params.id]);
     res.json({ success: true, message: `${req.params.tipo} restaurado correctamente` });
   }));
-  app.post('/api/ia/busqueda-semantica', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
-    const validacionBs = validarBody(busquedaSemanticaSchema, req.body);
-    if (!validacionBs.ok) return res.status(400).json({ success: false, message: validacionBs.message });
-    const { texto, limit = 10, threshold = 0.25 } = validacionBs.data;
-    const qVec   = await textToEmbedding(texto.trim());
-    const vecStr = JSON.stringify(qVec);
-    const usePg  = !!process.env.DATABASE_URL;
-    const lim    = Math.min(Number(limit) || 10, 20);
-    const thr    = Number(threshold) || 0.25;
-    let data = [];
-    if (usePg) {
-      data = await getRows(
-        `SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado,
-                round((1 - (embedding_vec <=> $1::vector))::numeric, 4) AS similitud
-         FROM convocatorias
-         WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL
-           AND (1 - (embedding_vec <=> $1::vector)) >= $2
-         ORDER BY embedding_vec <=> $1::vector LIMIT $3`,
-        [vecStr, thr, lim]
-      );
-    } else {
-      const convs = await getRows("SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL", []);
-      data = convs
-        .map(c => ({ ...c, embedding: undefined, similitud: Math.round(cosineSimilarity(qVec, deserializeEmbedding(c.embedding)) * 10000) / 10000 }))
-        .filter(c => c.similitud >= thr)
-        .sort((a, b) => b.similitud - a.similitud)
-        .slice(0, lim);
-    }
-    res.json({ success: true, data, total: data.length, motor: usePg ? 'pgvector' : 'js-coseno' });
-  }));
-  // POST /api/ia/buscar — alias real de /api/ia/busqueda-semantica, body { query }
-  // (AIChat.tsx envía "query"; busqueda-semantica espera "texto" — se traduce aquí).
-  app.post('/api/ia/buscar', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
-    const validacionIaBuscar = validarBody(iaBuscarQuerySchema, req.body);
-    if (!validacionIaBuscar.ok) return res.status(400).json({ success: false, message: validacionIaBuscar.message });
-    const texto = validacionIaBuscar.data.query.trim();
-    const qVec   = await textToEmbedding(texto);
-    const vecStr = JSON.stringify(qVec);
-    const usePg  = !!process.env.DATABASE_URL;
-    let data = [];
-    if (usePg) {
-      data = await getRows(
-        `SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado,
-                round((1 - (embedding_vec <=> $1::vector))::numeric, 4) AS similitud
-         FROM convocatorias
-         WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL
-           AND (1 - (embedding_vec <=> $1::vector)) >= 0.25
-         ORDER BY embedding_vec <=> $1::vector LIMIT 10`,
-        [vecStr]
-      );
-    } else {
-      const convs = await getRows("SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL", []);
-      data = convs
-        .map(c => ({ ...c, embedding: undefined, similitud: Math.round(cosineSimilarity(qVec, deserializeEmbedding(c.embedding)) * 10000) / 10000 }))
-        .filter(c => c.similitud >= 0.25)
-        .sort((a, b) => b.similitud - a.similitud)
-        .slice(0, 10);
-    }
-    res.json({ success: true, data, total: data.length });
-  }));
-  // POST /api/ai/generate — proxy seguro hacia Google Gemini (la key nunca sale al cliente)
-  app.post('/api/ai/generate', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
-    const GEMINI_KEY = process.env.GOOGLE_API_KEY;
-    if (!GEMINI_KEY) return res.status(503).json({ success: false, code: 'AI_NO_DISPONIBLE', message: 'GOOGLE_API_KEY no configurada.' });
 
-    // Circuit breaker: si la cuota de Gemini está agotada, no gastar la llamada.
-    if (!geminiCB.canCall()) {
-      return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
-    }
 
-    const validacionAiGen = validarBody(aiGenerateSchema, req.body);
-    if (!validacionAiGen.ok) return res.status(400).json({ success: false, message: validacionAiGen.message });
-    const { messages, temperature = 0.7 } = validacionAiGen.data;
 
-    // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): max_tokens venía
-    // directo de req.body sin tope — el cliente podía pedir una salida
-    // arbitrariamente grande dentro de las 20 llamadas/hora que ya permite
-    // aiLimiter, muy por encima de los 400-4096 tokens que hardcodean los
-    // 7 agentes de servicio del pool (geminiCircuitBreaker.js). Ahora el
-    // servidor decide el tope — el valor del cliente solo puede acotar
-    // hacia abajo, nunca superar el techo fijo.
-    const MAX_TOKENS_TECHO = 4096;
-    const max_tokens = Math.min(
-      Number.isFinite(Number(req.body.max_tokens)) ? Math.max(1, Math.trunc(Number(req.body.max_tokens))) : MAX_TOKENS_TECHO,
-      MAX_TOKENS_TECHO
-    );
 
-    // Validar que cada mensaje tiene role y content string, y acotar cuántos
-    // mensajes puede traer el array (mismo espíritu: no dejar que el cliente
-    // amplifique el costo por request sin límite).
-    const MAX_MENSAJES = 40;
-    if (messages.length > MAX_MENSAJES)
-      return res.status(400).json({ success: false, message: `messages[] excede el máximo permitido (${MAX_MENSAJES}).` });
-    const validRoles = new Set(['system', 'user', 'assistant']);
-    for (const m of messages) {
-      if (!validRoles.has(m?.role) || typeof m?.content !== 'string' || m.content.length > 32_000)
-        return res.status(400).json({ success: false, message: 'Mensaje inválido en messages[]' });
-    }
-
-    // Endpoint OpenAI-compatible de Google — acepta el mismo formato de messages[]
-    const GEMINI_MODEL = 'gemini-2.5-flash'; // LLM-001: gemini-2.0-flash retirado
-    let upstream;
-    try {
-      upstream = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${GEMINI_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ model: GEMINI_MODEL, messages, temperature, max_tokens }),
-        }
-      );
-    } catch (err) {
-      logger.warn('[AI/generate] Fallo de red hacia Gemini', { error: err.message });
-      return res.status(502).json({ success: false, code: 'UPSTREAM_ERROR', message: 'Error en Google Gemini.' });
-    }
-
-    if (!upstream.ok) {
-      const errText = await upstream.text().catch(() => '');
-      if (upstream.status === 429) {
-        geminiCB.recordQuotaError();
-        return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
-      }
-      logger.warn('[AI/generate] Gemini error', { status: upstream.status, body: errText.slice(0, 200) });
-      return res.status(502).json({ success: false, code: 'UPSTREAM_ERROR', message: 'Error en Google Gemini.' });
-    }
-
-    const data = await upstream.json();
-    const content = data?.choices?.[0]?.message?.content ?? '';
-    geminiCB.recordSuccess();
-    res.json({ success: true, result: content, model: GEMINI_MODEL });
-  }));
-
-  // POST /api/radar/barrido-gemini — proxy seguro con Google Search Grounding
-  // (reemplaza la llamada directa cliente→Google que usaba geminiScanner.ts con
-  // una API key guardada en localStorage; la key vive exclusivamente aquí).
-  app.post('/api/radar/barrido-gemini', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
-    const GEMINI_KEY = process.env.GOOGLE_API_KEY;
-    if (!GEMINI_KEY) return res.status(503).json({ success: false, code: 'AI_NO_DISPONIBLE', message: 'GOOGLE_API_KEY no configurada.' });
-
-    const validacionPromptBarrido = validarBody(promptBarridoGeminiSchema, req.body);
-    if (!validacionPromptBarrido.ok) return res.status(400).json({ success: false, message: validacionPromptBarrido.message });
-    const { prompt } = validacionPromptBarrido.data;
-
-    if (!geminiCB.canCall()) {
-      return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
-    }
-
-    const MODELS = ['gemini-2.5-flash', 'gemini-3.6-flash']; // LLM-001: 2.0-flash(-lite) retirados
-    let lastErr = null;
-    for (const model of MODELS) {
-      try {
-        const upstream = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              tools: [{ googleSearch: {} }],
-              generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
-            }),
-          }
-        );
-
-        if (!upstream.ok) {
-          const errText = await upstream.text().catch(() => '');
-          if (upstream.status === 429) {
-            geminiCB.recordQuotaError();
-            return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
-          }
-          lastErr = new Error(`[${upstream.status}] ${errText.slice(0, 200)}`);
-          continue; // probar el siguiente modelo de la lista
-        }
-
-        const data = await upstream.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-        geminiCB.recordSuccess();
-        return res.json({ success: true, result: text, model });
-      } catch (err) {
-        lastErr = err;
-        if (isQuotaError(err)) {
-          geminiCB.recordQuotaError();
-          return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
-        }
-      }
-    }
-
-    logger.warn('[radar/barrido-gemini] Todos los modelos fallaron', { error: lastErr?.message });
-    return res.status(502).json({ success: false, code: 'UPSTREAM_ERROR', message: 'Error en Google Gemini.' });
-  }));
-
-  // POST /api/ai/convocatoria-analyze — mismo proxy seguro que /api/ai/generate
-  // (geminiCB gating, key server-side), body { prompt, context }.
-  app.post('/api/ai/convocatoria-analyze', authenticateToken, aiLimiter, tryCatch(async (req, res) => {
-    const GEMINI_KEY = process.env.GOOGLE_API_KEY;
-    if (!GEMINI_KEY) return res.status(503).json({ success: false, code: 'AI_NO_DISPONIBLE', message: 'GOOGLE_API_KEY no configurada.' });
-    if (!geminiCB.canCall()) return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE);
-
-    const validacionAnalyze = validarBody(convocatoriaAnalyzeSchema, req.body);
-    if (!validacionAnalyze.ok) return res.status(400).json({ success: false, message: validacionAnalyze.message });
-    const { prompt, context } = validacionAnalyze.data;
-
-    const fullPrompt = context ? `${prompt}\n\nContexto adicional:\n${String(context).slice(0, 8000)}` : prompt;
-    const GEMINI_MODEL = 'gemini-2.5-flash'; // LLM-001: gemini-2.0-flash retirado
-    let upstream;
-    try {
-      upstream = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`,
-        {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${GEMINI_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: GEMINI_MODEL, messages: [{ role: 'user', content: fullPrompt }], temperature: 0.4, max_tokens: 4096 }),
-        }
-      );
-    } catch (err) {
-      logger.warn('[ai/convocatoria-analyze] Fallo de red hacia Gemini', { error: err.message });
-      return res.status(502).json({ success: false, code: 'UPSTREAM_ERROR', message: 'Error en Google Gemini.' });
-    }
-
-    if (!upstream.ok) {
-      if (upstream.status === 429) { geminiCB.recordQuotaError(); return res.status(503).json(AI_LIMIT_EXCEEDED_RESPONSE); }
-      const errText = await upstream.text().catch(() => '');
-      logger.warn('[ai/convocatoria-analyze] Gemini error', { status: upstream.status, body: errText.slice(0, 200) });
-      return res.status(502).json({ success: false, code: 'UPSTREAM_ERROR', message: 'Error en Google Gemini.' });
-    }
-
-    const data = await upstream.json();
-    geminiCB.recordSuccess();
-    res.json({ success: true, result: data?.choices?.[0]?.message?.content ?? '', model: GEMINI_MODEL });
-  }));
-
-  // POST /api/triggers/run-with-context — registra el contexto de alertas/soportes
-  // como traza de auditoría real en system_logs (tabla ya existente).
-  app.post('/api/triggers/run-with-context', authenticateToken, tryCatch(async (req, res) => {
-    const validacionTrig = validarBody(triggersContextoSchema, req.body);
-    if (!validacionTrig.ok) return res.status(400).json({ success: false, message: validacionTrig.message });
-    const { alertas = [], soportes = [] } = validacionTrig.data;
-    const id = crypto.randomUUID();
-    await runSql(
-      `INSERT INTO system_logs (id, origen, mensaje, payload, nivel, created_at) VALUES (?,?,?,?,?,?)`,
-      [
-        id, 'triggers/run-with-context',
-        `Contexto de disparadores ejecutado: ${alertas.length} alerta(s), ${soportes.length} soporte(s)`,
-        JSON.stringify({ alertas, soportes, userId: req.userId }),
-        'INFO',
-        new Date().toISOString(),
-      ]
-    );
-    res.json({ success: true, message: 'Contexto registrado', log_id: id, alertas: alertas.length, soportes: soportes.length });
-  }));
-
-  // POST /api/configuracion/guardar — persiste credenciales de IA por usuario
-  // (mismo patrón cifrado que POST /api/credentials, tabla user_credentials).
-  app.post('/api/configuracion/guardar', authenticateToken, tryCatch(async (req, res) => {
-    const validacionCfgGuardar = validarBody(configuracionGuardarSchema, req.body);
-    if (!validacionCfgGuardar.ok) return res.status(400).json({ success: false, message: validacionCfgGuardar.message });
-    const { cuentaGoogleNotebook, apiKeyMotorBusqueda } = validacionCfgGuardar.data;
-
-    const enc = process.env.ENCRYPTION_KEY;
-    if (!enc) return res.status(503).json({ success: false, message: 'Servicio de configuración no disponible — ENCRYPTION_KEY no configurada' });
-
-    const apiKeyEnc = encryptKey(apiKeyMotorBusqueda, enc);
-    const nbKeyEnc  = cuentaGoogleNotebook ? encryptKey(cuentaGoogleNotebook, enc) : null;
-    const existing  = await withTenantRow(req.userId, 'SELECT id FROM user_credentials WHERE user_id = ?', [req.userId]);
-    if (existing) {
-      await withTenantRun(req.userId, 'UPDATE user_credentials SET api_key_enc = ?, notebook_key_enc = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [apiKeyEnc, nbKeyEnc, req.userId]);
-    } else {
-      await withTenantRun(req.userId, 'INSERT INTO user_credentials (id, user_id, api_key_enc, notebook_key_enc) VALUES (?, ?, ?, ?)', [crypto.randomUUID(), req.userId, apiKeyEnc, nbKeyEnc]);
-    }
-    res.json({ success: true, message: 'Configuración guardada correctamente' });
-  }));
   // Handler compartido — /api/radar/barrido es un alias real de esta misma
   // lógica (antes devolvía 501 diciendo "usa barrido-masivo"; ahora corre la
   // búsqueda vectorial directamente en vez de redirigir con un mensaje).
@@ -4905,32 +4559,6 @@ Reglas:
   // ORQUESTACIÓN IA Y REGLAS DE NEGOCIO (FASE 4)
   // ════════════════════════════════════════════════════════════════════════════
 
-  // F4-02: CRITICAL_DESIGN_EXCEPTION
-  app.post('/api/formulador/validar-estructura', authenticateToken, setTenantContext, rejectMaterialsInput, tryCatch(async (req, res) => {
-    const validacionEstructura = validarBody(validarEstructuraSchema, req.body);
-    if (!validacionEstructura.ok) return res.status(400).json({ success: false, message: validacionEstructura.message });
-    const { proyectoId, elementos } = validacionEstructura.data;
-    const { valid, exceptions } = validateStructuralElements(elementos, proyectoId);
-    if (!valid) {
-      // RLS-scoped: si proyectoId no pertenece al tenant del usuario, la
-      // policy projects_tenant_rls hace que el UPDATE afecte 0 filas en vez
-      // de bloquear un proyecto ajeno (antes: runSql sin contexto de tenant).
-      try {
-        await req.withTenant(client => client.query(
-          "UPDATE proyectos SET estado = 'BLOQUEADO', bloqueo_razon = $1 WHERE id = $2",
-          ['CRITICAL_DESIGN_EXCEPTION: columnas en zonas de circulación', proyectoId]
-        ));
-      } catch (e) { if (!e.message?.includes('does not exist')) logger.warn('[Bloqueo] error inesperado', { err: e.message }); }
-      
-      return res.status(422).json({
-        success: false,
-        code: 'CRITICAL_DESIGN_EXCEPTION',
-        message: 'Se detectaron columnas en zonas de circulación. El pipeline está suspendido hasta resolución manual.',
-        exceptions,
-      });
-    }
-    res.json({ success: true, message: 'Validación estructural aprobada', proyectoId });
-  }));
 
   // Ownership compartido para todas las rutas del Motor de Coherencia (Fase 2).
   async function checkProyectoOwnership(proyectoId, userId) {
@@ -5053,167 +4681,14 @@ Reglas:
     res.json({ success: true });
   }));
 
-  // ── Teoría de Cambio (project_change_theory) — Fase 2, 1 fila por proyecto ─
-  app.get('/api/proyectos/:id/teoria-cambio', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
-    if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
-      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-    }
-    const row = await withTenantRow(req.userId,
-      'SELECT insumos, actividades, productos, resultados_corto_plazo, impacto_largo_plazo FROM project_change_theory WHERE proyecto_id = ?',
-      [req.params.id]
-    );
-    const parseArr = v => { try { return JSON.parse(v || '[]'); } catch { return []; } };
-    res.json({
-      success: true,
-      data: row ? {
-        insumos: parseArr(row.insumos), actividades: parseArr(row.actividades),
-        productos: parseArr(row.productos), resultados_corto_plazo: parseArr(row.resultados_corto_plazo),
-        impacto_largo_plazo: row.impacto_largo_plazo || '',
-      } : null,
-    });
-  }));
 
-  app.put('/api/proyectos/:id/teoria-cambio', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
-    if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
-      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-    }
-    const validacionTdc = validarBody(teoriaCambioSchema, req.body);
-    if (!validacionTdc.ok) return res.status(400).json({ success: false, message: validacionTdc.message });
-    const { insumos = [], actividades = [], productos = [], resultados_corto_plazo = [], impacto_largo_plazo = '' } = validacionTdc.data;
-    const existing = await withTenantRow(req.userId, 'SELECT id FROM project_change_theory WHERE proyecto_id = ?', [req.params.id]);
-    const vals = [JSON.stringify(insumos), JSON.stringify(actividades), JSON.stringify(productos), JSON.stringify(resultados_corto_plazo), impacto_largo_plazo];
-    if (existing) {
-      await withTenantRun(req.userId,
-        `UPDATE project_change_theory SET insumos=?, actividades=?, productos=?, resultados_corto_plazo=?, impacto_largo_plazo=?, updated_at=CURRENT_TIMESTAMP WHERE proyecto_id=?`,
-        [...vals, req.params.id]
-      );
-    } else {
-      await withTenantRun(req.userId,
-        `INSERT INTO project_change_theory (id, proyecto_id, org_id, insumos, actividades, productos, resultados_corto_plazo, impacto_largo_plazo)
-         VALUES (?,?,?,?,?,?,?,?)`,
-        [crypto.randomUUID(), req.params.id, req.userId, ...vals]
-      );
-    }
-    res.json({ success: true });
-  }));
 
-  // ── Postulaciones por entidad (postulaciones_entidad) ───────────────────────
-  // "Guardar como" ya no duplica el proyecto completo — crea una postulación
-  // hija ligada al proyecto matriz (`proyectos`), con su propio enfoque
-  // narrativo generado por IA y su propio estado de trámite.
-  function extraerContextoMatriz(proyecto) {
-    // FIX (auditoría PROTOCOLO TITÁN ∞ 2026-08-10 — migración ficha_tecnica a
-    // JSONB nativo): JSON.parse(objeto) lanza (cae al catch → {}) cuando el
-    // driver pg ya entrega un objeto parseado (columna JSONB real) en vez de
-    // un string — perdía silenciosamente entrada_completa/contexto_narrativo.
-    const fichaTecnica = (() => {
-      if (proyecto.ficha_tecnica && typeof proyecto.ficha_tecnica === 'object') return proyecto.ficha_tecnica;
-      try { return JSON.parse(proyecto.ficha_tecnica || '{}'); } catch { return {}; }
-    })();
-    const entradaCompleta   = fichaTecnica.entrada_completa   || {};
-    const contextoNarrativo = fichaTecnica.contexto_narrativo || {};
-    const poblacionPartes = [entradaCompleta.numeroBeneficiarios, entradaCompleta.coberturaGeografica].filter(Boolean);
-    return {
-      problematicaCentral: contextoNarrativo.A_diagnostico || proyecto.problem_statement || '',
-      poblacionObjetivo: poblacionPartes.join(' — '),
-    };
-  }
 
-  app.get('/api/proyectos/:id/postulaciones', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
-    if (!(await checkProyectoOwnership(req.params.id, req.userId))) {
-      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-    }
-    const rows = await withTenantRows(req.userId,
-      'SELECT id, nombre_entidad, url_lineamientos, enfoque_generado_ia, enfoque_fuente, estado_postulacion, created_at, updated_at FROM postulaciones_entidad WHERE proyecto_matriz_id = ? ORDER BY created_at DESC',
-      [req.params.id]
-    );
-    res.json({ success: true, data: rows });
-  }));
 
-  app.post('/api/proyectos/:id/postulaciones', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, tryCatch(async (req, res) => {
-    const proyecto = await withTenantRow(req.userId,
-      'SELECT id, ficha_tecnica, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
-      [req.params.id, req.userId]
-    );
-    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const validacionPostCrear = validarBody(postulacionCrearSchema, req.body);
-    if (!validacionPostCrear.ok) return res.status(400).json({ success: false, message: validacionPostCrear.message });
-    const nombreEntidad = validacionPostCrear.data.nombre_entidad.trim().slice(0, 255);
-    const urlLineamientos = (validacionPostCrear.data.url_lineamientos || '').trim().slice(0, 500);
 
-    const { problematicaCentral, poblacionObjetivo } = extraerContextoMatriz(proyecto);
-    const { enfoque, fuente } = await generarEnfoqueEntidad({
-      nombreEntidad, urlLineamientos, problematicaCentral, poblacionObjetivo, userId: req.userId,
-    }, req.userGeminiKeys);
 
-    const id = crypto.randomUUID();
-    await withTenantRun(req.userId,
-      `INSERT INTO postulaciones_entidad (id, proyecto_matriz_id, org_id, nombre_entidad, url_lineamientos, enfoque_generado_ia, enfoque_fuente, estado_postulacion)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [id, req.params.id, req.userId, nombreEntidad, urlLineamientos, enfoque, fuente, 'Borrador']
-    );
 
-    res.status(201).json({ success: true, data: { id, nombre_entidad: nombreEntidad, url_lineamientos: urlLineamientos, enfoque_generado_ia: enfoque, enfoque_fuente: fuente, estado_postulacion: 'Borrador' } });
-  }));
-
-  async function checkPostulacionOwnership(postulacionId, userId) {
-    return withTenantRow(userId,
-      'SELECT id, proyecto_matriz_id, nombre_entidad, url_lineamientos FROM postulaciones_entidad WHERE id = ? AND org_id = ?',
-      [postulacionId, userId]
-    );
-  }
-
-  // FIX AUDITORÍA (defensa en profundidad): antes se leía `proyectos` solo por
-  // id (sin org_id), confiando en que proyecto_matriz_id ya venía validado a
-  // través de checkPostulacionOwnership. Funcionalmente seguro (esa invariante
-  // siempre se cumple hoy), pero no autoevidente — se agrega el filtro directo
-  // para que esta consulta sea segura por sí misma, sin depender de otra.
-  app.post('/api/postulaciones/:id/regenerar-enfoque', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, tryCatch(async (req, res) => {
-    const postulacion = await checkPostulacionOwnership(req.params.id, req.userId);
-    if (!postulacion) return res.status(404).json({ success: false, message: 'Postulación no encontrada' });
-
-    const proyecto = await withTenantRow(req.userId,
-      'SELECT ficha_tecnica, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
-      [postulacion.proyecto_matriz_id, req.userId]
-    );
-    const { problematicaCentral, poblacionObjetivo } = extraerContextoMatriz(proyecto || {});
-    const { enfoque, fuente } = await generarEnfoqueEntidad({
-      nombreEntidad: postulacion.nombre_entidad, urlLineamientos: postulacion.url_lineamientos, problematicaCentral, poblacionObjetivo, userId: req.userId,
-    }, req.userGeminiKeys);
-
-    await withTenantRun(req.userId,
-      'UPDATE postulaciones_entidad SET enfoque_generado_ia = ?, enfoque_fuente = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [enfoque, fuente, req.params.id]
-    );
-    res.json({ success: true, data: { enfoque_generado_ia: enfoque, enfoque_fuente: fuente } });
-  }));
-
-  app.patch('/api/postulaciones/:id', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
-    if (!(await checkPostulacionOwnership(req.params.id, req.userId))) {
-      return res.status(404).json({ success: false, message: 'Postulación no encontrada' });
-    }
-    const validacionPostPatch = validarBody(postulacionPatchSchema, req.body);
-    if (!validacionPostPatch.ok) return res.status(400).json({ success: false, message: validacionPostPatch.message });
-    const { estado_postulacion, url_lineamientos, enfoque_generado_ia } = validacionPostPatch.data;
-    const updates = [], params = [];
-    if (estado_postulacion !== undefined)  { updates.push('estado_postulacion = ?'); params.push(estado_postulacion); }
-    if (url_lineamientos !== undefined)    { updates.push('url_lineamientos = ?');   params.push(String(url_lineamientos).slice(0, 500)); }
-    if (enfoque_generado_ia !== undefined) { updates.push('enfoque_generado_ia = ?'); params.push(String(enfoque_generado_ia).slice(0, 2000)); }
-    if (updates.length === 0) return res.status(400).json({ success: false, message: 'Nada que actualizar' });
-    updates.push('updated_at = CURRENT_TIMESTAMP');
-    params.push(req.params.id);
-    await withTenantRun(req.userId, `UPDATE postulaciones_entidad SET ${updates.join(', ')} WHERE id = ?`, params);
-    res.json({ success: true });
-  }));
-
-  app.delete('/api/postulaciones/:id', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
-    if (!(await checkPostulacionOwnership(req.params.id, req.userId))) {
-      return res.status(404).json({ success: false, message: 'Postulación no encontrada' });
-    }
-    await withTenantRun(req.userId, 'DELETE FROM postulaciones_entidad WHERE id = ?', [req.params.id]);
-    res.json({ success: true });
-  }));
 
   // Confirmar coherencia del árbol — validación REAL (antes: UPDATE ciego sin
   // verificar nada, y sin nodos persistidos no había ni siquiera qué validar).
@@ -5305,71 +4780,7 @@ Reglas:
     res.json({ success: true, message: 'Ficha técnica actualizada' });
   }));
 
-  // POST /api/radar/persistir-barrido — guarda en convocatorias los resultados
-  // reales de "Iniciar Barrido" (Gemini Search Grounding, PestañaRadar.tsx).
-  // Antes esos resultados eran reales (no un mock) pero solo vivían en memoria
-  // del navegador — desaparecían al recargar. Dedup por url_convocatoria.
-  app.post('/api/radar/persistir-barrido', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
-    const validacionPersistir = validarBody(persistirBarridoSchema, req.body);
-    if (!validacionPersistir.ok) return res.status(400).json({ success: false, message: validacionPersistir.message });
-    const { resultados } = validacionPersistir.data;
-    let insertadas = 0, duplicadas = 0;
-    for (const r of resultados.slice(0, 100)) {
-      const url = String(r.enlace_oficial || '').trim();
-      const titulo = String(r.titulo || '').trim();
-      if (!url || !titulo || url === '#') continue;
-      const existente = await getRow('SELECT id FROM convocatorias WHERE url_convocatoria = ?', [url]);
-      if (existente) { duplicadas++; continue; }
-      const estado = /abiert/i.test(r.estado || '') ? 'abierta' : (/próxim|proxim/i.test(r.estado || '') ? 'abierta' : 'abierta');
-      await runSql(
-        `INSERT INTO convocatorias
-           (id, titulo, donante, fuente, descripcion, url_convocatoria, estado, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [crypto.randomUUID(), titulo.slice(0, 300), String(r.fuente || 'Desconocido').slice(0, 200),
-         'RASTREO_MANUAL_IA', String(r.descripcion_corta || '').slice(0, 800), url, estado, new Date().toISOString()]
-      );
-      insertadas++;
-    }
-    res.json({ success: true, insertadas, duplicadas, message: `${insertadas} convocatoria(s) guardada(s), ${duplicadas} ya existían` });
-  }));
 
-  // F4-04: Módulo 7 - Match Score Pipeline (requiere plan formulador + GOOGLE_API_KEY)
-  app.post('/api/modulo7/match/:proyectoId', authenticateToken, setTenantContext, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
-    const apiKey = await resolveGoogleApiKey(req.userId, (sql, params) => withTenantRow(req.userId, sql, params));
-    if (!apiKey) {
-      return res.status(503).json({
-        success: false,
-        code: 'IA_NO_DISPONIBLE',
-        message: 'El módulo de Match Score requiere Google API Key. Configura tu clave en Ajustes o contacta al administrador.',
-      });
-    }
-    // SECURITY FIX: verificar ownership antes de pasar al pipeline.
-    // RLS-scoped vía req.withTenant — projects_tenant_rls es la segunda
-    // barrera detrás del WHERE org_id explícito, no un reemplazo de este.
-    const ownerCheck = await req.withTenant(client => client.query(
-      'SELECT id FROM proyectos WHERE id = $1 AND org_id = $2',
-      [req.params.proyectoId, req.userId]
-    ));
-    if (!ownerCheck.rows?.[0]) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-
-    try {
-      // getRow/runSql escopados por tenant (proyectos/match_scores); convocatorias
-      // usa un import crudo dentro del propio matchScore.js -- ver nota de
-      // cabecera ahí (RLS activo sin políticas, catálogo global/público).
-      const results = await runMatchPipeline(
-        req.params.proyectoId,
-        req.userId,
-        (sql, params) => withTenantRow(req.userId, sql, params),
-        (sql, params) => withTenantRun(req.userId, sql, params),
-      );
-      res.json({ success: true, data: results });
-    } catch (err) {
-      if (err.message.includes('PIPELINE_BLOCKED')) {
-        return res.status(409).json({ success: false, message: err.message });
-      }
-      throw err;
-    }
-  }));
 
   // Scoring dinámico del Dashboard Formulador — reemplaza el mock estático
   // SECTIONS de DashboardFormuladorPage.tsx con cálculo real sobre BD.
@@ -5470,13 +4881,12 @@ Reglas:
   registerComplianceRoutes(app, { authenticateToken, tryCatch });
 
   // V8.0 — Formulador: M12 Ficha Técnica Maestra (Hash SHA-256)
-  registerFichaTecnicaRoutes(app, { authenticateToken, tryCatch });
 
   // Scraping portales oficiales (Minciencias, etc.)
   registerScraperRoutes(app, authenticateToken, requireAdmin);
 
   // Proyectos CRUD con RLS por org_id
-  registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, runTransaction, getRow, getRows, verifyPassword, aiLimiter });
+  registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, runTransaction, getRow, getRows, verifyPassword });
 
   // M4: Presupuesto APU por proyecto
   registerPresupuestoRoutes(app, { authenticateToken });
@@ -5486,13 +4896,11 @@ Reglas:
   // Biblioteca Gubernamental: clon aislado de Anexos (migración 039) — bucket
   // de Storage propio, sin pipeline financiero (ExtractorService/AuditorForenseService)
   await registerBibliotecaRoutes(app, { authenticateToken });
-  await registerEstresFinancieroRoutes(app, { authenticateToken, financialPipelineLimiter });
-  await registerValorExponencialRoutes(app, { authenticateToken, financialPipelineLimiter });
   await registerCopilotoRoutes(app, { authenticateToken, aiLimiter });
 
   registerByokCredentialsRoutes(app, { authenticateToken, aiLimiter });
   // Entrada (M1) — "Generar con AI" a partir de la carpeta "Investigación" de Anexos
-  await registerEntradaIARoutes(app, { authenticateToken, requireAccess, aiLimiter, entradaCampoLimiter });
+  await registerEntradaIARoutes(app, { authenticateToken, requireAccess, entradaCampoLimiter });
 
   // Formulación Integral — cadena "un clic" Entrada→Árbol→Viabilidad (2026-09-22)
   registerFormulacionIntegralRoutes(app, { authenticateToken, requireAccess, formulacionIntegralLimiter });
@@ -5530,6 +4938,11 @@ Reglas:
     logger.error('[server] Error middleware', { path: req.path, err: err.message });
     res.status(500).json({ success: false, message: 'Error interno del servidor' });
   });
+
+  // 404 JSON para cualquier /api que no exista (2026-09-23). Sin esto, un GET a
+  // una ruta /api inexistente caía en el catch-all de la SPA de abajo y
+  // respondía 200 con index.html — un cliente de API recibía HTML "exitoso".
+  app.all('/api/{*path}', (_req, res) => res.status(404).json({ success: false, message: 'Ruta no encontrada' }));
 
   // FRONTEND ESTÁTICO — DEBE IR AL FINAL (Express 5: '/{*path}')
   // ════════════════════════════════════════════════════════════════════════════

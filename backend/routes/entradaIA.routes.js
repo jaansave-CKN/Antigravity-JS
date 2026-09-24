@@ -10,7 +10,7 @@
  * project_anexos.{link_texto_cache, archivo_texto_cache} — evita re-fetch/
  * re-parseo si el anexo no cambió desde la última generación.
  */
-import { generarEntradaDesdeInvestigacion, generarCampoIndividual, generarProblematicasTerritorio, generarPosiblesSoluciones, generarNombreProyecto, generarPitchProyecto, CAMPOS_INDIVIDUALES } from '../services/EntradaIAService.js';
+import { generarCampoIndividual, generarProblematicasTerritorio, generarPosiblesSoluciones, generarNombreProyecto, generarPitchProyecto, CAMPOS_INDIVIDUALES } from '../services/EntradaIAService.js';
 import { requireByokOrExento } from '../middlewares/byokGate.js';
 import { captureError } from '../config/sentry.config.js';
 import { withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
@@ -51,20 +51,13 @@ function wrap(fn) {
   };
 }
 
-export function registerEntradaIARoutes(app, { authenticateToken, requireAccess, aiLimiter, entradaCampoLimiter }) {
+export function registerEntradaIARoutes(app, { authenticateToken, requireAccess, entradaCampoLimiter }) {
   const byokGate = requireByokOrExento(); // ya no toma deps — ver byokGate.js (Prioridad Roja, 2026-09-05)
 
   async function checkOwnership(proyectoId, userId) {
     return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
-  app.post('/api/proyectos/:id/entrada/generar-ai', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, wrap(async (req, res) => {
-    const proyecto = await checkOwnership(req.params.id, req.userId);
-    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-
-    const data = await generarEntradaDesdeInvestigacion(req.params.id, req.userId, { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys });
-    res.json({ success: true, data });
-  }));
 
   // Botón ✨ individual (refactor 2026-08-22, mandato "flujo secuencial y
   // Campo C multi-componente") — reemplaza en la UI al botón global de

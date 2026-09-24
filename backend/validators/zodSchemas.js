@@ -159,10 +159,6 @@ export const busquedaSemanticaSchema = z.object({
   threshold: z.coerce.number().optional(),
 });
 
-export const iaBuscarQuerySchema = z.object({
-  query: z.string().trim().min(1, 'query requerido').max(4000),
-});
-
 export const barridoMasivoSchema = z.object({
   texto: z.string().trim().max(4000).optional(),
   proyectoId: z.string().trim().max(100).optional(),
@@ -170,46 +166,12 @@ export const barridoMasivoSchema = z.object({
   threshold: z.coerce.number().optional(),
 }).refine(d => (d.texto && d.texto.length > 0) || d.proyectoId, 'texto o proyectoId requerido');
 
-export const aiGenerateSchema = z.object({
-  messages: z.array(z.record(z.string(), z.any())).min(1, 'messages[] requerido'),
-  temperature: z.coerce.number().optional(),
-  max_tokens: z.coerce.number().optional(),
-}).passthrough();
-
 export const promptSoloSchema = z.object({
   prompt: z.string().trim().min(1, 'prompt requerido').max(32_000),
 });
 
-export const promptBarridoGeminiSchema = z.object({
-  prompt: z.string().trim().min(1, 'prompt requerido (máx 8000 caracteres)').max(8_000, 'prompt requerido (máx 8000 caracteres)'),
-});
-
-export const convocatoriaAnalyzeSchema = z.object({
-  prompt: z.string().trim().min(1, 'prompt requerido').max(32_000),
-  context: z.string().max(20_000).optional(),
-});
-
-export const triggersContextoSchema = z.object({
-  alertas: z.array(z.any()).max(500).optional(),
-  soportes: z.array(z.any()).max(500).optional(),
-});
-
-export const configuracionGuardarSchema = z.object({
-  cuentaGoogleNotebook: z.string().trim().max(500).optional(),
-  apiKeyMotorBusqueda: z.string().trim().min(1, 'apiKeyMotorBusqueda requerido').max(2000),
-});
-
-export const persistirBarridoSchema = z.object({
-  resultados: z.array(z.record(z.string(), z.any())).min(1, 'resultados (array) es requerido'),
-});
-
 export const restoreImportarTipoSchema = z.object({
   tipo: z.enum(['convocatorias', 'directorio']).optional(),
-});
-
-export const validarEstructuraSchema = z.object({
-  proyectoId: z.string().trim().min(1, 'proyectoId requerido'),
-  elementos: z.array(z.any()).min(0),
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -223,17 +185,8 @@ export const patchProyectoSchema = z.object({
   presupuesto: z.record(z.string(), z.any()).optional(),
 }).passthrough();
 
-export const duplicarProyectoSchema = z.object({
-  nombre: z.string().trim().max(200).optional(),
-  nombreArchivo: z.string().trim().max(60).optional(),
-});
-
 export const etapaConstruccionSchema = z.object({
   etapa_construccion_finalizada: z.boolean(),
-});
-
-export const continuarFormulacionSchema = z.object({
-  delta: z.record(z.string(), z.any()),
 });
 
 export const formulacionIntegralSchema = z.object({
@@ -259,25 +212,6 @@ export const indicadorSchema = z.object({
   fuente_verificacion: z.string().max(500).optional(),
 });
 
-export const teoriaCambioSchema = z.object({
-  insumos: z.array(z.any()).optional(),
-  actividades: z.array(z.any()).optional(),
-  productos: z.array(z.any()).optional(),
-  resultados_corto_plazo: z.array(z.any()).optional(),
-  impacto_largo_plazo: z.string().max(4000).optional(),
-});
-
-export const postulacionCrearSchema = z.object({
-  nombre_entidad: z.string().trim().min(1, 'nombre_entidad es requerido').max(255),
-  url_lineamientos: z.string().trim().max(500).optional(),
-});
-
-export const postulacionPatchSchema = z.object({
-  estado_postulacion: z.enum(['Borrador', 'Radicado', 'Aprobado', 'Rechazado']).optional(),
-  url_lineamientos: z.string().max(500).optional(),
-  enfoque_generado_ia: z.string().max(2000).optional(),
-});
-
 export const fichaTecnicaMergeSchema = z.object({
   key: z.string().trim().min(1, 'key (string) es requerido'),
   value: z.any(),
@@ -298,11 +232,6 @@ export const deleteProyectoSchema = z.object({
 export const copilotoChatSchema = z.object({
   mensaje: z.string().trim().min(1, 'mensaje requerido').max(8000),
   moduloActivo: z.string().max(100).optional(),
-});
-
-export const estresFinancieroSchema = z.object({
-  nombreEscenario: z.string().trim().max(200).optional(),
-  porcentajeIncremento: z.coerce.number().optional(),
 });
 
 const objetoLibre = z.record(z.string(), z.any()).optional();
@@ -389,19 +318,6 @@ export const marcoNormativoGuardarSchema = z.object({
   notas_adicionales: z.string().max(4000).optional(),
 });
 
-export const configLogisticaSchema = z.object({
-  proponente_nombre: z.string().max(300).optional(),
-  proponente_nit: z.string().max(50).optional(),
-  tipo_entidad: z.string().max(100).optional(),
-  departamento: z.string().max(100).optional(),
-  municipio: z.string().max(100).optional(),
-  zona: z.string().max(50).optional(),
-  fecha_inicio: z.string().max(40).optional(),
-  duracion_meses: z.coerce.number().optional(),
-  equipo_director: z.string().max(300).optional(),
-  equipo_coordinador: z.string().max(300).optional(),
-});
-
 export const logisticaTramosSchema = z.object({
   tramos: z.array(z.record(z.string(), z.any())).max(500, 'Máximo 500 tramos por guardado.'),
 });
@@ -438,10 +354,6 @@ export const raciRolSchema = z.object({
 
 export const raciAsignacionSchema = z.object({
   sigla: z.enum(['R', 'A', 'C', 'I', 'V', 'IA']).nullable().optional(),
-});
-
-export const sroiSchema = z.object({
-  ratioConversion: z.coerce.number({ message: 'ratioConversion es requerido' }),
 });
 
 export const exportarGraficosSchema = z.object({

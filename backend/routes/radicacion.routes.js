@@ -144,27 +144,4 @@ export function registerRadicacionRoutes(app, { authenticateToken }) {
     });
   }));
 
-  /**
-   * GET /api/modulo9/radicar/:proyectoId/sello
-   * Consulta el sello de auditoría de un proyecto ya finalizado.
-   */
-  app.get('/api/modulo9/radicar/:proyectoId/sello', authenticateToken, wrap(async (req, res) => {
-    // SECURITY FIX: user_id en WHERE — misma corrección de enumeration
-    const proyecto = await withTenantRow(req.userId,
-      'SELECT id, estado, crosscheck_sello FROM proyectos WHERE id = ? AND user_id = ?',
-      [req.params.proyectoId, req.userId]
-    );
-
-    if (!proyecto) {
-      return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-    }
-    if (proyecto.estado !== 'Finalizado' || !proyecto.crosscheck_sello) {
-      return res.status(404).json({ success: false, message: 'Sello Cross-Check no disponible' });
-    }
-
-    return res.json({
-      success: true,
-      sello: JSON.parse(proyecto.crosscheck_sello),
-    });
-  }));
 }
