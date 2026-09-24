@@ -13,6 +13,7 @@ import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { withKeyRotation } from './geminiCircuitBreaker.js';
 import { logTokenUsage } from './aiTokenLogger.js';
+import { conReintentoTransitorio } from './geminiReintento.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -121,7 +122,12 @@ export async function extractConvocatoriaFields(markdown) {
       // real frente a arbolObjetivosAgent.js (mismo SDK, sí lo fija). El
       // JSON de salida es acotado (5 campos cortos), 1024 es holgado.
       const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash', generationConfig: { maxOutputTokens: 1024 } });
-      const result = await model.generateContent(EXTRACT_PROMPT(markdown));
+      const result = await conReintentoTransitorio(() => model.generateContent(EXTRACT_PROMPT(markdown)), { origen: 'markitdown' });
+      // LOTE 9: un JSON cortado se descarta con motivo explícito (antes caía en silencio a null).
+      if (result.response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+        console.warn('[markitdown] Respuesta de Gemini truncada por maxOutputTokens (1024) — se descarta, sin campos inventados');
+        throw new Error('Respuesta de Gemini truncada (maxOutputTokens)');
+      }
       const text = result.response.text().trim();
       const match = text.match(/\{[\s\S]*\}/);
       if (!match) throw new Error('Respuesta de Gemini sin JSON');

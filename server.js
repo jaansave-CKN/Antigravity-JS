@@ -43,7 +43,10 @@ import { dbStatus, esperarPgInicial, withTenant, withTenantRow, withTenantRun, w
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { geminiCB, loadPersistedKeyState, registrarLlamadaLLM } from './backend/services/geminiCircuitBreaker.js';
+import { geminiCB, loadPersistedKeyState, registrarLlamadaLLM, withKeyRotation, isQuotaError } from './backend/services/geminiCircuitBreaker.js';
+import { conReintentoTransitorio } from './backend/services/geminiReintento.js';
+import { logTokenUsage } from './backend/services/aiTokenLogger.js';
+import { reenviarPendientesSystemLogs } from './backend/services/logService.js';
 import { resolverContextoBYOK } from './backend/services/byokService.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
 import { wompiWebhookHandler } from './backend/routes/wompi.webhook.js';
@@ -1240,6 +1243,9 @@ async function start() {
   // 043) — evita que un restart le haga creer a la app que hay cuota
   // disponible cuando Google la sigue negando del lado real.
   await loadPersistedKeyState();
+  // LOTE 9: sube a system_logs los errores críticos que quedaron en el
+  // respaldo local mientras la BD no respondía (no bloquea el arranque).
+  reenviarPendientesSystemLogs().catch(e => console.warn('[logService] Reenvío de pendientes falló:', e.message));
   // Precalcula el hash señuelo del login (AUTH-003) para que la PRIMERA
   // petición con email inexistente no pague un PBKDF2 extra (tiempo delator).
   await hashSenuelo();
@@ -3331,7 +3337,7 @@ async function start() {
           `Responde EXCLUSIVAMENTE con JSON válido (sin bloques markdown ni texto extra):\n` +
           `{"aplica_colombia":true,"deep_url":"URL exacta de la página de grants encontrada","evidencia":"descripción breve de los programas","nombre_oficial":"nombre oficial de la organización"}`;
         registrarLlamadaLLM('lookup-deepsearch'); // guardián anti-bucle (FinOps)
-        const result = await model.generateContent(deepPrompt);
+        const result = await conReintentoTransitorio(() => model.generateContent(deepPrompt), { origen: 'lookup-deepsearch' });
         const text = result.response.text().trim();
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
@@ -3436,30 +3442,38 @@ Reglas:
 - "pais": país sede de la entidad (no de Colombia).
 - Responde SOLO con el JSON. Sin texto antes ni después.`;
 
+    // LOTE 9 (auditoría 2026-09-24): antes este bloque NO usaba el pool de
+    // llaves — solo leía GOOGLE_API_KEY (GEMINI_API_KEY_FALLBACK/GEMINI_API_KEY
+    // no existen en .env), nunca rotaba a GEMINI_API_KEY_2, imputaba todo 429 a
+    // la llave #1 y su gasto no aparecía en ai_token_logs. Ahora pasa por
+    // withKeyRotation (rotación + disyuntor), reintenta el 503 transitorio y
+    // registra FinOps. Sin IA → misma heurística de respaldo de siempre.
     let geminiResult = null;
-    if (geminiCB.canCall()) {
-      const apiKeys = [process.env.GOOGLE_API_KEY, process.env.GEMINI_API_KEY_FALLBACK, process.env.GEMINI_API_KEY].filter(Boolean);
-      const models  = ['gemini-2.5-flash', 'gemini-3.6-flash']; // LLM-001 (2026-09-23): 2.0/1.5-flash ya no existen en la API
-      const userMsg = `URL: ${url}\nNombre detectado: ${pageTitle}\nContenido de la página (primeros 3000 chars):\n${pageText.slice(0, 3000)}`;
-      outer: for (const apiKey of apiKeys) {
+    const models  = ['gemini-2.5-flash', 'gemini-3.6-flash']; // LLM-001 (2026-09-23): 2.0/1.5-flash ya no existen en la API
+    const userMsg = `URL: ${url}\nNombre detectado: ${pageTitle}\nContenido de la página (primeros 3000 chars):\n${pageText.slice(0, 3000)}`;
+    try {
+      geminiResult = await withKeyRotation(async (apiKey) => {
+        let ultimoError = new Error('Gemini sin JSON en la respuesta');
         for (const modelName of models) {
           try {
             const genAI = new GoogleGenerativeAI(apiKey);
             const model = genAI.getGenerativeModel({ model: modelName, systemInstruction: systemPrompt });
             registrarLlamadaLLM('lookup-entidad'); // guardián anti-bucle (FinOps)
-            const result = await model.generateContent(userMsg);
-            const text = result.response.text().trim();
-            const jsonMatch = text.match(/\{[\s\S]*\}/);
-            if (jsonMatch) { geminiResult = JSON.parse(jsonMatch[0]); geminiCB.recordSuccess(); break outer; }
+            const result = await conReintentoTransitorio(() => model.generateContent(userMsg), { origen: 'lookup' });
+            const u = result.response.usageMetadata || {};
+            logTokenUsage({ userId: req.user?.id || 'sistema-lookup', agentName: 'lookup-entidad', tokensInput: u.promptTokenCount ?? 0, tokensOutput: (u.totalTokenCount ?? 0) - (u.promptTokenCount ?? 0) }).catch(() => {});
+            const jsonMatch = result.response.text().trim().match(/\{[\s\S]*\}/);
+            if (jsonMatch) return JSON.parse(jsonMatch[0]);
           } catch (err) {
-            const is429 = err.message?.includes('429') || err.message?.includes('quota');
-            if (is429) { geminiCB.recordQuotaError(); break outer; }
+            if (isQuotaError(err)) throw err; // withKeyRotation rota a la siguiente llave
+            ultimoError = err;
             console.warn(`[lookup] Gemini ${modelName} falló:`, err.message?.slice(0, 100));
           }
         }
-      }
-    } else {
-      console.info('[lookup] Circuit breaker OPEN — usando heurística (modo Respaldo).');
+        throw ultimoError;
+      });
+    } catch (err) {
+      console.info(`[lookup] IA no disponible (${String(err.message).slice(0, 100)}) — usando heurística (modo Respaldo).`);
     }
 
     // ── Heurística de respaldo + merge con datos scrapeados ─────────────────

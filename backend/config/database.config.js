@@ -128,11 +128,25 @@ setInterval(async () => {
 // la llave REST no autenticaba, el arranque moría con "HTTP 401" aunque pg
 // estuviera sano (verificado en CI, run 35951380902). Tope real: el
 // connectionTimeoutMillis de 8s del pool.
+let _probeInicialResuelto = false;
 const _probeInicial = probePg().then(ok => {
+  _probeInicialResuelto = true;
   if (!ok) console.warn('[DB] Capa 1 no disponible — usando Capa 2 (REST). Activa el pooler en Supabase dashboard para máximo rendimiento.');
   return ok;
 });
 export function esperarPgInicial() { return _probeInicial; }
+
+// LOTE 9 (verificado en vivo, run 36037655496): la misma carrera que
+// esperarPgInicial() ya cerró para initDb existía en TODO proceso de vida
+// corta. El backup falla en milisegundos (sin AWS), su logCriticalError
+// consultaba _pgReady ANTES de que terminara el sondeo inicial, caía a REST
+// y moría con "[REST] No API key found in request" — system_logs seguía en 0
+// filas con el DATABASE_URL real disponible. Ahora la PRIMERA consulta espera
+// el sondeo inicial (tope real: connectionTimeoutMillis del pool); una vez
+// resuelto, esto no cuesta nada.
+async function asegurarSondeoInicial() {
+  if (!_pgReady && !_probeInicialResuelto) await _probeInicial;
+}
 
 // ── Pool RLS-escopado (rol rf360_rls_scoped, sin BYPASSRLS) ──────────────────
 function buildScopedPool() {
@@ -193,6 +207,7 @@ if (process.env.DATABASE_URL_TENANT_SCOPED) {
 export const pool = {
   query: async (sql, params = []) => pgOrRest(sql, params),
   connect: async () => {
+    await asegurarSondeoInicial();
     if (_pgReady) return _pgPool.connect();
     // Devuelve un client simulado que usa pgOrRest
     const fakeClient = {
@@ -215,6 +230,7 @@ function normalizePlaceholders(sql, params) {
 // ── ROUTER: intenta pg → si falla, escala a REST ─────────────────────────────
 async function pgOrRest(sql, params = []) {
   const { sql: q, params: p } = normalizePlaceholders(sql, params);
+  await asegurarSondeoInicial();
 
   // Capa 1: pg Pool (si está disponible)
   if (_pgReady) {
@@ -524,6 +540,7 @@ export async function withTenant(tenantId, callback) {
       await probeScopedPg().catch(() => {});
     }
   }
+  await asegurarSondeoInicial();
   const pool = _pgScopedReady ? _pgScopedPool : (_pgReady ? _pgPool : null);
 
   if (pool) {
@@ -601,6 +618,7 @@ export async function withTenantRun(tenantId, sql, params = []) {
 // real (ni escopado ni principal), PostgREST no soporta transacciones
 // multi-sentencia — falla explícito (503) en vez de ejecutar parcialmente.
 export async function withTenantTransaction(tenantId, queries) {
+  await asegurarSondeoInicial();
   if (!_pgScopedReady && !_pgReady && queries.length > 1) {
     const err = new Error('No se puede garantizar una escritura atómica en este momento (base de datos en modo degradado) — intenta de nuevo en unos segundos.');
     err.status = 503;
@@ -649,6 +667,7 @@ function injectTenantFilter(sql, tenantId, params = []) {
 
 // ── runTransaction ────────────────────────────────────────────────────────────
 export async function runTransaction(queries) {
+  await asegurarSondeoInicial();
   if (_pgReady) {
     const client = await _pgPool.connect();
     try {

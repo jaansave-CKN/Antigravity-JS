@@ -28,6 +28,7 @@ import { geminiCB, withKeyRotation, isQuotaError, GeminiPoolExhaustedError } fro
 import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
+import { fetchGeminiConReintento } from './geminiReintento.js';
 
 function r2(n) { return Math.round(n * 100) / 100; }
 
@@ -261,7 +262,7 @@ export async function calcularViabilidadIA(ctx, userGeminiKeys = null) {
       throw falloGemini('sin_llaves_servidor', 'No hay llaves de Gemini configuradas en el servidor');
     }
     const intentar = async (apiKey) => {
-      const upstream = await fetch(
+      const upstream = await fetchGeminiConReintento(
         'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
         {
           method: 'POST',

@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.js';
 import { geminiCB, isQuotaError, withKeyRotation, GeminiPoolExhaustedError } from '../services/geminiCircuitBreaker.js';
 import { withUserKeyRotation, UserKeyPoolExhaustedError } from '../services/byokService.js';
 import { logTokenUsage } from '../services/aiTokenLogger.js';
+import { conReintentoTransitorio } from '../services/geminiReintento.js';
 
 export const ARBOL_SYSTEM_PROMPT = `Eres un experto en formulación de proyectos de cooperación internacional, \
 contratación pública colombiana y Metodología General Ajustada (MGA).
@@ -70,7 +71,7 @@ async function intentarGenerarArbol(key, objetivoCentral) {
     .replace(/["`\\]/g, '')
     .replace(/\n{2,}/g, ' ');
   const prompt = `${ARBOL_SYSTEM_PROMPT}\n\nOBJETIVO CENTRAL DEL PROYECTO:\n"${sanitized}"`;
-  const result = await model.generateContent(prompt);
+  const result = await conReintentoTransitorio(() => model.generateContent(prompt), { origen: 'ArbolAgent' });
   // LOTE 8: un árbol cortado por el tope se reporta con motivo explícito en
   // vez de fallar después con un "JSON no válido" sin causa.
   if (result.response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {

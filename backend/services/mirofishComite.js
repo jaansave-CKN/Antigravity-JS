@@ -24,6 +24,7 @@ import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
 import { normalizar } from './mirofishReglas.js';
+import { fetchGeminiConReintento } from './geminiReintento.js';
 
 export const MODELO = 'gemini-3.6-flash';
 const CATEGORIAS = new Set(['cronograma_clima', 'costos_transporte', 'orden_publico', 'otro']);
@@ -90,7 +91,7 @@ export async function evaluarComiteIA({ datos, hallazgosReglas, userId, userGemi
   }
 
   const intentar = async (apiKey) => {
-    const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+    const upstream = await fetchGeminiConReintento('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
