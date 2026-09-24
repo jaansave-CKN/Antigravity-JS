@@ -36,11 +36,10 @@ export async function reenviarPendientesSystemLogs() {
   const filas = contenido.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
   if (!filas.length) return { reenviadas: 0, pendientes: 0 };
   const runSql = await getRunSql();
-  const quedan = [];
-  for (const f of filas) {
-    try { await runSql(SQL_INSERT_LOG, [f.id, f.origen, f.mensaje, f.payload, f.created_at]); }
-    catch { quedan.push(f); }
-  }
+  const resultados = await Promise.allSettled(
+    filas.map(f => runSql(SQL_INSERT_LOG, [f.id, f.origen, f.mensaje, f.payload, f.created_at]))
+  );
+  const quedan = filas.filter((_, i) => resultados[i].status === 'rejected');
   await writeFile(RUTA_PENDIENTES, quedan.map(f => JSON.stringify(f) + '\n').join(''), 'utf8');
   console.log(`[logService] Respaldo local: ${filas.length - quedan.length} error(es) reenviado(s) a system_logs, ${quedan.length} pendiente(s).`);
   return { reenviadas: filas.length - quedan.length, pendientes: quedan.length };
