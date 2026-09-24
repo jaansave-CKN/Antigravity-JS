@@ -94,6 +94,10 @@ jobs:
             echo "JWT_SECRET=$(openssl rand -hex 32)"
             echo "ENCRYPTION_KEY=$(openssl rand -hex 32)"
             echo "NODE_ENV=test"
+            # La suite completa supera las 100 peticiones/IP de slowDown
+            # (SecurityMiddleware.js) y cada petición extra sumaba hasta 10 s.
+            # Exención solo de CI; en producción no aplica aunque se ponga.
+            echo "E2E_DESACTIVAR_SLOWDOWN=1"
             # server.js usa PORT || 3000; playwright.config.ts espera el
             # backend en 127.0.0.1:8000 (igual que el proxy de vite.config.ts).
             echo "PORT=8000"

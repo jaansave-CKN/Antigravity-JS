@@ -21,6 +21,12 @@ test.describe.serial('Lote 5 — config_logistica (endpoint aislado)', () => {
     const e = leerEstado();
     const api = await pwRequest.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5173', extraHTTPHeaders: { Authorization: `Bearer ${e.token}` } });
     const url = `/api/proyectos/${e.proyectoId}/config-logistica`;
+    // Reintento seguro: parte siempre de "sin configuración" (un intento
+    // previo fallido pudo dejar la fila creada). Solo la fila del proyecto E2E.
+    const db = new pg.Client({ connectionString: process.env.DATABASE_URL });
+    await db.connect();
+    await db.query('DELETE FROM config_logistica WHERE proyecto_id = $1 AND user_id = $2', [e.proyectoId, e.userId]);
+    await db.end();
     const antesEntrada = (await (await api.get(`/api/proyectos/${e.proyectoId}`)).json()).data?.ficha_tecnica?.entrada_completa ?? null;
     const antesTramos = (await (await api.get(`/api/proyectos/${e.proyectoId}/logistica-tramos`)).json()).data;
 

@@ -259,6 +259,12 @@ export function slowDown(req, res, next) {
   // sondeo sumaba +500 ms, superaba el timeout de 5 s y Render reiniciaba la
   // instancia en bucle (evento server_failed → 503 en producción).
   if (esHealthCheck(req)) return next();
+  // Lote 5 (2026-09-24): la suite E2E de CI hace >100 peticiones desde una
+  // sola IP (127.0.0.1) y, pasado ese umbral, cada una sumaba hasta 10 s —
+  // pruebas que expiraban por tiempo sin ningún defecto real (run
+  // 35966510742). Exención SOLO con bandera explícita en el .env de CI y
+  // NUNCA en producción, aunque la bandera estuviera puesta por error.
+  if (process.env.E2E_DESACTIVAR_SLOWDOWN === '1' && process.env.NODE_ENV !== 'production') return next();
   // FIX (auditoría SRE 2026-08-08): mismo bypass de XFF que getRateLimitKey — ver arriba.
   const ip  = req.ip || 'unknown';
   const now = Date.now();
