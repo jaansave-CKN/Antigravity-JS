@@ -11,7 +11,7 @@ name: Playwright E2E
 
 on:
   push:
-    branches: [main, ci/e2e-aislado]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
