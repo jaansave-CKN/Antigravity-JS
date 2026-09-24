@@ -326,6 +326,23 @@ export const marcoNormativoGuardarSchema = z.object({
   notas_adicionales: z.string().max(4000).optional(),
 });
 
+// Lote 5 T1 (2026-09-24): PATCH /api/proyectos/:id/config-logistica.
+// .strict(): una clave desconocida es 400, nunca se ignora en silencio.
+// duracion_meses SIN coerce ("" no puede volverse 0). null = borrar el campo.
+const textoCfg = (max) => z.string().trim().max(max).nullable().optional();
+export const configLogisticaPatchSchema = z.object({
+  proponente_nombre: textoCfg(300),
+  proponente_nit: textoCfg(50),
+  tipo_entidad: textoCfg(100),
+  departamento: textoCfg(100),
+  municipio: textoCfg(100),
+  zona: textoCfg(50),
+  fecha_inicio: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha_inicio debe ser AAAA-MM-DD'), z.null()]).optional(),
+  duracion_meses: z.number({ message: 'duracion_meses debe ser un número entero de meses' }).int().min(1).max(600).nullable().optional(),
+  equipo_director: textoCfg(300),
+  equipo_coordinador: textoCfg(300),
+}).strict();
+
 export const logisticaTramosSchema = z.object({
   tramos: z.array(z.record(z.string(), z.any())).max(500, 'Máximo 500 tramos por guardado.'),
 });

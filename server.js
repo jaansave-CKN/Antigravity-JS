@@ -4895,7 +4895,7 @@ Reglas:
   registerMotorDialecticoRoutes(app, { authenticateToken, tryCatch });
 
   // V8.0 — Formulador: M5 Configuración Logística
-  registerConfigLogisticaRoutes(app, { authenticateToken, tryCatch });
+  registerConfigLogisticaRoutes(app, { authenticateToken, requireAccess, tryCatch });
 
   // Matriz RACI (módulo nuevo, 2026-08-24 — diseño revisado por architect)
   registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, financialPipelineLimiter });

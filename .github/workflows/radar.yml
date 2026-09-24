@@ -1,8 +1,8 @@
 name: Radar Fondos 360 — CI/CD Pipeline V9.0
 
 on:
-  schedule:
-    - cron: '0 */6 * * *'
+  # Lote 5 T3 (2026-09-24): el schedule y el job de backup se movieron a
+  # backup-s3.yml (aquí workflow_dispatch también despliega a producción).
   workflow_dispatch:
   push:
     branches:
@@ -156,36 +156,3 @@ jobs:
       - name: Ejecutar smoke test contra el backend real
         run: node backend/scripts/smokeTest.js "${{ secrets.SMOKE_TEST_URL }}"
 
-  # ── S3 Backup diario (03:00 UTC) — solo en corridas programadas ───────────────
-  backup-s3:
-    name: S3 Backup diario
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'  # undici 8.x exige Node >= 22.19 (ver playwright.yml)
-          cache: 'npm'
-
-      - name: Instalar dependencias
-        run: npm ci
-
-      - name: Ejecutar backup S3
-        env:
-          AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_S3_BUCKET:         ${{ secrets.AWS_S3_BUCKET }}
-          AWS_REGION:            ${{ secrets.AWS_REGION || 'us-east-1' }}
-          DATABASE_URL:          ${{ secrets.DATABASE_URL }}
-        run: node -e "import('./backend/scripts/s3backup.js').then(m => m.runS3Backup()).then(r => console.log(JSON.stringify(r))).catch(e => { console.error(e); process.exit(1); })"
-
-      - name: Resumen backup
-        if: always()
-        run: |
-          echo "## Backup S3 V9.0" >> $GITHUB_STEP_SUMMARY
-          echo "- Fecha: $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "- Estado: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

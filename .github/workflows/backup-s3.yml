@@ -1,0 +1,107 @@
+name: Backup S3
+
+# LOTE 5 T3 (2026-09-24): workflow PROPIO para el backup (antes era un job de
+# radar.yml, donde workflow_dispatch también dispara deploy a producción —
+# fiscalización architect T3-B2). Dos jobs:
+#   backup           — respaldo real (schedule / manual). Sale con código 1 si
+#                      success !== true: sin credenciales AWS, pg_dump fallido,
+#                      volcado vacío/truncado o subida no verificada = ROJO.
+#                      Antes todos esos casos salían en verde.
+#   volcado-dry-run  — en cada cambio del script: vuelca y valida contra la
+#                      réplica local de Supabase (Lote 4), SIN subir nada y sin
+#                      tocar producción. Prueba pg_dump 17 + validación.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main, ci/lote5]
+    paths:
+      - backend/scripts/s3backup.js
+      - .github/workflows/backup-s3.yml
+
+jobs:
+  backup:
+    name: Backup S3 (real)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_name == 'ci/lote5')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'  # undici 8.x exige Node >= 22.19 (ver playwright.yml)
+          cache: 'npm'
+      - name: Instalar dependencias
+        run: npm ci
+      # pg_dump debe ser >= versión del servidor (producción: PostgreSQL 17.6,
+      # verificado). El del runner es menor y se niega a volcar.
+      - name: Instalar pg_dump 17 (repositorio oficial PGDG)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "PG_DUMP_BIN=/usr/lib/postgresql/17/bin/pg_dump" >> "$GITHUB_ENV"
+      - name: Ejecutar backup S3 (falla si no respaldó de verdad)
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_S3_BUCKET:         ${{ secrets.AWS_S3_BUCKET }}
+          AWS_REGION:            ${{ secrets.AWS_REGION || 'us-east-1' }}
+          DATABASE_URL:          ${{ secrets.DATABASE_URL }}
+        run: node -e "import('./backend/scripts/s3backup.js').then(m => m.runS3Backup()).then(r => { console.log(JSON.stringify(r)); if (r.success !== true) process.exit(1); }).catch(e => { console.error(e.message); process.exit(1); })"
+      - name: Resumen backup
+        if: always()
+        run: |
+          echo "## Backup S3" >> $GITHUB_STEP_SUMMARY
+          echo "- Fecha: $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- Estado: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+
+  volcado-dry-run:
+    name: Volcado + validación (dry-run, réplica local)
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Instalar pg_dump 17 (repositorio oficial PGDG)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "PG_DUMP_BIN=/usr/lib/postgresql/17/bin/pg_dump" >> "$GITHUB_ENV"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      # Mismo procedimiento que playwright.yml (Lote 4): réplica local con la
+      # ESTRUCTURA de producción (sin datos) y el rol rf360_rls_scoped.
+      - name: Levantar Supabase local y replicar el esquema de producción
+        env:
+          S_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          supabase init --force
+          sed -i 's/^major_version = .*/major_version = 17/' supabase/config.toml
+          supabase start -x studio,mailpit,edge-runtime,logflare,vector,realtime,supavisor,postgres-meta
+          supabase status -o env | grep -E '^(DB_URL)=' > supabase.env
+          SESION_URL="${S_DATABASE_URL/:6543\//:5432/}"
+          supabase db dump --db-url "$SESION_URL" --schema public -f public_schema.sql
+          set -a; . ./supabase.env; set +a
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "CREATE ROLE rf360_rls_scoped LOGIN PASSWORD 'ci_rls_scoped' NOINHERIT;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -f public_schema.sql
+      - name: Dry-run del backup contra la réplica (debe validar el volcado)
+        run: |
+          set -a; . ./supabase.env; set +a
+          # La réplica no tiene datos: se exige 0 filas de usuarios aquí; en el
+          # backup real el mínimo por defecto es 1.
+          DATABASE_URL="$DB_URL" BACKUP_DRY_RUN=1 BACKUP_MIN_FILAS_USUARIOS=0 \
+            node -e "import('./backend/scripts/s3backup.js').then(m => m.runS3Backup()).then(r => { console.log(JSON.stringify(r)); if (r.success !== true || r.dryRun !== true) process.exit(1); }).catch(e => { console.error(e.message); process.exit(1); })"

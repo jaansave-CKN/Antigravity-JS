@@ -157,8 +157,10 @@ export function startScheduler() {
       // negligencia operativa, no un evento informativo — console.error para
       // que haga ruido real en los logs (runS3Backup() ya persiste el detalle
       // en system_logs vía logCriticalError, ver s3backup.js).
-      if (result.skipped) console.error('[Cron] ✗ Backup S3 omitido:', result.reason);
-      else console.log('[Cron] ✓ Backup S3 completado:', result.key || result.error);
+      // Lote 5 T3 (2026-09-24): antes un result.error se logueaba como
+      // "✓ completado". Solo success === true cuenta como backup real.
+      if (result.success === true) console.log('[Cron] ✓ Backup S3 completado:', result.key);
+      else console.error('[Cron] ✗ Backup S3 NO realizado:', result.reason || result.error);
     } catch (err) {
       console.error('[Cron] ✗ Error en backup S3:', err.message);
     }
