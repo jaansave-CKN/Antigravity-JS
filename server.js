@@ -767,11 +767,11 @@ async function initDb() {
     fase TEXT NOT NULL, capitulo TEXT DEFAULT '', item TEXT DEFAULT '',
     unidad TEXT DEFAULT 'm2', cantidad REAL DEFAULT 0,
     rendimiento_std TEXT DEFAULT '', rendimiento_real REAL DEFAULT 0,
-    rendimiento_ref REAL DEFAULT 0, costo_jornal_dia REAL DEFAULT 0,
+    rendimiento_ref REAL DEFAULT 0, costo_jornal_dia NUMERIC(18,2) DEFAULT 0,
     materiales TEXT DEFAULT '[]', equipos TEXT DEFAULT '[]',
-    costo_mano_obra REAL DEFAULT 0, costo_materiales REAL DEFAULT 0,
-    costo_equipos REAL DEFAULT 0, costo_directo REAL DEFAULT 0,
-    aiu REAL DEFAULT 0.28, valor_total REAL DEFAULT 0,
+    costo_mano_obra NUMERIC(18,2) DEFAULT 0, costo_materiales NUMERIC(18,2) DEFAULT 0,
+    costo_equipos NUMERIC(18,2) DEFAULT 0, costo_directo NUMERIC(18,2) DEFAULT 0,
+    aiu REAL DEFAULT 0.28, valor_total NUMERIC(18,2) DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (proyecto_id) REFERENCES proyectos(id))`);
@@ -4586,7 +4586,7 @@ Reglas:
     try {
       nodos = await generarArbolConIA(objetivoCentral, req.userGeminiKeys, req.userId);
     } catch (err) {
-      if (err.code === 'USER_KEY_EXHAUSTED') {
+      if (err.code === 'USER_KEY_EXHAUSTED' || err.code === 'IA_CUOTA_AGOTADA') {
         return res.status(err.status).json({ success: false, code: err.code, message: err.message });
       }
       throw err;
@@ -4594,17 +4594,20 @@ Reglas:
 
     // Persistir realmente los nodos en objetivos_arbol — antes se devolvían al
     // cliente pero nunca se guardaban, dejando "confirmar" sin nada que validar.
-    await withTenantRun(req.userId, 'DELETE FROM objetivos_arbol WHERE proyecto_id = ?', [proyectoId]);
+    // F-13 (auditoría V3, 2026-09-23): DELETE + INSERTs en UNA transacción —
+    // antes eran sentencias sueltas y un fallo a mitad dejaba el árbol
+    // anterior borrado y el nuevo incompleto. Mismo patrón que
+    // formulacionIntegral.routes.js (paso 'arbol').
     const ids = nodos.map(() => crypto.randomUUID());
-    for (let i = 0; i < nodos.length; i++) {
-      const n = nodos[i];
-      const parentId = (n.parentIndex !== null && n.parentIndex !== undefined) ? ids[n.parentIndex] : null;
-      await withTenantRun(req.userId,
-        `INSERT INTO objetivos_arbol (id, proyecto_id, tipo, nivel, texto, parent_id, generado_por_ia, confirmado)
-         VALUES (?, ?, ?, ?, ?, ?, 1, 0)`,
-        [ids[i], proyectoId, n.tipo, n.nivel, n.texto, parentId]
-      );
-    }
+    await withTenantTransaction(req.userId, [
+      { sql: 'DELETE FROM objetivos_arbol WHERE proyecto_id = ?', params: [proyectoId] },
+      ...nodos.map((n, i) => ({
+        sql: `INSERT INTO objetivos_arbol (id, proyecto_id, tipo, nivel, texto, parent_id, generado_por_ia, confirmado)
+              VALUES (?, ?, ?, ?, ?, ?, 1, 0)`,
+        params: [ids[i], proyectoId, n.tipo, n.nivel, n.texto,
+          (n.parentIndex !== null && n.parentIndex !== undefined) ? ids[n.parentIndex] : null],
+      })),
+    ]);
 
     res.json({
       success: true,
@@ -4740,11 +4743,27 @@ Reglas:
       }
     }
 
+    // F-12 (auditoría V3, 2026-09-23): la aprobación/rechazo de esta fase no
+    // dejaba rastro. tenant_audit_logs es append-only desde la migración 068.
+    const auditoriaArbol = (resultado, detalle) => ({
+      sql: 'INSERT INTO tenant_audit_logs (id, user_id, ip, accion, resultado, detalle) VALUES (?, ?, ?, ?, ?, ?)',
+      params: [crypto.randomUUID(), req.userId, req.ip || null, 'confirmar_arbol_objetivos', resultado,
+        JSON.stringify({ proyectoId, nodos: nodos.length, ...detalle })],
+    });
+
     if (detail.length > 0) {
+      const rechazo = auditoriaArbol('rechazado', { motivos: detail });
+      await withTenantRun(req.userId, rechazo.sql, rechazo.params)
+        .catch(e => logger.warn('[Arbol] No se pudo registrar auditoría del rechazo (no bloqueante)', { err: e.message }));
       return res.status(422).json({ success: false, message: 'El árbol no pasa la validación de coherencia', detail });
     }
 
-    await withTenantRun(req.userId, 'UPDATE objetivos_arbol SET confirmado = ? WHERE proyecto_id = ?', [1, proyectoId]);
+    // Confirmación + registro de auditoría atómicos: no puede quedar una
+    // fase aprobada sin su registro, ni un registro de algo que no se aprobó.
+    await withTenantTransaction(req.userId, [
+      { sql: 'UPDATE objetivos_arbol SET confirmado = ? WHERE proyecto_id = ?', params: [1, proyectoId] },
+      auditoriaArbol('aprobado', { indicadores: totalIndicadores }),
+    ]);
     res.json({ success: true, message: 'Árbol confirmado — coherencia verificada' });
   }));
 

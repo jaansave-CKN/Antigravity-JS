@@ -169,7 +169,8 @@ export default function PresupuestoPage() {
         rendimiento_std: r.rendimiento_std || undefined,
         rendimiento_real: parseFloat(r.rendimiento_real) || 0,
         costo_jornal_dia: parseFloat(r.costo_jornal_dia) || 0,
-        aiu: parseFloat(r.aiu) || 0.28,
+        // 0 (AIU 0%) es un valor válido — `|| 0.28` lo convertía en 28%.
+        aiu: Number.isFinite(parseFloat(r.aiu)) ? parseFloat(r.aiu) : 0.28,
         materiales: [], equipos: [],
       });
     }

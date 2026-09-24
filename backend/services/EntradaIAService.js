@@ -460,11 +460,76 @@ function parseJsonRespuesta(texto) {
 
 const txt = (v, max = 2000) => sanitizeTechnicalText(typeof v === 'string' ? v : '', max);
 
+// F-07 (auditoría V3, 2026-09-23): la regla 7 del prompt ("cita la fuente
+// exacta, nunca inventes una cita") era solo una instrucción al modelo —
+// ningún código comprobaba que la cita existiera. Esta verificación es
+// determinista: cada "(Fuente: X)" / "(Fuentes: X, Y)" debe corresponder a un
+// encabezado "### <nombre>" real del material (compilarContenidoCarpeta).
+// Una cita que no existe NO se borra en silencio (eso ocultaría la
+// alucinación): se marca de forma visible para que el formulador la revise.
+function normalizarFuente(s) {
+  return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+export function verificarCitasFuente(texto, contenido) {
+  if (typeof texto !== 'string' || !/\(\s*fuentes?\s*:/i.test(texto)) return texto;
+  const encabezados = [...String(contenido || '').matchAll(/^### (.+)$/gm)].map(m => normalizarFuente(m[1]));
+  const existe = (nombre) => {
+    const k = normalizarFuente(nombre);
+    return encabezados.some(h => h === k || (k.length >= 4 && h.includes(k)) || (h.length >= 4 && k.includes(h)));
+  };
+  return texto.replace(/\(\s*fuentes?\s*:\s*([^)]+)\)/gi, (cita, lista) => {
+    const invalidas = lista.split(',').map(s => s.trim()).filter(Boolean).filter(n => !existe(n));
+    return invalidas.length
+      ? `${cita} [⚠️ CITA NO VERIFICABLE: "${invalidas.join('", "')}" no existe en el material de Investigación]`
+      : cita;
+  });
+}
+
+// F-08 (auditoría V3, 2026-09-23): la lista de oro / lista negra del Motor
+// Dialéctico (Sección 03) solo llegaba a los prompts de Nombre y Pitch — el
+// Contexto del Problema, los campos individuales, las problemáticas y las
+// soluciones se generaban ignorándolas. Ahora las 4 las reciben en el prompt
+// y la salida se revisa contra la lista negra de forma determinista.
+async function cargarListasDialectica(projectId, orgId, getRows) {
+  try {
+    const rows = await getRows('SELECT lista_oro, lista_negra FROM motor_dialectico WHERE proyecto_id = ? AND user_id = ?', [projectId, orgId]);
+    const d = rows?.[0];
+    if (!d) return { oro: [], negra: [] };
+    const items = (v) => safeParseArrayNombre(v).flatMap(g => g?.items || []).map(s => String(s).trim()).filter(Boolean);
+    return { oro: items(d.lista_oro), negra: items(d.lista_negra) };
+  } catch {
+    // Proyecto sin Motor Dialéctico configurado todavía: no bloquea la generación.
+    return { oro: [], negra: [] };
+  }
+}
+
+export function conListasDialectica(systemPrompt, { oro = [], negra = [] } = {}) {
+  if (!oro.length && !negra.length) return systemPrompt;
+  const bloque = `LENGUAJE DEL PROYECTO (Motor Dialéctico, Sección 03 — obligatorio):
+${oro.length ? `- Términos técnicos/jurídicos a PRESERVAR y favorecer (lista de oro): ${oro.slice(0, 30).join(', ')}\n` : ''}${negra.length ? `- Términos PROHIBIDOS (lista negra — nunca los uses, reformula sin ellos): ${negra.slice(0, 30).join(', ')}\n` : ''}`;
+  const marca = 'MATERIAL DE INVESTIGACIÓN REAL DEL PROYECTO:';
+  return systemPrompt.includes(marca)
+    ? systemPrompt.replace(marca, `${bloque}\n${marca}`)
+    : `${systemPrompt}\n\n${bloque}`;
+}
+
+export function verificarListaNegra(texto, negra = []) {
+  if (typeof texto !== 'string' || !texto || !negra.length) return texto;
+  const norm = normalizarFuente(texto);
+  const usados = negra.filter(t => {
+    const k = normalizarFuente(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return k && new RegExp(`(^|[^a-z0-9ñ])${k}($|[^a-z0-9ñ])`).test(norm);
+  });
+  return usados.length
+    ? `${texto} [⚠️ LENGUAJE VETADO por el Motor Dialéctico: "${usados.join('", "')}" — reformular]`
+    : texto;
+}
+
 // Sanitiza la respuesta cruda de la IA — solo los 7 campos de contexto,
 // cualquier clave extra que la IA agregue por su cuenta se ignora.
-function sanitizarRespuesta(raw) {
+function sanitizarRespuesta(raw, contenido, negra) {
   const out = {};
-  for (const campo of CAMPOS_CONTEXTO) out[campo] = txt(raw?.[campo]);
+  for (const campo of CAMPOS_CONTEXTO) out[campo] = verificarListaNegra(verificarCitasFuente(txt(raw?.[campo]), contenido), negra);
   return out;
 }
 
@@ -490,10 +555,11 @@ export async function generarEntradaDesdeInvestigacion(projectId, orgId, { getRo
     throw new EntradaIAError(`Los documentos de la carpeta "${carpeta.nombre}" no tienen contenido legible (¿son solo imágenes o archivos vacíos?) — agrega texto/descripción a los anexos o sube un documento de texto.`);
   }
 
-  const systemPrompt = buildSystemPrompt(contenido);
+  const listas = await cargarListasDialectica(projectId, orgId, getRows);
+  const systemPrompt = conListasDialectica(buildSystemPrompt(contenido), listas);
   const textoRespuesta = await llamarGemini(systemPrompt, orgId, userGeminiKeys);
   const raw = parseJsonRespuesta(textoRespuesta);
-  return sanitizarRespuesta(raw);
+  return sanitizarRespuesta(raw, contenido, listas.negra);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -572,10 +638,11 @@ export async function generarCampoIndividual(projectId, orgId, campoId, contexto
     throw new EntradaIAError(`Los documentos de la carpeta "${carpeta.nombre}" no tienen contenido legible — agrega texto/descripción a los anexos o sube un documento de texto.`);
   }
 
-  const systemPrompt = buildSystemPromptCampoIndividual(campoId, contenido, demografia, contextoPrevio);
+  const listas = await cargarListasDialectica(projectId, orgId, getRows);
+  const systemPrompt = conListasDialectica(buildSystemPromptCampoIndividual(campoId, contenido, demografia, contextoPrevio), listas);
   const textoRespuesta = await llamarGemini(systemPrompt, orgId, userGeminiKeys);
   const raw = parseJsonRespuesta(textoRespuesta);
-  return { valor: txt(raw?.valor) };
+  return { valor: verificarListaNegra(verificarCitasFuente(txt(raw?.valor), contenido), listas.negra) };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -649,10 +716,14 @@ export async function generarProblematicasTerritorio(projectId, orgId, demografi
     throw new EntradaIAError(`Los documentos de la carpeta "${carpeta.nombre}" no tienen contenido legible — agrega texto/descripción a los anexos o sube un documento de texto.`);
   }
 
-  const systemPrompt = buildSystemPromptProblematicas(contenido, demografia);
+  const listas = await cargarListasDialectica(projectId, orgId, getRows);
+  const systemPrompt = conListasDialectica(buildSystemPromptProblematicas(contenido, demografia), listas);
   const textoRespuesta = await llamarGemini(systemPrompt, orgId, userGeminiKeys);
   const raw = parseJsonRespuesta(textoRespuesta);
-  return { problematicas: sanitizarRespuestaProblematicas(raw) };
+  return {
+    problematicas: sanitizarRespuestaProblematicas(raw)
+      .map(p => ({ ...p, problema: verificarListaNegra(p.problema, listas.negra) })),
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -691,9 +762,9 @@ MATERIAL DE INVESTIGACIÓN REAL DEL PROYECTO:
 ${contenido}`;
 }
 
-function sanitizarRespuestaSoluciones(raw) {
+function sanitizarRespuestaSoluciones(raw, contenido) {
   const lista = Array.isArray(raw?.soluciones) ? raw.soluciones : [];
-  return lista.slice(0, 9).map(s => txt(s, 1500)).filter(Boolean);
+  return lista.slice(0, 9).map(s => verificarCitasFuente(txt(s, 1500), contenido)).filter(Boolean);
 }
 
 /**
@@ -735,10 +806,11 @@ export async function generarPosiblesSoluciones(projectId, orgId, contextoPrevio
     throw new EntradaIAError(`Los documentos de la carpeta "${carpeta.nombre}" no tienen contenido legible — agrega texto/descripción a los anexos o sube un documento de texto.`);
   }
 
-  const systemPrompt = buildSystemPromptSoluciones(contenido, contextoPrevio, demografia);
+  const listas = await cargarListasDialectica(projectId, orgId, getRows);
+  const systemPrompt = conListasDialectica(buildSystemPromptSoluciones(contenido, contextoPrevio, demografia), listas);
   const textoRespuesta = await llamarGemini(systemPrompt, orgId, userGeminiKeys);
   const raw = parseJsonRespuesta(textoRespuesta);
-  return { soluciones: sanitizarRespuestaSoluciones(raw) };
+  return { soluciones: sanitizarRespuestaSoluciones(raw, contenido).map(s => verificarListaNegra(s, listas.negra)) };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

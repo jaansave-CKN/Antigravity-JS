@@ -29,17 +29,22 @@ REGLAS INMUTABLES:
 FORMATO:
 {"nodos":[{"tipo":"CENTRAL","nivel":0,"texto":"...","parentIndex":null},{"tipo":"ESPECIFICO","nivel":1,"texto":"...","parentIndex":0}]}`;
 
-function buildMockArbol(objetivoCentral) {
-  return [
-    { tipo: 'CENTRAL',    nivel: 0, texto: objetivoCentral || 'Mejorar las condiciones de vida de la población objetivo', parentIndex: null },
-    { tipo: 'ESPECIFICO', nivel: 1, texto: 'Aumentar el acceso a infraestructura básica de calidad',      parentIndex: 0 },
-    { tipo: 'RESULTADO',  nivel: 2, texto: '500 familias con acceso a servicios básicos mejorados',       parentIndex: 1 },
-    { tipo: 'ACTIVIDAD',  nivel: 3, texto: 'Construir 2 unidades de saneamiento básico integral (UMIS)',  parentIndex: 2 },
-    { tipo: 'ESPECIFICO', nivel: 1, texto: 'Fortalecer las capacidades técnicas de la comunidad',         parentIndex: 0 },
-    { tipo: 'RESULTADO',  nivel: 2, texto: '80 líderes comunitarios capacitados en gestión de proyectos', parentIndex: 4 },
-    { tipo: 'ACTIVIDAD',  nivel: 3, texto: 'Ejecutar programa de formación técnica de 120 horas',         parentIndex: 5 },
-  ];
+// F-02 (auditoría V3, 2026-09-23): antes, sin llaves o con la cuota del
+// servidor agotada, se devolvía un árbol de DEMOSTRACIÓN fijo ("500
+// familias", "80 líderes"...) que los callers guardaban en objetivos_arbol
+// como generado_por_ia=1, borrando el árbol real anterior. Ahora falla con
+// 503 explícito ANTES de que ningún caller toque objetivos_arbol (ambos
+// hacen el DELETE después de generar), así el árbol previo queda intacto.
+export class ArbolIANoDisponibleError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ArbolIANoDisponibleError';
+    this.status = 503;
+    this.code = 'IA_CUOTA_AGOTADA';
+  }
 }
+
+const MSG_SIN_IA = 'La IA del servidor no está disponible en este momento (cuota agotada o sin llaves configuradas). Conecta tu propia llave de Gemini (BYOK) para generar el árbol ahora, o intenta más tarde. Tu árbol de objetivos actual no se modificó.';
 
 // Llamada real al SDK con una llave dada — factorizada para poder usarse
 // tanto con el pool BYOK propio de un usuario (withUserKeyRotation) como
@@ -89,20 +94,15 @@ async function intentarGenerarArbol(key, objetivoCentral) {
 // REFACTOR (2026-08-22, BYOK migración 045): `apiKey` (una sola llave de
 // server.js:resolveGoogleApiKey) se reemplaza por `userGeminiKeys` (array de
 // llaves propias del usuario ya desencriptadas, resuelto por
-// requireByokOrExento). REGLA DE ORO explícita (revisión de architect):
-// buildMockArbol() es un árbol de DEMOSTRACIÓN fijo, no un cálculo real
-// sobre el proyecto — a diferencia de viabilidadAgent/enfoqueEntidadAgent
-// (heurísticas reales, etiquetadas), esto SÍ es la fabricación ya rechazada
-// 8 veces en este proyecto. Por eso el pool BYOK agotado NUNCA cae a
-// buildMockArbol: se propaga UserKeyPoolExhaustedError (429) tal cual. El
-// pool del SERVIDOR agotado conserva su comportamiento previo (mock) — es
-// una decisión de producto anterior a BYOK, fuera de este alcance.
+// requireByokOrExento). Pool BYOK agotado → UserKeyPoolExhaustedError (429)
+// tal cual; pool del SERVIDOR agotado o sin llaves → ArbolIANoDisponibleError
+// (503, F-02). Nunca se devuelve un árbol fabricado.
 export async function generarArbolConIA(objetivoCentral, userGeminiKeys, userId) {
   const useUserKeys = Array.isArray(userGeminiKeys) && userGeminiKeys.length > 0;
 
   if (!useUserKeys && !geminiCB.keys.length) {
-    console.warn('[ArbolAgent] Sin llaves configuradas — usando árbol de objetivos de demostración');
-    return buildMockArbol(objetivoCentral);
+    logger.warn('[ArbolAgent] Sin llaves configuradas — 503, sin árbol de demostración', { userId });
+    throw new ArbolIANoDisponibleError(MSG_SIN_IA);
   }
 
   try {
@@ -126,8 +126,8 @@ export async function generarArbolConIA(objetivoCentral, userGeminiKeys, userId)
       throw err;
     }
     if (isQuotaError(err) || err instanceof GeminiPoolExhaustedError) {
-      logger.warn('[ArbolAgent] Cuota del pool del servidor agotada — degradando a árbol de demostración', { objetivoCentral });
-      return buildMockArbol(objetivoCentral);
+      logger.warn('[ArbolAgent] Cuota del pool del servidor agotada — 503, sin árbol de demostración', { objetivoCentral });
+      throw new ArbolIANoDisponibleError(MSG_SIN_IA);
     }
     logger.error('[ArbolAgent] Fallo al generar árbol con Gemini', { err: err.message, objetivoCentral });
     throw new Error('La IA de Gemini está experimentando alta latencia. Por favor, reintenta en unos momentos.');

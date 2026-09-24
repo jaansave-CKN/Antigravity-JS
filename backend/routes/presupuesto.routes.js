@@ -34,6 +34,11 @@ import { captureError } from '../config/sentry.config.js';
 import { withTenantRow, withTenantRows, withTenantRun, withTenantTransaction, getRow, getRows } from '../config/database.config.js';
 import { validarBody, presupuestoItemsSchema } from '../validators/zodSchemas.js';
 
+// Columnas NUMERIC de project_budgets (066: COP en NUMERIC(18,2); 036: AIU
+// desagregado en NUMERIC(5,4) y valor_iva).
+const CAMPOS_NUMERIC = ['costo_jornal_dia', 'costo_mano_obra', 'costo_materiales', 'costo_equipos',
+  'costo_directo', 'valor_total', 'valor_iva', 'aiu_administracion', 'aiu_imprevistos', 'aiu_utilidad'];
+
 function wrap(fn) {
   return async (req, res, next) => {
     try { await fn(req, res, next); }
@@ -168,6 +173,15 @@ export function registerPresupuestoRoutes(app, { authenticateToken }) {
       logger.error('[Presupuesto] Fallo consultando project_budgets — devolviendo presupuesto vacío', { proyectoId: req.params.id, err: e.message });
     }
 
+    // pg devuelve NUMERIC como string (sin type parser global en este repo).
+    // Desde la migración 066 las columnas en COP son NUMERIC(18,2): se
+    // convierten aquí para que el contrato de la API siga entregando números.
+    items = items.map(it => {
+      const n = { ...it };
+      for (const k of CAMPOS_NUMERIC) if (n[k] != null) n[k] = Number(n[k]);
+      return n;
+    });
+
     const porFase = { NEGRA: 0, GRIS: 0, BLANCA: 0 };
     for (const it of items) {
       const f = String(it.fase || '').toUpperCase();
@@ -178,7 +192,7 @@ export function registerPresupuestoRoutes(app, { authenticateToken }) {
       success: true,
       data: items,
       porFase,
-      total: Object.values(porFase).reduce((s, v) => s + v, 0),
+      total: Math.round(Object.values(porFase).reduce((s, v) => s + v, 0) * 100) / 100,
     });
   }));
 }

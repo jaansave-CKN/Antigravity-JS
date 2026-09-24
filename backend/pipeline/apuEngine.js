@@ -39,6 +39,7 @@ export const RENDIMIENTOS_CATALOGO = Object.freeze({
 });
 
 function r2(n) { return Math.round(n * 100) / 100; }
+function r4(n) { return Math.round(n * 10000) / 10000; }
 
 function sumMateriales(mats = []) {
   return mats.reduce((s, m) => s + Number(m.cantidad || 0) * Number(m.precio_unitario || 0), 0);
@@ -91,7 +92,12 @@ export async function calcularAPU(item, getRow = null) {
   // `aiu` explícito, se reparte proporcionalmente en la misma razón 20/3/5 en
   // vez de descartarlo — así un AIU custom del usuario (ej. 0.35) seguía
   // aplicando exactamente igual que antes en valor_total, sin regresión.
-  const RATIO_ADMIN = 0.20 / 0.28, RATIO_IMPREV = 0.03 / 0.28, RATIO_UTIL = 0.05 / 0.28;
+  // FIX F-03 (auditoría V3, 2026-09-23): antes cada componente se redondeaba
+  // a 2 decimales por separado y el AIU aplicado dejaba de ser el pedido
+  // (0.30 → 0.21+0.03+0.05 = 0.29; 0.33 → 0.34). Ahora los componentes van
+  // a 4 decimales (escala de las columnas NUMERIC(5,4) de la migración 036) y
+  // la Utilidad se toma como el remanente, así la suma es exacta al AIU pedido.
+  const RATIO_ADMIN = 0.20 / 0.28, RATIO_IMPREV = 0.03 / 0.28;
   let aiuAdministracion, aiuImprevistos, aiuUtilidad;
   if (item.aiu_administracion != null || item.aiu_imprevistos != null || item.aiu_utilidad != null) {
     aiuAdministracion = Number(item.aiu_administracion ?? 0.20);
@@ -99,11 +105,11 @@ export async function calcularAPU(item, getRow = null) {
     aiuUtilidad       = Number(item.aiu_utilidad       ?? 0.05);
   } else {
     const aiuCombinado = Number(item.aiu ?? 0.28);
-    aiuAdministracion = r2(aiuCombinado * RATIO_ADMIN);
-    aiuImprevistos    = r2(aiuCombinado * RATIO_IMPREV);
-    aiuUtilidad       = r2(aiuCombinado * RATIO_UTIL);
+    aiuAdministracion = r4(aiuCombinado * RATIO_ADMIN);
+    aiuImprevistos    = r4(aiuCombinado * RATIO_IMPREV);
+    aiuUtilidad       = r4(aiuCombinado - aiuAdministracion - aiuImprevistos);
   }
-  const aiu          = r2(aiuAdministracion + aiuImprevistos + aiuUtilidad);
+  const aiu          = r4(aiuAdministracion + aiuImprevistos + aiuUtilidad);
   const tipoContrato = TIPOS_CONTRATO.includes(item.tipo_contrato) ? item.tipo_contrato : 'construccion';
 
   if (cantidad <= 0) throw new Error('APU_ERROR: cantidad debe ser > 0');

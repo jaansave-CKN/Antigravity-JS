@@ -279,13 +279,15 @@ export function slowDown(req, res, next) {
   setTimeout(next, delay);
 }
 
-// Limpieza periódica del store (evita leak de memoria)
+// Limpieza periódica del store (evita leak de memoria). unref(): en el
+// servidor el listener HTTP ya mantiene vivo el proceso; sin unref este
+// timer impedía que terminara cualquier script/test que importara el módulo.
 setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of _slowStore) {
     if (now > entry.resetAt) _slowStore.delete(ip);
   }
-}, SLOW_WINDOW_MS);
+}, SLOW_WINDOW_MS).unref();
 
 // FIX (2026-09-08, "se perdió la información que ya tenía guardada" —
 // investigación completa): `sameSite: 'strict'` en la cookie httpOnly
