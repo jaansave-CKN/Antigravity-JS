@@ -7,6 +7,10 @@
  *   node scripts/setup-infra.mjs                 interactivo: pide, valida en vivo y escribe .env
  *   node scripts/setup-infra.mjs --verificar     solo valida lo que ya hay en .env (no pregunta ni escribe)
  *   node scripts/setup-infra.mjs --subir-github  además ofrece subir los AWS_* validados a GitHub Secrets
+ *   node scripts/setup-infra.mjs --desde-archivo <ruta>
+ *        sin preguntas: toma las credenciales de un archivo (KEY=valor o KEY: valor),
+ *        valida cada grupo en vivo y escribe en .env SOLO los grupos que pasan.
+ *        Combinable con --subir-github (en ese caso sí pregunta antes de subir).
  *
  * Garantías:
  *   - Los secretos se escriben sin eco (se ve "*") y NUNCA se imprimen: solo
@@ -26,13 +30,14 @@
  */
 import { readFile, writeFile, copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import readline from 'node:readline';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const RUTA_ENV = resolve(RAIZ, '.env');
+// SETUP_INFRA_ENV_PATH: solo para pruebas (escribir en un .env temporal).
+const RUTA_ENV = process.env.SETUP_INFRA_ENV_PATH ? resolve(process.env.SETUP_INFRA_ENV_PATH) : resolve(RAIZ, '.env');
 
 // ── Utilidades puras (exportadas para pruebas) ───────────────────────────────
 
@@ -243,6 +248,51 @@ export const GRUPOS = [
   },
 ];
 
+// ── Ingesta desde archivo (--desde-archivo) ──────────────────────────────────
+
+const CLAVES_CONOCIDAS = new Set(GRUPOS.flatMap(g => g.campos.map(c => c.clave)));
+
+/** Nombres alternativos sin ambigüedad → nombre real que lee el código. */
+export const ALIAS = {
+  WOMPI_PUB_TEST: 'WOMPI_PUBLIC_KEY', WOMPI_PUB_PROD: 'WOMPI_PUBLIC_KEY', WOMPI_PUB: 'WOMPI_PUBLIC_KEY',
+  WOMPI_PRV_TEST: 'WOMPI_PRIVATE_KEY', WOMPI_PRV_PROD: 'WOMPI_PRIVATE_KEY', WOMPI_PRV: 'WOMPI_PRIVATE_KEY',
+  WOMPI_EVENTS: 'WOMPI_EVENTS_SECRET', WOMPI_INTEGRITY: 'WOMPI_INTEGRITY_SECRET',
+  GEMINI_API_KEY: 'GOOGLE_API_KEY',
+  AWS_BUCKET: 'AWS_S3_BUCKET', S3_BUCKET: 'AWS_S3_BUCKET', AWS_DEFAULT_REGION: 'AWS_REGION',
+};
+
+/**
+ * Extrae del texto de un archivo de credenciales SOLO las variables que usa
+ * la app. Acepta "CLAVE=valor", "CLAVE: valor", "export CLAVE=valor" y
+ * comillas. Una clave repetida con valores distintos se descarta (no se
+ * adivina cuál es la buena). Las AWS_BOOTSTRAP_* (administrador) se
+ * rechazan a propósito: el backup debe usar el usuario IAM de mínimo privilegio.
+ */
+export function extraerCredenciales(texto) {
+  const valores = {};
+  const alias = [];
+  const ignoradas = [];
+  const conflictos = new Set();
+  let bootstrap = false;
+  for (const linea of String(texto).replace(/^﻿/, '').split(/\r?\n/)) {
+    const m = linea.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:]\s*(.*?)\s*$/);
+    if (!m) continue;
+    const clave = m[1].toUpperCase();
+    let v = m[2];
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+    if (!v) continue;
+    if (clave.startsWith('AWS_BOOTSTRAP_')) { bootstrap = true; continue; }
+    const destino = CLAVES_CONOCIDAS.has(clave) ? clave : ALIAS[clave];
+    // Solo se listan nombres ya escritos en MAYÚSCULAS (estilo variable de entorno): "Nota:" no lo es.
+    if (!destino) { if (/^[A-Z][A-Z0-9_]{2,}$/.test(m[1])) ignoradas.push(clave); continue; }
+    if (destino !== clave) alias.push([clave, destino]);
+    if (valores[destino] !== undefined && valores[destino] !== v) conflictos.add(destino);
+    valores[destino] = v;
+  }
+  for (const c of conflictos) delete valores[c];
+  return { valores, alias, ignoradas: [...new Set(ignoradas)], conflictos: [...conflictos], bootstrap };
+}
+
 /** Estado de un grupo según los valores disponibles. */
 export async function evaluarGrupo(grupo, valores) {
   // Un valor por defecto (AWS_REGION=us-east-1) no cuenta como "configurado".
@@ -287,6 +337,9 @@ function preguntarOculto(texto) {
 // ── Escritura segura ─────────────────────────────────────────────────────────
 
 function estaIgnoradoPorGit(ruta) {
+  // Fuera del repositorio (p. ej. el Escritorio): git no puede rastrearlo.
+  const rel = relative(RAIZ, resolve(ruta));
+  if (rel.startsWith('..') || isAbsolute(rel)) return true;
   const r = spawnSync('git', ['check-ignore', '-q', ruta], { cwd: RAIZ });
   if (r.error) throw new Error('no se encontró git para comprobar .gitignore — no se escribe nada');
   return r.status === 0;
@@ -295,7 +348,7 @@ function estaIgnoradoPorGit(ruta) {
 async function escribirEnv(cambios) {
   const actual = existsSync(RUTA_ENV) ? await readFile(RUTA_ENV, 'utf8') : '';
   const sello = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
-  const respaldo = resolve(RAIZ, `.env.backup-${sello}`);
+  const respaldo = `${RUTA_ENV}.backup-${sello}`;
   if (!estaIgnoradoPorGit(RUTA_ENV) || !estaIgnoradoPorGit(respaldo)) {
     throw new Error('.env o sus copias NO están en .gitignore — no se escribe nada (el repo es público)');
   }
@@ -318,24 +371,72 @@ const ICONO = { OK: '🟢 OK', FALLO: '🔴 FALLO', PENDIENTE: '⚪ PENDIENTE' }
 async function main() {
   const soloVerificar = process.argv.includes('--verificar');
   const subirGithub = process.argv.includes('--subir-github');
+  const iArchivo = process.argv.indexOf('--desde-archivo');
+  const rutaArchivo = iArchivo >= 0 ? process.argv[iArchivo + 1] : null;
   const env = existsSync(RUTA_ENV) ? parseEnv(await readFile(RUTA_ENV, 'utf8')) : new Map();
   const valores = Object.fromEntries(env);
 
   console.log('\n══ RadFor-360 · Asistente de configuración de infraestructura ══');
   console.log('Los secretos nunca se muestran: solo su prefijo público y su longitud.\n');
 
-  if (!soloVerificar && !process.stdin.isTTY) {
-    console.error('Este modo necesita teclado. Ejecútelo en su propia terminal, o use --verificar.');
-    process.exit(2);
+  if (iArchivo >= 0 && (!rutaArchivo || rutaArchivo.startsWith('--'))) {
+    console.error('Uso: node scripts/setup-infra.mjs --desde-archivo <ruta del archivo de credenciales>');
+    process.exitCode = 1; return;
+  }
+  if (!soloVerificar && !rutaArchivo && !process.stdin.isTTY) {
+    console.error('Este modo necesita teclado. Ejecútelo en su propia terminal, o use --verificar / --desde-archivo.');
+    process.exitCode = 2; return;
+  }
+
+  // --desde-archivo: extrae, informa (sin valores) y valida por grupo.
+  let delArchivo = null;
+  if (rutaArchivo) {
+    const ruta = resolve(rutaArchivo);
+    if (!existsSync(ruta)) { console.error(`✖ No existe el archivo: ${ruta}`); process.exitCode = 1; return; }
+    if (!estaIgnoradoPorGit(ruta)) {
+      console.error('✖ El archivo de credenciales está DENTRO del repositorio y NO está en .gitignore — muévalo fuera (el repo es público).');
+      process.exitCode = 1; return;
+    }
+    const ext = extraerCredenciales(await readFile(ruta, 'utf8'));
+    delArchivo = ext.valores;
+    console.log(`Archivo: ${ruta}`);
+    console.log(`   Variables reconocidas: ${Object.keys(ext.valores).length ? Object.keys(ext.valores).join(', ') : 'ninguna'}`);
+    for (const [de, a] of ext.alias) console.log(`   alias: ${de} → ${a}`);
+    if (ext.conflictos.length) console.log(`   ⚠ Descartadas por tener valores distintos repetidos: ${ext.conflictos.join(', ')}`);
+    if (ext.bootstrap) console.log('   ⚠ AWS_BOOTSTRAP_* ignoradas: son de ADMINISTRADOR. El backup usa el usuario IAM de mínimo privilegio (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).');
+    if (ext.ignoradas.length) console.log(`   Otras variables del archivo (no usadas por este asistente): ${ext.ignoradas.join(', ')}`);
+    console.log('');
   }
 
   const cambios = {};
   const resultados = [];
   for (const grupo of GRUPOS) {
     console.log(`── ${grupo.titulo}`);
+
+    if (delArchivo) {
+      const nuevos = {};
+      for (const c of grupo.campos) if (delArchivo[c.clave]) nuevos[c.clave] = delArchivo[c.clave];
+      if (Object.keys(nuevos).length) {
+        for (const c of grupo.campos) if (!nuevos[c.clave] && !valores[c.clave] && c.porDefecto) nuevos[c.clave] = c.porDefecto;
+        const candidatos = { ...valores, ...nuevos };
+        for (const c of grupo.campos) console.log(`   ${c.clave}: ${c.secreto ? enmascarar(candidatos[c.clave]) : (candidatos[c.clave] || '(vacía)')}${nuevos[c.clave] ? '  ← del archivo' : ''}`);
+        const ev = await evaluarGrupo(grupo, candidatos);
+        console.log(`   ${ICONO[ev.estado]} — ${ev.detalle}`);
+        if (ev.estado === 'OK') {
+          Object.assign(cambios, nuevos, grupo.extra || {});
+          Object.assign(valores, nuevos, grupo.extra || {});
+          console.log('   → se guardará en .env\n');
+        } else {
+          console.log('   → NO se guarda (la validación falló; .env queda como estaba para este grupo)\n');
+        }
+        resultados.push({ grupo, ...ev });
+        continue;
+      }
+    }
+
     for (const c of grupo.campos) console.log(`   ${c.clave}: ${c.secreto ? enmascarar(valores[c.clave]) : (valores[c.clave] || '(vacía)')}`);
 
-    if (!soloVerificar) {
+    if (!soloVerificar && !delArchivo) {
       const r = (await preguntar('   ¿Configurar este grupo ahora? (s/N): ')).toLowerCase();
       if (r === 's' || r === 'si' || r === 'sí') {
         const nuevos = {};
@@ -373,8 +474,10 @@ async function main() {
   }
 
   const aws = resultados.find(r => r.grupo.id === 'aws');
-  if (subirGithub && aws?.estado === 'OK') {
-    const ok = ['s', 'si', 'sí'].includes((await preguntar('¿Subir AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_S3_BUCKET y AWS_REGION a GitHub Secrets? (s/N): ')).toLowerCase());
+  if (subirGithub && aws?.estado === 'OK' && !process.stdin.isTTY) {
+    console.log('--subir-github necesita confirmar por teclado: vuelva a ejecutarlo en su propia terminal.');
+  } else if (subirGithub && aws?.estado === 'OK') {
+    const ok =['s', 'si', 'sí'].includes((await preguntar('¿Subir AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_S3_BUCKET y AWS_REGION a GitHub Secrets? (s/N): ')).toLowerCase());
     if (ok) {
       for (const k of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_S3_BUCKET', 'AWS_REGION']) {
         console.log(`   ${k}: ${subirSecretoGithub(k, valores[k] || 'us-east-1') ? 'subido ✔' : 'FALLÓ ✖'}`);
