@@ -38,6 +38,7 @@ const RIGHT_LINKS = [
   { to: '/matriz-raci',label: 'Matriz RACI',      icon: '▦', requireAuth: true  },
   { to: '/ficha',      label: 'Ficha Técnica',    icon: '◫', requireAuth: true  },
   { to: '/viabilidad', label: 'Viabilidad',       icon: '◈', requireAuth: true  },
+  { to: '/evaluacion-financiera', label: 'Evaluación Financiera', icon: '◇', requireAuth: true },
   { to: '/checklist',  label: 'Check-List',       icon: '☑', requireAuth: true  },
 ] as const;
 
@@ -240,7 +241,7 @@ function Divider() {
 
 // ── Rutas de cada pilar ───────────────────────────────────────────────────────
 const PILAR_A_PATHS = ['/radar', '/panel', '/directorio', '/favoritos', '/calendario'];
-const PILAR_B_PATHS = ['/checklist', '/entrada', '/anexos', '/biblioteca', '/logistica', '/dialectica', '/ficha', '/matriz-raci', '/viabilidad'];
+const PILAR_B_PATHS = ['/checklist', '/entrada', '/anexos', '/biblioteca', '/logistica', '/dialectica', '/ficha', '/matriz-raci', '/viabilidad', '/evaluacion-financiera'];
 
 // ── TOPNAVBAR PRINCIPAL ───────────────────────────────────────────────────────
 export default function TopNavBar() {

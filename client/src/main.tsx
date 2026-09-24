@@ -56,6 +56,7 @@ const ExportacionPage        = lazy(() => import('./pages/ExportacionPage'));
 const Modulo10Page           = lazy(() => import('./pages/Modulo10Page'));
 const PresupuestoPage        = lazy(() => import('./pages/PresupuestoPage'));
 const ViabilidadFinancieraPage = lazy(() => import('./pages/ViabilidadFinancieraPage'));
+const EvaluacionFinancieraPage = lazy(() => import('./pages/EvaluacionFinancieraPage'));
 const PopulationObjectiveWizard = lazy(() => import('./components/formulador/PopulationObjectiveWizard'));
 import 'leaflet/dist/leaflet.css';
 import { validateEnv } from './utils/envValidator';
@@ -359,6 +360,9 @@ function AppRoutes() {
           } />
           <Route path="/viabilidad-financiera" element={
             <PlanGate require="formulador"><ViabilidadFinancieraPage /></PlanGate>
+          } />
+          <Route path="/evaluacion-financiera" element={
+            <PlanGate require="formulador"><EvaluacionFinancieraPage /></PlanGate>
           } />
           <Route path="/compliance" element={
             <PlanGate require="formulador"><Modulo10Page /></PlanGate>

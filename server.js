@@ -59,6 +59,9 @@ import { registerRadicacionRoutes } from './backend/routes/radicacion.routes.js'
 import { registerProyectosRoutes } from './backend/routes/proyectos.routes.js';
 import { registerReporteRoutes } from './backend/routes/reporte.routes.js';
 import { registerMatrizRaciRoutes } from './backend/routes/matrizRaci.routes.js';
+import { registerEstresFinancieroRoutes } from './backend/routes/estresFinanciero.routes.js';
+import { registerValorExponencialRoutes } from './backend/routes/valorExponencial.routes.js';
+import { registerEvaluacionFinancieraRoutes } from './backend/routes/evaluacionFinanciera.routes.js';
 import { registerPresupuestoRoutes } from './backend/routes/presupuesto.routes.js';
 import { registerAnexosRoutes } from './backend/routes/anexos.routes.js';
 import { registerBibliotecaRoutes } from './backend/routes/biblioteca.routes.js';
@@ -4895,6 +4898,13 @@ Reglas:
 
   // Matriz RACI (módulo nuevo, 2026-08-24 — diseño revisado por architect)
   registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, financialPipelineLimiter });
+
+  // Evaluación Financiera (2026-09-24): F-06 Montecarlo VAN/TIR + F-11
+  // estrés financiero y SROI restaurados — los 3 los consume la vista
+  // /evaluacion-financiera. Diseño fiscalizado por architect (B1-B4).
+  await registerEstresFinancieroRoutes(app, { authenticateToken, requireAccess, financialPipelineLimiter });
+  await registerValorExponencialRoutes(app, { authenticateToken, requireAccess, financialPipelineLimiter });
+  registerEvaluacionFinancieraRoutes(app, { authenticateToken, requireAccess, financialPipelineLimiter });
 
   // V8.0 — Formulador: M8 Marco Normativo
   registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch });

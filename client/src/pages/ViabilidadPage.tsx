@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import './ViabilidadPage.css';
+import { http } from '../lib/apiClient';
+import { cop } from '../lib/currencyFormat';
 import { ejecutarFormulador, estadoVacio, type AnalisisViabilidad, type EstadoFormulador } from '../agents/000_formulador';
 import { runViabilidadIA, type ViabilidadIAResultado } from '../agents/NN_Viability_Agent';
 
@@ -138,72 +142,73 @@ function DictamenIACard() {
   );
 }
 
-// ── Distribución de confianza estática (banda ilustrativa alrededor del score real) ──
-// FIX (DIRECTIVA REMEDIACIÓN TOTAL, 2026-09-06): antes `sigma` se animaba con
-// Math.sin(tick*0.6) en un loop de requestAnimationFrame — daba la falsa
-// impresión de una simulación Montecarlo recalculándose en vivo, cuando en
-// realidad no hay ningún motor estadístico detrás. Ahora es una banda fija,
-// derivada únicamente del score real recibido por props.
-function MontecarloChart({ score }: { score: number }) {
-  const W = 500; const H = 170;
-  const sigma = 0.22;
-  const mu = W * (0.2 + (score / 10) * 0.6);
-
-  const curve = (s: number) => {
-    const pts: string[] = [];
-    for (let i = 0; i <= 250; i++) {
-      const x = (i / 250) * W;
-      const z = (x - mu) / (s * W);
-      const y = H - Math.exp(-0.5 * z * z) * H * 0.82;
-      pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
-    }
-    return pts.join(' L ');
+// ── Distribución Montecarlo REAL del VAN (F-06, 2026-09-24) ──────────────────
+// Antes: MontecarloChart dibujaba una banda gaussiana FIJA derivada del score
+// (no había ningún motor estadístico detrás) con leyenda "IC 68/95/99%"
+// inventada. Ahora muestra la última corrida real del motor Montecarlo
+// (GET /api/proyectos/:id/montecarlo, backend/services/montecarloFinanciero.js)
+// y, si el proyecto aún no tiene ninguna, un estado vacío que lleva a
+// /evaluacion-financiera — nunca una curva fabricada.
+interface CorridaResumen {
+  obsoleta: boolean;
+  resultado: {
+    probabilidad_van_positivo: number;
+    van: { p10_cop: number; p50_cop: number; p90_cop: number };
+    histograma_van: Array<{ desde: number; hasta: number; frecuencia: number }>;
   };
+}
 
-  const p1 = curve(sigma);
-  const p2 = curve(sigma * 1.4);
-  const p3 = curve(sigma * 1.9);
+function DistribucionVanReal() {
+  const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
+  const [corrida, setCorrida] = useState<CorridaResumen | null>(null);
+  const [estado, setEstado] = useState<'cargando' | 'listo' | 'error'>('cargando');
 
+  useEffect(() => {
+    if (!proyectoId) { setEstado('listo'); return; }
+    let vigente = true;
+    http.get<{ data: CorridaResumen | null }>(`/api/proyectos/${proyectoId}/montecarlo`)
+      .then(r => { if (vigente) { setCorrida(r.data); setEstado('listo'); } })
+      .catch(() => { if (vigente) setEstado('error'); });
+    return () => { vigente = false; };
+  }, [proyectoId]);
+
+  if (estado === 'cargando') return <div className="viab__mc-legend">Cargando simulación…</div>;
+  if (estado === 'error') return <div className="viab__mc-legend">No se pudo cargar la simulación Montecarlo.</div>;
+  if (!corrida) {
+    return (
+      <div className="viab__mc-legend" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
+        <span>Este proyecto aún no tiene una simulación Montecarlo real del VAN.</span>
+        <Link to="/evaluacion-financiera" style={{ color: '#0041a3', fontWeight: 700 }}>Ir a Evaluación Financiera →</Link>
+      </div>
+    );
+  }
+
+  const r = corrida.resultado;
+  const datos = r.histograma_van.map(h => ({ van: cop.format((h.desde + h.hasta) / 2), frecuencia: h.frecuencia }));
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
-      <defs>
-        <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#4338ca" />
-          <stop offset="50%" stopColor="#0891b2" />
-          <stop offset="100%" stopColor="#7c3aed" />
-        </linearGradient>
-        <linearGradient id="g2" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.6" />
-          <stop offset="100%" stopColor="#0041a3" stopOpacity="0.1" />
-        </linearGradient>
-        <filter id="glow">
-          <feGaussianBlur stdDeviation="3" result="b" />
-          <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
-      </defs>
-      {/* Grid */}
-      {[0.25, 0.5, 0.75].map(v => (
-        <line key={v} x1={0} y1={H * v} x2={W} y2={H * v}
-          stroke="#c4c5d7" strokeWidth="0.5" strokeDasharray="4,6" />
-      ))}
-      {/* Confidence intervals */}
-      <path d={`M ${p3} L ${W},${H} L 0,${H} Z`} fill="url(#g1)" opacity="0.08" />
-      <path d={`M ${p2} L ${W},${H} L 0,${H} Z`} fill="url(#g1)" opacity="0.18" />
-      <path d={`M ${p1} L ${W},${H} L 0,${H} Z`} fill="url(#g2)" opacity="0.6" />
-      {/* Main curve line */}
-      {/* points de <polyline> no admite la sintaxis de path (" L "): con ella el
-          navegador descartaba el atributo y la línea principal nunca se dibujaba
-          (error de consola verificado 2026-09-23). Los <path> de arriba sí la usan. */}
-      <polyline points={p1.split(' L ').join(' ')} fill="none" stroke="url(#g1)" strokeWidth="2.5"
-        strokeLinejoin="round" filter="url(#glow)" />
-      {/* Score marker */}
-      <line x1={mu} y1={0} x2={mu} y2={H} stroke="#0041a3" strokeWidth="1.5" strokeDasharray="5,4" opacity="0.7" />
-      <circle cx={mu} cy={H * 0.08} r={5} fill="#0041a3" />
-      <text x={mu + 9} y={H * 0.08 + 5} fontSize="12" fill="#0041a3"
-        fontFamily="'Public Sans',sans-serif" fontWeight="800">{score.toFixed(1)}</text>
-      {/* Axis */}
-      <line x1={0} y1={H} x2={W} y2={H} stroke="#c4c5d7" strokeWidth="1" />
-    </svg>
+    <>
+      {/* flex:1 + minHeight: la tarjeta tiene alto fijo por la grilla y un
+          height fijo aquí se encogía por flex-shrink (histograma de ~20px). */}
+      <div style={{ width: '100%', flex: 1, minHeight: 150 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={datos} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            <XAxis dataKey="van" hide />
+            <YAxis hide />
+            <Tooltip formatter={(v) => [`${v} iteraciones`, 'Frecuencia']} labelFormatter={(l) => `VAN ≈ ${l}`} />
+            {/* Color sólido (el #4338ca de la paleta previa de esta tarjeta): un
+                fill="url(#degradado)" con <defs> dentro del chart no se pintaba
+                en recharts 3 — verificado en captura, barras invisibles. */}
+            <Bar dataKey="frecuencia" fill="#4338ca" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="viab__mc-legend" style={{ flexWrap: 'wrap' }}>
+        <span>VAN P50 <strong>{cop.format(r.van.p50_cop)}</strong></span>
+        <span>P10–P90 {cop.format(r.van.p10_cop)} – {cop.format(r.van.p90_cop)}</span>
+        <span>P(VAN&gt;0) <strong>{(r.probabilidad_van_positivo * 100).toLocaleString('es-CO', { maximumFractionDigits: 1 })} %</strong></span>
+        {corrida.obsoleta && <Link to="/evaluacion-financiera" style={{ color: '#b45309', fontWeight: 700 }}>Presupuesto cambió · re-simular</Link>}
+      </div>
+    </>
   );
 }
 
@@ -443,12 +448,7 @@ export default function ViabilidadPage() {
             Distribución Montecarlo
           </div>
           <div className="viab__card-body viab__mc-body">
-            <MontecarloChart score={analisis.score} />
-            <div className="viab__mc-legend">
-              <span className="viab__mc-dot" style={{ background: 'rgba(67,56,202,0.6)' }} />IC 68%
-              <span className="viab__mc-dot" style={{ background: 'rgba(8,145,178,0.4)' }} />IC 95%
-              <span className="viab__mc-dot" style={{ background: 'rgba(124,58,237,0.2)' }} />IC 99%
-            </div>
+            <DistribucionVanReal />
           </div>
         </div>
 

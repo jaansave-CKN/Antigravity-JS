@@ -134,4 +134,104 @@ test.describe('Formulador — flujo financiero (COP)', () => {
 
     await api.dispose();
   });
+
+  // F-06 + F-11 (2026-09-24): Montecarlo VAN/TIR, SROI y estrés financiero
+  // contra el backend real. Autosuficiente: si el proyecto aún no tiene APU
+  // ingerido, lo sube (mismo Excel). Las filas que crea (corridas, SROI,
+  // escenarios) caen por ON DELETE CASCADE al borrar el proyecto en
+  // global-teardown; el hallazgo CRITICO lo borra el teardown explícitamente.
+  test('evaluación financiera: Montecarlo VAN/TIR en COP, SROI y estrés sobre el APU real', async ({}) => {
+    const estado = leerEstadoE2E();
+    const api = await pwRequest.newContext({
+      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5173',
+      extraHTTPHeaders: { Authorization: `Bearer ${estado.token}` },
+    });
+    const base = `/api/proyectos/${estado.proyectoId}`;
+
+    let previo = await (await api.get(`${base}/montecarlo`)).json();
+    if (!(previo.inversion_actual_cop > 0)) {
+      const up = await api.post(`${base}/anexos`, { multipart: { categoria: 'presupuesto_apu', file: {
+        name: 'presupuesto-apu.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: generarExcelApuCOP(),
+      } } });
+      expect(up.ok(), `subida APU: ${up.status()} ${await up.text()}`).toBeTruthy();
+      previo = await (await api.get(`${base}/montecarlo`)).json();
+    }
+    const inversion: number = previo.inversion_actual_cop;
+    expect(inversion).toBeGreaterThan(0);
+
+    // Montecarlo — resultado real y reproducible por semilla.
+    const entrada = { beneficioMin: 5_000_000, beneficioProbable: 8_000_000, beneficioMax: 12_000_000, horizonteAnios: 10, semilla: 42 };
+    const r1 = await api.post(`${base}/montecarlo`, { data: entrada });
+    expect(r1.status(), await r1.text()).toBe(201);
+    const c1 = (await r1.json()).data;
+    expect(c1.inversion_cop).toBe(inversion);
+    expect(c1.inversion_fuente).toBe('auto_extraido_project_apu_lineas');
+    expect(c1.resultado.moneda).toBe('COP');
+    expect(c1.resultado.tasa_descuento).toBe(0.12);
+    expect(c1.resultado.iteraciones).toBe(10000);
+    const anualidad = (1 - Math.pow(1.12, -10)) / 0.12;
+    expect(Math.abs(c1.resultado.van_escenario_probable_cop - (-inversion + 8_000_000 * anualidad))).toBeLessThan(0.01);
+    expect(c1.resultado.van.p10_cop).toBeLessThan(c1.resultado.van.p90_cop);
+    expect(c1.resultado.histograma_van.reduce((s: number, h: { frecuencia: number }) => s + h.frecuencia, 0)).toBe(10000);
+
+    const r2 = await api.post(`${base}/montecarlo`, { data: entrada });
+    expect((await r2.json()).data.resultado).toEqual(c1.resultado);
+
+    const ultima = (await (await api.get(`${base}/montecarlo`)).json()).data;
+    expect(ultima.obsoleta).toBe(false);
+    expect(ultima.resultado).toEqual(c1.resultado);
+
+    // Entradas inválidas: nunca un resultado inventado.
+    expect((await api.post(`${base}/montecarlo`, { data: { ...entrada, beneficioMin: 9_000_000 } })).status()).toBe(422);
+    expect((await api.post(`${base}/montecarlo`, { data: { beneficioMin: 1, beneficioProbable: 2, beneficioMax: 3 } })).status()).toBe(400);
+    expect((await api.post(`${base}/montecarlo`, { data: { ...entrada, moneda: 'USD' } })).status()).toBe(422);
+
+    // SROI (F-11 restaurado) — ratio explícito sobre la misma inversión.
+    const sroi = await api.post(`${base}/calcular-sroi`, { data: { ratioConversion: 2.5 } });
+    expect(sroi.status(), await sroi.text()).toBe(201);
+    expect(Number((await sroi.json()).data.sroi.valor_social_generado_cop)).toBeCloseTo(inversion * 2.5, 0);
+    const impacto = (await (await api.get(`${base}/impacto-social`)).json()).data;
+    expect(Number(impacto.sroi.ratio_conversion)).toBe(2.5);
+
+    // Estrés financiero (F-11 restaurado) — 20% supera el umbral crítico (15%).
+    const estres = await api.post(`${base}/estres-financiero`, { data: { nombreEscenario: 'E2E alza SMMLV', porcentajeIncremento: 20 } });
+    expect(estres.status(), await estres.text()).toBe(201);
+    expect((await estres.json()).data.viabilidad_resultado).toBe('CRITICO');
+    const escenarios = (await (await api.get(`${base}/estres-financiero`)).json()).data;
+    expect(escenarios.some((e: { nombre_escenario: string }) => e.nombre_escenario === 'E2E alza SMMLV')).toBe(true);
+
+    await api.dispose();
+  });
+
+  // UI real de /evaluacion-financiera y de la tarjeta Montecarlo de
+  // /viabilidad — usa los datos que dejó la prueba anterior (mismo proyecto).
+  test('UI: /evaluacion-financiera muestra VAN/TIR, SROI y estrés reales; /viabilidad ya no dibuja una curva fija', async ({ page }) => {
+    const estado = leerEstadoE2E();
+    await page.goto('/login');
+    await page.getByPlaceholder('operador@institucion.gov').fill(estado.email);
+    await page.getByPlaceholder('••••••••••••').fill(estado.password);
+    await page.getByRole('button', { name: /^iniciar sesión$/i }).click();
+    await expect(page).toHaveURL(/\/checklist/, { timeout: 15_000 });
+    await page.evaluate(({ key, id }) => localStorage.setItem(key, id), { key: ACTIVE_PROJECT_KEY, id: estado.proyectoId });
+
+    await page.goto('/evaluacion-financiera');
+    await expect(page.getByRole('heading', { name: 'Evaluación Financiera' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('VAN mediano (P50)')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('TIR mediana (P50)')).toBeVisible();
+    await expect(page.getByText('Valor social generado')).toBeVisible();
+    await expect(page.getByText('E2E alza SMMLV · +20 %')).toBeVisible();
+    await page.screenshot({ path: 'test-results/evaluacion-financiera.png', fullPage: true });
+    // El layout desplaza un contenedor interno (fullPage no lo cubre): capturas
+    // de la parte baja para revisar resultados, SROI y estrés.
+    await page.getByText('VAN mediano (P50)').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'test-results/evaluacion-financiera-resultado.png' });
+    await page.getByText('E2E alza SMMLV · +20 %').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: 'test-results/evaluacion-financiera-sroi-estres.png' });
+
+    await page.goto('/viabilidad');
+    await expect(page.getByText('Distribución Montecarlo')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('P(VAN>0)')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('IC 68%')).toHaveCount(0);
+    await page.screenshot({ path: 'test-results/viabilidad-montecarlo.png', fullPage: true });
+  });
 });

@@ -356,6 +356,30 @@ export const raciAsignacionSchema = z.object({
   sigla: z.enum(['R', 'A', 'C', 'I', 'V', 'IA']).nullable().optional(),
 });
 
+// RESTAURADOS (F-11, 2026-09-24) desde 18bc775^ tal cual — ver
+// estresFinanciero.routes.js / valorExponencial.routes.js.
+export const estresFinancieroSchema = z.object({
+  nombreEscenario: z.string().trim().max(200).optional(),
+  porcentajeIncremento: z.coerce.number().optional(),
+});
+
+export const sroiSchema = z.object({
+  ratioConversion: z.coerce.number({ message: 'ratioConversion es requerido' }),
+});
+
+// F-06 (2026-09-24): z.number() SIN coerce a propósito — con coerce un campo
+// vacío ("") se volvía 0, que pasa la validación (>= 0) y produce un VAN
+// falso. Los rangos finos (min ≤ probable ≤ max, inversión > 0) los valida
+// el motor (montecarloFinanciero.js) con 422.
+const montoCop = z.number({ message: 'Monto requerido (número en COP)' }).finite().nonnegative().max(1e15);
+export const montecarloSchema = z.object({
+  beneficioMin: montoCop,
+  beneficioProbable: montoCop,
+  beneficioMax: montoCop,
+  horizonteAnios: z.number({ message: 'horizonteAnios es requerido' }).int().min(1).max(50),
+  semilla: z.number().int().min(0).max(0xFFFFFFFF).optional(),
+});
+
 export const exportarGraficosSchema = z.object({
   graficos: z.array(z.object({
     svg: z.string().optional(),
