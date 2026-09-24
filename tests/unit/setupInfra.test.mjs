@@ -110,3 +110,55 @@ test('evaluarGrupo: sin nada = PENDIENTE; incompleto = FALLO; la región por def
 test('Wompi fija PAYMENT_PROVIDER=wompi (por defecto la app usa stripe)', () => {
   assert.deepEqual(GRUPOS.find(g => g.id === 'wompi').extra, { PAYMENT_PROVIDER: 'wompi' });
 });
+
+// ── --desde-archivo ──────────────────────────────────────────────────────────
+import { extraerCredenciales } from '../../scripts/setup-infra.mjs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+test('extraerCredenciales: formatos, alias, BOM, comillas y lo que se ignora', () => {
+  const texto = '\uFEFF# mis claves\nAWS_S3_BUCKET: rf360-backups\nexport AWS_REGION="us-east-2"\nWOMPI_PUB_TEST=pub_test_1\ngemini_api_key = AIzaX\nNota: llamar a soporte\nOTRA_COSA=1\nAWS_BOOTSTRAP_ACCESS_KEY_ID=AKIAADMIN\nVACIA=\n';
+  const r = extraerCredenciales(texto);
+  assert.deepEqual(r.valores, { AWS_S3_BUCKET: 'rf360-backups', AWS_REGION: 'us-east-2', WOMPI_PUBLIC_KEY: 'pub_test_1', GOOGLE_API_KEY: 'AIzaX' });
+  assert.deepEqual(r.alias, [['WOMPI_PUB_TEST', 'WOMPI_PUBLIC_KEY'], ['GEMINI_API_KEY', 'GOOGLE_API_KEY']]);
+  assert.equal(r.bootstrap, true, 'las credenciales de administrador se rechazan');
+  assert.ok(!Object.values(r.valores).includes('AKIAADMIN'));
+  assert.deepEqual(r.ignoradas, ['OTRA_COSA'], '"Nota" no es un nombre de variable');
+});
+
+test('extraerCredenciales: una clave repetida con valores distintos se descarta (no se adivina)', () => {
+  const r = extraerCredenciales('GOOGLE_API_KEY=uno\nGEMINI_API_KEY=dos\nAWS_S3_BUCKET=b\nAWS_S3_BUCKET=b');
+  assert.deepEqual(r.conflictos, ['GOOGLE_API_KEY']);
+  assert.equal(r.valores.GOOGLE_API_KEY, undefined);
+  assert.equal(r.valores.AWS_S3_BUCKET, 'b', 'repetida con el MISMO valor no es conflicto');
+});
+
+test('--desde-archivo (script real, sin red): guarda solo grupos válidos, respalda y no imprime secretos', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rf360-setup-'));
+  const envPath = join(dir, '.env');
+  const credPath = join(dir, 'claves_privadas-prueba.txt');
+  writeFileSync(envPath, 'EXISTENTE=se_conserva\n');
+  const WEBHOOK = 'https://hooks.slack.com/services/T000/B000/SecretoWebhook123';
+  writeFileSync(credPath, [
+    `ERROR_WEBHOOK_URL=${WEBHOOK}`,
+    'WOMPI_PUBLIC_KEY=clave_sin_prefijo_valido_987', // falla antes de tocar la red
+    'WOMPI_PRIVATE_KEY=prv_prod_PrivadaMuySecreta555',
+    'AWS_BOOTSTRAP_SECRET_ACCESS_KEY=AdminSecretoNoUsar',
+  ].join('\n'));
+  const script = fileURLToPath(new URL('../../scripts/setup-infra.mjs', import.meta.url));
+  const r = spawnSync(process.execPath, [script, '--desde-archivo', credPath], {
+    env: { ...process.env, SETUP_INFRA_ENV_PATH: envPath }, encoding: 'utf8',
+  });
+  const salida = r.stdout + r.stderr;
+  assert.equal(r.status, 1, 'Wompi falla → código 1');
+  for (const secreto of ['SecretoWebhook123', 'PrivadaMuySecreta555', 'AdminSecretoNoUsar']) assert.doesNotMatch(salida, new RegExp(secreto));
+  const env = readFileSync(envPath, 'utf8');
+  assert.match(env, /EXISTENTE=se_conserva/);
+  assert.ok(env.includes(`ERROR_WEBHOOK_URL=${WEBHOOK}`), 'alertas válidas → guardadas');
+  assert.doesNotMatch(env, /WOMPI_|PAYMENT_PROVIDER|Admin/, 'grupo inválido y bootstrap → no se escriben');
+  assert.ok(readdirSync(dir).some(f => f.startsWith('.env.backup-')), 'copia de seguridad creada');
+  assert.match(salida, /AWS_BOOTSTRAP_\* ignoradas/);
+});
