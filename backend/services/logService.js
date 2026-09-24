@@ -31,20 +31,28 @@ export async function logCriticalError(origen, mensaje, payload = {}) {
   // 1. Log en consola inmediato (nunca falla)
   console.error(`[CRITICAL][${origen}] ${mensaje}`, payload);
 
-  // 2. Persistir en system_logs (fire-and-forget, sin bloquear el flujo principal)
-  getRunSql().then(runSql => {
-    runSql(
+  // 2. Persistir en system_logs.
+  // LOTE 8 (auditoría minera 2026-09-24, verificado en vivo): antes era
+  // fire-and-forget y la promesa de esta función resolvía ANTES del INSERT.
+  // backup-s3.yml hace `await logCriticalError(...)` y luego process.exit(1):
+  // el INSERT moría con el proceso. Prueba: el run 36024369232 imprimió
+  // "[CRITICAL][S3Backup]" con el DATABASE_URL real y system_logs tenía 0
+  // filas. Ahora la promesa resuelve cuando el INSERT termina (tope 5 s, para
+  // no colgar a quien la espere). Quien NO la espera no cambia en nada.
+  const persistencia = getRunSql()
+    .then(runSql => runSql(
       `INSERT INTO system_logs (id, origen, mensaje, payload, nivel, created_at)
        VALUES (?, ?, ?, ?, 'ERROR', ?)`,
       [id, origen, mensaje, payloadStr, timestamp]
-    ).catch(dbErr => {
+    ))
+    .catch(dbErr => {
       // Si la BD también falla, al menos queda en stderr del proceso
       console.error('[logService] No se pudo persistir error en system_logs:', dbErr.message);
     });
-  }).catch(() => {});
 
   // 3. Webhook opcional (Slack / Discord)
   const webhookUrl = process.env.ERROR_WEBHOOK_URL;
+  let aviso = Promise.resolve();
   if (webhookUrl) {
     const body = JSON.stringify({
       // Formato compatible con Slack y Discord (ambos aceptan "text")
@@ -60,7 +68,7 @@ export async function logCriticalError(origen, mensaje, payload = {}) {
       }],
     });
 
-    fetch(webhookUrl, {
+    aviso = fetch(webhookUrl, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
@@ -69,4 +77,12 @@ export async function logCriticalError(origen, mensaje, payload = {}) {
       console.error('[logService] Webhook falló:', whErr.message);
     });
   }
+
+  // Espera persistencia + aviso, con tope de 5 s (el timer no retiene el proceso).
+  let tope;
+  await Promise.race([
+    Promise.all([persistencia, aviso]),
+    new Promise(res => { tope = setTimeout(res, 5000); tope.unref?.(); }),
+  ]);
+  clearTimeout(tope);
 }

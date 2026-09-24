@@ -14,7 +14,7 @@ class E extends Error {}
 mock.module(u('config/supabase.config.js'), { namedExports: { supabaseStorage: {}, supabaseAdmin: {} } });
 mock.module(u('services/markitdownService.js'), { namedExports: { convertBufferToMarkdown: async () => '' } });
 mock.module(u('services/geminiCircuitBreaker.js'), {
-  namedExports: { withKeyRotation: async () => { throw new E(); }, isQuotaError: () => false, GeminiPoolExhaustedError: E },
+  namedExports: { withKeyRotation: async () => { throw new E(); }, isQuotaError: () => false, GeminiPoolExhaustedError: E, retryDelayDe429: () => null },
 });
 mock.module(u('services/byokService.js'), { namedExports: { withUserKeyRotation: async () => { throw new E(); }, UserKeyPoolExhaustedError: E } });
 mock.module(u('services/aiTokenLogger.js'), { namedExports: { logTokenUsage: async () => {} } });

@@ -56,7 +56,10 @@ async function intentarGenerarArbol(key, objetivoCentral) {
     generationConfig: {
       temperature:     0.3,
       topP:            0.8,
-      maxOutputTokens: 4096,
+      // LOTE 8 (auditoría minera 2026-09-24): gemini-3.6-flash razona y esos
+      // tokens cuentan contra el tope (verificado en vivo en MIROFISH con
+      // 3072). Mismo margen que los agentes ya corregidos.
+      maxOutputTokens: 8192,
       responseMimeType: 'application/json',
     },
   });
@@ -68,6 +71,12 @@ async function intentarGenerarArbol(key, objetivoCentral) {
     .replace(/\n{2,}/g, ' ');
   const prompt = `${ARBOL_SYSTEM_PROMPT}\n\nOBJETIVO CENTRAL DEL PROYECTO:\n"${sanitized}"`;
   const result = await model.generateContent(prompt);
+  // LOTE 8: un árbol cortado por el tope se reporta con motivo explícito en
+  // vez de fallar después con un "JSON no válido" sin causa.
+  if (result.response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+    logger.error('[ArbolAgent] Respuesta de Gemini truncada por maxOutputTokens', { usage: result.response.usageMetadata });
+    throw new Error('Respuesta de Gemini truncada (maxOutputTokens)');
+  }
   const text   = result.response.text().trim();
 
   let parsed;
