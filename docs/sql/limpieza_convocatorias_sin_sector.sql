@@ -1,48 +1,45 @@
 -- ============================================================================
--- Limpieza de las convocatorias que nunca obtuvieron sector (2026-09-23)
--- NO SE EJECUTÓ AUTOMÁTICAMENTE. Revisar el PASO 1 antes de correr el PASO 2.
---
--- Contexto verificado: 93 filas con sectores = '[]', creadas entre 2026-06-11 y
--- 2026-09-06 por el rastreo del Directorio. Muchos títulos son basura
--- ("Formulario de solicitud", "Projects &amp Programmes"), pero ALGUNOS pueden
--- ser convocatorias reales con metadatos pobres (p. ej. "PREMIOS GLOBAL CITIZEN
--- WAISLITZ 2025") — por eso es borrado LÓGICO con respaldo, no DELETE físico.
--- Efecto: dejan de aparecer en el Radar (todas las consultas filtran deleted_at).
+-- Purga de las 93 convocatorias sin sector — con archivo de respaldo (2026-09-23)
+-- Transacción única: si cualquier verificación falla, NADA se aplica.
+-- Verificado el 2026-09-23: ninguna FK apunta a convocatorias y ningún
+-- favorito referencia estas filas.
 -- ============================================================================
 
--- PASO 1 · Revisar (solo lectura) ---------------------------------------------
-BEGIN READ ONLY;
-SELECT id, left(titulo, 90) AS titulo, length(coalesce(descripcion, '')) AS len_desc,
-       fuente, created_at::date
-FROM convocatorias
-WHERE deleted_at IS NULL AND sectores = '[]'
-ORDER BY created_at;
-COMMIT;
-
--- PASO 2 · Respaldo + borrado lógico, atómico ---------------------------------
 BEGIN;
-CREATE TABLE IF NOT EXISTS respaldo_convocatorias_sin_sector_20260923 AS
-  SELECT * FROM convocatorias WHERE false;
-INSERT INTO respaldo_convocatorias_sin_sector_20260923
-  SELECT * FROM convocatorias WHERE deleted_at IS NULL AND sectores = '[]';
 
-UPDATE convocatorias
-SET deleted_at = NOW()
-WHERE deleted_at IS NULL AND sectores = '[]'
-  AND id IN (SELECT id FROM respaldo_convocatorias_sin_sector_20260923);
+-- 1. Respaldo con las 93 filas exactas (misma estructura que convocatorias).
+CREATE TABLE convocatorias_archivo AS
+  SELECT * FROM convocatorias
+  WHERE deleted_at IS NULL AND sectores = '[]';
 
--- Verificación: debe coincidir con el conteo revisado en el PASO 1 (93 al
--- 2026-09-23). Si no coincide, ROLLBACK en vez de COMMIT.
+-- 2. Verificar el respaldo ANTES de borrar.
 DO $$
 DECLARE n int;
 BEGIN
-  SELECT count(*) INTO n FROM respaldo_convocatorias_sin_sector_20260923;
-  IF n <> 93 THEN RAISE EXCEPTION 'Conteo inesperado: % (se esperaban 93) — abortando', n; END IF;
+  SELECT count(*) INTO n FROM convocatorias_archivo;
+  IF n <> 93 THEN
+    RAISE EXCEPTION 'Respaldo con % filas (se esperaban 93) — transacción abortada', n;
+  END IF;
 END $$;
+
+-- 3. Borrado físico SOLO de las filas respaldadas (por id, no por condición).
+DELETE FROM convocatorias c
+USING convocatorias_archivo a
+WHERE c.id = a.id;
+
+-- 4. Verificar que se borró exactamente lo respaldado.
+DO $$
+DECLARE restantes int;
+BEGIN
+  SELECT count(*) INTO restantes FROM convocatorias c JOIN convocatorias_archivo a ON a.id = c.id;
+  IF restantes <> 0 THEN
+    RAISE EXCEPTION 'Quedaron % filas sin borrar — transacción abortada', restantes;
+  END IF;
+END $$;
+
 COMMIT;
 
--- REVERTIR (si hiciera falta) ---------------------------------------------------
+-- Restaurar si hiciera falta:
 -- BEGIN;
--- UPDATE convocatorias c SET deleted_at = NULL
--- FROM respaldo_convocatorias_sin_sector_20260923 r WHERE c.id = r.id;
+-- INSERT INTO convocatorias SELECT * FROM convocatorias_archivo;
 -- COMMIT;
