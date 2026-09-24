@@ -1,14 +1,24 @@
 name: Playwright E2E
 
+# LOTE 4 (2026-09-24, "opción B" del dueño): la suite E2E corre contra un
+# Supabase COMPLETO dentro del runner (Supabase CLI: Postgres 17 + roles
+# anon/authenticated/service_role + Storage reales), NO contra producción.
+# De producción solo se lee la ESTRUCTURA del esquema public (sin datos),
+# así la réplica nunca se desincroniza de las migraciones aplicadas.
+# Antes: la suite registraba usuarios, subía archivos al bucket y escribía
+# filas en la BD de producción (limpiadas por global-teardown, pero con
+# riesgo de residuo si una corrida moría a mitad).
+
 on:
   push:
-    branches: [main]
+    branches: [main, ci/e2e-aislado]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
-    timeout-minutes: 20
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,65 +30,72 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Verificar secretos requeridos (sin imprimir valores)
+        env:
+          S_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          # DATABASE_URL de producción se usa SOLO para leer la estructura del
+          # esquema (pg_dump --schema-only). JWT_SECRET/ENCRYPTION_KEY de CI se
+          # generan aleatorios en cada corrida (no se reutilizan de producción).
+          if [ -z "$S_DATABASE_URL" ]; then
+            echo "::error::Falta el secreto DATABASE_URL (solo se usa para leer el esquema)"; exit 1
+          fi
+          echo "Secreto presente (valor enmascarado por GitHub)."
+
       - name: Instalar dependencias
         run: npm ci
 
       - name: Instalar navegadores de Playwright
         run: npx playwright install --with-deps chromium
 
-      # server.js requiere un archivo .env real en disco — npm run dev:backend
-      # usa `node --env-file=.env`, que falla con ENOENT si el archivo no
-      # existe (no basta con variables ya exportadas al shell). Solo las
-      # obligatorias para que arranque el backend y funcione login/registro
-      # (DATABASE_URL, JWT_SECRET); todo lo demás (Stripe, Wompi, Sentry,
-      # PostHog, Resend, Gemini) se queda en modo STANDBY sin bloquear nada,
-      # igual que en local — ver docs/ARQUITECTURA_RADFOR360_2026-08-08.md §8-9.
-      # Los secretos entran como variables de entorno del paso (no interpolados
-      # en el texto del script) y GitHub los enmascara en cualquier salida. Si
-      # falta alguno, se falla aquí con un mensaje claro — antes el backend
-      # moría con "FATAL: JWT_SECRET not set" y el error parecía de la app.
-      - name: Verificar secretos requeridos (sin imprimir valores)
-        env:
-          S_DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          S_JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          S_ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
-        run: |
-          faltan=""
-          [ -z "$S_DATABASE_URL" ]   && faltan="$faltan DATABASE_URL"
-          [ -z "$S_JWT_SECRET" ]     && faltan="$faltan JWT_SECRET"
-          [ -z "$S_ENCRYPTION_KEY" ] && faltan="$faltan ENCRYPTION_KEY"
-          if [ -n "$faltan" ]; then
-            echo "::error::Faltan secretos en GitHub (Settings > Secrets and variables > Actions):$faltan"
-            exit 1
-          fi
-          echo "Secretos requeridos presentes (valores enmascarados por GitHub)."
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
 
-      - name: Generar .env para CI
+      # ── Supabase local: Postgres 17 (misma versión mayor que producción,
+      # verificado: server_version 17.6) + Storage + API gateway.
+      - name: Levantar Supabase local (Postgres 17 + Storage)
+        run: |
+          supabase init --force
+          sed -i 's/^major_version = .*/major_version = 17/' supabase/config.toml
+          supabase start -x studio,mailpit,inbucket,edge-runtime,logflare,vector,realtime,supavisor,postgres-meta
+          supabase status -o env | grep -E '^(API_URL|DB_URL|ANON_KEY|SERVICE_ROLE_KEY)=' > supabase.env
+          for k in API_URL DB_URL ANON_KEY SERVICE_ROLE_KEY; do grep -q "^$k=" supabase.env || { echo "::error::supabase status no expuso $k"; exit 1; }; done
+
+      # ── Estructura de producción (sin datos) → réplica local.
+      # Pooler en modo SESIÓN (5432): pg_dump no es compatible con el modo
+      # transacción (6543) de Supavisor.
+      - name: Replicar el esquema public de producción (solo estructura)
         env:
           S_DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          S_JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          S_ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
-          S_SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          # Storage (subida de anexos, spec formulador-financiero): sin estos 3
-          # el endpoint responde 503 "Almacenamiento de archivos no disponible".
-          # global-teardown.ts borra del bucket los archivos que suba la suite.
-          S_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          S_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          S_SUPABASE_STORAGE_KEY: ${{ secrets.SUPABASE_STORAGE_KEY }}
         run: |
+          SESION_URL="${S_DATABASE_URL/:6543\//:5432/}"
+          supabase db dump --db-url "$SESION_URL" --schema public -f public_schema.sql
+          echo "Esquema volcado: $(grep -c '^CREATE TABLE' public_schema.sql) tablas"
+          set -a; . ./supabase.env; set +a
+          # Rol RLS-escopado de producción (053): el volcado le otorga permisos.
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "CREATE ROLE rf360_rls_scoped LOGIN PASSWORD 'ci_rls_scoped' NOINHERIT;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -f public_schema.sql
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO rf360_rls_scoped;"
+          psql "$DB_URL" -At -c "SELECT 'tablas replicadas: ' || count(*) FROM pg_tables WHERE schemaname = 'public';"
+
+      - name: Generar .env para CI (todo apunta al Supabase local)
+        run: |
+          set -a; . ./supabase.env; set +a
+          SCOPED_URL="$(echo "$DB_URL" | sed -E 's#//[^:]+:[^@]+@#//rf360_rls_scoped:ci_rls_scoped@#')"
           {
-            echo "DATABASE_URL=$S_DATABASE_URL"
-            echo "JWT_SECRET=$S_JWT_SECRET"
-            echo "ENCRYPTION_KEY=$S_ENCRYPTION_KEY"
-            echo "SUPABASE_SERVICE_KEY=$S_SUPABASE_SERVICE_KEY"
-            echo "SUPABASE_URL=$S_SUPABASE_URL"
-            echo "SUPABASE_ANON_KEY=$S_SUPABASE_ANON_KEY"
-            echo "SUPABASE_STORAGE_KEY=$S_SUPABASE_STORAGE_KEY"
+            echo "DATABASE_URL=$DB_URL"
+            echo "DATABASE_URL_TENANT_SCOPED=$SCOPED_URL"
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_KEY=$SERVICE_ROLE_KEY"
+            echo "SUPABASE_STORAGE_KEY=$SERVICE_ROLE_KEY"
+            echo "JWT_SECRET=$(openssl rand -hex 32)"
+            echo "ENCRYPTION_KEY=$(openssl rand -hex 32)"
             echo "NODE_ENV=test"
             # server.js usa PORT || 3000; playwright.config.ts espera el
             # backend en 127.0.0.1:8000 (igual que el proxy de vite.config.ts).
-            # Sin esta línea el backend arrancaba en 3000 y el webServer
-            # moría por timeout de 60s (verificado en el run 35950828108).
             echo "PORT=8000"
           } > .env
           # client/.env (gitignored): el frontend exige VITE_API_URL
@@ -91,6 +108,12 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
+
+      - name: Comprobar que la suite no dejó residuos en la réplica
+        if: always()
+        run: |
+          set -a; . ./supabase.env; set +a
+          psql "$DB_URL" -At -c "SELECT 'usuarios e2e restantes: ' || count(*) FROM usuarios WHERE email LIKE 'e2e%@example.com';" || true
 
       - name: Subir reporte de Playwright (si falló)
         if: failure()
