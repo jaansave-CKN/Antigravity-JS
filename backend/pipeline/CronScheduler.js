@@ -7,7 +7,6 @@ import cron from 'node-cron';
 import { ingestConvocatorias } from './DataIngestor.js';
 import { ingestDirectorioConvocatorias } from './EntityScraper.js';
 import { runSql, getRows } from '../db.js';
-import { runS3Backup } from '../scripts/s3backup.js';
 
 const NOISE_CRON_RE = /^(our |their |its |the [\w])|^about\s(us|the\s|our\s)|^(who|what)\s(we|is)\s|^(learn|read|see|view|explore)\s(more|all)|^(sign|log)\s(in|out)|funding\sfaq|grants?\sfaq|grants?\sdata|grants?\sdatabase|^descarga |^download\sour\s|brochure$/i;
 
@@ -105,7 +104,6 @@ export function resumeScheduler() {
 
 export function startScheduler() {
   const RASTREO_TIMEOUT = 60 * 60_000; // 60 minutos máximo por rastreo
-  const BACKUP_TIMEOUT  =  5 * 60_000; // 5 minutos máximo para backup
 
   // Rastreo 2: Fuentes web EXTERNAS al Directorio — 02:00 AM COT
   scheduledTasks.push(cron.schedule('0 2 * * *', async () => {
@@ -148,25 +146,13 @@ export function startScheduler() {
     }
   }, { timezone: 'America/Bogota' }));
 
-  // Backup S3 diario a las 03:00 AM COT (una hora después de la ingesta)
-  scheduledTasks.push(cron.schedule('0 3 * * *', async () => {
-    console.log('[Cron] ▶ Iniciando backup S3...');
-    try {
-      const result = await withTimeout(() => runS3Backup(), BACKUP_TIMEOUT, 'BackupS3');
-      // FIX (DIRECTIVA OMEGA-BUSINESS, 2026-09-07): un backup omitido es una
-      // negligencia operativa, no un evento informativo — console.error para
-      // que haga ruido real en los logs (runS3Backup() ya persiste el detalle
-      // en system_logs vía logCriticalError, ver s3backup.js).
-      // Lote 5 T3 (2026-09-24): antes un result.error se logueaba como
-      // "✓ completado". Solo success === true cuenta como backup real.
-      if (result.success === true) console.log('[Cron] ✓ Backup S3 completado:', result.key);
-      else console.error('[Cron] ✗ Backup S3 NO realizado:', result.reason || result.error);
-    } catch (err) {
-      console.error('[Cron] ✗ Error en backup S3:', err.message);
-    }
-  }, { timezone: 'America/Bogota' }));
+  // Lote 6 T2 (2026-09-24): el backup S3 YA NO corre aquí. El único
+  // responsable es .github/workflows/backup-s3.yml (pg_dump 17 + validación +
+  // subida verificada, sale en rojo si no respalda). Este cron interno corría
+  // en Render, donde no existe pg_dump: fallaba a diario y ensuciaba los logs
+  // y system_logs con "✗ Backup S3 NO realizado" sin posibilidad de éxito.
 
-  console.log('[Cron] Programador activo · Rastreo2 02:00 · Rastreo1 02:30 · Backup S3 03:00 COT');
+  console.log('[Cron] Programador activo · Expiración 01:45 · Rastreo2 02:00 · Rastreo1 02:30 COT (backup S3: GitHub Actions backup-s3.yml)');
 }
 
 // Permite ejecutar la ingesta manualmente (llamado desde /api/convocatorias/refresh)

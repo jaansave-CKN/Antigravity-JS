@@ -24,7 +24,7 @@
  * cae a un cálculo heurístico determinista — nunca lanza, siempre devuelve
  * un resultado real utilizable, con el MISMO esquema en ambos casos.
  */
-import { withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
+import { geminiCB, withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
 import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
@@ -240,8 +240,26 @@ function calcularViabilidadHeuristica({ problema, metaEsperada, poblacionAfectad
 // heurístico ya etiquetado `fuente: 'heuristica'` (real, determinista sobre
 // datos del proyecto — no es la fabricación narrativa ya rechazada para
 // EntradaIAService, así que no aplica aquí la regla de "nunca degradar").
+// LOTE 6 T1 (2026-09-24): blindaje forense. gemini-3.6-flash RAZONA y esos
+// tokens cuentan contra max_tokens (verificado en vivo con el mismo modelo en
+// MIROFISH: 1059 entrada + 272 visibles = 4127 total → JSON cortado con
+// finish_reason 'length'). Con max_tokens 2048 este agente caía al MODO
+// RESPALDO y, si la causa era cuota, SIN NINGÚN LOG. Ahora: 8192 + razonamiento
+// acotado, y toda caída al respaldo registra su causa exacta (motivo) en el
+// log y en el resultado (`motivo_respaldo`, campo aditivo).
+function falloGemini(motivo, mensaje, extra = {}) {
+  const e = new Error(mensaje);
+  e.motivoRespaldo = motivo;
+  Object.assign(e, extra);
+  return e;
+}
+
 export async function calcularViabilidadIA(ctx, userGeminiKeys = null) {
+  const useUserKeys = Array.isArray(userGeminiKeys) && userGeminiKeys.length > 0;
   try {
+    if (!useUserKeys && !geminiCB.keys.length) {
+      throw falloGemini('sin_llaves_servidor', 'No hay llaves de Gemini configuradas en el servidor');
+    }
     const intentar = async (apiKey) => {
       const upstream = await fetch(
         'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
@@ -255,43 +273,68 @@ export async function calcularViabilidadIA(ctx, userGeminiKeys = null) {
               { role: 'user', content: buildUserPrompt(ctx) },
             ],
             temperature: 0.2,
-            max_tokens: 2048,
-            response_format: { type: 'json_object' },
+            max_tokens: 8192,
+            reasoning_effort: 'low',
+            // Lote 6 T1 (verificado en vivo 2026-09-24): con 'json_object' el
+            // modelo inventaba su propia estructura (claves id_proyecto,
+            // auditoria_anexos, dictamen_final…; estado_auditoria
+            // "APROBADO_CON_OBSERVACIONES" fuera del enum; sin score_viabilidad)
+            // y el dictamen caía SIEMPRE al MODO RESPALDO por esquema inválido.
+            // Salida estructurada: la API obliga el esquema JSON_SCHEMA, que ya
+            // existía pero nunca se enviaba. La validación local se mantiene.
+            response_format: { type: 'json_schema', json_schema: JSON_SCHEMA },
           }),
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(45_000),
         }
       );
 
       if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');
+      if (upstream.status === 503) throw falloGemini('modelo_saturado', 'Gemini 503: modelo saturado (alta demanda en Google)');
       if (!upstream.ok) {
         // FIX (auditoría SRE Red Team 2026-08-10, Capa 4): mismo patrón que
         // CopilotoService.js — un fallo no-429 quedaba invisible en logs.
         const cuerpo = await upstream.text().catch(() => '');
-        logger.error('[ViabilidadAgent] Fallo Gemini no-cuota', { status: upstream.status, body: cuerpo.slice(0, 300) });
-        throw new Error(`Gemini HTTP ${upstream.status}`);
+        throw falloGemini(`http_${upstream.status}`, `Gemini HTTP ${upstream.status}`, { cuerpo: cuerpo.slice(0, 300) });
       }
 
       const data = await upstream.json();
-      const text = data?.choices?.[0]?.message?.content ?? '';
+      const eleccion = data?.choices?.[0];
+      const usage = data?.usage ?? {};
+      // Mensajes SIN "429/quota/rate limit": isQuotaError los rotaría como cuota.
+      if (eleccion?.finish_reason === 'length') {
+        throw falloGemini('respuesta_truncada', 'Respuesta de Gemini cortada por el límite de tokens (finish_reason: length)', { usage });
+      }
+      const text = eleccion?.message?.content ?? '';
       const match = text.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error('Respuesta de Gemini sin JSON');
+      if (!match) throw falloGemini('respuesta_sin_json', 'Respuesta de Gemini sin JSON', { usage });
 
-      const parsedLocal = JSON.parse(match[0]);
+      let parsedLocal;
+      try { parsedLocal = JSON.parse(match[0]); }
+      catch (e) { throw falloGemini('json_invalido', `JSON de Gemini inválido: ${e.message}`, { usage }); }
       const validEstados = JSON_SCHEMA.schema.properties.estado_auditoria.enum;
       if (!validEstados.includes(parsedLocal.estado_auditoria) || typeof parsedLocal.score_viabilidad !== 'number') {
-        throw new Error('Respuesta de Gemini con esquema inválido');
+        // Solo la ESTRUCTURA (claves y valores de control), nunca el texto del
+        // proyecto: basta para diagnosticar sin volcar contenido en los logs.
+        throw falloGemini('esquema_invalido', 'Respuesta de Gemini con esquema inválido', {
+          usage,
+          estructura: { claves: Object.keys(parsedLocal || {}).slice(0, 20), estado_auditoria: parsedLocal?.estado_auditoria, tipo_score: typeof parsedLocal?.score_viabilidad },
+        });
       }
-      return { parsed: parsedLocal, usage: data?.usage ?? {} };
+      return { parsed: parsedLocal, usage };
     };
 
-    const { parsed, usage } = userGeminiKeys?.length
+    const { parsed, usage } = useUserKeys
       ? await withUserKeyRotation(userGeminiKeys, intentar)
       : await withKeyRotation(intentar);
 
+    // FinOps: los tokens de razonamiento no vienen en completion_tokens pero
+    // sí en total_tokens — se registra la salida REAL facturada.
+    const salidaReal = Number.isFinite(usage?.total_tokens) && Number.isFinite(usage?.prompt_tokens)
+      ? usage.total_tokens - usage.prompt_tokens : (usage?.completion_tokens ?? 0);
     logTokenUsage({
       userId: ctx.userId, agentName: 'viabilidad',
       tokensInput: usage?.prompt_tokens ?? 0,
-      tokensOutput: usage?.completion_tokens ?? 0,
+      tokensOutput: salidaReal,
     }).catch(() => {});
     return {
       estado_auditoria: parsed.estado_auditoria,
@@ -314,10 +357,18 @@ export async function calcularViabilidadIA(ctx, userGeminiKeys = null) {
       calculadoEn: new Date().toISOString(),
     };
   } catch (err) {
-    if (!(err instanceof GeminiPoolExhaustedError) && !(err instanceof UserKeyPoolExhaustedError) && !isQuotaError(err)) {
-      logger.error('[ViabilidadAgent] Excepción Gemini no-cuota', { err: err.message });
-    }
-    return calcularViabilidadHeuristica(ctx);
+    // Toda caída al respaldo deja rastro con su causa exacta — antes la cuota
+    // agotada (el caso más frecuente) caía al MODO RESPALDO sin ningún log.
+    const motivo = err.motivoRespaldo
+      || (err instanceof UserKeyPoolExhaustedError || err?.code === 'USER_KEY_EXHAUSTED' ? 'USER_KEY_EXHAUSTED'
+        : err instanceof GeminiPoolExhaustedError || isQuotaError(err) ? 'cuota_agotada'
+        : err?.name === 'TimeoutError' ? 'timeout'
+        : 'error');
+    const esperado = ['USER_KEY_EXHAUSTED', 'cuota_agotada', 'sin_llaves_servidor', 'modelo_saturado'].includes(motivo);
+    logger[esperado ? 'warn' : 'error']('[ViabilidadAgent] Gemini no disponible → MODO RESPALDO heurístico', {
+      motivo, detalle: err.message, usage: err.usage, cuerpo: err.cuerpo, estructura: err.estructura, userId: ctx.userId,
+    });
+    return { ...calcularViabilidadHeuristica(ctx), motivo_respaldo: motivo };
   }
 }
 
