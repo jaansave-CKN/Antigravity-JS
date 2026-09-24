@@ -71,6 +71,13 @@ test('Gemini 503 saturado: 1 reintento; si se recupera → ok, si persiste → m
   assert.deepEqual([persistente.estado, persistente.motivo, llamadas], ['no_disponible', 'modelo_saturado', 2]);
 });
 
+test('respuesta cortada por límite de tokens (finish_reason: length) → respuesta_truncada, no inválida', async () => {
+  geminiCB.keys = ['srv'];
+  comportamiento = async () => ({ texto: '{"hallazgos": [{"titulo": "corta', finishReason: 'length', usage: { prompt_tokens: 1059, completion_tokens: 272, total_tokens: 4127 } });
+  const r = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1' });
+  assert.deepEqual([r.estado, r.motivo, r.hallazgos.length], ['no_disponible', 'respuesta_truncada', 0]);
+});
+
 test('respuesta de la IA no-JSON → respuesta_invalida; JSON válido → ok con hallazgos validados', async () => {
   geminiCB.keys = ['srv'];
   comportamiento = async () => ({ texto: 'lo siento, no puedo', usage: {} });

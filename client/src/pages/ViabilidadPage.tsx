@@ -166,6 +166,7 @@ const MOTIVO_IA: Record<string, string> = {
   sin_llaves_servidor: 'no hay llaves de IA configuradas',
   modelo_saturado: 'el modelo de Google está saturado en este momento (reintenta en unos minutos)',
   respuesta_invalida: 'la IA devolvió una respuesta inválida',
+  respuesta_truncada: 'la respuesta de la IA llegó incompleta (límite de tokens)',
   error: 'la IA no respondió',
 };
 const MATCH_TEXTO: Record<string, string> = {

@@ -11,7 +11,8 @@
  * devuelve { estado: 'no_disponible', motivo } y el comité entrega solo las
  * reglas deterministas — nunca hallazgos fabricados.
  *   motivo: USER_KEY_EXHAUSTED | pool_servidor_agotado | sin_llaves_servidor
- *           | modelo_saturado (503 de Google, tras 1 reintento) | respuesta_invalida | error
+ *           | modelo_saturado (503 de Google, tras 1 reintento)
+ *           | respuesta_truncada (finish_reason: length) | respuesta_invalida | error
  *
  * Anti-alucinación (mismo criterio que F-07): el modelo recibe los datos como
  * un diccionario plano campo → valor y cada hallazgo debe citar
@@ -28,7 +29,7 @@ export const MODELO = 'gemini-3.6-flash';
 const CATEGORIAS = new Set(['cronograma_clima', 'costos_transporte', 'orden_publico', 'otro']);
 const SEVERIDADES = new Set(['CRITICA', 'ALTA', 'MEDIA', 'INFO']);
 
-const SYSTEM_PROMPT = `Eres el COMITÉ HOSTIL MIROFISH: un panel de evaluadores escépticos de fondos públicos y de cooperación en Colombia. Tu trabajo es ATACAR la formulación del proyecto y encontrar vacíos reales de planificación antes de que lo haga el financiador.
+export const SYSTEM_PROMPT = `Eres el COMITÉ HOSTIL MIROFISH: un panel de evaluadores escépticos de fondos públicos y de cooperación en Colombia. Tu trabajo es ATACAR la formulación del proyecto y encontrar vacíos reales de planificación antes de que lo haga el financiador.
 
 Busca especialmente:
 - cronograma_clima: cronogramas inviables por temporadas de lluvia, crecientes, vías destapadas o de montaña, duraciones de tramo incompatibles con el plazo total.
@@ -43,7 +44,7 @@ REGLAS INQUEBRANTABLES:
 4. Severidad: CRITICA (hace inviable el proyecto), ALTA, MEDIA o INFO.
 5. Responde SOLO un objeto JSON: {"hallazgos": [{"categoria": "cronograma_clima|costos_transporte|orden_publico|otro", "severidad": "CRITICA|ALTA|MEDIA|INFO", "titulo": string, "detalle": string, "evidencia": [{"campo": string, "valor": string}], "recomendacion": string}]}`;
 
-function buildUserPrompt(datos, hallazgosReglas) {
+export function buildUserPrompt(datos, hallazgosReglas) {
   return `DATOS DEL PROYECTO (diccionario campo → valor, única fuente permitida):
 ${JSON.stringify(datos, null, 1)}
 
@@ -95,7 +96,12 @@ export async function evaluarComiteIA({ datos, hallazgosReglas, userId, userGemi
       body: JSON.stringify({
         model: MODELO,
         messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: buildUserPrompt(datos, hallazgosReglas) }],
-        temperature: 0.2, max_tokens: 3072, response_format: { type: 'json_object' },
+        // Lote 5 T4 (2026-09-24, verificado en vivo): gemini-3.6-flash
+        // RAZONA ("thinking") y esos tokens cuentan contra max_tokens. Con
+        // 3072, ~2.800 se iban en razonamiento, quedaban 272 de salida y el
+        // JSON llegaba cortado (finish_reason: length). reasoning_effort acota
+        // el razonamiento; 8192 deja espacio real a la respuesta.
+        temperature: 0.2, max_tokens: 8192, reasoning_effort: 'low', response_format: { type: 'json_object' },
       }),
       signal: AbortSignal.timeout(45_000),
     });
@@ -113,7 +119,8 @@ export async function evaluarComiteIA({ datos, hallazgosReglas, userId, userGemi
       throw new Error(`Gemini HTTP ${upstream.status}`);
     }
     const data = await upstream.json();
-    return { texto: data?.choices?.[0]?.message?.content ?? '', usage: data?.usage ?? {} };
+    const eleccion = data?.choices?.[0];
+    return { texto: eleccion?.message?.content ?? '', finishReason: eleccion?.finish_reason ?? null, usage: data?.usage ?? {} };
   };
 
   const llamar = () => (useUserKeys ? withUserKeyRotation(userGeminiKeys, intentar) : withKeyRotation(intentar));
@@ -141,7 +148,17 @@ export async function evaluarComiteIA({ datos, hallazgosReglas, userId, userGemi
     return { estado: 'no_disponible', motivo: 'error', hallazgos: [], descartados: [] };
   }
 
-  logTokenUsage({ userId, agentName: 'mirofish_comite', tokensInput: respuesta.usage?.prompt_tokens ?? 0, tokensOutput: respuesta.usage?.completion_tokens ?? 0 }).catch(() => {});
+  // FinOps: los tokens de razonamiento no vienen en completion_tokens pero sí
+  // en total_tokens (verificado: 1059 entrada + 272 salida visible = 4127
+  // total). Se registra la salida REAL facturada = total − entrada.
+  const u = respuesta.usage || {};
+  const salidaReal = Number.isFinite(u.total_tokens) && Number.isFinite(u.prompt_tokens) ? u.total_tokens - u.prompt_tokens : (u.completion_tokens ?? 0);
+  logTokenUsage({ userId, agentName: 'mirofish_comite', tokensInput: u.prompt_tokens ?? 0, tokensOutput: salidaReal }).catch(() => {});
+
+  if (respuesta.finishReason === 'length') {
+    logger.warn('[MIROFISH] Respuesta de Gemini truncada por max_tokens', { usage: u });
+    return { estado: 'no_disponible', motivo: 'respuesta_truncada', hallazgos: [], descartados: [] };
+  }
 
   let parsed;
   try {
