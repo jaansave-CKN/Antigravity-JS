@@ -59,12 +59,21 @@ jobs:
           S_JWT_SECRET: ${{ secrets.JWT_SECRET }}
           S_ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
           S_SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          # Storage (subida de anexos, spec formulador-financiero): sin estos 3
+          # el endpoint responde 503 "Almacenamiento de archivos no disponible".
+          # global-teardown.ts borra del bucket los archivos que suba la suite.
+          S_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          S_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          S_SUPABASE_STORAGE_KEY: ${{ secrets.SUPABASE_STORAGE_KEY }}
         run: |
           {
             echo "DATABASE_URL=$S_DATABASE_URL"
             echo "JWT_SECRET=$S_JWT_SECRET"
             echo "ENCRYPTION_KEY=$S_ENCRYPTION_KEY"
             echo "SUPABASE_SERVICE_KEY=$S_SUPABASE_SERVICE_KEY"
+            echo "SUPABASE_URL=$S_SUPABASE_URL"
+            echo "SUPABASE_ANON_KEY=$S_SUPABASE_ANON_KEY"
+            echo "SUPABASE_STORAGE_KEY=$S_SUPABASE_STORAGE_KEY"
             echo "NODE_ENV=test"
             # server.js usa PORT || 3000; playwright.config.ts espera el
             # backend en 127.0.0.1:8000 (igual que el proxy de vite.config.ts).

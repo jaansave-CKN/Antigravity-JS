@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import pg from 'pg';
 import fs from 'fs';
+import { createClient } from '@supabase/supabase-js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -24,6 +25,18 @@ export default async function globalTeardown() {
   try {
     // Hijos primero — sin asumir ON DELETE CASCADE en las FKs de project_id.
     if (proyectoId) {
+      // Archivos del bucket ANTES de borrar las filas (después ya no habría
+      // forma de saber qué rutas subió la suite). Sin esto cada corrida de CI
+      // dejaba el Excel de prueba huérfano en el Storage de producción.
+      const { rows } = await client.query('SELECT ruta_storage FROM project_anexos WHERE project_id = $1 AND ruta_storage IS NOT NULL', [proyectoId]).catch(() => ({ rows: [] as Array<{ ruta_storage: string }> }));
+      const rutas = rows.map(r => r.ruta_storage).filter(Boolean);
+      const sbUrl = process.env.SUPABASE_URL;
+      const sbKey = process.env.SUPABASE_STORAGE_KEY || process.env.SUPABASE_SERVICE_KEY;
+      if (rutas.length && sbUrl && sbKey) {
+        const storage = createClient(sbUrl, sbKey, { auth: { persistSession: false, autoRefreshToken: false } }).storage;
+        const { error } = await storage.from('anexos').remove(rutas);
+        if (error) console.warn('[e2e teardown] No se pudieron borrar archivos del bucket:', error.message);
+      }
       await client.query('DELETE FROM project_apu_lineas WHERE project_id = $1', [proyectoId]).catch(() => {});
       await client.query('DELETE FROM project_anexos WHERE project_id = $1', [proyectoId]).catch(() => {});
       await client.query('DELETE FROM project_hallazgos WHERE project_id = $1', [proyectoId]).catch(() => {});
