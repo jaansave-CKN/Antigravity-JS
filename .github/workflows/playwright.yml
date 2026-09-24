@@ -66,6 +66,11 @@ jobs:
             echo "ENCRYPTION_KEY=$S_ENCRYPTION_KEY"
             echo "SUPABASE_SERVICE_KEY=$S_SUPABASE_SERVICE_KEY"
             echo "NODE_ENV=test"
+            # server.js usa PORT || 3000; playwright.config.ts espera el
+            # backend en 127.0.0.1:8000 (igual que el proxy de vite.config.ts).
+            # Sin esta línea el backend arrancaba en 3000 y el webServer
+            # moría por timeout de 60s (verificado en el run 35950828108).
+            echo "PORT=8000"
           } > .env
           # client/.env (gitignored): el frontend exige VITE_API_URL
           # (client/src/utils/envValidator.ts lanza sin ella y la app no
