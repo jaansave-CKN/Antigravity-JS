@@ -104,21 +104,35 @@ async function probePg() {
     if (!_pgReady) console.log('[DB] Capa 1 (pg Pool) ACTIVA ✅');
     _pgReady = true;
     return true;
-  } catch {
+  } catch (err) {
+    // Antes el error se tragaba entero: un fallo de Capa 1 (credencial, DNS,
+    // SSL, pooler) no dejaba ninguna pista en el log. Solo el mensaje, nunca
+    // la URL (lleva la contraseña).
+    if (_pgReady || !_ultimoErrorPg) console.warn('[DB] Capa 1 (pg) falló:', String(err?.message || err).substring(0, 160));
+    _ultimoErrorPg = String(err?.message || err);
     _pgReady = false;
     return false;
   }
 }
+let _ultimoErrorPg = null;
 
-// Sondeo en background cada minuto
+// Sondeo en background cada minuto. unref(): no debe mantener vivo un
+// proceso que ya terminó su trabajo (scripts, tests).
 setInterval(async () => {
   if (!_pgReady) await probePg();
-}, RETRY_INTERVAL_MS);
+}, RETRY_INTERVAL_MS).unref();
 
-// Sondeo inicial (no bloquea)
-probePg().then(ok => {
+// Sondeo inicial. No bloquea la importación, pero server.js lo espera con
+// esperarPgInicial() antes de initDb(): sin eso, initDb arrancaba mientras el
+// sondeo seguía en vuelo, TODAS sus sentencias caían a REST (Capa 2) y, si
+// la llave REST no autenticaba, el arranque moría con "HTTP 401" aunque pg
+// estuviera sano (verificado en CI, run 35951380902). Tope real: el
+// connectionTimeoutMillis de 8s del pool.
+const _probeInicial = probePg().then(ok => {
   if (!ok) console.warn('[DB] Capa 1 no disponible — usando Capa 2 (REST). Activa el pooler en Supabase dashboard para máximo rendimiento.');
+  return ok;
 });
+export function esperarPgInicial() { return _probeInicial; }
 
 // ── Pool RLS-escopado (rol rf360_rls_scoped, sin BYPASSRLS) ──────────────────
 function buildScopedPool() {

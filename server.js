@@ -39,7 +39,7 @@ import {
 } from './backend/routes/authGoogle.controller.js';
 import { emailAdapter } from './backend/notifications/BrevoEmailAdapter.js';
 import { pool, getRow, getRows, getCount, runSql, runTransaction } from './backend/db.js';
-import { dbStatus, withTenant, withTenantRow, withTenantRun, withTenantRows, withTenantTransaction } from './backend/config/database.config.js';
+import { dbStatus, esperarPgInicial, withTenant, withTenantRow, withTenantRun, withTenantRows, withTenantTransaction } from './backend/config/database.config.js';
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -1220,6 +1220,9 @@ async function clasificarSectoresEnBatch(limit = 200) {
 
 // ── Start ────────────────────────────────────────────────────────────────────
 async function start() {
+  // Espera el primer sondeo de pg (máx. ~8s) para que initDb no caiga a REST
+  // por una carrera de arranque — ver esperarPgInicial() en database.config.js.
+  await esperarPgInicial();
   try {
     await initDb();
   } catch (err) {
