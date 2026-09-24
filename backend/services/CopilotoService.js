@@ -16,7 +16,7 @@
 // completo del hallazgo/fix. withTenant() usa rf360_rls_scoped (migración
 // 053_rls_scoped_role.sql), sin BYPASSRLS.
 import { withTenant } from '../config/database.config.js';
-import { withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
+import { geminiCB, withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
 import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js';
 import { SMMLV_2026_COP } from './ValorExponencialService.js';
 import { logTokenUsage } from './aiTokenLogger.js';
@@ -108,53 +108,84 @@ ${snapshotTexto}`;
 // y llamaba a geminiCB directamente; ahora withKeyRotation() prueba cada
 // llave configurada en el pool, rotando solo ante 429 — mismo contrato de
 // retorno (texto o null, nunca lanza) y mismo log de errores no-cuota.
-async function llamarGemini(messages, userId, userGeminiKeys) {
+// LOTE 7 (2026-09-24): mismo blindaje que viabilidadAgent.js (Lote 6, verificado
+// en vivo): gemini-3.6-flash RAZONA y esos tokens cuentan contra max_tokens.
+// Con 1024, una respuesta larga llegaba CORTADA a mitad de frase y se
+// entregaba al usuario como si estuviera completa (texto libre: no hay JSON
+// que falle). Ahora 8192 + razonamiento acotado; un corte se registra y se
+// marca visiblemente; toda caída al Modo Respaldo registra su causa exacta
+// (antes la cuota agotada caía en silencio).
+export const AVISO_RESPUESTA_CORTADA = '\n\n[⚠️ Respuesta incompleta: se alcanzó el límite de extensión de la IA. Pide que continúe o reformula la pregunta de forma más acotada.]';
+
+function falloGemini(motivo, mensaje, extra = {}) {
+  const e = new Error(mensaje);
+  e.motivoRespaldo = motivo;
+  return Object.assign(e, extra);
+}
+
+/** @returns {Promise<{ texto: string|null, motivo: string|null, truncada?: boolean }>} */
+export async function llamarGemini(messages, userId, userGeminiKeys) {
+  const useUserKeys = Array.isArray(userGeminiKeys) && userGeminiKeys.length > 0;
   const intentar = async (apiKey) => {
     const upstream = await fetch(GEMINI_URL, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'gemini-3.6-flash', messages, temperature: 0.3, max_tokens: 1024 }),
-      signal: AbortSignal.timeout(30_000),
+      body: JSON.stringify({ model: 'gemini-3.6-flash', messages, temperature: 0.3, max_tokens: 8192, reasoning_effort: 'low' }),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');
+    if (upstream.status === 503) throw falloGemini('modelo_saturado', 'Gemini 503: modelo saturado (alta demanda en Google)');
     if (!upstream.ok) {
       // FIX (auditoría SRE Red Team 2026-08-10, Capa 4): antes, cualquier
       // fallo no-429 (401 clave inválida, 400 malformado, 500/503 caído)
       // se tragaba en silencio — el usuario siempre veía "cuota agotada"
       // sin importar la causa real, invisible en logs/monitoreo.
       const cuerpo = await upstream.text().catch(() => '');
-      throw new Error(`Gemini HTTP ${upstream.status}: ${cuerpo.slice(0, 300)}`);
+      throw falloGemini(`http_${upstream.status}`, `Gemini HTTP ${upstream.status}`, { cuerpo: cuerpo.slice(0, 300) });
     }
 
     const data = await upstream.json();
-    const texto = data?.choices?.[0]?.message?.content?.trim();
-    if (!texto) throw new Error('Gemini sin contenido en la respuesta');
-    return { texto, usage: data?.usage ?? {} };
+    const eleccion = data?.choices?.[0];
+    const texto = eleccion?.message?.content?.trim();
+    // Mensaje SIN "429/quota/rate limit": isQuotaError lo rotaría como cuota.
+    if (!texto) throw falloGemini('respuesta_vacia', 'Gemini sin contenido en la respuesta', { usage: data?.usage, finish: eleccion?.finish_reason });
+    return { texto, usage: data?.usage ?? {}, truncada: eleccion?.finish_reason === 'length' };
   };
 
   try {
+    if (!useUserKeys && !geminiCB.keys.length) {
+      throw falloGemini('sin_llaves_servidor', 'No hay llaves de Gemini configuradas en el servidor');
+    }
     // BYOK (2026-08-22): usuario no exento → rota SUS propias llaves, nunca
-    // el pool del servidor. Mismo contrato de retorno (texto o null) — si
-    // se agota, cae al "Modo Respaldo" ya existente (respuestaRespaldo),
-    // que ya es honesto (dice explícitamente que no hay análisis nuevo, no
-    // fabrica nada) — no hace falta cambiar esa parte.
-    const { texto, usage } = userGeminiKeys?.length
+    // el pool del servidor. Si se agota, cae al "Modo Respaldo" ya existente
+    // (respuestaRespaldo), que es honesto (no fabrica análisis).
+    const { texto, usage, truncada } = useUserKeys
       ? await withUserKeyRotation(userGeminiKeys, intentar)
       : await withKeyRotation(intentar);
 
-    // FinOps — fire-and-forget, nunca bloquea ni rompe la respuesta al usuario.
-    logTokenUsage({
-      userId, agentName: 'copiloto',
-      tokensInput: usage?.prompt_tokens ?? 0,
-      tokensOutput: usage?.completion_tokens ?? 0,
-    }).catch(() => {});
-    return texto;
-  } catch (err) {
-    if (!(err instanceof GeminiPoolExhaustedError) && !(err instanceof UserKeyPoolExhaustedError) && !isQuotaError(err)) {
-      logger.error('[Copiloto] Excepción Gemini no-cuota', { err: err.message });
+    // FinOps — fire-and-forget. Salida REAL facturada = total − entrada
+    // (completion_tokens no incluye los tokens de razonamiento).
+    const salidaReal = Number.isFinite(usage?.total_tokens) && Number.isFinite(usage?.prompt_tokens)
+      ? usage.total_tokens - usage.prompt_tokens : (usage?.completion_tokens ?? 0);
+    logTokenUsage({ userId, agentName: 'copiloto', tokensInput: usage?.prompt_tokens ?? 0, tokensOutput: salidaReal }).catch(() => {});
+
+    if (truncada) {
+      logger.warn('[Copiloto] Respuesta de Gemini cortada por el límite de tokens (finish_reason: length) — se entrega marcada', { motivo: 'respuesta_truncada', usage, userId });
+      return { texto: texto + AVISO_RESPUESTA_CORTADA, motivo: null, truncada: true };
     }
-    return null;
+    return { texto, motivo: null };
+  } catch (err) {
+    const motivo = err.motivoRespaldo
+      || (err instanceof UserKeyPoolExhaustedError || err?.code === 'USER_KEY_EXHAUSTED' ? 'USER_KEY_EXHAUSTED'
+        : err instanceof GeminiPoolExhaustedError || isQuotaError(err) ? 'cuota_agotada'
+        : err?.name === 'TimeoutError' ? 'timeout'
+        : 'error');
+    const esperado = ['USER_KEY_EXHAUSTED', 'cuota_agotada', 'sin_llaves_servidor', 'modelo_saturado'].includes(motivo);
+    logger[esperado ? 'warn' : 'error']('[Copiloto] Gemini no disponible → Modo Respaldo', {
+      motivo, detalle: err.message, usage: err.usage, cuerpo: err.cuerpo, userId,
+    });
+    return { texto: null, motivo };
   }
 }
 
@@ -202,9 +233,9 @@ export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo,
     { role: 'user', content: mensaje },
   ];
 
-  const respuestaGemini = await llamarGemini(messages, orgId, userGeminiKeys);
-  const respuesta = respuestaGemini || respuestaRespaldo(snapshot);
-  const fuente = respuestaGemini ? 'gemini-3.6-flash' : 'heuristica';
+  const ia = await llamarGemini(messages, orgId, userGeminiKeys);
+  const respuesta = ia.texto || respuestaRespaldo(snapshot);
+  const fuente = ia.texto ? 'gemini-3.6-flash' : 'heuristica';
 
   try {
     await withTenant(orgId, client => client.query(
@@ -216,5 +247,6 @@ export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo,
     throw new Error(`No se pudo guardar el mensaje del co-piloto: ${err.message}`);
   }
 
-  return { respuesta, fuente };
+  // motivo_respaldo / truncada: campos ADITIVOS (Lote 7) para diagnóstico.
+  return { respuesta, fuente, ...(ia.motivo ? { motivo_respaldo: ia.motivo } : {}), ...(ia.truncada ? { truncada: true } : {}) };
 }

@@ -175,9 +175,13 @@ async function probeScopedPg() {
   }
 }
 
+// unref() (Lote 7, 2026-09-24): mismo criterio que el sondeo de Capa 1 de
+// arriba — sin él, cualquier script/prueba que importara este módulo quedaba
+// colgado para siempre (verificado: la prueba en vivo del Co-Piloto no
+// terminaba). En el servidor no cambia nada: el listener HTTP lo mantiene vivo.
 setInterval(async () => {
   if (!_pgScopedReady) await probeScopedPg();
-}, RETRY_INTERVAL_MS);
+}, RETRY_INTERVAL_MS).unref();
 
 if (process.env.DATABASE_URL_TENANT_SCOPED) {
   probeScopedPg();
