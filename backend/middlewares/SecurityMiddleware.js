@@ -253,6 +253,12 @@ const SLOW_FREE         = 100;             // requests gratis por ventana
 const SLOW_DELAY_MS     = 500;             // ms añadidos por request extra
 const SLOW_MAX_DELAY_MS = 10_000;          // tope: 10 s
 
+export function esExencionSlowDownDeCI(env = process.env) {
+  if (env.NODE_ENV === 'production') return false;
+  const entornoDePrueba = env.NODE_ENV === 'test' || env.CI === 'true';
+  return env.E2E_DESACTIVAR_SLOWDOWN === '1' && entornoDePrueba;
+}
+
 export function slowDown(req, res, next) {
   // Health check exento (2026-09-23): el sondeo de Render (cada pocos
   // segundos, misma IP) pasaba las 100 peticiones libres en ~8 min, cada
@@ -264,7 +270,12 @@ export function slowDown(req, res, next) {
   // pruebas que expiraban por tiempo sin ningún defecto real (run
   // 35966510742). Exención SOLO con bandera explícita en el .env de CI y
   // NUNCA en producción, aunque la bandera estuviera puesta por error.
-  if (process.env.E2E_DESACTIVAR_SLOWDOWN === '1' && process.env.NODE_ENV !== 'production') return next();
+  // Lote 6 T3 (sellado hermético): exige las TRES condiciones — bandera
+  // explícita, entorno de prueba declarado (NODE_ENV=test o CI=true) y que
+  // NO sea producción (NODE_ENV=production gana aunque CI=true). Es la ÚNICA
+  // exención por entorno de todos los limitadores (los 6 de este archivo y el
+  // global /api de server.js no leen ninguna variable de entorno).
+  if (esExencionSlowDownDeCI()) return next();
   // FIX (auditoría SRE 2026-08-08): mismo bypass de XFF que getRateLimitKey — ver arriba.
   const ip  = req.ip || 'unknown';
   const now = Date.now();
