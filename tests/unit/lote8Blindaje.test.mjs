@@ -10,8 +10,9 @@
  */
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const u = (p) => new URL(`../../backend/${p}`, import.meta.url).href;
@@ -26,9 +27,13 @@ mock.module(u('config/sentry.config.js'), { namedExports: { captureMessage: () =
 
 let insertLento = null;
 mock.module(u('db.js'), { namedExports: { runSql: (...a) => insertLento(...a) } });
+// Lote 9: tope de espera corto para la prueba y respaldo local en un temporal.
+const RUTA_PENDIENTES = join(tmpdir(), `rf360-pendientes-${process.pid}.jsonl`);
+process.env.LOG_TOPE_ESPERA_MS = '1500';
+process.env.LOG_PENDIENTES_PATH = RUTA_PENDIENTES;
 
 const { nextMidnightPacific, retryDelayDe429 } = await import(u('services/geminiCircuitBreaker.js'));
-const { logCriticalError } = await import(u('services/logService.js'));
+const { logCriticalError, reenviarPendientesSystemLogs } = await import(u('services/logService.js'));
 const { logTokenUsage } = await import(u('services/aiTokenLogger.js'));
 
 // Cuerpo real del 429 diario (transcript 2026-09-24): quotaId PerDay + retryDelay "34s" falso.
@@ -66,11 +71,30 @@ test('logCriticalError resuelve después del INSERT (process.exit ya no lo pierd
   assert.equal(persistido, true);
 });
 
-test('logCriticalError nunca cuelga: un INSERT que no responde se corta a los 5 s', async () => {
+test('logCriticalError nunca cuelga: INSERT sin respuesta → corte al tope y respaldo local', async () => {
+  rmSync(RUTA_PENDIENTES, { force: true });
   insertLento = () => new Promise(() => {});
   const t0 = Date.now();
   await logCriticalError('S3Backup', 'bd colgada');
-  assert.ok(Date.now() - t0 < 6000);
+  assert.ok(Date.now() - t0 < 3000);
+  assert.match(readFileSync(RUTA_PENDIENTES, 'utf8'), /bd colgada/);
+});
+
+test('Lote 9: BD caída → respaldo local; el siguiente arranque lo reenvía y vacía el archivo', async () => {
+  rmSync(RUTA_PENDIENTES, { force: true });
+  insertLento = async () => { throw new Error('[REST] No API key found in request'); };
+  await logCriticalError('S3Backup', 'sin bd', { run: 1 });
+  assert.match(readFileSync(RUTA_PENDIENTES, 'utf8'), /sin bd/);
+
+  const insertados = [];
+  insertLento = async (sql, params) => { insertados.push({ sql, params }); };
+  const r = await reenviarPendientesSystemLogs();
+  assert.deepEqual(r, { reenviadas: 1, pendientes: 0 });
+  assert.match(insertados[0].sql, /ON CONFLICT \(id\) DO NOTHING/, 'un reenvío doble nunca duplica filas');
+  assert.equal(insertados[0].params[1], 'S3Backup');
+  assert.equal(readFileSync(RUTA_PENDIENTES, 'utf8'), '');
+  rmSync(RUTA_PENDIENTES, { force: true });
+  assert.equal(existsSync(RUTA_PENDIENTES), false);
 });
 
 test('aiTokenLogger: un { error } de supabase-js queda registrado, no se descarta', async () => {

@@ -21,6 +21,7 @@ import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js
 import { SMMLV_2026_COP } from './ValorExponencialService.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
+import { fetchGeminiConReintento } from './geminiReintento.js';
 
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 const MAX_HISTORIAL_CONTEXTO = 12; // últimos N mensajes enviados a Gemini como contexto
@@ -127,7 +128,7 @@ function falloGemini(motivo, mensaje, extra = {}) {
 export async function llamarGemini(messages, userId, userGeminiKeys) {
   const useUserKeys = Array.isArray(userGeminiKeys) && userGeminiKeys.length > 0;
   const intentar = async (apiKey) => {
-    const upstream = await fetch(GEMINI_URL, {
+    const upstream = await fetchGeminiConReintento(GEMINI_URL, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'gemini-3.6-flash', messages, temperature: 0.3, max_tokens: 8192, reasoning_effort: 'low' }),

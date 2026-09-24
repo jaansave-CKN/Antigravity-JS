@@ -75,6 +75,7 @@ import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
 import { calcularScoringDinamico } from './scoringDinamico.js';
+import { fetchGeminiConReintento } from './geminiReintento.js';
 
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 // Lote 8: hora de renovación de la cuota diaria, en hora Colombia y 24 h.
@@ -373,7 +374,7 @@ ${contenido}`;
 // usuario) se agota.
 async function llamarGemini(systemPrompt, orgId, userGeminiKeys) {
   const intentar = async (apiKey) => {
-    const upstream = await fetch(GEMINI_URL, {
+    const upstream = await fetchGeminiConReintento(GEMINI_URL, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({

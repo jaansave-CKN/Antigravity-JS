@@ -5,6 +5,46 @@
  */
 
 import crypto from 'crypto';
+import { appendFile, readFile, writeFile, mkdir } from 'fs/promises';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
+
+const SQL_INSERT_LOG = `INSERT INTO system_logs (id, origen, mensaje, payload, nivel, created_at)
+       VALUES (?, ?, ?, ?, 'ERROR', ?) ON CONFLICT (id) DO NOTHING`;
+
+// LOTE 9: respaldo interno. Sin SENTRY_DSN ni ERROR_WEBHOOK_URL, system_logs es
+// el ÚNICO registro durable. Si la BD tampoco responde, el error se guarda en
+// este archivo JSONL y reenviarPendientesSystemLogs() lo sube en el siguiente
+// arranque (ON CONFLICT (id): un reenvío doble nunca duplica filas).
+const RUTA_PENDIENTES = process.env.LOG_PENDIENTES_PATH
+  || resolve(dirname(fileURLToPath(import.meta.url)), '../../logs/critical-pendientes.jsonl');
+
+async function guardarPendiente(fila) {
+  try {
+    await mkdir(dirname(RUTA_PENDIENTES), { recursive: true });
+    await appendFile(RUTA_PENDIENTES, JSON.stringify(fila) + '\n', 'utf8');
+    console.error(`[logService] Error guardado en respaldo local (${RUTA_PENDIENTES}) — se reenviará a system_logs en el próximo arranque.`);
+  } catch (e) {
+    console.error('[logService] Tampoco se pudo escribir el respaldo local:', e.message);
+  }
+}
+
+/** Reenvía a system_logs los errores que quedaron en el respaldo local. */
+export async function reenviarPendientesSystemLogs() {
+  let contenido;
+  try { contenido = await readFile(RUTA_PENDIENTES, 'utf8'); } catch { return { reenviadas: 0, pendientes: 0 }; }
+  const filas = contenido.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  if (!filas.length) return { reenviadas: 0, pendientes: 0 };
+  const runSql = await getRunSql();
+  const quedan = [];
+  for (const f of filas) {
+    try { await runSql(SQL_INSERT_LOG, [f.id, f.origen, f.mensaje, f.payload, f.created_at]); }
+    catch { quedan.push(f); }
+  }
+  await writeFile(RUTA_PENDIENTES, quedan.map(f => JSON.stringify(f) + '\n').join(''), 'utf8');
+  console.log(`[logService] Respaldo local: ${filas.length - quedan.length} error(es) reenviado(s) a system_logs, ${quedan.length} pendiente(s).`);
+  return { reenviadas: filas.length - quedan.length, pendientes: quedan.length };
+}
 
 // Importación lazy para evitar dependencia circular con db.js al arranque
 let _runSql = null;
@@ -39,15 +79,15 @@ export async function logCriticalError(origen, mensaje, payload = {}) {
   // "[CRITICAL][S3Backup]" con el DATABASE_URL real y system_logs tenía 0
   // filas. Ahora la promesa resuelve cuando el INSERT termina (tope 5 s, para
   // no colgar a quien la espere). Quien NO la espera no cambia en nada.
+  const fila = { id, origen, mensaje, payload: payloadStr, created_at: timestamp };
+  let persistido = false;
   const persistencia = getRunSql()
-    .then(runSql => runSql(
-      `INSERT INTO system_logs (id, origen, mensaje, payload, nivel, created_at)
-       VALUES (?, ?, ?, ?, 'ERROR', ?)`,
-      [id, origen, mensaje, payloadStr, timestamp]
-    ))
+    .then(runSql => runSql(SQL_INSERT_LOG, [id, origen, mensaje, payloadStr, timestamp]))
+    .then(() => { persistido = true; })
     .catch(dbErr => {
-      // Si la BD también falla, al menos queda en stderr del proceso
+      // LOTE 9: si la BD también falla → respaldo local (no solo stderr).
       console.error('[logService] No se pudo persistir error en system_logs:', dbErr.message);
+      return guardarPendiente(fila).then(() => { persistido = true; });
     });
 
   // 3. Webhook opcional (Slack / Discord)
@@ -78,11 +118,17 @@ export async function logCriticalError(origen, mensaje, payload = {}) {
     });
   }
 
-  // Espera persistencia + aviso, con tope de 5 s (el timer no retiene el proceso).
+  // Espera persistencia + aviso, con tope de 12 s: la primera consulta de un
+  // proceso nuevo puede esperar el sondeo inicial de pg (hasta 8 s, Lote 9).
+  // Si se agota sin persistir → respaldo local (ON CONFLICT evita duplicados
+  // si el INSERT llegara a completarse después).
   let tope;
   await Promise.race([
     Promise.all([persistencia, aviso]),
-    new Promise(res => { tope = setTimeout(res, 5000); tope.unref?.(); }),
+    new Promise(res => { tope = setTimeout(res, TOPE_ESPERA_MS); tope.unref?.(); }),
   ]);
   clearTimeout(tope);
+  if (!persistido) await guardarPendiente(fila);
 }
+
+const TOPE_ESPERA_MS = Number(process.env.LOG_TOPE_ESPERA_MS) || 12_000;

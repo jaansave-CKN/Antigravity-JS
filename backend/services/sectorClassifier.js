@@ -11,6 +11,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { withKeyRotation } from './geminiCircuitBreaker.js';
 import { logTokenUsage } from './aiTokenLogger.js';
+import { conReintentoTransitorio } from './geminiReintento.js';
 
 // Espejo plano del taxonomy del frontend (sectoresTaxonomy.ts).
 // Actualizar aquí cuando se modifique el taxonomy en el cliente.
@@ -131,7 +132,12 @@ export async function classifySectors(titulo, descripcion, donante = '') {
       // patrón. La respuesta es un array de máx. 3 strings cortos, 512 es
       // holgado.
       const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash', generationConfig: { maxOutputTokens: 512 } });
-      const result = await model.generateContent(PROMPT_TEMPLATE(titulo, descripcion, donante));
+      const result = await conReintentoTransitorio(() => model.generateContent(PROMPT_TEMPLATE(titulo, descripcion, donante)), { origen: 'sectorClassifier' });
+      // LOTE 9: la caída al respaldo por truncamiento queda registrada (antes era silenciosa).
+      if (result.response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+        console.warn('[sectorClassifier] Respuesta de Gemini truncada por maxOutputTokens (512) — respaldo por palabras clave');
+        throw new Error('Respuesta de Gemini truncada (maxOutputTokens)');
+      }
       const text = result.response.text().trim();
       const match = text.match(/\[[\s\S]*\]/);
       if (!match) throw new Error('Respuesta de Gemini sin array JSON');
