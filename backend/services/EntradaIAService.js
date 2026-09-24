@@ -77,6 +77,8 @@ import { logger } from '../utils/logger.js';
 import { calcularScoringDinamico } from './scoringDinamico.js';
 
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+// Lote 8: hora de renovación de la cuota diaria, en hora Colombia y 24 h.
+const HORA_BOGOTA = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const ANEXOS_BUCKET = 'anexos';
 const EXTENSIONES_CON_TEXTO = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'md']);
 // Subido 2026-08-17 (pedido explícito: "analizando a profundidad" el
@@ -451,9 +453,7 @@ async function llamarGemini(systemPrompt, orgId, userGeminiKeys) {
       // LOTE 8: con la cuota DIARIA agotada, retryAt es real pero está a
       // horas — "intenta de nuevo en unos segundos" sería falso.
       const esperaLarga = err.retryAt && new Date(err.retryAt).getTime() - Date.now() > 10 * 60_000;
-      const horaReset = esperaLarga
-        ? new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(err.retryAt))
-        : null;
+      const horaReset = esperaLarga ? HORA_BOGOTA.format(new Date(err.retryAt)) : null;
       const msg = err.esEstimado
         ? 'Créditos de IA agotados por ahora — no hay una hora de reset garantizada. Conecta tu propia llave de Gemini (BYOK) para seguir usando la IA, o llena el formulario manualmente.'
         : esperaLarga
