@@ -1,0 +1,1370 @@
+{
+ "fuente": "Datos Abiertos Colombia — Municipios PDET (Agricultura y Desarrollo Rural)",
+ "url": "https://www.datos.gov.co/Agricultura-y-Desarrollo-Rural/Municipios-PDET/idrk-ba8y",
+ "api": "https://www.datos.gov.co/resource/idrk-ba8y.json",
+ "marco_normativo": "Decreto 893 de 2017 (170 municipios, 16 subregiones)",
+ "descargado_el": "2026-09-24",
+ "total": 170,
+ "municipios": [
+  {
+   "cod_muni": "05031",
+   "nom_muni": "AMALFI",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05040",
+   "nom_muni": "ANORÍ",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05045",
+   "nom_muni": "APARTADÓ",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "16",
+   "nom_subreg": "URABÁ ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05107",
+   "nom_muni": "BRICEÑO",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05120",
+   "nom_muni": "CÁCERES",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05147",
+   "nom_muni": "CAREPA",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "16",
+   "nom_subreg": "URABÁ ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05154",
+   "nom_muni": "CAUCASIA",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05172",
+   "nom_muni": "CHIGORODÓ",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "16",
+   "nom_subreg": "URABÁ ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05234",
+   "nom_muni": "DABEIBA",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "16",
+   "nom_subreg": "URABÁ ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05250",
+   "nom_muni": "EL BAGRE",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05361",
+   "nom_muni": "ITUANGO",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05475",
+   "nom_muni": "MURINDÓ",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "05480",
+   "nom_muni": "MUTATÁ",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "16",
+   "nom_subreg": "URABÁ ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05490",
+   "nom_muni": "NECOCLÍ",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "16",
+   "nom_subreg": "URABÁ ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05495",
+   "nom_muni": "NECHÍ",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05604",
+   "nom_muni": "REMEDIOS",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05665",
+   "nom_muni": "SAN PEDRO DE URABA",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "16",
+   "nom_subreg": "URABÁ ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05736",
+   "nom_muni": "SEGOVIA",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05790",
+   "nom_muni": "TARAZÁ",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05837",
+   "nom_muni": "TURBO",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "16",
+   "nom_subreg": "URABÁ ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05854",
+   "nom_muni": "VALDIVIA",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "05873",
+   "nom_muni": "VIGÍA DEL FUERTE",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "05893",
+   "nom_muni": "YONDÓ",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "13",
+   "nom_subreg": "SUR DE BOLÍVAR"
+  },
+  {
+   "cod_muni": "05895",
+   "nom_muni": "ZARAGOZA",
+   "cod_depto": "05",
+   "nom_depto": "ANTIOQUIA",
+   "cod_subreg": "3",
+   "nom_subreg": "BAJO CAUCA Y NORDESTE ANTIOQUEÑO"
+  },
+  {
+   "cod_muni": "13042",
+   "nom_muni": "ARENAL",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "13",
+   "nom_subreg": "SUR DE BOLÍVAR"
+  },
+  {
+   "cod_muni": "13160",
+   "nom_muni": "CANTAGALLO",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "13",
+   "nom_subreg": "SUR DE BOLÍVAR"
+  },
+  {
+   "cod_muni": "13212",
+   "nom_muni": "CÓRDOBA",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "13244",
+   "nom_muni": "EL CARMEN DE BOLÍVAR",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "13248",
+   "nom_muni": "EL GUAMO",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "13442",
+   "nom_muni": "MARÍA LA BAJA",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "13473",
+   "nom_muni": "MORALES",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "13",
+   "nom_subreg": "SUR DE BOLÍVAR"
+  },
+  {
+   "cod_muni": "13654",
+   "nom_muni": "SAN JACINTO",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "13657",
+   "nom_muni": "SAN JUAN NEPOMUCENO",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "13670",
+   "nom_muni": "SAN PABLO",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "13",
+   "nom_subreg": "SUR DE BOLÍVAR"
+  },
+  {
+   "cod_muni": "13688",
+   "nom_muni": "SANTA ROSA DEL SUR",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "13",
+   "nom_subreg": "SUR DE BOLÍVAR"
+  },
+  {
+   "cod_muni": "13744",
+   "nom_muni": "SIMITÍ",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "13",
+   "nom_subreg": "SUR DE BOLÍVAR"
+  },
+  {
+   "cod_muni": "13894",
+   "nom_muni": "ZAMBRANO",
+   "cod_depto": "13",
+   "nom_depto": "BOLÍVAR",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "18001",
+   "nom_muni": "FLORENCIA",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18029",
+   "nom_muni": "ALBANIA",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18094",
+   "nom_muni": "BELÉN DE LOS ANDAQUÍES",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18150",
+   "nom_muni": "CARTAGENA DEL CHAIRÁ",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18205",
+   "nom_muni": "CURILLO",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18247",
+   "nom_muni": "EL DONCELLO",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18256",
+   "nom_muni": "EL PAUJIL",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18410",
+   "nom_muni": "LA MONTAÑITA",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18460",
+   "nom_muni": "MILÁN",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18479",
+   "nom_muni": "MORELIA",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18592",
+   "nom_muni": "PUERTO RICO",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18610",
+   "nom_muni": "SAN JOSÉ DEL FRAGUA",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18753",
+   "nom_muni": "SAN VICENTE DEL CAGUÁN",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18756",
+   "nom_muni": "SOLANO",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18785",
+   "nom_muni": "SOLITA",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "18860",
+   "nom_muni": "VALPARAÍSO",
+   "cod_depto": "18",
+   "nom_depto": "CAQUETÁ",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "19050",
+   "nom_muni": "ARGELIA",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19075",
+   "nom_muni": "BALBOA",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19110",
+   "nom_muni": "BUENOS AIRES",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19130",
+   "nom_muni": "CAJIBÍO",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19137",
+   "nom_muni": "CALDONO",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19142",
+   "nom_muni": "CALOTO",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19212",
+   "nom_muni": "CORINTO",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19256",
+   "nom_muni": "EL TAMBO",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19318",
+   "nom_muni": "GUAPI",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "9",
+   "nom_subreg": "PACÍFICO MEDIO"
+  },
+  {
+   "cod_muni": "19364",
+   "nom_muni": "JAMBALÓ",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19418",
+   "nom_muni": "LÓPEZ",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "9",
+   "nom_subreg": "PACÍFICO MEDIO"
+  },
+  {
+   "cod_muni": "19450",
+   "nom_muni": "MERCADERES",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19455",
+   "nom_muni": "MIRANDA",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19473",
+   "nom_muni": "MORALES",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19532",
+   "nom_muni": "PATÍA",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19548",
+   "nom_muni": "PIENDAMÓ",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19698",
+   "nom_muni": "SANTANDER DE QUILICHAO",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19780",
+   "nom_muni": "SUÁREZ",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "19809",
+   "nom_muni": "TIMBIQUÍ",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "9",
+   "nom_subreg": "PACÍFICO MEDIO"
+  },
+  {
+   "cod_muni": "19821",
+   "nom_muni": "TORIBIO",
+   "cod_depto": "19",
+   "nom_depto": "CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "20001",
+   "nom_muni": "VALLEDUPAR",
+   "cod_depto": "20",
+   "nom_depto": "CESAR",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "20013",
+   "nom_muni": "AGUSTÍN CODAZZI",
+   "cod_depto": "20",
+   "nom_depto": "CESAR",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "20045",
+   "nom_muni": "BECERRIL",
+   "cod_depto": "20",
+   "nom_depto": "CESAR",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "20400",
+   "nom_muni": "LA JAGUA DE IBIRICO",
+   "cod_depto": "20",
+   "nom_depto": "CESAR",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "20443",
+   "nom_muni": "MANAURE BALCÓN DEL CESAR",
+   "cod_depto": "20",
+   "nom_depto": "CESAR",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "20570",
+   "nom_muni": "PUEBLO BELLO",
+   "cod_depto": "20",
+   "nom_depto": "CESAR",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "20621",
+   "nom_muni": "LA PAZ",
+   "cod_depto": "20",
+   "nom_depto": "CESAR",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "20750",
+   "nom_muni": "SAN DIEGO",
+   "cod_depto": "20",
+   "nom_depto": "CESAR",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "23466",
+   "nom_muni": "MONTELÍBANO",
+   "cod_depto": "23",
+   "nom_depto": "CÓRDOBA",
+   "cod_subreg": "14",
+   "nom_subreg": "SUR DE CÓRDOBA"
+  },
+  {
+   "cod_muni": "23580",
+   "nom_muni": "PUERTO LIBERTADOR",
+   "cod_depto": "23",
+   "nom_depto": "CÓRDOBA",
+   "cod_subreg": "14",
+   "nom_subreg": "SUR DE CÓRDOBA"
+  },
+  {
+   "cod_muni": "23682",
+   "nom_muni": "SAN JOSE DE URE",
+   "cod_depto": "23",
+   "nom_depto": "CÓRDOBA",
+   "cod_subreg": "14",
+   "nom_subreg": "SUR DE CÓRDOBA"
+  },
+  {
+   "cod_muni": "23807",
+   "nom_muni": "TIERRALTA",
+   "cod_depto": "23",
+   "nom_depto": "CÓRDOBA",
+   "cod_subreg": "14",
+   "nom_subreg": "SUR DE CÓRDOBA"
+  },
+  {
+   "cod_muni": "23855",
+   "nom_muni": "VALENCIA",
+   "cod_depto": "23",
+   "nom_depto": "CÓRDOBA",
+   "cod_subreg": "14",
+   "nom_subreg": "SUR DE CÓRDOBA"
+  },
+  {
+   "cod_muni": "27006",
+   "nom_muni": "ACANDÍ",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "27099",
+   "nom_muni": "BOJAYA",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "27150",
+   "nom_muni": "CARMEN DEL DARIEN",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "27205",
+   "nom_muni": "CONDOTO",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "27250",
+   "nom_muni": "EL LITORAL DEL SAN JUAN",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "27361",
+   "nom_muni": "ISTMINA",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "27425",
+   "nom_muni": "MEDIO ATRATO",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "27450",
+   "nom_muni": "MEDIO SAN JUAN",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "27491",
+   "nom_muni": "NÓVITA",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "27615",
+   "nom_muni": "RIOSUCIO",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "27745",
+   "nom_muni": "SIPÍ",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "27800",
+   "nom_muni": "UNGUÍA",
+   "cod_depto": "27",
+   "nom_depto": "CHOCÓ",
+   "cod_subreg": "5",
+   "nom_subreg": "CHOCÓ"
+  },
+  {
+   "cod_muni": "41020",
+   "nom_muni": "ALGECIRAS",
+   "cod_depto": "41",
+   "nom_depto": "HUILA",
+   "cod_subreg": "6",
+   "nom_subreg": "CUENCA DEL CAGUÁN Y PIEDEMONTE CAQUETEÑO"
+  },
+  {
+   "cod_muni": "44090",
+   "nom_muni": "DIBULLA",
+   "cod_depto": "44",
+   "nom_depto": "LA GUAJIRA",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "44279",
+   "nom_muni": "FONSECA",
+   "cod_depto": "44",
+   "nom_depto": "LA GUAJIRA",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "44650",
+   "nom_muni": "SAN JUAN DEL CESAR",
+   "cod_depto": "44",
+   "nom_depto": "LA GUAJIRA",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "47001",
+   "nom_muni": "SANTA MARTA",
+   "cod_depto": "47",
+   "nom_depto": "MAGDALENA",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "47053",
+   "nom_muni": "ARACATACA",
+   "cod_depto": "47",
+   "nom_depto": "MAGDALENA",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "47189",
+   "nom_muni": "CIÉNAGA",
+   "cod_depto": "47",
+   "nom_depto": "MAGDALENA",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "47288",
+   "nom_muni": "FUNDACIÓN",
+   "cod_depto": "47",
+   "nom_depto": "MAGDALENA",
+   "cod_subreg": "12",
+   "nom_subreg": "SIERRA NEVADA - PERIJÁ"
+  },
+  {
+   "cod_muni": "50325",
+   "nom_muni": "MAPIRIPÁN",
+   "cod_depto": "50",
+   "nom_depto": "META",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  },
+  {
+   "cod_muni": "50330",
+   "nom_muni": "MESETAS",
+   "cod_depto": "50",
+   "nom_depto": "META",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  },
+  {
+   "cod_muni": "50350",
+   "nom_muni": "LA MACARENA",
+   "cod_depto": "50",
+   "nom_depto": "META",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  },
+  {
+   "cod_muni": "50370",
+   "nom_muni": "URIBE",
+   "cod_depto": "50",
+   "nom_depto": "META",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  },
+  {
+   "cod_muni": "50450",
+   "nom_muni": "PUERTO CONCORDIA",
+   "cod_depto": "50",
+   "nom_depto": "META",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  },
+  {
+   "cod_muni": "50577",
+   "nom_muni": "PUERTO LLERAS",
+   "cod_depto": "50",
+   "nom_depto": "META",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  },
+  {
+   "cod_muni": "50590",
+   "nom_muni": "PUERTO RICO",
+   "cod_depto": "50",
+   "nom_depto": "META",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  },
+  {
+   "cod_muni": "50711",
+   "nom_muni": "VISTA HERMOSA",
+   "cod_depto": "50",
+   "nom_depto": "META",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  },
+  {
+   "cod_muni": "52079",
+   "nom_muni": "BARBACOAS",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "10",
+   "nom_subreg": "PACÍFICO Y FRONTERA NARIÑENSE"
+  },
+  {
+   "cod_muni": "52233",
+   "nom_muni": "CUMBITARA",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "52250",
+   "nom_muni": "EL CHARCO",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "10",
+   "nom_subreg": "PACÍFICO Y FRONTERA NARIÑENSE"
+  },
+  {
+   "cod_muni": "52256",
+   "nom_muni": "EL ROSARIO",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "52390",
+   "nom_muni": "LA TOLA",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "10",
+   "nom_subreg": "PACÍFICO Y FRONTERA NARIÑENSE"
+  },
+  {
+   "cod_muni": "52405",
+   "nom_muni": "LEIVA",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "52418",
+   "nom_muni": "LOS ANDES",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "52427",
+   "nom_muni": "MAGÜI",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "10",
+   "nom_subreg": "PACÍFICO Y FRONTERA NARIÑENSE"
+  },
+  {
+   "cod_muni": "52473",
+   "nom_muni": "MOSQUERA",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "10",
+   "nom_subreg": "PACÍFICO Y FRONTERA NARIÑENSE"
+  },
+  {
+   "cod_muni": "52490",
+   "nom_muni": "OLAYA HERRERA",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "10",
+   "nom_subreg": "PACÍFICO Y FRONTERA NARIÑENSE"
+  },
+  {
+   "cod_muni": "52520",
+   "nom_muni": "FRANCISCO PIZARRO",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "10",
+   "nom_subreg": "PACÍFICO Y FRONTERA NARIÑENSE"
+  },
+  {
+   "cod_muni": "52540",
+   "nom_muni": "POLICARPA",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "52612",
+   "nom_muni": "RICAURTE",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "10",
+   "nom_subreg": "PACÍFICO Y FRONTERA NARIÑENSE"
+  },
+  {
+   "cod_muni": "52621",
+   "nom_muni": "ROBERTO PAYÁN",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "10",
+   "nom_subreg": "PACÍFICO Y FRONTERA NARIÑENSE"
+  },
+  {
+   "cod_muni": "52696",
+   "nom_muni": "SANTA BÁRBARA",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "10",
+   "nom_subreg": "PACÍFICO Y FRONTERA NARIÑENSE"
+  },
+  {
+   "cod_muni": "52835",
+   "nom_muni": "SAN ANDRES DE TUMACO",
+   "cod_depto": "52",
+   "nom_depto": "NARIÑO",
+   "cod_subreg": "10",
+   "nom_subreg": "PACÍFICO Y FRONTERA NARIÑENSE"
+  },
+  {
+   "cod_muni": "54206",
+   "nom_muni": "CONVENCIÓN",
+   "cod_depto": "54",
+   "nom_depto": "NORTE DE SANTANDER",
+   "cod_subreg": "4",
+   "nom_subreg": "CATATUMBO"
+  },
+  {
+   "cod_muni": "54245",
+   "nom_muni": "EL CARMEN",
+   "cod_depto": "54",
+   "nom_depto": "NORTE DE SANTANDER",
+   "cod_subreg": "4",
+   "nom_subreg": "CATATUMBO"
+  },
+  {
+   "cod_muni": "54250",
+   "nom_muni": "EL TARRA",
+   "cod_depto": "54",
+   "nom_depto": "NORTE DE SANTANDER",
+   "cod_subreg": "4",
+   "nom_subreg": "CATATUMBO"
+  },
+  {
+   "cod_muni": "54344",
+   "nom_muni": "HACARÍ",
+   "cod_depto": "54",
+   "nom_depto": "NORTE DE SANTANDER",
+   "cod_subreg": "4",
+   "nom_subreg": "CATATUMBO"
+  },
+  {
+   "cod_muni": "54670",
+   "nom_muni": "SAN CALIXTO",
+   "cod_depto": "54",
+   "nom_depto": "NORTE DE SANTANDER",
+   "cod_subreg": "4",
+   "nom_subreg": "CATATUMBO"
+  },
+  {
+   "cod_muni": "54720",
+   "nom_muni": "SARDINATA",
+   "cod_depto": "54",
+   "nom_depto": "NORTE DE SANTANDER",
+   "cod_subreg": "4",
+   "nom_subreg": "CATATUMBO"
+  },
+  {
+   "cod_muni": "54800",
+   "nom_muni": "TEORAMA",
+   "cod_depto": "54",
+   "nom_depto": "NORTE DE SANTANDER",
+   "cod_subreg": "4",
+   "nom_subreg": "CATATUMBO"
+  },
+  {
+   "cod_muni": "54810",
+   "nom_muni": "TIBÚ",
+   "cod_depto": "54",
+   "nom_depto": "NORTE DE SANTANDER",
+   "cod_subreg": "4",
+   "nom_subreg": "CATATUMBO"
+  },
+  {
+   "cod_muni": "70204",
+   "nom_muni": "COLOSO",
+   "cod_depto": "70",
+   "nom_depto": "SUCRE",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "70230",
+   "nom_muni": "CHALÁN",
+   "cod_depto": "70",
+   "nom_depto": "SUCRE",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "70418",
+   "nom_muni": "LOS PALMITOS",
+   "cod_depto": "70",
+   "nom_depto": "SUCRE",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "70473",
+   "nom_muni": "MORROA",
+   "cod_depto": "70",
+   "nom_depto": "SUCRE",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "70508",
+   "nom_muni": "OVEJAS",
+   "cod_depto": "70",
+   "nom_depto": "SUCRE",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "70523",
+   "nom_muni": "SAN ANTONIO DE PALMITO",
+   "cod_depto": "70",
+   "nom_depto": "SUCRE",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "70713",
+   "nom_muni": "SAN ONOFRE",
+   "cod_depto": "70",
+   "nom_depto": "SUCRE",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "70823",
+   "nom_muni": "TOLÚ VIEJO",
+   "cod_depto": "70",
+   "nom_depto": "SUCRE",
+   "cod_subreg": "8",
+   "nom_subreg": "MONTES DE MARÍA"
+  },
+  {
+   "cod_muni": "73067",
+   "nom_muni": "ATACO",
+   "cod_depto": "73",
+   "nom_depto": "TOLIMA",
+   "cod_subreg": "15",
+   "nom_subreg": "SUR DEL TOLIMA"
+  },
+  {
+   "cod_muni": "73168",
+   "nom_muni": "CHAPARRAL",
+   "cod_depto": "73",
+   "nom_depto": "TOLIMA",
+   "cod_subreg": "15",
+   "nom_subreg": "SUR DEL TOLIMA"
+  },
+  {
+   "cod_muni": "73555",
+   "nom_muni": "PLANADAS",
+   "cod_depto": "73",
+   "nom_depto": "TOLIMA",
+   "cod_subreg": "15",
+   "nom_subreg": "SUR DEL TOLIMA"
+  },
+  {
+   "cod_muni": "73616",
+   "nom_muni": "RIOBLANCO",
+   "cod_depto": "73",
+   "nom_depto": "TOLIMA",
+   "cod_subreg": "15",
+   "nom_subreg": "SUR DEL TOLIMA"
+  },
+  {
+   "cod_muni": "76109",
+   "nom_muni": "BUENAVENTURA",
+   "cod_depto": "76",
+   "nom_depto": "VALLE DEL CAUCA",
+   "cod_subreg": "9",
+   "nom_subreg": "PACÍFICO MEDIO"
+  },
+  {
+   "cod_muni": "76275",
+   "nom_muni": "FLORIDA",
+   "cod_depto": "76",
+   "nom_depto": "VALLE DEL CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "76563",
+   "nom_muni": "PRADERA",
+   "cod_depto": "76",
+   "nom_depto": "VALLE DEL CAUCA",
+   "cod_subreg": "1",
+   "nom_subreg": "ALTO PATÍA Y NORTE DEL CAUCA"
+  },
+  {
+   "cod_muni": "81065",
+   "nom_muni": "ARAUQUITA",
+   "cod_depto": "81",
+   "nom_depto": "ARAUCA",
+   "cod_subreg": "2",
+   "nom_subreg": "ARAUCA"
+  },
+  {
+   "cod_muni": "81300",
+   "nom_muni": "FORTUL",
+   "cod_depto": "81",
+   "nom_depto": "ARAUCA",
+   "cod_subreg": "2",
+   "nom_subreg": "ARAUCA"
+  },
+  {
+   "cod_muni": "81736",
+   "nom_muni": "SARAVENA",
+   "cod_depto": "81",
+   "nom_depto": "ARAUCA",
+   "cod_subreg": "2",
+   "nom_subreg": "ARAUCA"
+  },
+  {
+   "cod_muni": "81794",
+   "nom_muni": "TAME",
+   "cod_depto": "81",
+   "nom_depto": "ARAUCA",
+   "cod_subreg": "2",
+   "nom_subreg": "ARAUCA"
+  },
+  {
+   "cod_muni": "86001",
+   "nom_muni": "MOCOA",
+   "cod_depto": "86",
+   "nom_depto": "PUTUMAYO",
+   "cod_subreg": "11",
+   "nom_subreg": "PUTUMAYO"
+  },
+  {
+   "cod_muni": "86320",
+   "nom_muni": "ORITO",
+   "cod_depto": "86",
+   "nom_depto": "PUTUMAYO",
+   "cod_subreg": "11",
+   "nom_subreg": "PUTUMAYO"
+  },
+  {
+   "cod_muni": "86568",
+   "nom_muni": "PUERTO ASÍS",
+   "cod_depto": "86",
+   "nom_depto": "PUTUMAYO",
+   "cod_subreg": "11",
+   "nom_subreg": "PUTUMAYO"
+  },
+  {
+   "cod_muni": "86569",
+   "nom_muni": "PUERTO CAICEDO",
+   "cod_depto": "86",
+   "nom_depto": "PUTUMAYO",
+   "cod_subreg": "11",
+   "nom_subreg": "PUTUMAYO"
+  },
+  {
+   "cod_muni": "86571",
+   "nom_muni": "PUERTO GUZMÁN",
+   "cod_depto": "86",
+   "nom_depto": "PUTUMAYO",
+   "cod_subreg": "11",
+   "nom_subreg": "PUTUMAYO"
+  },
+  {
+   "cod_muni": "86573",
+   "nom_muni": "LEGUÍZAMO",
+   "cod_depto": "86",
+   "nom_depto": "PUTUMAYO",
+   "cod_subreg": "11",
+   "nom_subreg": "PUTUMAYO"
+  },
+  {
+   "cod_muni": "86757",
+   "nom_muni": "SAN MIGUEL",
+   "cod_depto": "86",
+   "nom_depto": "PUTUMAYO",
+   "cod_subreg": "11",
+   "nom_subreg": "PUTUMAYO"
+  },
+  {
+   "cod_muni": "86865",
+   "nom_muni": "VALLE DEL GUAMUEZ",
+   "cod_depto": "86",
+   "nom_depto": "PUTUMAYO",
+   "cod_subreg": "11",
+   "nom_subreg": "PUTUMAYO"
+  },
+  {
+   "cod_muni": "86885",
+   "nom_muni": "VILLAGARZÓN",
+   "cod_depto": "86",
+   "nom_depto": "PUTUMAYO",
+   "cod_subreg": "11",
+   "nom_subreg": "PUTUMAYO"
+  },
+  {
+   "cod_muni": "95001",
+   "nom_muni": "SAN JOSÉ DEL GUAVIARE",
+   "cod_depto": "95",
+   "nom_depto": "GUAVIARE",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  },
+  {
+   "cod_muni": "95015",
+   "nom_muni": "CALAMAR",
+   "cod_depto": "95",
+   "nom_depto": "GUAVIARE",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  },
+  {
+   "cod_muni": "95025",
+   "nom_muni": "EL RETORNO",
+   "cod_depto": "95",
+   "nom_depto": "GUAVIARE",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  },
+  {
+   "cod_muni": "95200",
+   "nom_muni": "MIRAFLORES",
+   "cod_depto": "95",
+   "nom_depto": "GUAVIARE",
+   "cod_subreg": "7",
+   "nom_subreg": "MACARENA - GUAVIARE"
+  }
+ ]
+}

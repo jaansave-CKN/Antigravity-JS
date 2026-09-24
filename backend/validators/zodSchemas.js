@@ -278,6 +278,14 @@ export const anexoPatchSchema = z.object({
   categoria: z.string().max(50).optional(),
 });
 
+// F-10 (2026-09-24): endpoint aislado PATCH .../anexos/:anexoId/vigencia.
+// null en fecha_documento = borrado intencional; la validez de calendario y
+// "no futura" las valida la ruta con vigenciaDocumental.js.
+export const anexoVigenciaSchema = z.object({
+  fecha_documento: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha_documento debe ser AAAA-MM-DD'), z.null()]).optional(),
+  tipo_vigencia: z.enum(['libertad_tradicion', 'apu_cotizacion', 'general']).optional(),
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // Compliance / Motor Dialéctico / Marco Normativo / Config Logística
 // ────────────────────────────────────────────────────────────────────────────

@@ -85,10 +85,36 @@ interface Soporte {
   persistido: boolean; // true si ya existe como fila real en project_anexos
   subiendo?: boolean;
   progreso?: number; // 0-100, real (XHR upload.onprogress) — solo mientras subiendo es true
+  // F-10 vigencia documental (2026-09-24) — opcionales: el caché local viejo
+  // no los tiene y el merge con el servidor (más abajo) los toma del servidor.
+  tipoVigencia?: TipoVigencia;
+  fechaDocumento?: string | null;
+  vigencia?: Vigencia;
+}
+type TipoVigencia = 'libertad_tradicion' | 'apu_cotizacion' | 'general';
+interface Vigencia {
+  estado: 'sin_fecha' | 'vigente' | 'vencido' | 'advertencia' | 'fecha_invalida';
+  vence_el: string | null; revisar_desde: string | null; dias_desde_emision: number | null; dias_restantes: number | null;
 }
 interface AnexoApi {
   id: string; nombre_archivo: string; descripcion: string | null; texto: string | null; link: string | null; categoria: string | null; carpeta_id: string | null;
+  tipo_vigencia?: TipoVigencia; fecha_documento?: string | null; vigencia?: Vigencia;
 }
+const TIPOS_VIGENCIA: Array<{ valor: TipoVigencia; texto: string }> = [
+  { valor: 'general', texto: 'General' },
+  { valor: 'libertad_tradicion', texto: 'Libertad y Tradición (30 días)' },
+  { valor: 'apu_cotizacion', texto: 'APU / Cotización (6 meses)' },
+];
+const fechaCorta = (iso: string | null) => iso ? iso.split('-').reverse().join('/') : '';
+function textoVigencia(v?: Vigencia): string {
+  if (!v || v.estado === 'sin_fecha') return 'Sin fecha';
+  if (v.estado === 'vencido') return `Vencido (${fechaCorta(v.vence_el)})`;
+  if (v.estado === 'advertencia') return 'Más de 1 año';
+  if (v.estado === 'fecha_invalida') return 'Fecha inválida';
+  return v.vence_el ? `Vigente · ${v.dias_restantes} d` : 'Vigente';
+}
+// Hoy en Bogotá (AAAA-MM-DD) — tope del selector de fecha (no se aceptan futuras).
+const hoyBogota = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 interface AnexosApiResponse { success: boolean; data?: AnexoApi[]; message?: string }
 
 interface Carpeta { id: string; nombre: string; orden: number }
@@ -150,6 +176,11 @@ export default function AnexosCalcoView() {
   // scheduling que tiene encadenar dos setState (ver comentario histórico en
   // BibliotecaCalcoView.tsx — mismo fix, mismo patrón).
   const eliminadosRef = useRef<Set<string>>(new Set());
+  // F-10 (2026-09-24): el encabezado vive en .anx__fixedzone (sticky), FUERA
+  // de .anx__table-scroll — al desplazar la tabla en horizontal las filas se
+  // movían y los títulos no (verificado en captura; las 2 columnas nuevas lo
+  // agravaban). Se sincroniza el scrollLeft del encabezado con el de la tabla.
+  const theadRef = useRef<HTMLDivElement>(null);
   // Cola de guardado por fila (serializa todas las operaciones de guardado de
   // una misma fila — texto y adjuntar archivo — para que nunca corran dos a
   // la vez; ver comentario histórico en BibliotecaCalcoView.tsx).
@@ -188,9 +219,10 @@ export default function AnexosCalcoView() {
         if (cancelled) return;
         setCarpetas((carpetasBody.data || []).map(c => ({ id: c.id, nombre: c.nombre, orden: c.orden })));
 
-        const rows = (body.data || []).map(a => ({
+        const rows: Soporte[] = (body.data || []).map(a => ({
           id: a.id, localKey: a.id, descripcion: a.descripcion || '', texto: a.texto || '', link: a.link || '',
           anexo: a.nombre_archivo || '', esTecnico: esCategoriaTecnica(a.categoria), carpetaId: a.carpeta_id || null, persistido: true,
+          tipoVigencia: a.tipo_vigencia || 'general', fechaDocumento: a.fecha_documento ?? null, vigencia: a.vigencia,
         }));
 
         // Fusión con el caché local de este proyecto: si un F5 interrumpió una
@@ -397,6 +429,35 @@ export default function AnexosCalcoView() {
       return next;
     });
   };
+
+  // F-10 (2026-09-24): vigencia documental — endpoint AISLADO
+  // (PATCH .../anexos/:id/vigencia), fuera de `encolar` a propósito: no toca
+  // descripcion/texto/link/categoria, así que no compite con la cola de
+  // guardado de la fila. La llamada de red va FUERA del updater de setState
+  // (en StrictMode React puede invocar el updater dos veces).
+  const guardarVigencia = async (localKey: string, cambios: { tipo_vigencia?: TipoVigencia; fecha_documento?: string | null }) => {
+    const row = soportes.find(s => s.localKey === localKey);
+    if (!row?.persistido || !proyectoId) return;
+    const previo = { tipoVigencia: row.tipoVigencia, fechaDocumento: row.fechaDocumento, vigencia: row.vigencia };
+    actualizarLocal(localKey, {
+      ...(cambios.tipo_vigencia !== undefined ? { tipoVigencia: cambios.tipo_vigencia } : {}),
+      ...(cambios.fecha_documento !== undefined ? { fechaDocumento: cambios.fecha_documento } : {}),
+    });
+    try {
+      const r = await http.patch<{ success: boolean; data: { tipo_vigencia: TipoVigencia; fecha_documento: string | null; vigencia: Vigencia } }>(
+        `/api/proyectos/${proyectoId}/anexos/${row.id}/vigencia`, cambios);
+      actualizarLocal(localKey, { tipoVigencia: r.data.tipo_vigencia, fechaDocumento: r.data.fecha_documento, vigencia: r.data.vigencia });
+      setErrorSync(null);
+    } catch (e) {
+      actualizarLocal(localKey, previo);
+      setErrorSync(e instanceof ApiError ? `No se pudo guardar la vigencia: ${e.message}` : 'No se pudo guardar la vigencia — revisa tu conexión.');
+    }
+  };
+  const resumenVigencia = soportes.reduce((acc, s) => {
+    if (s.vigencia?.estado === 'vencido') acc.vencidos++;
+    else if (s.vigencia?.estado === 'advertencia') acc.antiguos++;
+    return acc;
+  }, { vencidos: 0, antiguos: 0 });
 
   const actualizar = (localKey: string, patch: Partial<Soporte>) => actualizarLocal(localKey, patch);
 
@@ -697,7 +758,14 @@ export default function AnexosCalcoView() {
           {errorSync && (
             <div className="anx__statusmsg anx__statusmsg--error" role="alert">{errorSync}</div>
           )}
-          <div className="anx__theadrow anx__grid">
+          {(resumenVigencia.vencidos > 0 || resumenVigencia.antiguos > 0) && (
+            <div className="anx__statusmsg anx__statusmsg--warn" role="status">
+              {resumenVigencia.vencidos > 0 && `${resumenVigencia.vencidos} documento(s) vencido(s) — actualízalos antes de radicar.`}
+              {resumenVigencia.vencidos > 0 && resumenVigencia.antiguos > 0 && ' '}
+              {resumenVigencia.antiguos > 0 && `${resumenVigencia.antiguos} documento(s) con más de 1 año — revisa su vigencia.`}
+            </div>
+          )}
+          <div className="anx__theadrow anx__grid" ref={theadRef}>
             <span className="anx__th anx__th--num" />
             <span className="anx__th">DESCRIPCION</span>
             <span className="anx__th anx__th--center">TEXTO</span>
@@ -705,12 +773,14 @@ export default function AnexosCalcoView() {
             <span className="anx__th anx__th--center">LINK</span>
             <span className="anx__th anx__th--center">CARPETA</span>
             <span className="anx__th anx__th--center">TÉCNICO</span>
+            <span className="anx__th anx__th--center">TIPO DOC.</span>
+            <span className="anx__th anx__th--center">FECHA</span>
             <span className="anx__th" />
           </div>
         </div>
 
         <div className="anx__content">
-        <div className="anx__table-scroll">
+        <div className="anx__table-scroll" onScroll={e => { if (theadRef.current) theadRef.current.scrollLeft = e.currentTarget.scrollLeft; }}>
           <div className="anx__table">
             {bloques.map(bloque => {
               const items = soportes.filter(s => (s.carpetaId ?? SIN_CARPETA) === bloque.id);
@@ -846,6 +916,32 @@ export default function AnexosCalcoView() {
                         >
                           <span className="anx__toggle-thumb" />
                         </button>
+                      </div>
+                      {/* F-10 vigencia documental — deshabilitado hasta que la fila exista en el servidor */}
+                      <div className="anx__td">
+                        <select
+                          className="anx__select"
+                          aria-label="Tipo de documento (vigencia)"
+                          title={s.persistido ? 'Tipo de documento — define su vigencia' : 'Guarda la fila primero'}
+                          disabled={!s.persistido}
+                          value={s.tipoVigencia || 'general'}
+                          onChange={e => guardarVigencia(s.localKey, { tipo_vigencia: e.target.value as TipoVigencia })}
+                        >
+                          {TIPOS_VIGENCIA.map(t => <option key={t.valor} value={t.valor}>{t.texto}</option>)}
+                        </select>
+                      </div>
+                      <div className="anx__td anx__td--vig">
+                        <input
+                          type="date"
+                          className="anx__input anx__input--date"
+                          aria-label="Fecha de expedición del documento"
+                          title={s.persistido ? 'Fecha de expedición del documento' : 'Guarda la fila primero'}
+                          disabled={!s.persistido}
+                          max={hoyBogota()}
+                          value={s.fechaDocumento || ''}
+                          onChange={e => guardarVigencia(s.localKey, { fecha_documento: e.target.value || null })}
+                        />
+                        <span className={`anx__vig anx__vig--${s.vigencia?.estado || 'sin_fecha'}`}>{textoVigencia(s.vigencia)}</span>
                       </div>
                       <div className="anx__td anx__td--action">
                         <button className="anx__delete" title="Eliminar soporte" onClick={() => eliminar(s.localKey)}>

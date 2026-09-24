@@ -62,6 +62,7 @@ import { registerMatrizRaciRoutes } from './backend/routes/matrizRaci.routes.js'
 import { registerEstresFinancieroRoutes } from './backend/routes/estresFinanciero.routes.js';
 import { registerValorExponencialRoutes } from './backend/routes/valorExponencial.routes.js';
 import { registerEvaluacionFinancieraRoutes } from './backend/routes/evaluacionFinanciera.routes.js';
+import { registerMirofishRoutes } from './backend/routes/mirofish.routes.js';
 import { registerPresupuestoRoutes } from './backend/routes/presupuesto.routes.js';
 import { registerAnexosRoutes } from './backend/routes/anexos.routes.js';
 import { registerBibliotecaRoutes } from './backend/routes/biblioteca.routes.js';
@@ -4905,6 +4906,10 @@ Reglas:
   await registerEstresFinancieroRoutes(app, { authenticateToken, requireAccess, financialPipelineLimiter });
   await registerValorExponencialRoutes(app, { authenticateToken, requireAccess, financialPipelineLimiter });
   registerEvaluacionFinancieraRoutes(app, { authenticateToken, requireAccess, financialPipelineLimiter });
+
+  // F-09 MIROFISH (2026-09-24): comité hostil — reglas PDET + IA BYOK.
+  // Misma cadena que POST /viabilidad-ia (aiLimiter + byokGate).
+  registerMirofishRoutes(app, { authenticateToken, requireAccess, aiLimiter, byokGate });
 
   // V8.0 — Formulador: M8 Marco Normativo
   registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch });

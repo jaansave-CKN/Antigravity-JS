@@ -51,7 +51,8 @@ import { supabaseStorage } from '../config/supabase.config.js';
 // en este archivo, org_id = user_id) como primer argumento.
 import { withTenant, withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
 import { sanitizeTechnicalText, sanitizeUrl } from '../middlewares/SecurityMiddleware.js';
-import { validarBody, carpetaNombreSchema, anexoPatchSchema } from '../validators/zodSchemas.js';
+import { validarBody, carpetaNombreSchema, anexoPatchSchema, anexoVigenciaSchema } from '../validators/zodSchemas.js';
+import { calcularVigencia, hoyBogota, esFechaValida } from '../services/vigenciaDocumental.js';
 import { parseAndSanitizeExcel } from '../services/ExtractorService.js';
 import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js';
 import { convertBufferToMarkdown } from '../services/markitdownService.js';
@@ -245,10 +246,50 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
       // (más nuevo primero) invertía el orden de ingreso cada vez que la
       // lista se recargaba — el usuario numera sus filas mentalmente en el
       // orden en que las escribe, no al revés. ASC = orden de ingreso real.
-      'SELECT id, project_id, carpeta_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at FROM project_anexos WHERE project_id = ? ORDER BY created_at ASC',
+      // F-10 (2026-09-24): + tipo_vigencia y fecha_documento (migración 069).
+      // to_char: node-pg convierte DATE a Date en medianoche LOCAL del
+      // servidor, lo que puede correr la fecha un día; se entrega texto ISO.
+      "SELECT id, project_id, carpeta_id, nombre_archivo, tipo_mime, tamano_bytes, categoria, descripcion, texto, link, created_at, tipo_vigencia, to_char(fecha_documento, 'YYYY-MM-DD') AS fecha_documento FROM project_anexos WHERE project_id = ? ORDER BY created_at ASC",
       [req.params.id]
     );
-    res.json({ success: true, data: anexos });
+    const hoy = hoyBogota();
+    res.json({ success: true, data: anexos.map(a => ({ ...a, vigencia: calcularVigencia(a, hoy) })) });
+  }));
+
+  /**
+   * PATCH /api/proyectos/:id/anexos/:anexoId/vigencia — F-10 (2026-09-24)
+   * Endpoint AISLADO a propósito (fiscalización architect): no toca el PATCH
+   * general de abajo ni su semántica de presencia, ni la cola de guardado del
+   * frontend (AnexosCalcoView encolar/localKey). Mismo criterio de presencia:
+   * solo actualiza los campos que vinieron en el body; null en fecha_documento
+   * es un borrado intencional válido.
+   */
+  app.patch('/api/proyectos/:id/anexos/:anexoId/vigencia', authenticateToken, wrap(async (req, res) => {
+    const proyecto = await checkOwnership(req.params.id, req.userId);
+    if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
+
+    const validacion = validarBody(anexoVigenciaSchema, req.body);
+    if (!validacion.ok) return res.status(400).json({ success: false, message: validacion.message });
+    const { fecha_documento, tipo_vigencia } = validacion.data;
+    if (fecha_documento === undefined && tipo_vigencia === undefined) {
+      return res.status(400).json({ success: false, message: 'Envía fecha_documento y/o tipo_vigencia.' });
+    }
+    const hoy = hoyBogota();
+    if (fecha_documento) {
+      if (!esFechaValida(fecha_documento)) return res.status(400).json({ success: false, message: 'fecha_documento no es una fecha válida (AAAA-MM-DD).' });
+      if (fecha_documento > hoy) return res.status(400).json({ success: false, message: 'La fecha del documento no puede ser futura.' });
+    }
+
+    const sets = [], params = [];
+    if (fecha_documento !== undefined) { sets.push('fecha_documento = ?'); params.push(fecha_documento); }
+    if (tipo_vigencia !== undefined) { sets.push('tipo_vigencia = ?'); params.push(tipo_vigencia); }
+    const fila = await withTenantRow(req.userId,
+      `UPDATE project_anexos SET ${sets.join(', ')} WHERE id = ? AND project_id = ?
+       RETURNING id, tipo_vigencia, to_char(fecha_documento, 'YYYY-MM-DD') AS fecha_documento`,
+      [...params, req.params.anexoId, req.params.id]
+    );
+    if (!fila) return res.status(404).json({ success: false, message: 'Anexo no encontrado' });
+    res.json({ success: true, data: { ...fila, vigencia: calcularVigencia(fila, hoy) } });
   }));
 
   /**

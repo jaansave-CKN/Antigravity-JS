@@ -142,6 +142,145 @@ function DictamenIACard() {
   );
 }
 
+// ── Comité Hostil MIROFISH (F-09, 2026-09-24) ─────────────────────────────────
+// Reglas deterministas (PDET → rubro de seguridad, tramos con orden público)
+// + IA adversarial BYOK (POST /api/proyectos/:id/mirofish). Usa `http` de
+// apiClient (maneja el 428 de BYOK y abre el modal de llave). Si la IA no
+// está disponible se muestran SOLO las reglas y el motivo — nunca hallazgos
+// inventados. No reemplaza los paneles "Datos MiroFish" de la rúbrica.
+interface HallazgoMirofish {
+  regla?: string; categoria?: string; severidad: 'CRITICA' | 'ALTA' | 'MEDIA' | 'INFO';
+  titulo: string; detalle: string; evidencia: Array<{ campo: string; valor: string }>; recomendacion: string;
+}
+interface EvaluacionMirofish {
+  created_at: string;
+  municipio_match: { tipo: string; municipio?: { municipio: string; departamento: string; subregion: string }; candidatos?: Array<{ municipio: string; departamento: string }> };
+  reglas: { hallazgos: HallazgoMirofish[] };
+  ia: { estado: 'ok' | 'no_disponible'; motivo?: string; mensaje?: string; modelo?: string; hallazgos: HallazgoMirofish[]; descartados: Array<{ titulo: string; motivo: string }> };
+}
+const SEVERIDAD_COLOR: Record<HallazgoMirofish['severidad'], string> = { CRITICA: '#ba1a1a', ALTA: '#b45309', MEDIA: '#0041a3', INFO: '#76777d' };
+const ORDEN_SEVERIDAD = { CRITICA: 0, ALTA: 1, MEDIA: 2, INFO: 3 } as const;
+const MOTIVO_IA: Record<string, string> = {
+  USER_KEY_EXHAUSTED: 'tu llave de Gemini se quedó sin cuota',
+  pool_servidor_agotado: 'la cuota de IA del servidor está agotada',
+  sin_llaves_servidor: 'no hay llaves de IA configuradas',
+  modelo_saturado: 'el modelo de Google está saturado en este momento (reintenta en unos minutos)',
+  respuesta_invalida: 'la IA devolvió una respuesta inválida',
+  error: 'la IA no respondió',
+};
+const MATCH_TEXTO: Record<string, string> = {
+  exacta: 'Municipio PDET', solo_nombre: 'Municipio PDET (sin departamento)', ambigua: 'Ubicación ambigua',
+  no_pdet: 'No es municipio PDET', sin_ubicacion: 'Sin ubicación',
+};
+
+function HallazgoItem({ h, origen }: { h: HallazgoMirofish; origen: string }) {
+  const color = SEVERIDAD_COLOR[h.severidad];
+  return (
+    <div style={{ padding: '8px 12px', borderRadius: 8, borderLeft: `3px solid ${color}`, background: 'rgba(0,0,0,0.02)' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10.5, fontWeight: 800, color: '#fff', background: color, padding: '2px 8px', borderRadius: 6 }}>{h.severidad}</span>
+        <strong style={{ fontSize: 12.5, color: '#191c1e' }}>{h.titulo}</strong>
+        <span style={{ fontSize: 10.5, color: '#76777d' }}>{origen}</span>
+      </div>
+      {h.detalle && <div style={{ fontSize: 12.5, color: '#191c1e', marginTop: 4, lineHeight: 1.5 }}>{h.detalle}</div>}
+      {h.evidencia.length > 0 && (
+        <div style={{ fontSize: 11, color: '#76777d', marginTop: 4 }}>
+          Evidencia: {h.evidencia.map(e => `${e.campo} = "${e.valor}"`).join(' · ')}
+        </div>
+      )}
+      {h.recomendacion && <div style={{ fontSize: 12, color: '#15803d', marginTop: 4 }}>→ {h.recomendacion}</div>}
+    </div>
+  );
+}
+
+function ComiteMirofishCard() {
+  const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
+  const [evaluacion, setEvaluacion] = useState<EvaluacionMirofish | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const enCursoRef = useRef(false);
+
+  useEffect(() => {
+    if (!proyectoId) return;
+    let vigente = true;
+    http.get<{ data: EvaluacionMirofish | null }>(`/api/proyectos/${proyectoId}/mirofish`)
+      .then(r => { if (vigente) setEvaluacion(r.data); })
+      .catch(() => { /* sin evaluación previa o sin acceso: el botón sigue disponible */ });
+    return () => { vigente = false; };
+  }, [proyectoId]);
+
+  const convocar = async () => {
+    if (!proyectoId || enCursoRef.current) return;
+    enCursoRef.current = true;
+    setCargando(true);
+    setError(null);
+    try {
+      const r = await http.post<{ data: EvaluacionMirofish }>(`/api/proyectos/${proyectoId}/mirofish`, {});
+      setEvaluacion(r.data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo convocar al comité');
+    } finally {
+      enCursoRef.current = false;
+      setCargando(false);
+    }
+  };
+
+  if (!proyectoId) return null;
+  const hallazgos = evaluacion ? [
+    ...evaluacion.reglas.hallazgos.map(h => ({ h, origen: `Regla ${h.regla}` })),
+    ...evaluacion.ia.hallazgos.map(h => ({ h, origen: 'IA adversarial' })),
+  ].sort((a, b) => ORDEN_SEVERIDAD[a.h.severidad] - ORDEN_SEVERIDAD[b.h.severidad]) : [];
+  const match = evaluacion?.municipio_match;
+
+  return (
+    <div className="viab__card" style={{ gridColumn: '1 / -1' }}>
+      <div className="viab__card-header">
+        <span className="material-symbols-outlined">gavel</span>
+        Comité Hostil MIROFISH — reglas PDET + IA adversarial
+      </div>
+      <div className="viab__card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <button
+          onClick={convocar}
+          disabled={cargando}
+          style={{
+            alignSelf: 'flex-start', padding: '9px 18px', borderRadius: 8, border: 'none',
+            background: '#0041a3', color: '#fff', fontWeight: 700, fontSize: 13,
+            cursor: cargando ? 'not-allowed' : 'pointer', opacity: cargando ? 0.6 : 1,
+          }}
+        >
+          {cargando ? 'El comité está evaluando… (puede tardar varios segundos)' : evaluacion ? 'Volver a convocar al comité' : 'Convocar comité'}
+        </button>
+        {error && <div style={{ color: '#ba1a1a', fontSize: 12.5 }} role="alert">{error}</div>}
+
+        {evaluacion && (
+          <>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12, color: '#191c1e' }}>
+              <span style={{ fontWeight: 700, color: match?.tipo === 'exacta' || match?.tipo === 'solo_nombre' ? '#b45309' : '#76777d' }}>
+                {MATCH_TEXTO[match?.tipo || 'sin_ubicacion'] || match?.tipo}
+                {match?.municipio && `: ${match.municipio.municipio} (${match.municipio.departamento}) · subregión ${match.municipio.subregion}`}
+              </span>
+              <span style={{ color: evaluacion.ia.estado === 'ok' ? '#15803d' : '#b45309', fontWeight: 700 }}>
+                {evaluacion.ia.estado === 'ok'
+                  ? `✓ IA adversarial (${evaluacion.ia.modelo})`
+                  : `⚠ IA no disponible: ${MOTIVO_IA[evaluacion.ia.motivo || 'error'] || evaluacion.ia.motivo} — solo reglas deterministas`}
+              </span>
+              <span style={{ color: '#76777d' }}>{new Date(evaluacion.created_at).toLocaleString('es-CO', { hour12: false })}</span>
+            </div>
+            {hallazgos.length > 0
+              ? hallazgos.map(({ h, origen }, i) => <HallazgoItem key={`${origen}-${h.titulo}-${i}`} h={h} origen={origen} />)
+              : <div style={{ fontSize: 12.5, color: '#15803d' }}>El comité no encontró vacíos sostenibles con los datos actuales del proyecto.</div>}
+            {evaluacion.ia.descartados.length > 0 && (
+              <div style={{ fontSize: 11, color: '#76777d' }} title={evaluacion.ia.descartados.map(d => `${d.titulo}: ${d.motivo}`).join('\n')}>
+                {evaluacion.ia.descartados.length} hallazgo(s) de la IA descartados por no citar datos reales del proyecto.
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Distribución Montecarlo REAL del VAN (F-06, 2026-09-24) ──────────────────
 // Antes: MontecarloChart dibujaba una banda gaussiana FIJA derivada del score
 // (no había ningún motor estadístico detrás) con leyenda "IC 68/95/99%"
@@ -440,6 +579,9 @@ export default function ViabilidadPage() {
       <div className="viab__grid">
         {/* Dictamen real de IA (Gemini) sobre el proyecto — Fase 3 */}
         <DictamenIACard />
+
+        {/* F-09 — Comité Hostil MIROFISH (reglas PDET + IA adversarial BYOK) */}
+        <ComiteMirofishCard />
 
         {/* Q1 — Montecarlo */}
         <div className="viab__card viab__card--q1">
