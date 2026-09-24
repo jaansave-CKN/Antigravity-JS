@@ -35,7 +35,10 @@ function estimarCostoCOP(tokensInput, tokensOutput) {
 export async function logTokenUsage({ userId, agentName, tokensInput = 0, tokensOutput = 0 }) {
   if (!supabaseAdmin || !userId || !agentName) return;
   try {
-    await supabaseAdmin.from('ai_token_logs').insert([{
+    // LOTE 8 (auditoría minera 2026-09-24): supabase-js NO lanza en un INSERT
+    // fallido — devuelve { error }. Antes ese error se descartaba y el
+    // try/catch no atrapaba nada: un fallo de registro FinOps era invisible.
+    const { error } = await supabaseAdmin.from('ai_token_logs').insert([{
       id: crypto.randomUUID(),
       user_id: userId,
       agent_name: agentName,
@@ -43,6 +46,7 @@ export async function logTokenUsage({ userId, agentName, tokensInput = 0, tokens
       tokens_output: tokensOutput,
       cost_cop_estimated: estimarCostoCOP(tokensInput, tokensOutput),
     }]);
+    if (error) console.warn(`[aiTokenLogger] No se pudo registrar consumo (${agentName}):`, error.message);
   } catch (e) {
     console.warn('[aiTokenLogger] No se pudo registrar consumo:', e.message);
   }

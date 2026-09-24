@@ -70,7 +70,7 @@ import { Agent, setGlobalDispatcher } from 'undici';
 import { supabaseStorage } from '../config/supabase.config.js';
 import { convertBufferToMarkdown } from './markitdownService.js';
 import { sanitizeTechnicalText } from '../middlewares/SecurityMiddleware.js';
-import { withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
+import { withKeyRotation, isQuotaError, GeminiPoolExhaustedError, retryDelayDe429 } from './geminiCircuitBreaker.js';
 import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
@@ -378,9 +378,15 @@ async function llamarGemini(systemPrompt, orgId, userGeminiKeys) {
         model: 'gemini-3.6-flash',
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: 'Genera el JSON del formulario a partir del material de investigación.' }],
         temperature: 0.2,
-        max_tokens: 4096,
+        // LOTE 8 (auditoría minera 2026-09-24): mismo defecto ya verificado
+        // en vivo en MIROFISH/Viabilidad/Co-Piloto — gemini-3.6-flash RAZONA
+        // y esos tokens cuentan contra max_tokens. Con 4096 y sin acotar el
+        // razonamiento, ai_token_logs registra una mediana de 13 tokens
+        // visibles para un JSON de formulario completo.
+        max_tokens: 8192,
+        reasoning_effort: 'low',
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(45_000),
     });
 
     if (upstream.status === 429) {
@@ -395,8 +401,10 @@ async function llamarGemini(systemPrompt, orgId, userGeminiKeys) {
       const cuerpo = await upstream.text().catch(() => '');
       logger.error('[EntradaIA] Gemini 429 — detalle real de cuota', { body: cuerpo.slice(0, 1000) });
       const err = new Error('Gemini 429 quota exceeded');
-      const match = cuerpo.match(/retry in ([\d.]+)\s*s/i);
-      if (match) err.retryDelayMs = Math.ceil(parseFloat(match[1]) * 1000) + 2000; // +2s de margen
+      // LOTE 8: la cuota DIARIA trae retryDelay "34s" falso — retryDelayDe429
+      // lo reemplaza por el tiempo real hasta la medianoche del Pacífico.
+      const espera = retryDelayDe429(cuerpo);
+      if (espera) err.retryDelayMs = espera;
       throw err;
     }
     if (!upstream.ok) {
@@ -406,6 +414,12 @@ async function llamarGemini(systemPrompt, orgId, userGeminiKeys) {
     }
 
     const data = await upstream.json();
+    // LOTE 8: un JSON cortado por max_tokens ya no se entrega como si fuera
+    // válido — se registra y se reporta con motivo explícito.
+    if (data?.choices?.[0]?.finish_reason === 'length') {
+      logger.error('[EntradaIA] Respuesta de Gemini truncada por max_tokens', { usage: data?.usage });
+      throw new Error('Gemini devolvió una respuesta truncada (max_tokens)');
+    }
     const texto = data?.choices?.[0]?.message?.content?.trim();
     if (!texto) throw new Error('Gemini sin contenido en la respuesta');
     return { texto, usage: data?.usage ?? {} };
@@ -434,9 +448,17 @@ async function llamarGemini(systemPrompt, orgId, userGeminiKeys) {
       // agotada — insufficient_quota — que se libera a medianoche UTC, no en
       // minutos) — el mensaje debe ser definitivo y apuntar a la única
       // acción real disponible en esta app para no esperar: BYOK.
+      // LOTE 8: con la cuota DIARIA agotada, retryAt es real pero está a
+      // horas — "intenta de nuevo en unos segundos" sería falso.
+      const esperaLarga = err.retryAt && new Date(err.retryAt).getTime() - Date.now() > 10 * 60_000;
+      const horaReset = esperaLarga
+        ? new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(err.retryAt))
+        : null;
       const msg = err.esEstimado
         ? 'Créditos de IA agotados por ahora — no hay una hora de reset garantizada. Conecta tu propia llave de Gemini (BYOK) para seguir usando la IA, o llena el formulario manualmente.'
-        : 'El límite de uso de IA está agotado por ahora — intenta de nuevo en unos segundos, o llena el formulario manualmente.';
+        : esperaLarga
+          ? `La cuota diaria de IA del servidor está agotada — se renueva a las ${horaReset} (hora Colombia). Conecta tu propia llave de Gemini (BYOK) para seguir ahora, o llena el formulario manualmente.`
+          : 'El límite de uso de IA está agotado por ahora — intenta de nuevo en unos segundos, o llena el formulario manualmente.';
       throw new EntradaIAError(msg, 429, err.retryAt, err.esEstimado);
     }
     if (isQuotaError(err)) throw new EntradaIAError('Límite de IA agotado — intenta de nuevo en unos minutos.', 429);

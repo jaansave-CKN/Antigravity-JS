@@ -1,7 +1,11 @@
 /**
  * geminiCircuitBreaker.js — Gestor de cuota + Circuit Breaker + pool de
  * llaves para Gemini API.
- * Free Tier por llave: 15 RPM / 1500 RPD (gemini-2.0-flash)
+ * Free Tier por llave: 15 RPM / 1500 RPD (gemini-2.0-flash, histórico).
+ * OJO (Lote 8, verificado 2026-09-24): con gemini-3.6-flash el free tier real
+ * es 20 solicitudes/DÍA — RPD_LIMIT local no protege; la señal fiable es el
+ * quotaId "PerDay" del 429, que retryDelayDe429() convierte en el cooldown
+ * real hasta la medianoche del Pacífico.
  *
  * Estados del circuito (por llave):
  *   CLOSED    → IA Avanzada (Gemini operativo)
@@ -58,11 +62,42 @@ const RPD_LIMIT  = 1500;
 const RPM_WINDOW = 60_000;          // 1 minuto en ms
 const HALF_OPEN_PROBE_MS = 5 * 60_000; // espera 5 min antes de re-probar
 
-function nextMidnightUTC() {
-  const now = new Date();
-  return new Date(Date.UTC(
-    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1
-  ));
+// LOTE 8 (auditoría minera 2026-09-24, verificado en vivo): Google renueva
+// la cuota diaria a medianoche del PACÍFICO (07:00 UTC en horario de verano,
+// 08:00 UTC en invierno), no a medianoche UTC. Con medianoche UTC el circuito
+// "reseteaba" 7-8 h antes que Google: gemini_key_state mostraba
+// daily_reset_at 2026-09-25T00:00Z mientras la cuota real seguía agotada.
+const ZONA_CUOTA_GOOGLE = 'America/Los_Angeles';
+const _fmtPacifico = new Intl.DateTimeFormat('en-US', {
+  timeZone: ZONA_CUOTA_GOOGLE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+});
+const _partes = (d) => Object.fromEntries(_fmtPacifico.formatToParts(d).map(p => [p.type, p.value]));
+
+export function nextMidnightPacific(ahora = new Date()) {
+  const p = _partes(ahora);
+  for (const horaUTC of [7, 8]) { // PDT = UTC-7, PST = UTC-8
+    const candidata = new Date(Date.UTC(+p.year, +p.month - 1, +p.day + 1, horaUTC));
+    if (_partes(candidata).hour === '00') return candidata;
+  }
+  return new Date(Date.UTC(+p.year, +p.month - 1, +p.day + 1, 8));
+}
+const nextMidnightUTC = () => nextMidnightPacific(); // nombre histórico, usado abajo
+
+/**
+ * LOTE 8: cooldown real a partir del cuerpo de un 429 de Gemini.
+ * Evidencia (transcript 2026-09-24): el 429 de la cuota DIARIA trae
+ * quotaId "GenerateRequestsPerDayPerProjectPerModel-FreeTier" Y a la vez
+ * retryDelay "34s". Ese "34s" es falso para la cuota diaria: fiarse de él
+ * hacía que el circuito re-sondeara una llave agotada durante horas. Si el
+ * quotaId es diario, el cooldown dura hasta la medianoche del Pacífico
+ * (+1 min de margen). Si no, se usa el retryDelay reportado (+2 s).
+ * @returns {number|null} milisegundos, o null si el cuerpo no trae dato.
+ */
+export function retryDelayDe429(cuerpo = '', ahora = new Date()) {
+  const texto = String(cuerpo);
+  if (/PerDay/i.test(texto)) return nextMidnightPacific(ahora).getTime() - ahora.getTime() + 60_000;
+  const m = texto.match(/retry in ([\d.]+)\s*s/i) || texto.match(/"retryDelay"\s*:\s*"([\d.]+)s"/);
+  return m ? Math.ceil(parseFloat(m[1]) * 1000) + 2000 : null;
 }
 
 // FIX (2026-08-22, hallazgo real #2 verificado): la versión anterior de
