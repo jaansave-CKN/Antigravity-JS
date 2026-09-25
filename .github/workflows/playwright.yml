@@ -45,6 +45,13 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
+      # LOTE 10 (2026-09-25): hasta aquí NINGÚN workflow ejecutaba las pruebas
+      # unitarias — las guardias de Lotes 8/9 (tokens y razonamiento acotado,
+      # reintento obligatorio ante 503) solo corrían en local. Van en este job
+      # porque "test" es el check obligatorio de main: si fallan, no se fusiona.
+      - name: Pruebas unitarias (incluye guardias de IA)
+        run: npm run test:unit
+
       - name: Instalar navegadores de Playwright
         run: npx playwright install --with-deps chromium
 
