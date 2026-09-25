@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './DialecticaPage.css';
 import { http } from '../lib/apiClient';
+import { useAutoSave } from '../hooks/useAutoSave';
 
 // FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
 // versionada — NUNCA un renombre ciego (mandato de cero pérdida de datos):
@@ -181,7 +182,6 @@ export default function DialecticaPage() {
   const [pin, setPin]             = useState('');
   const [pinError, setPinError]   = useState(false);
   const [cargando, setCargando]   = useState(!!proyectoId);
-  const [guardando, setGuardando] = useState(false);
   const [errorSync, setErrorSync] = useState<string | null>(null);
   const [limpiado, setLimpiado]   = useState(false);
   // ORDEN (2026-08-24, "no se puede perder ningún dato después de guardar" —
@@ -196,7 +196,7 @@ export default function DialecticaPage() {
   // MANDATO (2026-08-24, "indicador de cambios sin guardar", todas las
   // ventanas del Formulador) — dirty-tracking por snapshot de `st` completo
   // (selecciones+adicionales+listaOro+listaNegra), que es exactamente lo que
-  // `sincronizar()` envía al backend.
+  // `guardarEnServidor()` envía al backend.
   const ultimoGuardadoRef = useRef<string | null>(null);
   if (ultimoGuardadoRef.current === null) ultimoGuardadoRef.current = JSON.stringify(st);
   const sinGuardar = JSON.stringify(st) !== ultimoGuardadoRef.current;
@@ -282,48 +282,38 @@ export default function DialecticaPage() {
     localStorage.setItem(DNA_FICHA_KEY, encodeDNA(st.selecciones, st.adicionales));
   }, [st]);
 
-  // Sincronización real al backend — extraída para reusarse tanto en el
-  // debounce automático como en el botón SAVE manual.
-  // Guard de secuencia: el debounce cancela TIMERS pendientes, pero no
-  // peticiones HTTP ya en vuelo. Si el usuario edita de nuevo antes de que
-  // la petición anterior responda, ambas quedan en curso — sin esto, la
-  // respuesta más vieja podría llegar después y pisar el estado más nuevo
-  // (setGuardando(false) prematuro, o un error viejo mostrado tarde).
-  const syncSeqRef = useRef(0);
-  const sincronizar = useCallback(async () => {
+  // LOTE 10 (2026-09-25): sincronización al backend vía useAutoSave (espera
+  // 1,5 s + cola SERIALIZADA). Antes: debounce de 700 ms + guardia de
+  // secuencia, que solo protegía el estado de la UI — dos POST en vuelo
+  // podían llegar al revés y el más viejo pisaba al más nuevo EN LA BD; y
+  // salir de la pantalla antes de los 700 ms cancelaba el envío, y la
+  // hidratación siguiente (el servidor manda) descartaba esa última edición.
+  const guardarEnServidor = useCallback(async (v: ConfigState) => {
+    try {
+      await http.post(`/api/m4/config/${proyectoId}`, {
+        tono: v.selecciones.tono, lista_oro: v.listaOro, lista_negra: v.listaNegra, enfasis: '',
+        interlocutor: v.selecciones.interlocutor, enfoque: v.selecciones.enfoque,
+        humanizacion: v.selecciones.humanizacion, adicionales: v.adicionales,
+      });
+      setErrorSync(null);
+    } catch (e) {
+      setErrorSync('No se pudo sincronizar la configuración dialéctica con el servidor.');
+      throw e;
+    }
+  }, [proyectoId]);
+
+  const { guardando, guardarAhora } = useAutoSave({
+    valor: st,
+    habilitado: !!proyectoId && !cargando && hidratacionOkRef.current,
+    guardar: guardarEnServidor,
+    ultimoGuardadoRef,
+  });
+
+  const guardar = async () => {
     // FIX (2026-08-24, "SAVE se queda en rojo sin ningún aviso" — mismo
     // hallazgo en EntradaPage.tsx): antes esto era un `return` mudo.
     if (!proyectoId) { setErrorSync('No hay proyecto activo — no se pudo sincronizar.'); return; }
-    const mySeq = ++syncSeqRef.current;
-    setGuardando(true);
-    setErrorSync(null);
-    try {
-      await http.post(`/api/m4/config/${proyectoId}`, {
-        tono: st.selecciones.tono, lista_oro: st.listaOro, lista_negra: st.listaNegra, enfasis: '',
-        interlocutor: st.selecciones.interlocutor, enfoque: st.selecciones.enfoque,
-        humanizacion: st.selecciones.humanizacion, adicionales: st.adicionales,
-      });
-      if (mySeq !== syncSeqRef.current) return; // ya hay una sincronización más nueva en curso
-      ultimoGuardadoRef.current = JSON.stringify(st);
-    } catch {
-      if (mySeq !== syncSeqRef.current) return;
-      setErrorSync('No se pudo sincronizar la configuración dialéctica con el servidor.');
-    } finally {
-      if (mySeq === syncSeqRef.current) setGuardando(false);
-    }
-  }, [proyectoId, st]);
-
-  // Sincronización automática al backend (debounced) — antes esta pantalla
-  // era 100% localStorage pese a que /api/m4/config/:proyectoId ya existía.
-  useEffect(() => {
-    if (!proyectoId || cargando || !hidratacionOkRef.current) return;
-    const t = setTimeout(sincronizar, 700);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [st, proyectoId, cargando]);
-
-  const guardar = async () => {
-    await sincronizar(); // marca guardado/ultimoGuardadoRef al terminar con éxito
+    await guardarAhora({ forzar: true }); // misma cola que el autoguardado
   };
 
   // Estado realmente en blanco — a diferencia de ESTADO_INICIAL (que usa

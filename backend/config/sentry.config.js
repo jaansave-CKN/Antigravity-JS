@@ -5,6 +5,7 @@
  * ni depender de una cuenta de Sentry para poder arrancar el servidor.
  */
 import * as Sentry from '@sentry/node';
+import { alertarErrorServidor } from '../services/alertaErrores.js';
 
 // NO se lee process.env.SENTRY_DSN al importar este módulo — loadEnv() en
 // server.js carga el .env en tiempo de ejecución (línea 63), DESPUÉS de que
@@ -27,8 +28,14 @@ export function initSentry() {
   console.log('[Sentry] Backend — colector remoto ACTIVO.');
 }
 
-/** Captura una excepción — no-op si Sentry no está configurado. */
+/**
+ * Captura una excepción. LOTE 10: además de Sentry (si hay SENTRY_DSN),
+ * todo error 5xx va a system_logs y al webhook ERROR_WEBHOOK_URL vía
+ * alertaErrores.js — antes, sin SENTRY_DSN, esto era un no-op completo y
+ * los 500 de las 13 rutas con wrap() + tryCatch quedaban solo en el log local.
+ */
 export function captureError(error, extra) {
+  alertarErrorServidor(error, extra || {}).catch(() => {});
   if (!enabled) return;
   Sentry.captureException(error instanceof Error ? error : new Error(String(error)), { extra });
 }
