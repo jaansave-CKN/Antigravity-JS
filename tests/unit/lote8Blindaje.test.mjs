@@ -74,8 +74,18 @@ test('logCriticalError resuelve después del INSERT (process.exit ya no lo pierd
 test('logCriticalError nunca cuelga: INSERT sin respuesta → corte al tope y respaldo local', async () => {
   rmSync(RUTA_PENDIENTES, { force: true });
   insertLento = () => new Promise(() => {});
+  // El tope de logService usa unref() a propósito (nunca retiene un proceso
+  // real; en producción un INSERT colgado mantiene su socket abierto). Aquí la
+  // promesa simulada no tiene socket: sin este intervalo el bucle de eventos
+  // queda vacío y Node termina el archivo a mitad de la prueba — así falló en
+  // Linux (CI, Lote 10) con 'cancelledByParent' en esta prueba y las siguientes.
+  const mantenerVivo = setInterval(() => {}, 1000);
   const t0 = Date.now();
-  await logCriticalError('S3Backup', 'bd colgada');
+  try {
+    await logCriticalError('S3Backup', 'bd colgada');
+  } finally {
+    clearInterval(mantenerVivo);
+  }
   assert.ok(Date.now() - t0 < 3000);
   assert.match(readFileSync(RUTA_PENDIENTES, 'utf8'), /bd colgada/);
 });
