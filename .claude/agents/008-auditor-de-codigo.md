@@ -10,7 +10,7 @@ model: inherit
 # seguridad, CAPA 5/9 pruebas de ruptura/caos, mismo dominio que 010 usa para
 # su suite E2E real).
 skills: api-security-best-practices, playwright-best-practices
-doc_revisado: 01b36ed1695b987ea14e7297ebadafdcf29a2521  # acuse administrativo (orden del usuario 2026-09-26) — ediciones del dictamen 007 pendientes
+doc_revisado: 89da27aadc9522bf226f1fff6be8f6a2b2f67219  # acuse administrativo (orden del usuario 2026-09-26) — ediciones del dictamen 007 pendientes
 ---
 
 # ⚡ PROTOCOLO TITÁN ∞ — AUDITORÍA TOTAL 100/100 (PRE-LANZAMIENTO REAL)

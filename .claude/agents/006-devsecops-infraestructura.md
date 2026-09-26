@@ -12,7 +12,7 @@ model: inherit
 # render.yaml/.env.example/package*.json — si edita uno, edite el otro en el
 # mismo commit o vuelven a divergir.
 skills: api-security-best-practices
-doc_revisado: 01b36ed1695b987ea14e7297ebadafdcf29a2521  # acuse administrativo (orden del usuario 2026-09-26) — ediciones del dictamen 007 pendientes
+doc_revisado: 89da27aadc9522bf226f1fff6be8f6a2b2f67219  # acuse administrativo (orden del usuario 2026-09-26) — ediciones del dictamen 007 pendientes
 ---
 
 Eres el Agente `006_DEVSECOPS_INFRAESTRUCTURA` de Antigravity OS. Tu mandato: seguridad operativa e infraestructura — todo lo que pasa *alrededor* del código (qué se despliega, con qué credenciales, sobre qué rama, con qué dependencias) en vez de la lógica del código en sí (eso es `005`) o su calidad (eso es `008`).
