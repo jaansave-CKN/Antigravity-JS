@@ -23,6 +23,7 @@ const {
   asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
   validarFormaVeredicto, VEREDICTO_SCHEMAS,
   validarOrigenVeredicto, ORIGENES_VALIDOS, HORAS_MAX_EXCEPCION_MANUAL,
+  clasificarFalloApi, resolverPermisoSoftFail, construirRegistroSoftFail,
 } = require('../agents/architecture-gate.cjs');
 
 const TELEMETRIA_PATH_REAL = path.join(__dirname, '..', 'agents', 'pmu', 'telemetria.jsonl');
@@ -305,12 +306,14 @@ test('generarEstadoOperativo: PMU — el tablero completo se genera sin error y 
 test('generarEstadoOperativo: expone "alertas_activas" como arreglo, combinando analizarTelemetriaPMU() y verificarVigenciaAgentes()', () => {
   const estado = generarEstadoOperativo();
   assert.ok(Array.isArray(estado.alertas_activas), 'alertas_activas debe existir siempre, aunque esté vacío');
+  // Tipos ampliados 2026-09-26 (ADR-0002): acuse de vigencia + mando del 001.
+  const tiposValidos = ['rechazos_consecutivos', 'agente_desactualizado', 'agente_sin_acuse', 'agente_acuse_invalido', 'agente_sin_mando', 'alerta_git_inaccesible'];
   for (const alerta of estado.alertas_activas) {
-    assert.ok(
-      alerta.tipo === 'rechazos_consecutivos' || alerta.tipo === 'agente_desactualizado',
-      `tipo de alerta inesperado: ${alerta.tipo}`
-    );
+    assert.ok(tiposValidos.includes(alerta.tipo), `tipo de alerta inesperado: ${alerta.tipo}`);
   }
+  assert.ok(Array.isArray(estado.alertas_criticas_proveedor), 'alertas_criticas_proveedor debe existir siempre');
+  assert.ok(estado.proveedor_ia && estado.proveedor_ia.circuit_breaker, 'proveedor_ia.circuit_breaker debe existir');
+  assert.ok(!JSON.stringify(estado).includes('nvapi-'), 'P6: el PMU nunca contiene una key');
 });
 
 test('generarEstadoOperativo: se autoasegura (llama asegurarSubgatesAutoDescubiertos internamente) — 009 siempre reporta "subgate", nunca "sin_gate_propio" (regresión 2026-08-13)', () => {
@@ -370,6 +373,16 @@ test('bucketDe: prioriza .claude/agents/ y código de gate sobre lockfiles/artef
   assert.equal(ordenado[ordenado.length - 1] === 'package-lock.json' || ordenado[ordenado.length - 1] === 'agents/pmu/telemetria.jsonl' || ordenado[ordenado.length - 1] === 'public/estado_antigravity.json', true);
 });
 
+test('bucketDe: gate-proveedor.cjs va con el gate y docs/ADR antes que docs/ (regresión 2026-09-26: 002 rechazó por dependencia no visible)', () => {
+  assert.equal(bucketDe('agents/gate-proveedor.cjs'), bucketDe('agents/architecture-gate.cjs'));
+  assert.ok(bucketDe('agents/gate-proveedor.cjs') < bucketDe('docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md'));
+  assert.ok(bucketDe('docs/ADR/ADR-0002-gate-nim-circuit-breaker.md') < bucketDe('agents/gate-proveedor.cjs'), 'ADR (corto, alto valor) antes que el código del gate');
+  assert.ok(bucketDe('docs/ADR/ADR-0002-gate-nim-circuit-breaker.md') < bucketDe('docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md'));
+  assert.ok(bucketDe('docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md') < bucketDe('tests/gate/gate-proveedor.test.cjs'));
+  assert.ok(bucketDe('tests/gate/gate-proveedor.test.cjs') < bucketDe('agents/pmu/telemetria.jsonl'));
+  assert.ok(bucketDe('.claude/agents/002-arquitecto-de-software.md') < bucketDe('agents/gate-proveedor.cjs'));
+});
+
 test('analizarTelemetriaPMU: detecta 3+ rechazos consecutivos de un mismo subsistema (vigilancia activa 2026-08-13)', () => {
   // Opera sobre el archivo real (leerTelemetria() no es inyectable sin
   // refactorizar el módulo) — append + restore exacto para no dejar rastro.
@@ -422,6 +435,15 @@ test('SUBGATES: 005 configurado con valorAprobado string (no booleano) sobre mó
     'public/app.js',
   ]);
   assert.deepEqual(relevantes.sort(), ['src/modules/formulador/supabaseClient.js', 'src/shared/infrastructure/session-manager.js']);
+});
+
+test('extraerJSONConCampo: JSON PRIMERO + análisis cortado por max_tokens con llaves sueltas → el veredicto sigue válido (2026-09-26)', () => {
+  const texto = '{"aprobado": true, "razones": ["coherente"], "diferimientos": [{"subgate": "010", "razon": "sin specs"}]}\n\n' +
+    '## Análisis\nEl bloque `if (x) {` del gate y un objeto {"otro": 1} de ejemplo, luego el corte por length a mitad de { frase';
+  const v = extraerJSONConCampo(texto, 'aprobado');
+  assert.equal(v.aprobado, true);
+  assert.deepEqual(v.razones, ['coherente']);
+  assert.equal(v.diferimientos[0].subgate, '010');
 });
 
 test('extraerJSONConCampo: veredicto SIN hallazgos anidados (caso simple, regex viejo también servía)', () => {
@@ -579,11 +601,13 @@ test('validarFormaVeredicto: agente sin contrato declarado en VEREDICTO_SCHEMAS 
   assert.equal(r.ok, true);
 });
 
-test('VEREDICTO_SCHEMAS: cubre exactamente los agentes con veredicto JSON real hoy (002 + subgates 003/004/005/006/009)', () => {
+// 010 agregado 2026-09-26 (PMU Titán V2): era el único subgate sin contrato.
+test('VEREDICTO_SCHEMAS: cubre exactamente los agentes con veredicto JSON real hoy (002 + subgates 003/004/005/006/009/010)', () => {
   const claves = Object.keys(VEREDICTO_SCHEMAS).sort();
   assert.deepEqual(claves, [
     '002_ARQUITECTO_DE_SOFTWARE', '003_ESP_DISENO_STITCH', '004_SENTINELA_FRONTEND',
     '005_INGENIERO_BACKEND', '006_DEVSECOPS_INFRAESTRUCTURA', '009_INGENIERO_FRONTEND',
+    '010_INGENIERO_QA_AUTOMATIZACION',
   ].sort());
 });
 
@@ -670,8 +694,8 @@ test(`validarOrigenVeredicto: "excepcion_manual" que excede ${HORAS_MAX_EXCEPCIO
   assert.match(r.razon, /máximo permitido/);
 });
 
-test('ORIGENES_VALIDOS: expone exactamente api_directa y excepcion_manual', () => {
-  assert.deepEqual([...ORIGENES_VALIDOS].sort(), ['api_directa', 'excepcion_manual']);
+test('ORIGENES_VALIDOS: expone exactamente api_directa, excepcion_manual y soft_fail_api', () => {
+  assert.deepEqual([...ORIGENES_VALIDOS].sort(), ['api_directa', 'excepcion_manual', 'soft_fail_api']);
 });
 
 // Integración: validarDisenoAprobado()/validarSubgate() de verdad rechazan un
@@ -753,4 +777,86 @@ test('SUBGATES 006: ahora SÍ cubre scripts/*gate*.cjs y scripts/*veto*.cjs', ()
 test('SUBGATES 006: sigue cubriendo render.yaml/.env.example/package*.json (patrones originales, no removidos por el fix)', () => {
   const relevantes = archivosRelevantesPara('006_DEVSECOPS_INFRAESTRUCTURA', ['render.yaml', '.env.example', 'package.json', 'package-lock.json']);
   assert.equal(relevantes.length, 4);
+});
+
+// =============================================================================
+// SOFT-FAIL DE API (2026-09-25) — la falta de saldo/disponibilidad de la API
+// no bloquea el commit, pero solo con opt-in + responsable, y nunca convierte
+// un rechazo real ni un error de configuración en aprobación.
+// =============================================================================
+const Anthropic = require('@anthropic-ai/sdk');
+const errorApi = (status, mensaje) => Anthropic.APIError.generate(status, { error: { type: 'x', message: mensaje } }, mensaje, { get: () => 'req_test' });
+
+test('clasificarFalloApi: 402, 429, 529, 5xx, 400 "credit balance is too low" y sin conexión SÍ son fallo de disponibilidad', () => {
+  assert.equal(clasificarFalloApi(errorApi(402, 'payment required')).codigo, 'http_402_sin_saldo');
+  assert.equal(clasificarFalloApi(errorApi(400, 'Your credit balance is too low to access the Anthropic API')).codigo, 'http_400_sin_saldo');
+  assert.equal(clasificarFalloApi(errorApi(429, 'rate limited')).codigo, 'http_429_rate_limit');
+  assert.equal(clasificarFalloApi(errorApi(529, 'overloaded')).codigo, 'http_529_sobrecargada');
+  assert.equal(clasificarFalloApi(errorApi(503, 'unavailable')).codigo, 'http_503');
+  assert.equal(clasificarFalloApi(new Anthropic.APIConnectionTimeoutError()).codigo, 'sin_respuesta');
+  assert.equal(clasificarFalloApi(errorApi(402, 'x')).request_id, 'req_test');
+});
+
+test('clasificarFalloApi: 400 genérico, 401 y errores no-API NO son soft-fail (bloqueo duro)', () => {
+  assert.equal(clasificarFalloApi(errorApi(400, 'invalid request')), null);
+  assert.equal(clasificarFalloApi(errorApi(401, 'invalid x-api-key')), null);
+  assert.equal(clasificarFalloApi(new TypeError('boom')), null);
+});
+
+test('resolverPermisoSoftFail: sin opt-in NO está permitido', () => {
+  const r = resolverPermisoSoftFail(['node', 'gate', '--aprobar-diseno'], {});
+  assert.equal(r.permitido, false);
+});
+
+test('resolverPermisoSoftFail: opt-in sin responsable NO está permitido', () => {
+  assert.equal(resolverPermisoSoftFail(['node', 'gate', '--permitir-soft-fail'], {}).permitido, false);
+  assert.equal(resolverPermisoSoftFail(['node', 'gate'], { GATE_SOFT_FAIL: 'true' }).permitido, false);
+});
+
+test('resolverPermisoSoftFail: flag + --autorizado-por, o env completo, SÍ está permitido', () => {
+  const porFlag = resolverPermisoSoftFail(['node', 'gate', '--permitir-soft-fail', '--autorizado-por', 'Jairo'], {});
+  assert.equal(porFlag.permitido, true);
+  assert.equal(porFlag.autorizadoPor, 'Jairo');
+  assert.equal(porFlag.via, 'flag');
+  const porEnv = resolverPermisoSoftFail(['node', 'gate'], { GATE_SOFT_FAIL: 'true', GATE_SOFT_FAIL_AUTORIZADO_POR: 'Jairo' });
+  assert.equal(porEnv.permitido, true);
+  assert.equal(porEnv.via, 'env');
+});
+
+test('resolverPermisoSoftFail: ANTHROPIC_BASE_URL no oficial lo DESHABILITA aunque haya opt-in', () => {
+  const env = { GATE_SOFT_FAIL: 'true', GATE_SOFT_FAIL_AUTORIZADO_POR: 'Jairo', ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' };
+  const r = resolverPermisoSoftFail(['node', 'gate'], env);
+  assert.equal(r.permitido, false);
+  assert.match(r.razon, /ANTHROPIC_BASE_URL/);
+  assert.equal(resolverPermisoSoftFail(['node', 'gate'], { ...env, ANTHROPIC_BASE_URL: 'https://api.anthropic.com/' }).permitido, true);
+});
+
+test('validarOrigenVeredicto: soft_fail_api completo es aceptado; sin autorizado_por o con diferimientos es RECHAZADO', () => {
+  const permiso = { autorizadoPor: 'Jairo', via: 'env' };
+  const registro = construirRegistroSoftFail('x', { codigo: 'http_402_sin_saldo', detalle: 'd', request_id: null }, permiso, '002');
+  const ok = validarOrigenVeredicto(registro);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.softFail.autorizado_por, 'Jairo');
+  assert.equal(validarOrigenVeredicto({ ...registro, soft_fail: { codigo: 'http_402_sin_saldo' } }).ok, false);
+  assert.equal(validarOrigenVeredicto({ ...registro, diferimientos: [{ subgate: '003', razon: 'r' }] }).ok, false);
+});
+
+test('validarDisenoAprobado: soft_fail_api con firma vigente aprueba con diferimientos [] y se invalida si el estado cambia', () => {
+  const aprobacionPath = path.join(__dirname, '..', 'agents', 'diseno_aprobado.json');
+  const original = fs.existsSync(aprobacionPath) ? fs.readFileSync(aprobacionPath, 'utf8') : null;
+  try {
+    const permiso = { autorizadoPor: 'Jairo', via: 'env' };
+    const vigente = construirRegistroSoftFail(hashEstado(listarCarpetasAgentes()), { codigo: 'http_402_sin_saldo', detalle: 'd' }, permiso, '002');
+    fs.writeFileSync(aprobacionPath, JSON.stringify(vigente), 'utf8');
+    const r = validarDisenoAprobado(listarCarpetasAgentes());
+    assert.equal(r.aprobado, true);
+    assert.equal(r.origen, 'soft_fail_api');
+    assert.deepEqual(r.diferimientos, []);
+
+    fs.writeFileSync(aprobacionPath, JSON.stringify({ ...vigente, firma: 'firma-de-otro-estado' }), 'utf8');
+    assert.equal(validarDisenoAprobado(listarCarpetasAgentes()).aprobado, false);
+  } finally {
+    if (original === null) fs.rmSync(aprobacionPath, { force: true });
+    else fs.writeFileSync(aprobacionPath, original, 'utf8');
+  }
 });

@@ -1,5 +1,5 @@
 {
-  "generado": "2026-09-05T00:16:30.189Z",
+  "generado": "2026-09-26T23:38:39.707Z",
   "total_agentes": 10,
   "agentes_con_gate": 7,
   "agentes_con_permiso_escritura": [
@@ -10,46 +10,212 @@
     "009-ingeniero-frontend",
     "010-ingeniero-qa-automatizacion"
   ],
-  "alertas_activas": [
+  "alertas_activas": [],
+  "alertas_criticas_proveedor": [],
+  "proveedor_ia": {
+    "proveedor": "nim",
+    "modelo": "deepseek-ai/deepseek-v4.1-flash",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "key_configurada": true,
+    "circuit_breaker": {
+      "estado": "cerrado",
+      "fallos_consecutivos": 0,
+      "umbral": 3,
+      "abierto_desde": null,
+      "categoria_apertura": null,
+      "cooldown_s": 900,
+      "ultimo_exito": "2026-09-26T23:38:39.171Z",
+      "ultimo_error": null
+    }
+  },
+  "politica_api": {
+    "modo": "soft_fail",
+    "soft_fail_habilitado_env": false,
+    "disparadores": [
+      "http_402",
+      "http_400_cuota",
+      "http_429",
+      "http_5xx",
+      "timeout_sin_respuesta",
+      "timeout_inactividad",
+      "timeout_total",
+      "stream_incompleto",
+      "sin_respuesta",
+      "circuito_abierto(cuota|caida)"
+    ],
+    "bloqueo_duro": [
+      "rechazo_real_del_modelo",
+      "respuesta_no_parseable",
+      "http_401/403 (ALERTA CRÍTICA)",
+      "modelo_no_disponible (ALERTA CRÍTICA)",
+      "API_KEY_ausente",
+      "BASE_URL_no_oficial",
+      "chequeos_estaticos_006"
+    ]
+  },
+  "mapa_delegacion_001": [
     {
-      "tipo": "agente_desactualizado",
-      "agente": "001-orquestador-maestro.md",
-      "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
+      "archivo": ".claude/agents/001-orquestador-maestro.md",
+      "prefijo": "001",
+      "proposito": "CEO y Kernel Determinista de Antigravity OS. Coordina el Escuadrón Élite (001-010) mediante la Puerta Socrática. El usuario SÓLO habla con este agente. Él enrut",
+      "skills": [
+        "writing-plans",
+        "executing-plans"
+      ],
+      "gate": "sin_gate_propio",
+      "permisos": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Agent",
+        "WebSearch",
+        "WebFetch"
+      ],
+      "mapeado_por_001": true
     },
     {
-      "tipo": "agente_desactualizado",
-      "agente": "002-arquitecto-de-software.md",
-      "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
+      "archivo": ".claude/agents/002-arquitecto-de-software.md",
+      "prefijo": "002",
+      "proposito": "Fiscaliza el diseño/arquitectura de un cambio ANTES de que se escriba una sola línea de código. Úsalo siempre que se vaya a crear una app nueva, un módulo nuevo",
+      "skills": [
+        "api-security-best-practices"
+      ],
+      "gate": "gate_principal",
+      "permisos": [
+        "Read",
+        "Grep",
+        "Glob"
+      ],
+      "mapeado_por_001": true
     },
     {
-      "tipo": "agente_desactualizado",
-      "agente": "003-esp-diseno-stitch.md",
-      "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
+      "archivo": ".claude/agents/003-esp-diseno-stitch.md",
+      "prefijo": "003",
+      "proposito": "Audita que los componentes de la SPA cumplan los tokens de diseño globales (Tailwind) y los contratos de layout/estética ya aprobados, detectando desalineacione",
+      "skills": [],
+      "gate": "subgate",
+      "permisos": [
+        "Read",
+        "Grep",
+        "Glob"
+      ],
+      "mapeado_por_001": true
     },
     {
-      "tipo": "agente_desactualizado",
-      "agente": "004-sentinela-frontend.md",
-      "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
+      "archivo": ".claude/agents/004-sentinela-frontend.md",
+      "prefijo": "004",
+      "proposito": "Audita componentes/rutas de la SPA para detectar stubs huérfanos (pantallas sin datos reales, ej. patrón `ModulePending.jsx` — antes `FrozenPage.jsx`, renombrad",
+      "skills": [],
+      "gate": "subgate",
+      "permisos": [
+        "Read",
+        "Grep",
+        "Glob"
+      ],
+      "mapeado_por_001": true
     },
     {
-      "tipo": "agente_desactualizado",
-      "agente": "005-ingeniero-backend.md",
-      "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
+      "archivo": ".claude/agents/005-ingeniero-backend.md",
+      "prefijo": "005",
+      "proposito": "Gobierna el núcleo de datos del monolito Node.js/Express + Supabase — aislamiento multi-tenant, inmutabilidad WORM de auditorías HCQ, integridad financiera en C",
+      "skills": [
+        "nodejs-best-practices",
+        "api-security-best-practices",
+        "supabase-postgres-best-practices"
+      ],
+      "gate": "subgate",
+      "permisos": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob",
+        "Bash"
+      ],
+      "mapeado_por_001": true
     },
     {
-      "tipo": "agente_desactualizado",
-      "agente": "006-devsecops-infraestructura.md",
-      "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
+      "archivo": ".claude/agents/006-devsecops-infraestructura.md",
+      "prefijo": "006",
+      "proposito": "Fiscaliza infraestructura, despliegues y seguridad operativa — secretos, dependencias vulnerables, higiene de `.env`, `render.yaml`, salud del propio hook de ga",
+      "skills": [
+        "api-security-best-practices"
+      ],
+      "gate": "subgate",
+      "permisos": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob",
+        "Bash"
+      ],
+      "mapeado_por_001": true
     },
     {
-      "tipo": "agente_desactualizado",
-      "agente": "007-documentador-as-build.md",
-      "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
+      "archivo": ".claude/agents/007-documentador-as-build.md",
+      "prefijo": "007",
+      "proposito": "Mantiene la documentación as-built del proyecto — el registro vivo de qué se construyó, por qué, y con qué evidencia (`docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md",
+      "skills": [],
+      "gate": "sin_gate_propio",
+      "permisos": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
+      ],
+      "mapeado_por_001": true
     },
     {
-      "tipo": "agente_desactualizado",
-      "agente": "008-auditor-de-codigo.md",
-      "razon": "docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete."
+      "archivo": ".claude/agents/008-auditor-de-codigo.md",
+      "prefijo": "008",
+      "proposito": "Fiscal de Código y Quality Assurance. Invocado para auditar proyectos externos o internos buscando bugs, inconsistencias arquitectónicas, vulnerabilidades y vio",
+      "skills": [
+        "api-security-best-practices",
+        "playwright-best-practices"
+      ],
+      "gate": "sin_gate_propio",
+      "permisos": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash"
+      ],
+      "mapeado_por_001": true
+    },
+    {
+      "archivo": ".claude/agents/009-ingeniero-frontend.md",
+      "prefijo": "009",
+      "proposito": "Construye y corrige código real de frontend (React bajo public/src/, y las páginas HTML/JS sueltas de public/*.html, public/app.js) — a diferencia de 003/004, q",
+      "skills": [],
+      "gate": "subgate",
+      "permisos": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
+      ],
+      "mapeado_por_001": true
+    },
+    {
+      "archivo": ".claude/agents/010-ingeniero-qa-automatizacion.md",
+      "prefijo": "010",
+      "proposito": "Construye y mantiene la suite de pruebas E2E (Playwright) que simula flujos reales de usuario sobre la SPA — login, formulador, radar — para detectar regresione",
+      "skills": [
+        "playwright-best-practices"
+      ],
+      "gate": "subgate",
+      "permisos": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob",
+        "Bash"
+      ],
+      "mapeado_por_001": true
     }
   ],
   "agentes": [
@@ -80,17 +246,18 @@
       "gate": "gate_principal",
       "ultimo_veredicto": {
         "aprobado": true,
-        "origen": "excepcion_manual",
-        "excepcion": {
-          "autorizado_por": "Arquitecto Principal",
-          "motivo": "Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
-          "expira": "2026-09-05T03:31:26.136Z"
-        },
-        "firma": "2ac5ce13c4b31fa351a6a9e57cd7070d03e04888c10d00860afacc9851efa421",
-        "timestamp": "2026-09-04T23:31:26.136Z",
-        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por Arquitecto Principal: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
+        "origen": "api_directa",
+        "firma": "f0cd3d5ebdd682a58d1a921884f19605d81b5693c4cf5d36453ceeaa7c63a5c3",
+        "timestamp": "2026-09-26T23:35:47.899Z",
+        "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API nim · modelo deepseek-ai/deepseek-v4.1-flash)",
         "razones": [
-          "EXCEPCIÓN MANUAL, no veredicto de 002: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente"
+          "ADR-0002 documenta el diseño completo (contexto, decisión, consecuencias, verificación) y declara explícitamente los riesgos no remediados (5, 8, 9, 10) como pendientes de decisión de 002/usuario — no los oculta.",
+          "gate-proveedor.cjs es una capa única de proveedor coherente: NIM principal, Anthropic solo con GATE_PROVIDER=anthropic explícito, sin cascada automática a un proveedor de pago (elimina el riesgo de cobro que motiva el ADR).",
+          "Mejoras de seguridad reales verificadas en el diff: validación de base URL oficial (bloquea exfiltración de key vía ANTHROPIC_BASE_URL/GATE_NIM_BASE_URL falsos), validación de formato de key (evita TypeError→caida→soft-fail), filtrado extenso de secretos antes de enviar el diff a un tercero, circuit breaker con escritura atómica tmp+rename.",
+          "El soft-fail es opt-in (flag o GATE_SOFT_FAIL=true), exige responsable declarado, se marca visiblemente (nunca se confunde con aprobación real), se ata a la firma hash del estado (cualquier cambio lo invalida) y prohíbe diferimientos — bypass deliberado y autorizado por el usuario, no un descuido.",
+          "La limpieza de carpetas legacy (agents/001-orquestador-maestro/, agents/009-ingeniero-frontend/, agents/010-ingeniero-qa-automatizacion/) resuelve la colisión de nombres con .claude/agents/ y queda documentada como recuperable desde el commit ac1721c; el audit trail se reubica a agents/pmu/.",
+          "El mecanismo doc_revisado reemplaza la comparación de fechas por acuse explícito, con detección de sha inválido, commits posteriores que mencionan al agente, y degradación con gracia si git no está disponible (alerta explícita, no verde falso).",
+          "Limitación de esta fiscalización: los tests (tests/gate/gate-proveedor.test.cjs, scripts/architecture-gate.test.cjs), el documento maestro y .env.example/.gitignore/package.json quedaron fuera del presupuesto de caracteres — no pude verificar cobertura de pruebas ni documentación de las nuevas env vars; el ADR §4 describe el plan de verificación."
         ],
         "diferimientos": []
       }
@@ -105,16 +272,7 @@
       ],
       "permiso_escritura": false,
       "gate": "subgate",
-      "ultimo_veredicto": {
-        "aprobado": true,
-        "firma": "1afe16779865e2d070a69cf43af297814fe6265d236f54ddaa5798813cd072d6",
-        "timestamp": "2026-08-16T00:00:00.000Z",
-        "firmado_por": "003_ESP_DISENO_STITCH (.claude/agents/003-esp-diseno-stitch.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id aec0cb37a18508d43, 2026-08-16.",
-        "veredictoCompleto": {
-          "diseno_valido": true,
-          "inconsistencias": []
-        }
-      }
+      "ultimo_veredicto": null
     },
     {
       "archivo": ".claude/agents/004-sentinela-frontend.md",
@@ -126,16 +284,7 @@
       ],
       "permiso_escritura": false,
       "gate": "subgate",
-      "ultimo_veredicto": {
-        "aprobado": true,
-        "firma": "1afe16779865e2d070a69cf43af297814fe6265d236f54ddaa5798813cd072d6",
-        "timestamp": "2026-08-16T00:00:00.000Z",
-        "firmado_por": "004_SENTINELA_FRONTEND (.claude/agents/004-sentinela-frontend.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id a8dea5c851f5c1273, 2026-08-16.",
-        "veredictoCompleto": {
-          "limpio": true,
-          "hallazgos": []
-        }
-      }
+      "ultimo_veredicto": null
     },
     {
       "archivo": ".claude/agents/005-ingeniero-backend.md",
@@ -150,21 +299,7 @@
       ],
       "permiso_escritura": true,
       "gate": "subgate",
-      "ultimo_veredicto": {
-        "aprobado": true,
-        "origen": "excepcion_manual",
-        "excepcion": {
-          "autorizado_por": "Arquitecto Principal",
-          "motivo": "Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
-          "expira": "2026-09-05T04:15:32.067Z"
-        },
-        "firma": "5a00b0dc5f1bf93228a8e07a6ad325b1d3e8a33b15dfda11df2b89f17daafecf",
-        "timestamp": "2026-09-05T00:15:32.067Z",
-        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 005_INGENIERO_BACKEND vía API) — autorizada por Arquitecto Principal: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
-        "veredictoCompleto": {
-          "nota": "excepción manual, sin evaluación real del subagente"
-        }
-      }
+      "ultimo_veredicto": null
     },
     {
       "archivo": ".claude/agents/006-devsecops-infraestructura.md",
@@ -181,17 +316,39 @@
       "gate": "subgate",
       "ultimo_veredicto": {
         "aprobado": true,
-        "origen": "excepcion_manual",
-        "excepcion": {
-          "autorizado_por": "Arquitecto Principal",
-          "motivo": "Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
-          "expira": "2026-09-05T04:15:39.593Z"
-        },
-        "firma": "71782471382081a273025ae6f96e794c46d3873cf57996dd1efe7f34b4ec5f9c",
-        "timestamp": "2026-09-05T00:15:39.593Z",
-        "firmado_por": "Excepción manual (canal alterno, sin evaluación de 006_DEVSECOPS_INFRAESTRUCTURA vía API) — autorizada por Arquitecto Principal: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
+        "origen": "api_directa",
+        "firma": "333050be8eb2e5ef76174a260e750cd3fc34364aaed41be11e5035f3fc82f65b",
+        "timestamp": "2026-09-26T23:38:39.280Z",
+        "firmado_por": "006_DEVSECOPS_INFRAESTRUCTURA (.claude/agents/006-devsecops-infraestructura.md, vía API nim · modelo deepseek-ai/deepseek-v4.1-flash)",
         "veredictoCompleto": {
-          "nota": "excepción manual, sin evaluación real del subagente"
+          "infraestructura_segura": true,
+          "hallazgos": [
+            {
+              "categoria": "ci_cd",
+              "evidencia": "Manifiesto: 'A agents/gate-proveedor.cjs' (nuevo código de infraestructura del gate). Mis patrones de gate son '^\\.github/workflows/.*\\.ya?ml$' y '^scripts/.*(gate|veto).*\\.cjs$' — 'agents/gate-proveedor.cjs' NO coincide con ninguno. La lógica del proveedor del gate queda fuera de la fiscalización de 006.",
+              "criticidad": "media"
+            },
+            {
+              "categoria": "otro",
+              "evidencia": "Diff .env.example: GATE_SOFT_FAIL=false + GATE_SOFT_FAIL_AUTORIZADO_POR=. Tests 'resolverPermisoSoftFail' y 'validarOrigenVeredicto' verifican opt-in + responsable + rechazo de ANTHROPIC_BASE_URL no oficial. El soft-fail convierte indisponibilidad de API en APROBACIÓN (diferimientos []); mitigado por traza autorizado_por, pero es una decisión de confianza que debilita el gate.",
+              "criticidad": "media"
+            },
+            {
+              "categoria": "otro",
+              "evidencia": "Manifiesto: 'M public/estado_antigravity.json'. El test P6 solo asegura que el PMU no contiene 'nvapi-'; no hay aserción equivalente sobre el estado público. Riesgo de fuga de la key NVIDIA en artefacto servido.",
+              "criticidad": "media"
+            },
+            {
+              "categoria": "otro",
+              "evidencia": "Diff .env.example: nuevas vars NVIDIA_API_KEY= y GATE_NIM_BASE_URL= (vacías, correcto) + GATE_PROVIDER=. Nuevo proveedor externo (NVIDIA NIM) = nueva dependencia de disponibilidad y superficie de red; ADR-0002 lo documenta.",
+              "criticidad": "baja"
+            },
+            {
+              "categoria": "otro",
+              "evidencia": "Diff redactado con '[SECRETO_REDACTADO]'; sin Read real no puedo confirmar sync .env↔.env.example ni ausencia efectiva de secretos — eso lo cubre el chequeo determinista de --check-gate, no yo.",
+              "criticidad": "baja"
+            }
+          ]
         }
       }
     },
@@ -234,29 +391,7 @@
       ],
       "permiso_escritura": true,
       "gate": "subgate",
-      "ultimo_veredicto": {
-        "aprobado": true,
-        "firma": "1afe16779865e2d070a69cf43af297814fe6265d236f54ddaa5798813cd072d6",
-        "timestamp": "2026-08-16T00:00:00.000Z",
-        "firmado_por": "009_INGENIERO_FRONTEND (.claude/agents/009-ingeniero-frontend.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id a82211bba1561113f, 2026-08-16.",
-        "veredictoCompleto": {
-          "codigo_valido": true,
-          "cambios": [
-            {
-              "archivo": "public/src/App.jsx",
-              "tipo": "correccion",
-              "origen_hallazgo": "Directiva Corte de Perímetro del product owner ('Fuera de Alcance v1.0') + diseño aprobado por 002_ARQUITECTO_DE_SOFTWARE",
-              "resumen": "Elimina 7 rutas huérfanas (panel, directorio, favoritos, calendario, anexos, logistica, dialetica) y agrega catch-all a /radar; imports de lucide-react depurados sin dejar residuos no usados"
-            },
-            {
-              "archivo": "public/src/components/Sidebar.jsx",
-              "tipo": "correccion",
-              "origen_hallazgo": "Directiva Corte de Perímetro del product owner ('Fuera de Alcance v1.0') + diseño aprobado por 002_ARQUITECTO_DE_SOFTWARE",
-              "resumen": "Elimina los 7 NavItem congelados correspondientes y depura imports de íconos sin dejar ninguno huérfano; Snowflake se conserva porque sigue en uso por el NavItem 'Ficha Técnica'"
-            }
-          ]
-        }
-      }
+      "ultimo_veredicto": null
     },
     {
       "archivo": ".claude/agents/010-ingeniero-qa-automatizacion.md",
@@ -271,22 +406,7 @@
       ],
       "permiso_escritura": true,
       "gate": "subgate",
-      "ultimo_veredicto": {
-        "aprobado": true,
-        "firma": "e97b24ea7cf18ba2d906768bf4c28978178581503fd742d04281613edbe29fc5",
-        "timestamp": "2026-08-16T00:00:00.000Z",
-        "firmado_por": "010_INGENIERO_QA_AUTOMATIZACION (.claude/agents/010-ingeniero-qa-automatizacion.md) — vía canal Agent tool de Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo). agent run id a487d4f249e8bf5cf, 2026-08-16. Corrió la suite real (npx playwright test tests/e2e/navigation.spec.js), 4 passed, exit code 0.",
-        "veredictoCompleto": {
-          "suite_valida": true,
-          "specs": [
-            {
-              "archivo": "tests/e2e/navigation.spec.js",
-              "flujo": "Navegación real: 3 rutas protegidas (/radar, /modulo10, /ficha) redirigen a /inicio vía RequireAuth real sin sesión (router App.jsx post-Corte de Perímetro), más navegación real /inicio (SPA React) → /fase1-entrada.html (página estática del Formulador)",
-              "resultado": "pass"
-            }
-          ]
-        }
-      }
+      "ultimo_veredicto": null
     }
   ]
 }

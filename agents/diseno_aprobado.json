@@ -1,16 +1,17 @@
 {
   "aprobado": true,
-  "origen": "excepcion_manual",
-  "excepcion": {
-    "autorizado_por": "Arquitecto Principal",
-    "motivo": "Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
-    "expira": "2026-09-05T03:31:26.136Z"
-  },
-  "firma": "2ac5ce13c4b31fa351a6a9e57cd7070d03e04888c10d00860afacc9851efa421",
-  "timestamp": "2026-09-04T23:31:26.136Z",
-  "firmado_por": "Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por Arquitecto Principal: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente",
+  "origen": "api_directa",
+  "firma": "f0cd3d5ebdd682a58d1a921884f19605d81b5693c4cf5d36453ceeaa7c63a5c3",
+  "timestamp": "2026-09-26T23:35:47.899Z",
+  "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API nim · modelo deepseek-ai/deepseek-v4.1-flash)",
   "razones": [
-    "EXCEPCIÓN MANUAL, no veredicto de 002: Fallo de API por saldo Anthropic agotado; los cambios de infraestructura y mitigación de riesgos ya fueron validados localmente"
+    "ADR-0002 documenta el diseño completo (contexto, decisión, consecuencias, verificación) y declara explícitamente los riesgos no remediados (5, 8, 9, 10) como pendientes de decisión de 002/usuario — no los oculta.",
+    "gate-proveedor.cjs es una capa única de proveedor coherente: NIM principal, Anthropic solo con GATE_PROVIDER=anthropic explícito, sin cascada automática a un proveedor de pago (elimina el riesgo de cobro que motiva el ADR).",
+    "Mejoras de seguridad reales verificadas en el diff: validación de base URL oficial (bloquea exfiltración de key vía ANTHROPIC_BASE_URL/GATE_NIM_BASE_URL falsos), validación de formato de key (evita TypeError→caida→soft-fail), filtrado extenso de secretos antes de enviar el diff a un tercero, circuit breaker con escritura atómica tmp+rename.",
+    "El soft-fail es opt-in (flag o GATE_SOFT_FAIL=true), exige responsable declarado, se marca visiblemente (nunca se confunde con aprobación real), se ata a la firma hash del estado (cualquier cambio lo invalida) y prohíbe diferimientos — bypass deliberado y autorizado por el usuario, no un descuido.",
+    "La limpieza de carpetas legacy (agents/001-orquestador-maestro/, agents/009-ingeniero-frontend/, agents/010-ingeniero-qa-automatizacion/) resuelve la colisión de nombres con .claude/agents/ y queda documentada como recuperable desde el commit ac1721c; el audit trail se reubica a agents/pmu/.",
+    "El mecanismo doc_revisado reemplaza la comparación de fechas por acuse explícito, con detección de sha inválido, commits posteriores que mencionan al agente, y degradación con gracia si git no está disponible (alerta explícita, no verde falso).",
+    "Limitación de esta fiscalización: los tests (tests/gate/gate-proveedor.test.cjs, scripts/architecture-gate.test.cjs), el documento maestro y .env.example/.gitignore/package.json quedaron fuera del presupuesto de caracteres — no pude verificar cobertura de pruebas ni documentación de las nuevas env vars; el ADR §4 describe el plan de verificación."
   ],
   "diferimientos": []
 }

@@ -1,17 +1,11 @@
 {
   "titulo": "REPORTE INTEGRAL ANTIGRAVITY OS",
   "disenador": "Jairo Salinas",
-  "fecha": "4/9/2026, 6:17:35 p. m.",
+  "fecha": "25/9/2026, 1:19:50 p. m.",
   "nota": "Inventario de carpetas de agentes (definiciones de prompt/skill para uso interactivo). NO implica un proceso en ejecución — ver docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4.",
-  "agentes_definidos": 2,
-  "agentes_incompletos": 9,
+  "agentes_definidos": 0,
+  "agentes_incompletos": 8,
   "detalles": [
-    {
-      "id": "001-orquestador-maestro",
-      "definido": false,
-      "tiene_identity": true,
-      "skills_no_vacios": 0
-    },
     {
       "id": "002-arquitecto-de-software",
       "definido": false,
@@ -53,18 +47,6 @@
       "definido": false,
       "tiene_identity": false,
       "skills_no_vacios": 0
-    },
-    {
-      "id": "009-ingeniero-frontend",
-      "definido": true,
-      "tiene_identity": true,
-      "skills_no_vacios": 4
-    },
-    {
-      "id": "010-ingeniero-qa-automatizacion",
-      "definido": true,
-      "tiene_identity": true,
-      "skills_no_vacios": 2
     },
     {
       "id": "pmu",

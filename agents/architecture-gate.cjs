@@ -7,6 +7,9 @@ const https = require('https');
 const http = require('http');
 const Anthropic = require('@anthropic-ai/sdk');
 const { z } = require('zod');
+// Capa única de proveedor (ADR-0002, 2026-09-26): NIM principal, breaker,
+// filtrado de secretos. Ver agents/gate-proveedor.cjs.
+const proveedorIA = require('./gate-proveedor.cjs');
 
 // A diferencia de server.js, este script se invoca standalone (node agents/architecture-gate.cjs)
 // — nada más en el proceso carga .env. Sin esto, pedirVeredictoArquitecto() siempre fallaba con
@@ -92,9 +95,13 @@ const ESCUADRON_ELITE = {
         // NO tiene relación con el subagente real homónimo de frontend
         // (.claude/agents/009-ingeniero-frontend.md). Ver advertencia de
         // colisión en agents/009-ingeniero-frontend/IDENTITY.md.
-        subordinados: [
-            '009-ingeniero-frontend',
-        ],
+        //
+        // AISLADA 2026-09-25 (orden del usuario): agents/001-orquestador-maestro/,
+        // agents/009-ingeniero-frontend/ y agents/010-ingeniero-qa-automatizacion/
+        // (Sistema A) movidas a _legacy_backup/ — fin de la colisión de nombres
+        // con .claude/agents/. Skills MGA del 010 legacy rescatadas en
+        // docs/skills-rescate-mga/.
+        subordinados: [],
     },
     // Limpieza 2026-08-12 (orden explícita del usuario, aplazada hasta que el
     // roster de 8 estuviera completo — ver docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md
@@ -115,9 +122,9 @@ const ESCUADRON_ELITE = {
         // (auditoría del propio 007): sus 2 skills (Skill_002_Redactor_Propuestas.cjs,
         // Skill_002_Generador_Anexos.cjs) no las importa nada en src/ ni server.js —
         // código muerto, mismo patrón ya purgado de 006 (03-analista-secop,
-        // 14-analista-comportamiento). La carpeta agents/010_redactor_tecnico/ en sí
-        // no se borró (a diferencia de esas 2) porque no se confirmó que esté vacía
-        // de contenido útil — solo se cortó la asignación fantasma como subordinado.
+        // 14-analista-comportamiento). La carpeta (luego agents/010-ingeniero-qa-automatizacion/)
+        // se movió a _legacy_backup/ el 2026-09-25; sus 2 skills quedaron
+        // rescatadas en docs/skills-rescate-mga/.
         subordinados: [],
         carpetaSalida: path.join(dirRoot, 'docs', 'as-build'),
     },
@@ -187,6 +194,46 @@ const ARCHITECT_PROMPT_PATH = path.join(dirRoot, '.claude', 'agents', '002-arqui
 // por tercera vez (hallazgo 2026-08-08, se había centralizado en los otros 2
 // archivos pero se pasó por alto este).
 const ANTHROPIC_MODEL = process.env.PRIMARY_AI_MODEL || 'claude-sonnet-4-6';
+// Estado del circuit breaker del proveedor de IA (ADR-0002 §2.4) — generado
+// por código, fuera de las carpetas numeradas de agents/ (no entra en
+// hashEstado, no autoinvalida la firma).
+const BREAKER_PATH = path.join(dirAgents, 'pmu', 'circuit_breaker.json');
+// Formato de diff determinista para lo que sale al proveedor (hallazgo 008):
+// sin color, sin diff externo, prefijos a/ b/ fijos aunque el usuario tenga
+// diff.noprefix / diff.mnemonicPrefix — filtrarSecretosDiff() depende de
+// poder leer la ruta de cada sección.
+const FLAGS_DIFF_PROVEEDOR = ['--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/'];
+
+// Punto único de llamada a modelo para 002 y subgates. Filtra secretos del
+// diff antes de que salga a un tercero, registra consumo de tokens y fallas
+// del proveedor en telemetría (nunca la key). Devuelve {ok:true, texto} o
+// {ok:false, error: ErrorProveedor}.
+async function consultarModelo(subsistema, { system, user, max_tokens }) {
+    const { diff: userFiltrado, omitidos } = proveedorIA.filtrarSecretosDiff(user);
+    try {
+        const r = await proveedorIA.llamarModelo({ system, user: userFiltrado, max_tokens }, { breakerPath: BREAKER_PATH });
+        registrarTelemetria({
+            tipo: 'uso_modelo', subsistema, resultado: 'ok', proveedor: r.proveedor, modelo: r.modelo,
+            intentos: r.intentos, uso: r.uso, fin: r.fin, archivos_sensibles_omitidos: omitidos.length,
+            texto_chars: r.texto_chars ?? null, razonamiento_chars: r.razonamiento_chars ?? null,
+        });
+        return { ok: true, texto: r.texto, fin: r.fin, proveedor: r.proveedor, modelo: r.modelo };
+    } catch (e) {
+        const err = e instanceof proveedorIA.ErrorProveedor ? e
+            : new proveedorIA.ErrorProveedor({ codigo: 'error_interno', categoria: 'solicitud', detalle: proveedorIA.redactar(e?.message || e).slice(0, 300) });
+        registrarTelemetria({
+            tipo: 'fallo_proveedor', subsistema, resultado: proveedorIA.esCritico(err.categoria) ? 'alerta_critica' : 'fallo',
+            codigo: err.codigo, categoria: err.categoria, http: err.http, razon: err.detalle,
+        });
+        return { ok: false, error: err };
+    }
+}
+
+// Texto de razón para un fallo de proveedor que NO es elegible para soft-fail.
+function razonFalloProveedor(err) {
+    const prefijo = proveedorIA.esCritico(err.categoria) ? '🚨 ALERTA CRÍTICA DE PROVEEDOR EXTERNO — ' : '';
+    return `${prefijo}Fallo del proveedor de IA (${err.codigo}, categoría ${err.categoria}): ${err.detalle}`;
+}
 
 // Orden de prioridad para el diff que se manda a 002 — más crítico primero.
 // Corrige un hallazgo real (2026-08-13): un corte crudo de `git diff HEAD` a
@@ -196,14 +243,28 @@ const ANTHROPIC_MODEL = process.env.PRIMARY_AI_MODEL || 'claude-sonnet-4-6';
 // visto solo cambios de PMU/dependencias, no el diff que realmente importaba.
 const PRIORIDAD_DIFF = [
     /^\.claude\/agents\//,
-    /^agents\/architecture-gate\.cjs$/,
+    /^docs\/ADR\//,                                  // decisiones que el diff dice implementar (cortas, alto valor)
+    // gate-proveedor.cjs junto al gate (hallazgo 2026-09-26: 002 rechazó por
+    // "dependencia dura no visible" — caía al bucket final y nunca entraba).
+    /^agents\/(architecture-gate|gate-proveedor)\.cjs$/,
     /^src\//,
     /^server\.js$/,
     /^public\/(?!estado_antigravity\.json)/,       // frontend real, no el JSON auto-generado
+    /^(AGENTS|CLAUDE)\.md$/,
     /^docs\//,
+    /^(tests|scripts)\//,
     // todo lo demás (lockfiles, telemetría/estado PMU auto-generados, etc.)
     // cae al final por no matchear ningún patrón de arriba — ver bucketDe().
 ];
+
+// Presupuesto del diff para 002 (2026-09-26): 60 000 caracteres dejaban fuera
+// gate-proveedor.cjs y ADR-0002 de un diff real de ~400 000. Medido en vivo
+// con deepseek-v4.1-flash: 60 000 caracteres = 21 642 prompt_tokens →
+// respondió; 185 000 → sin primer byte en 3×120 s. 130 000 ≈ 40 000 tokens
+// cubre agentes + ADR + código del gate completo.
+const LIMITE_DIFF_002 = 130000;
+// Binarios: su diff textual (PDF con streams) es ruido que consume presupuesto.
+const EXT_BINARIA = /\.(pdf|png|jpe?g|gif|webp|ico|bmp|zip|gz|7z|xlsx?|docx?|pptx?|woff2?|ttf|otf|eot|mp[34]|wav|sqlite|db)$/i;
 
 function bucketDe(archivo) {
     const idx = PRIORIDAD_DIFF.findIndex(p => p.test(archivo));
@@ -214,37 +275,64 @@ function bucketDe(archivo) {
 // alfabéticamente — si algo se trunca, que sea lo menos importante
 // (lockfiles/artefactos auto-generados), nunca código de aplicación o
 // definiciones de agentes.
+// Resumen de una sección que no vale la pena enviar completa. Cabecera con
+// formato git real: filtrarSecretosDiff() necesita leer la ruta.
+function seccionResumida(archivo, nota) {
+    return `diff --git a/${archivo} b/${archivo}\n[${nota}]\n`;
+}
+
 function construirDiffPriorizado(limiteChars) {
     let archivos;
+    const eliminados = new Set();
     try {
-        archivos = execFileSync('git', ['diff', 'HEAD', '--name-only'], { cwd: dirRoot, encoding: 'utf8' })
-            .split('\n').map(l => l.trim()).filter(Boolean);
+        // --name-status: una baja (D) se fiscaliza por su nombre, no línea a
+        // línea — 20 archivos legacy borrados se comían ~60 KB de presupuesto.
+        // --no-renames: cada ruta aparece sola, igual que el diff por archivo.
+        archivos = execFileSync('git', ['diff', 'HEAD', '--name-status', '--no-renames'], { cwd: dirRoot, encoding: 'utf8' })
+            .split('\n').map(l => l.trim()).filter(Boolean)
+            .map(l => {
+                const [estado, ...ruta] = l.split('\t');
+                const archivo = ruta.join('\t');
+                if (estado === 'D') eliminados.add(archivo);
+                return archivo;
+            })
+            .filter(Boolean);
     } catch (e) {
-        return { diff: '', truncado: false, error: `No se pudo leer 'git diff HEAD --name-only': ${e.message}` };
+        return { diff: '', truncado: false, error: `No se pudo leer 'git diff HEAD --name-status': ${e.message}` };
     }
     if (archivos.length === 0) return { diff: '', truncado: false };
 
     archivos.sort((a, b) => bucketDe(a) - bucketDe(b));
 
     let acumulado = '';
+    let truncadoParcial = false;
     const omitidos = [];
     for (const archivo of archivos) {
-        if (acumulado.length >= limiteChars) { omitidos.push(archivo); continue; }
+        // Bajas y binarios cuestan ~150 caracteres: se nombran siempre, aun
+        // con el presupuesto agotado — ningún cambio queda invisible para 002.
+        const resumible = eliminados.has(archivo) || EXT_BINARIA.test(archivo);
+        if (acumulado.length >= limiteChars && !resumible) { omitidos.push(archivo); continue; }
         let diffArchivo;
-        try {
-            diffArchivo = execFileSync('git', ['diff', 'HEAD', '--', archivo], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+        if (eliminados.has(archivo)) {
+            diffArchivo = seccionResumida(archivo, 'archivo ELIMINADO — contenido previo omitido; se fiscaliza la baja por su ruta');
+        } else if (EXT_BINARIA.test(archivo)) {
+            diffArchivo = seccionResumida(archivo, 'archivo binario modificado — contenido omitido');
+        } else try {
+            diffArchivo = execFileSync('git', ['diff', ...FLAGS_DIFF_PROVEEDOR, 'HEAD', '--', archivo], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
         } catch (e) {
             diffArchivo = `[No se pudo leer el diff de ${archivo}: ${e.message}]\n`;
         }
         const espacioRestante = limiteChars - acumulado.length;
-        if (diffArchivo.length > espacioRestante) {
+        if (!resumible && diffArchivo.length > espacioRestante) {
+            // El corte deja acumulado >= limiteChars: los siguientes no
+            // resumibles caen a omitidos por el chequeo de arriba.
             acumulado += diffArchivo.slice(0, espacioRestante) + `\n[... ${archivo} truncado aquí, sin espacio restante ...]\n`;
-            omitidos.push(...archivos.slice(archivos.indexOf(archivo) + 1));
-            break;
+            truncadoParcial = true;
+            continue;
         }
         acumulado += diffArchivo;
     }
-    return { diff: acumulado, truncado: omitidos.length > 0, omitidos };
+    return { diff: acumulado, truncado: truncadoParcial || omitidos.length > 0, omitidos };
 }
 
 // Extrae el ÚLTIMO objeto JSON de nivel superior balanceado del texto que
@@ -357,6 +445,18 @@ const VEREDICTO_SCHEMAS = {
             resumen: z.string(),
         })),
     }),
+    // Agregado 2026-09-26 (PMU Titán V2): 010 era el único subgate sin
+    // contrato — validarFormaVeredicto() lo dejaba pasar sin validar forma.
+    // Refleja la "Salida obligatoria" declarada en
+    // .claude/agents/010-ingeniero-qa-automatizacion.md:39-41.
+    '010_INGENIERO_QA_AUTOMATIZACION': z.object({
+        suite_valida: z.boolean(),
+        specs: z.array(z.object({
+            archivo: z.string(),
+            flujo: z.string(),
+            resultado: z.enum(['pass', 'fail', 'skip_justificado']),
+        })),
+    }),
 };
 
 // Fail-closed: un veredicto que no matchea la forma declarada por su propio
@@ -376,15 +476,15 @@ function validarFormaVeredicto(agentId, veredicto) {
 // pendiente contra HEAD. Nunca autoaprueba por ausencia de respuesta — todo camino
 // de error devuelve aprobado:false con la razón concreta (Honestidad Técnica).
 async function pedirVeredictoArquitecto() {
-    if (!process.env.ANTHROPIC_API_KEY) {
-        return { aprobado: false, razones: ['ANTHROPIC_API_KEY no configurada — no se puede invocar al Agente Arquitecto.'] };
-    }
+    // Chequeo de key movido a gate-proveedor.cjs (2026-09-26): depende del
+    // proveedor activo (NVIDIA_API_KEY o ANTHROPIC_API_KEY); ausente sigue
+    // siendo bloqueo duro (categoría 'config', nunca soft-fail).
     if (!fs.existsSync(ARCHITECT_PROMPT_PATH)) {
         return { aprobado: false, razones: [`No existe ${ARCHITECT_PROMPT_PATH} — sin criterio de arquitectura que aplicar.`] };
     }
     const systemPrompt = fs.readFileSync(ARCHITECT_PROMPT_PATH, 'utf8');
 
-    const { diff, truncado, omitidos, error } = construirDiffPriorizado(60000);
+    const { diff, truncado, omitidos, error } = construirDiffPriorizado(LIMITE_DIFF_002);
     if (error) {
         return { aprobado: false, razones: [error] };
     }
@@ -394,44 +494,57 @@ async function pedirVeredictoArquitecto() {
 
     const avisoTruncamiento = truncado
         ? `\n\nAVISO: el diff completo no cabía en el presupuesto de caracteres. Se priorizó por criticidad ` +
-          `(.claude/agents/, código de gate, src/, server.js, frontend real, docs — en ese orden); lo que quedó ` +
+          `(.claude/agents/, docs/ADR, código de gate, src/, server.js, frontend real, AGENTS.md, docs, tests — en ese orden); lo que quedó ` +
           `fuera son archivos de menor riesgo (lockfiles, artefactos auto-generados como telemetría/estado PMU): ` +
-          `${omitidos.slice(0, 10).join(', ')}${omitidos.length > 10 ? ` (+${omitidos.length - 10} más)` : ''}. ` +
+          `${omitidos.length ? omitidos.join(', ') : '(ninguno completo; solo el último archivo quedó cortado)'}. ` +
           `Si alguno de esos archivos omitidos SÍ te parece crítico por su nombre, no apruebes sin verlo — pide que se re-envíe.`
         : '';
 
-    let response;
-    try {
-        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-        response = await client.messages.create({
-            model: ANTHROPIC_MODEL,
+    // Proveedor vía consultarModelo() desde 2026-09-26 (ADR-0002): NIM por
+    // defecto, breaker, reintentos, filtrado de secretos del diff.
+    const r = await consultarModelo('002_principal', {
             // 1500 no alcanzaba en diffs grandes (>15 archivos): el análisis
             // narrativo agotaba el presupuesto antes de llegar al JSON final,
             // y el veredicto quedaba truncado y sin parsear (hallazgo 2026-08-08,
             // reproducido en vivo con el diff de esta misma sesión).
-            max_tokens: 4096,
+            // 4096 → 8192 (2026-09-26): deepseek-v4.1-flash usó 4039/4096
+            // (98,6 %) en su primer veredicto real — a un paso del truncado.
+            max_tokens: 8192,
             system: systemPrompt,
-            messages: [{
-                role: 'user',
-                content: `Fiscaliza el siguiente diff pendiente de aprobación (git diff HEAD, reordenado por criticidad y ` +
-                    `truncado a 60000 caracteres si aplica — ver aviso al final si corresponde). ` +
-                    `IMPORTANTE: esta invocación es una llamada directa a la API de Anthropic, no una sesión de Claude Code — ` +
+            user: `Fiscaliza el siguiente diff pendiente de aprobación (git diff HEAD, reordenado por criticidad y ` +
+                    `truncado a ${LIMITE_DIFF_002} caracteres si aplica — ver aviso al final si corresponde; los archivos ` +
+                    `eliminados y binarios aparecen resumidos por ruta). ` +
+                    `IMPORTANTE: esta invocación es una llamada directa a un modelo vía API, no una sesión de Claude Code — ` +
                     `no tienes acceso real a Read/Grep/Glob aquí pese a lo que indique tu system prompt para tu uso habitual. ` +
                     `No emitas tool_call ni nada similar: no se ejecutará. Basa tu fiscalización únicamente en el diff de texto ` +
                     `provisto abajo (línea de contexto suficiente para evaluar consistencia, completitud y alcance). ` +
-                    `Sé conciso en el análisis narrativo (párrafos cortos, sin repetir el diff) — el veredicto JSON obligatorio ` +
-                    `al final es lo único que este proceso puede parsear; si te quedas sin espacio antes de emitirlo, el gate ` +
-                    `entero falla. Prioriza terminar con el JSON sobre extender el análisis.\n\n${diff}${avisoTruncamiento}`,
-            }],
-        });
-    } catch (e) {
-        return { aprobado: false, razones: [`Fallo de la API de Anthropic: ${e.message}`] };
+                    // JSON PRIMERO (2026-09-26, medido en vivo): con "JSON al
+                    // final", deepseek-v4.1-flash agotó 8192/8192 tokens en el
+                    // análisis (fin=length) y el veredicto nunca se emitió.
+                    // extraerJSONConCampo() encuentra el bloque con "aprobado"
+                    // en cualquier posición: un análisis cortado después del
+                    // JSON ya no invalida la decisión.
+                    `FORMATO OBLIGATORIO PARA ESTA INVOCACIÓN (prevalece sobre "termina con tu JSON" de tu system prompt): ` +
+                    `decide primero y emite COMO PRIMERA SALIDA tu JSON de veredicto completo ` +
+                    `({"aprobado": boolean, "razones": [string], "diferimientos": [{"subgate": string, "razon": string}]}); ` +
+                    `después, como máximo 300 palabras de análisis que sustenten las razones. Solo el JSON es parseable; ` +
+                    `si el análisis se corta por longitud, la decisión ya quedó registrada.\n\n${diff}${avisoTruncamiento}`,
+    });
+    if (!r.ok) {
+        const falloApi = clasificarFalloApi(r.error);
+        if (falloApi) {
+            return { aprobado: false, apiNoDisponible: true, falloApi, razones: [`Proveedor de IA no disponible (${falloApi.codigo}): ${falloApi.detalle}`] };
+        }
+        return { aprobado: false, razones: [razonFalloProveedor(r.error)] };
     }
 
-    const text = response.content?.[0]?.text ?? '';
+    const text = r.texto;
     const veredicto = extraerJSONConCampo(text, 'aprobado');
     if (!veredicto) {
-        return { aprobado: false, razones: ['El Agente Arquitecto no devolvió un veredicto JSON parseable.'], respuestaCruda: text.slice(0, 800) };
+        const razon = r.fin === 'length'
+            ? 'El Agente Arquitecto agotó max_tokens (finish_reason=length) antes de emitir el veredicto JSON — respuesta truncada, no aprobada.'
+            : 'El Agente Arquitecto no devolvió un veredicto JSON parseable.';
+        return { aprobado: false, razones: [razon], respuestaCruda: text.slice(0, 800) };
     }
     const forma = validarFormaVeredicto('002_ARQUITECTO_DE_SOFTWARE', veredicto);
     if (!forma.ok) {
@@ -441,7 +554,14 @@ async function pedirVeredictoArquitecto() {
         aprobado: veredicto.aprobado === true,
         razones: veredicto.razones || [],
         diferimientos: veredicto.diferimientos || [],
+        proveedor: r.proveedor, modelo: r.modelo,
     };
+}
+
+// Trazabilidad exacta del evaluador (2026-09-26, PMU Titán V2): proveedor y
+// modelo que REALMENTE respondieron, no un literal quemado.
+function firmaEvaluador(quien, promptRel, v) {
+    return `${quien} (${promptRel}, vía API ${v.proveedor || 'desconocido'} · modelo ${v.modelo || 'desconocido'})`;
 }
 
 // 001_ORQUESTADOR_MAESTRO (antes 000_ORQUESTADOR) excluido a propósito: no es
@@ -454,6 +574,8 @@ async function pedirVeredictoArquitecto() {
 // 2026-08-08, docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md §3.2).
 // Renombrada 2026-08-16 de '001_ORQUESTADOR_MAESTRO' a '001-orquestador-maestro'
 // (mandato del usuario, normalización de nomenclatura 001-010 en agents/).
+// Movida a _legacy_backup/ 2026-09-25 — la exclusión queda como salvaguarda
+// por si la carpeta se restaurara; sin efecto mientras no exista en agents/.
 const CARPETAS_EXCLUIDAS_DEL_BATCH = new Set(['001-orquestador-maestro']);
 
 function listarCarpetasAgentes() {
@@ -548,7 +670,11 @@ function hashEstado(carpetas) {
     // agregar VEREDICTO_SCHEMAS, `--aprobar-diseno` reportó la firma
     // IDÉNTICA a la de antes del cambio, pese a haber código nuevo real.
     // Harness que no protege su propio motor no es un harness completo.
+    // gate-proveedor.cjs agregado 2026-09-26 (ADR-0002): decide qué falla del
+    // proveedor es soft-fail y cuál bloquea — es motor del gate, entra en su
+    // propia firma.
     const payloadGateEngine = `gate-engine:architecture-gate.cjs:${hashArchivo(__filename)}` +
+        `,gate-proveedor.cjs:${hashArchivo(path.join(dirAgents, 'gate-proveedor.cjs'))}` +
         `,check_veto_008.cjs:${hashArchivo(path.join(dirRoot, 'scripts', 'check_veto_008.cjs'))}`;
 
     return crypto.createHash('sha256').update(
@@ -570,8 +696,70 @@ function hashEstado(carpetas) {
 // brecha real: el gate ya no acepta silenciosamente un origen no declarado,
 // y una excepción manual caduca sola y queda marcada de forma visible en
 // consola/PMU — nunca se ve igual que una aprobación evaluada por la API.
-const ORIGENES_VALIDOS = ['api_directa', 'excepcion_manual'];
+//
+// SOFT-FAIL DE API (2026-09-25, orden del usuario, diseño ajustado tras
+// veredicto de 002 vía canal Agent tool): la falta de saldo/disponibilidad
+// de la API de Anthropic ya no bloquea el flujo de ingeniería. Si la API
+// responde 402/429/529/5xx, "credit balance is too low" o no responde, y el
+// soft-fail está habilitado explícitamente con un responsable declarado, se
+// escribe una aprobación con origen 'soft_fail_api' atada a la misma firma
+// hash del estado actual (cualquier cambio posterior la invalida). Siguen
+// siendo bloqueo duro: rechazo real del modelo, respuesta no parseable,
+// ANTHROPIC_API_KEY ausente (error de configuración, no de saldo),
+// ANTHROPIC_BASE_URL no oficial y los chequeos estáticos de 006.
+const ORIGENES_VALIDOS = ['api_directa', 'excepcion_manual', 'soft_fail_api'];
 const HORAS_MAX_EXCEPCION_MANUAL = 6;
+const ANTHROPIC_BASE_URL_OFICIAL = 'https://api.anthropic.com';
+
+// Devuelve {codigo, detalle, request_id} si el error es de disponibilidad
+// de la API (no de contenido); null en cualquier otro caso.
+function clasificarFalloApi(e) {
+    // ErrorProveedor (capa NIM/Anthropic, 2026-09-26): la categoría ya viene
+    // resuelta — solo cuota/caida son disponibilidad. auth (401/403),
+    // politica (modelo retirado), solicitud y config → null = bloqueo duro.
+    if (e instanceof proveedorIA.ErrorProveedor) {
+        return proveedorIA.esElegibleSoftFail(e)
+            ? { codigo: e.codigo, detalle: e.detalle, request_id: e.request_id || null }
+            : null;
+    }
+    const status = typeof e?.status === 'number' ? e.status : null;
+    const detalle = String(e?.message || e || '').slice(0, 300);
+    const request_id = e?.requestID || e?.request_id || null;
+    let codigo = null;
+    if (status === 402) codigo = 'http_402_sin_saldo';
+    else if (status === 400 && /credit balance is too low/i.test(detalle)) codigo = 'http_400_sin_saldo';
+    else if (status === 429) codigo = 'http_429_rate_limit';
+    else if (status === 529) codigo = 'http_529_sobrecargada';
+    else if (status !== null && status >= 500) codigo = `http_${status}`;
+    else if (e instanceof Anthropic.APIConnectionError) codigo = 'sin_respuesta';
+    return codigo ? { codigo, detalle, request_id } : null;
+}
+
+// Opt-in explícito con responsable declarado (flag o .env) — nunca se
+// activa solo. ANTHROPIC_BASE_URL no oficial lo deshabilita: evita provocar
+// el soft-fail a voluntad apuntando a un host muerto o que devuelve 402/529.
+function resolverPermisoSoftFail(argv = process.argv, env = process.env) {
+    const base = env.ANTHROPIC_BASE_URL;
+    if (base && base.trim().replace(/\/+$/, '') !== ANTHROPIC_BASE_URL_OFICIAL) {
+        return { permitido: false, razon: `ANTHROPIC_BASE_URL apunta a "${base}", no al endpoint oficial — soft-fail deshabilitado.` };
+    }
+    // Mismo criterio para NIM (2026-09-26): no se puede provocar el soft-fail
+    // a voluntad apuntando el gate a un host muerto.
+    const baseNim = env.GATE_NIM_BASE_URL;
+    if (baseNim && baseNim.trim().replace(/\/+$/, '') !== proveedorIA.NIM_BASE_URL_OFICIAL) {
+        return { permitido: false, razon: `GATE_NIM_BASE_URL apunta a "${baseNim}", no a ${proveedorIA.NIM_BASE_URL_OFICIAL} — soft-fail deshabilitado.` };
+    }
+    const leerFlag = (nombre) => { const i = argv.indexOf(nombre); return i !== -1 ? argv[i + 1] : undefined; };
+    const viaFlag = argv.includes('--permitir-soft-fail');
+    if (!viaFlag && env.GATE_SOFT_FAIL !== 'true') {
+        return { permitido: false, razon: 'Soft-fail no habilitado — usa --permitir-soft-fail --autorizado-por "nombre", o GATE_SOFT_FAIL=true + GATE_SOFT_FAIL_AUTORIZADO_POR en .env.' };
+    }
+    const autorizadoPor = (leerFlag('--autorizado-por') || env.GATE_SOFT_FAIL_AUTORIZADO_POR || '').trim();
+    if (!autorizadoPor) {
+        return { permitido: false, razon: 'Soft-fail requiere responsable: --autorizado-por "nombre" o GATE_SOFT_FAIL_AUTORIZADO_POR en .env.' };
+    }
+    return { permitido: true, autorizadoPor, via: viaFlag ? 'flag' : 'env' };
+}
 
 function validarOrigenVeredicto(firma) {
     if (!firma.origen || !ORIGENES_VALIDOS.includes(firma.origen)) {
@@ -579,6 +767,17 @@ function validarOrigenVeredicto(firma) {
     }
     if (firma.origen === 'api_directa') {
         return { ok: true };
+    }
+    if (firma.origen === 'soft_fail_api') {
+        const sf = firma.soft_fail;
+        if (!sf || typeof sf.codigo !== 'string' || !sf.codigo.trim()
+            || typeof sf.autorizado_por !== 'string' || !sf.autorizado_por.trim()) {
+            return { ok: false, razon: 'origen:"soft_fail_api" requiere soft_fail:{codigo, autorizado_por} completos.' };
+        }
+        if (Array.isArray(firma.diferimientos) && firma.diferimientos.length > 0) {
+            return { ok: false, razon: 'origen:"soft_fail_api" no puede traer diferimientos — no hubo salida del modelo.' };
+        }
+        return { ok: true, softFail: sf };
     }
     // origen === 'excepcion_manual' — requiere metadata completa y una
     // ventana de vigencia corta, no una excepción que se pueda reutilizar
@@ -626,8 +825,9 @@ function validarDisenoAprobado(carpetas) {
     }
     return {
         aprobado: true, firma: firma.firma, timestamp: firma.timestamp,
-        diferimientos: firma.diferimientos || [], origen: firma.origen,
+        diferimientos: origenCheck.softFail ? [] : (firma.diferimientos || []), origen: firma.origen,
         excepcionManual: origenCheck.excepcionManual || null,
+        softFail: origenCheck.softFail || null,
     };
 }
 
@@ -824,29 +1024,40 @@ function validarSubgate(agentId, archivosStaged) {
     if (veredicto.firma !== hashActual) {
         return { aplica: true, aprobado: false, razon: `Los archivos relevantes para ${agentId} cambiaron desde el último veredicto — se requiere re-aprobación (node agents/architecture-gate.cjs --aprobar-subgate ${agentId}).` };
     }
-    return { aplica: true, aprobado: true, origen: veredicto.origen, excepcionManual: origenCheck.excepcionManual || null };
+    return { aplica: true, aprobado: true, origen: veredicto.origen, excepcionManual: origenCheck.excepcionManual || null, softFail: origenCheck.softFail || null };
 }
 
 async function pedirVeredictoSubagente(agentId, relevantes) {
     const cfg = SUBGATES[agentId];
-    if (!process.env.ANTHROPIC_API_KEY) {
-        return { aprobado: false, razon: 'ANTHROPIC_API_KEY no configurada.' };
-    }
     if (!fs.existsSync(cfg.promptPath)) {
         return { aprobado: false, razon: `No existe ${cfg.promptPath}.` };
     }
     const systemPrompt = fs.readFileSync(cfg.promptPath, 'utf8');
     let diff;
     try {
-        diff = execFileSync('git', ['diff', '--cached', '--', ...relevantes], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+        diff = execFileSync('git', ['diff', ...FLAGS_DIFF_PROVEEDOR, '--cached', '--', ...relevantes], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
     } catch (e) {
         return { aprobado: false, razon: `No se pudo leer 'git diff --cached': ${e.message}` };
     }
-    let response;
+    // Manifiesto del resto del staging (2026-09-26, rechazo real de 006): el
+    // subgate solo ve el diff de SU mandato y concluía que gate-proveedor.cjs
+    // o tests/gate/ "no aparecen en el diff staged" — sí estaban, fuera de su
+    // mandato. Solo nombres y estado, nunca contenido.
+    let manifiesto = '';
     try {
-        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-        response = await client.messages.create({
-            model: ANTHROPIC_MODEL,
+        const setRelevantes = new Set(relevantes);
+        const fuera = execFileSync('git', ['diff', '--cached', '--name-status', '--no-renames'], { cwd: dirRoot, encoding: 'utf8' })
+            .split('\n').map(l => l.trim()).filter(Boolean)
+            .filter(l => !setRelevantes.has(l.split('\t').slice(1).join('\t')));
+        if (fuera.length) {
+            manifiesto = `\n\nMANIFIESTO — otros ${fuera.length} archivo(s) TAMBIÉN staged en este mismo commit, fuera de tu mandato ` +
+                `(los fiscaliza 002 y sus subgates; no los reportes como ausentes, sí puedes señalar riesgos de integración con ellos):\n` +
+                fuera.map(l => `  ${l.replace('\t', ' ')}`).join('\n');
+        }
+    } catch {
+        manifiesto = '\n\nMANIFIESTO — no se pudo listar el resto del staging; no infieras ausencias de archivos que no ves.';
+    }
+    const r = await consultarModelo(agentId, {
             // 8192, no 4096 (hallazgo real 2026-08-13): la instrucción de "sé
             // conciso" en el prompt no bastó para 006 — su mandato tiene 5
             // categorías que insiste en cubrir con detalle antes del JSON,
@@ -854,21 +1065,25 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
             // depender de que el modelo se autolimite.
             max_tokens: 8192,
             system: systemPrompt,
-            messages: [{
-                role: 'user',
-                content: `Audita el siguiente diff staged (git diff --cached), limitado a los archivos que te competen según tu mandato. ` +
-                    `Esta es una llamada directa a la API de Anthropic, sin Read/Grep/Glob reales — basa tu veredicto solo en este ` +
-                    `texto. Sé conciso en el análisis narrativo (párrafos cortos, sin repetir el diff) — el veredicto JSON obligatorio ` +
-                    `al final es lo único que este proceso puede parsear; si te quedas sin espacio antes de emitirlo, el subgate entero ` +
-                    `falla (hallazgo real 2026-08-13: un análisis narrativo largo agotó el presupuesto de tokens antes del JSON). ` +
-                    `Prioriza terminar con el JSON sobre extender el análisis. Termina siempre con tu JSON de salida obligatorio, tal ` +
-                    `como especifica tu propio system prompt.\n\n${diff.slice(0, 60000)}`,
-            }],
-        });
-    } catch (e) {
-        return { aprobado: false, razon: `Fallo de la API de Anthropic: ${e.message}` };
+            user: `Audita el siguiente diff staged (git diff --cached), limitado a los archivos que te competen según tu mandato. ` +
+                    `Esta es una llamada directa a un modelo vía API (sin sesión de Claude Code), sin Read/Grep/Glob reales — basa tu veredicto solo en este ` +
+                    `texto. ` +
+                    // JSON PRIMERO (2026-09-26): mismo criterio que 002 —
+                    // deepseek-v4.1-flash agotó 8192 tokens razonando con el
+                    // JSON al final (hallazgos 2026-08-13 y 2026-09-26).
+                    `FORMATO OBLIGATORIO PARA ESTA INVOCACIÓN (prevalece sobre "termina con tu JSON" de tu system prompt): ` +
+                    `emite COMO PRIMERA SALIDA tu JSON de veredicto completo, con la forma exacta que exige tu system prompt; ` +
+                    `después, como máximo 300 palabras de análisis. Solo el JSON es parseable; si el análisis se corta por ` +
+                    `longitud, la decisión ya quedó registrada.\n\n${diff.slice(0, 60000)}${manifiesto}`,
+    });
+    if (!r.ok) {
+        const falloApi = clasificarFalloApi(r.error);
+        if (falloApi) {
+            return { aprobado: false, apiNoDisponible: true, falloApi, razon: `Proveedor de IA no disponible (${falloApi.codigo}): ${falloApi.detalle}` };
+        }
+        return { aprobado: false, razon: razonFalloProveedor(r.error) };
     }
-    const text = response.content?.[0]?.text ?? '';
+    const text = r.texto;
     // Generalizado 2026-08-13 (subgate de 005): no todo campoAprobado es
     // booleano — 005 emite `estado_backend` con 3 valores string posibles
     // ("aislado_y_seguro"|"brechas_detectadas"|"bloqueado_por_diseno"), no
@@ -876,7 +1091,10 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
     // string exacto en vez de contra (true|false).
     const veredicto = extraerJSONConCampo(text, cfg.campoAprobado);
     if (!veredicto) {
-        return { aprobado: false, razon: `${agentId} no devolvió un veredicto JSON parseable.`, respuestaCruda: text.slice(0, 800) };
+        const razon = r.fin === 'length'
+            ? `${agentId} agotó max_tokens (finish_reason=length) antes de emitir el veredicto JSON — respuesta truncada, no aprobada.`
+            : `${agentId} no devolvió un veredicto JSON parseable.`;
+        return { aprobado: false, razon, respuestaCruda: text.slice(0, 800) };
     }
     const forma = validarFormaVeredicto(agentId, veredicto);
     if (!forma.ok) {
@@ -894,7 +1112,7 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
     // esta sesión ya cazó varias veces en código de aplicación — esta vez
     // estaba en el propio gate.
     const razon = aprobado ? undefined : `${agentId} evaluó y NO aprobó — ver hallazgos: ${JSON.stringify(veredicto)}`;
-    return { aprobado, veredictoCompleto: veredicto, razon };
+    return { aprobado, veredictoCompleto: veredicto, razon, proveedor: r.proveedor, modelo: r.modelo };
 }
 
 // =============================================================================
@@ -996,36 +1214,116 @@ function fechaUltimoCommit(rutaRelativa) {
     }
 }
 
-function verificarVigenciaAgentes() {
-    const docRel = path.join('docs', 'ARQUITECTURA_AGENTICA_ANTIGRAVITY.md');
-    const fechaDoc = fechaUltimoCommit(docRel);
-    if (!fechaDoc) return [];
+// ACUSE EXPLÍCITO (2026-09-26, ADR-0002 §2.6) — reemplaza la comparación de
+// fechas de commit de abajo, que medía "quién commiteó último", no "quién
+// revisó": un commit al documento marcaba a los 10 agentes a la vez, y un
+// commit cosmético al .md del agente apagaba la alerta sin revisión real.
+// Ahora cada agente declara en su frontmatter `doc_revisado: <sha>` (commit
+// del documento maestro revisado). Alerta solo si: falta el acuse, el sha no
+// es un commit que tocó el documento, o hubo commits posteriores cuyas líneas
+// AGREGADAS mencionan a ese agente por su ID.
+const DOC_MAESTRO_REL = 'docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md';
+
+function gitSeguro(args) {
+    try {
+        return execFileSync('git', args, { cwd: dirRoot, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {
+        return null;
+    }
+}
+
+// true si `texto` menciona al agente por prefijo numérico aislado (`005`,
+// "005_", "005-"), por nombre kebab o por ID en mayúsculas.
+function mencionaAgente(texto, archivo) {
+    const base = archivo.replace(/\.md$/, '');
+    const upper = base.toUpperCase().replace(/-/g, '_');
+    const prefijo = (base.match(/^(\d{3})/) || [])[1];
+    if (texto.includes(base) || texto.includes(upper)) return true;
+    // `_`/`-` excluidos tras el prefijo (hallazgo de 007, 2026-09-26): los
+    // IDs reales con separador ya matchean arriba por base/upper; sin esto,
+    // nombres de migración como `005_fix_insertar_fase1.sql` o
+    // `007_worm_occ_shadow_ledger.sql` marcaban al agente por error.
+    // Alfanumérico excluido a ambos lados (hallazgo 008): hashes hex como
+    // `a004e3f` o `b005c1d` también marcaban al agente.
+    return prefijo ? new RegExp(`(^|[^0-9A-Za-z.])${prefijo}(?![0-9A-Za-z._-])`, 'm').test(texto) : false;
+}
+
+// Degradación con gracia (PMU Titán V2, 2026-09-26): antes, si git no estaba
+// disponible (binario ausente, entorno restringido, checkout superficial sin
+// historial del documento), gitSeguro() devolvía null → '' → 0 commits → []:
+// un VERDE FALSO y silencioso. Ahora se distingue "git falló" (null) de "no
+// hay historial" y se emite una alerta explícita en vez de callar. `git` es
+// inyectable para poder probar ese camino sin romper el binario real.
+function alertaGitInaccesible(detalle) {
+    return {
+        tipo: 'alerta_git_inaccesible', estado: 'alerta_git_inaccesible', agente: null,
+        razon: `No se pudo consultar git (${detalle}) — la vigencia de los agentes NO se verificó. No es un verde.`,
+    };
+}
+
+function verificarVigenciaAgentes(git = gitSeguro) {
+    const ejecutar = (args) => {
+        try { return git(args); } catch { return null; } // un runner inyectado que lance tampoco rompe el PMU
+    };
+    const logDoc = ejecutar(['log', '--format=%H', '--', DOC_MAESTRO_REL]);
+    if (logDoc === null) return [alertaGitInaccesible(`git log -- ${DOC_MAESTRO_REL}`)];
+    const commitsDoc = logDoc.split('\n').filter(Boolean);
+    if (commitsDoc.length === 0) {
+        return [alertaGitInaccesible(`sin historial de ${DOC_MAESTRO_REL} — ¿checkout superficial (fetch-depth)?`)];
+    }
+    const setCommitsDoc = new Set(commitsDoc);
 
     const dirClaudeAgents = path.join(dirRoot, '.claude', 'agents');
     if (!fs.existsSync(dirClaudeAgents)) return [];
 
+    let gitFallo = null;
+    const cacheAgregadas = new Map();
+    const agregadasDesde = (sha) => {
+        if (!cacheAgregadas.has(sha)) {
+            const revList = ejecutar(['rev-list', `${sha}..HEAD`, '--', DOC_MAESTRO_REL]);
+            if (revList === null) { gitFallo = gitFallo || `git rev-list ${sha.slice(0, 7)}..HEAD`; cacheAgregadas.set(sha, null); return null; }
+            const posteriores = revList.split('\n').filter(Boolean);
+            const diff = posteriores.length ? ejecutar(['diff', '-U0', `${sha}..HEAD`, '--', DOC_MAESTRO_REL]) : '';
+            if (diff === null) { gitFallo = gitFallo || `git diff ${sha.slice(0, 7)}..HEAD`; cacheAgregadas.set(sha, null); return null; }
+            const agregadas = diff.split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++')).join('\n');
+            cacheAgregadas.set(sha, { posteriores, agregadas });
+        }
+        return cacheAgregadas.get(sha);
+    };
+
     const alertas = [];
-    for (const archivo of fs.readdirSync(dirClaudeAgents).filter(f => f.endsWith('.md'))) {
-        // Universal (corregido 2026-08-13, orden explícita: "escalable como
-        // Lego" — antes solo revisaba agentes cuyo archivo contuviera
-        // literalmente la frase "Vigencia del estado", pegada a mano por
-        // archivo. Eso dejó a 008 sin cobertura (nadie le pegó el párrafo) y
-        // habría dejado a cualquier agente futuro igual de descubierto por
-        // defecto — exactamente lo contrario de "Lego": cada pieza nueva
-        // requería una edición manual para integrarse. Ahora aplica a TODOS
-        // los agentes que el PMU descubre automáticamente, sin excepción ni
-        // opt-in — un agente nuevo queda cubierto el día que nace.
-        const rutaRel = path.join('.claude', 'agents', archivo);
-        const fechaAgente = fechaUltimoCommit(rutaRel);
-        if (fechaAgente && fechaDoc > fechaAgente) {
+    for (const archivo of fs.readdirSync(dirClaudeAgents).filter(f => f.endsWith('.md')).sort()) {
+        const { doc_revisado } = leerFrontmatterAgente(path.join(dirClaudeAgents, archivo));
+        if (!doc_revisado) {
+            alertas.push({ tipo: 'agente_sin_acuse', agente: archivo, razon: `Sin campo "doc_revisado" en el frontmatter — no hay constancia de qué versión de ${DOC_MAESTRO_REL} revisó.` });
+            continue;
+        }
+        // rev-parse --quiet sale con código ≠ 0 ante un sha desconocido: aquí
+        // null significa "acuse inválido", no "git caído" (git ya respondió
+        // al log de arriba).
+        const sha = ejecutar(['rev-parse', '--verify', '--quiet', `${doc_revisado}^{commit}`]);
+        if (!sha || !setCommitsDoc.has(sha)) {
+            alertas.push({ tipo: 'agente_acuse_invalido', agente: archivo, razon: `doc_revisado "${doc_revisado}" no es un commit que haya tocado ${DOC_MAESTRO_REL}.` });
+            continue;
+        }
+        const datos = agregadasDesde(sha);
+        if (datos === null) continue; // se reporta una sola alerta_git_inaccesible al final
+        const { posteriores, agregadas } = datos;
+        if (posteriores.length && mencionaAgente(agregadas, archivo)) {
             alertas.push({
-                agente: archivo,
-                razon: 'docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md se actualizó después que este agente — verificar si hay una sección nueva que le compete.',
+                tipo: 'agente_desactualizado', agente: archivo,
+                razon: `${DOC_MAESTRO_REL} tiene ${posteriores.length} commit(s) posteriores a ${sha.slice(0, 7)} que mencionan a este agente — revisar y actualizar doc_revisado.`,
+                commits_posteriores: posteriores.map(c => c.slice(0, 7)),
             });
         }
     }
+    if (gitFallo) alertas.push(alertaGitInaccesible(gitFallo));
     return alertas;
 }
+
+// Historia: la versión 2026-08-13 ("escalable como Lego") ya aplicaba a TODOS
+// los agentes descubiertos sin opt-in por texto — se conserva ese criterio de
+// universalidad; lo retirado 2026-09-26 es solo la comparación por fechas.
 
 // Parseo de frontmatter minimalista (sin dependencia de una librería YAML) —
 // solo lee `name:` y `tools:`, que es todo lo que el PMU necesita mostrar.
@@ -1050,7 +1348,15 @@ function leerFrontmatterAgente(rutaMd) {
     if (gateLine) {
         try { gate = JSON.parse(gateLine); } catch { gate = null; }
     }
-    return { nombre, tools, gate };
+    // 2026-09-26 (ADR-0002): acuse de vigencia y datos para el mapa de mando
+    // del 001 — description (propósito) y skills.
+    // Comentario YAML opcional al final (p. ej. "# acuse administrativo")
+    // para dejar constancia del tipo de acuse sin romper el parseo.
+    const doc_revisado = (bloque.match(/^doc_revisado:\s*([0-9a-f]{7,40})\s*(?:#.*)?$/m) || [])[1] || null;
+    const descripcion = (bloque.match(/^description:\s*(.+)$/m) || [])[1]?.trim() || null;
+    const skillsLine = (bloque.match(/^skills:\s*(.+)$/m) || [])[1]?.trim();
+    const skills = skillsLine ? skillsLine.split(',').map(s => s.trim()).filter(Boolean) : [];
+    return { nombre, tools, gate, doc_revisado, descripcion, skills };
 }
 
 // Auto-descubrimiento: cualquier .md nuevo en .claude/agents/ aparece en el
@@ -1076,6 +1382,28 @@ function mapaGatesPorPrefijo() {
         mapa[agentId.slice(0, 3)] = { veredictoPath: cfg.veredictoPath, tipo: 'subgate' };
     }
     return mapa;
+}
+
+// Mapa de mando del 001 (2026-09-26, ADR-0002 §2.7): por agente, propósito,
+// skills, gate y permisos, y si la matriz de ruteo del 001 lo enruta
+// ("→ `00X_…`" en .claude/agents/001-orquestador-maestro.md). El 001 es el
+// mando: se marca mapeado por definición. No le otorga herramientas.
+function generarMapaDelegacion001(agentes, gatesPorPrefijo) {
+    const ruta001 = path.join(dirRoot, '.claude', 'agents', '001-orquestador-maestro.md');
+    const texto001 = fs.existsSync(ruta001) ? fs.readFileSync(ruta001, 'utf8') : '';
+    const enrutados = new Set([...texto001.matchAll(/→\s*`(\d{3})_[A-Z0-9_]+`/g)].map(m => m[1]));
+    return agentes.map(a => {
+        const gate = a.prefijo ? gatesPorPrefijo[a.prefijo] : null;
+        return {
+            archivo: a.archivo,
+            prefijo: a.prefijo,
+            proposito: a.descripcion ? a.descripcion.slice(0, 160) : null,
+            skills: a.skills || [],
+            gate: gate ? gate.tipo : 'sin_gate_propio',
+            permisos: a.tools,
+            mapeado_por_001: a.prefijo === '001' || enrutados.has(a.prefijo),
+        };
+    });
 }
 
 function generarEstadoOperativo() {
@@ -1116,10 +1444,35 @@ function generarEstadoOperativo() {
     // regenera en cada --check-gate/--aprobar-*/--pmu-status, verificables en
     // disco la próxima vez que alguien (humano o 001 vía su propia
     // herramienta Read) lea el PMU, no solo en el instante en que ocurrieron.
+    const mapaMando = generarMapaDelegacion001(agentes, gatesPorPrefijo);
     const alertasActivas = [
         ...analizarTelemetriaPMU().map(a => ({ tipo: 'rechazos_consecutivos', ...a })),
         ...verificarVigenciaAgentes().map(a => ({ tipo: 'agente_desactualizado', ...a })),
+        ...mapaMando.filter(m => !m.mapeado_por_001).map(m => ({
+            tipo: 'agente_sin_mando', agente: m.archivo,
+            razon: 'No aparece en la matriz de ruteo de .claude/agents/001-orquestador-maestro.md — el 001 no puede delegarle.',
+        })),
     ];
+
+    // Proveedor de IA (ADR-0002 §2.4) — estado del breaker y alertas críticas,
+    // derivadas de agents/pmu/circuit_breaker.json. Nunca incluye la key.
+    let cfgProveedor;
+    try {
+        const c = proveedorIA.resolverConfig();
+        cfgProveedor = { proveedor: c.proveedor, modelo: c.modelo, base_url: c.baseUrl, key_configurada: Boolean(c.key) };
+    } catch (e) {
+        cfgProveedor = { proveedor: process.env.GATE_PROVIDER || 'nim', error_config: e.codigo || String(e.message) };
+    }
+    const breaker = proveedorIA.leerBreaker(BREAKER_PATH);
+    const alertasProveedor = proveedorIA.alertasDeProveedor(breaker, cfgProveedor.proveedor, cfgProveedor.modelo);
+    if (cfgProveedor.error_config || cfgProveedor.key_configurada === false) {
+        alertasProveedor.push({
+            tipo: 'ALERTA CRÍTICA DE PROVEEDOR EXTERNO', proveedor: cfgProveedor.proveedor, modelo: cfgProveedor.modelo || null,
+            severidad: 'critica', efecto: 'bloqueo_duro',
+            ultimo_error: { codigo: cfgProveedor.error_config || `${cfgProveedor.proveedor === 'nim' ? 'NVIDIA' : 'ANTHROPIC'}_API_KEY_ausente`, categoria: 'config' },
+            accion: 'Configurar la key / base URL del proveedor en .env — el gate no puede evaluar nada hasta entonces.',
+        });
+    }
 
     return {
         generado: new Date().toISOString(),
@@ -1127,6 +1480,18 @@ function generarEstadoOperativo() {
         agentes_con_gate: tablero.filter(a => a.gate !== 'sin_gate_propio').length,
         agentes_con_permiso_escritura: tablero.filter(a => a.permiso_escritura).map(a => a.nombre || a.archivo),
         alertas_activas: alertasActivas,
+        alertas_criticas_proveedor: alertasProveedor,
+        proveedor_ia: { ...cfgProveedor, circuit_breaker: proveedorIA.breakerPublico(breaker) },
+        // Modo local/offline (2026-09-25): la API es opcional para el flujo
+        // de commit — ver bloque SOFT-FAIL DE API. Actualizado 2026-09-26
+        // (ADR-0002) con la clasificación del proveedor NIM.
+        politica_api: {
+            modo: 'soft_fail',
+            soft_fail_habilitado_env: process.env.GATE_SOFT_FAIL === 'true',
+            disparadores: ['http_402', 'http_400_cuota', 'http_429', 'http_5xx', 'timeout_sin_respuesta', 'timeout_inactividad', 'timeout_total', 'stream_incompleto', 'sin_respuesta', 'circuito_abierto(cuota|caida)'],
+            bloqueo_duro: ['rechazo_real_del_modelo', 'respuesta_no_parseable', 'http_401/403 (ALERTA CRÍTICA)', 'modelo_no_disponible (ALERTA CRÍTICA)', 'API_KEY_ausente', 'BASE_URL_no_oficial', 'chequeos_estaticos_006'],
+        },
+        mapa_delegacion_001: mapaMando,
         agentes: tablero,
     };
 }
@@ -1425,13 +1790,17 @@ if (process.argv.includes('--check-gate')) {
     const veredicto = validarDisenoAprobado(listarCarpetasAgentes());
     if (!veredicto.aprobado) {
         console.error('\n🛑 [GATE_ARQUITECTURA] Sin aprobación vigente: ' + veredicto.razon);
-        console.error('   Ejecuta: node agents/architecture-gate.cjs --aprobar-diseno');
+        console.error('   Ejecuta: node agents/architecture-gate.cjs --aprobar-diseno  (sin saldo de API: soft-fail si GATE_SOFT_FAIL=true o --permitir-soft-fail --autorizado-por "nombre")');
         registrarTelemetria({ tipo: 'check-gate', subsistema: '002_principal', resultado: 'rechazado', razon: veredicto.razon });
         escribirEstadoOperativo();
         process.exitCode = 1;
         return;
     }
-    console.log(`✅ [GATE_ARQUITECTURA] Aprobación vigente (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
+    if (veredicto.origen === 'soft_fail_api') {
+        console.warn(`🟡 [GATE_ARQUITECTURA] SOFT-FAIL vigente (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp}) — SIN evaluación de 002: API no disponible (${veredicto.softFail.codigo}), autorizado por ${veredicto.softFail.autorizado_por}.`);
+    } else {
+        console.log(`✅ [GATE_ARQUITECTURA] Aprobación vigente (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
+    }
     if (veredicto.origen === 'excepcion_manual') {
         console.warn(`   🟡 EXCEPCIÓN MANUAL, no veredicto de la API de 002 — ${JSON.stringify(veredicto.excepcionManual)}`);
     }
@@ -1454,6 +1823,9 @@ if (process.argv.includes('--check-gate')) {
             // poder leer esta línea y concluir que el propio agente aprobó.
             console.log(`🟡 [SUBGATE_${agentId}] DIFERIDO por 002_ARQUITECTO_DE_SOFTWARE — ${resultado.razon}`);
             registrarTelemetria({ tipo: 'check-gate', subsistema: agentId, resultado: 'diferido', razon: resultado.razon });
+        } else if (resultado.origen === 'soft_fail_api') {
+            console.warn(`🟡 [SUBGATE_${agentId}] SOFT-FAIL vigente — SIN evaluación de ${agentId}: API no disponible (${resultado.softFail.codigo}), autorizado por ${resultado.softFail.autorizado_por}.`);
+            registrarTelemetria({ tipo: 'check-gate', subsistema: agentId, resultado: 'soft_fail', origen: resultado.origen });
         } else {
             console.log(`✅ [SUBGATE_${agentId}] Aprobación vigente sobre los archivos relevantes de este commit.`);
             if (resultado.origen === 'excepcion_manual') {
@@ -1483,11 +1855,16 @@ if (process.argv.includes('--check-gate')) {
         registrarTelemetria({ tipo: 'alerta_pmu', subsistema: alerta.subsistema, resultado: 'advertencia', razon: `${alerta.cantidad} rechazos consecutivos` });
     }
     for (const alerta of verificarVigenciaAgentes()) {
-        console.warn(`\n⚠️  [PMU] ${alerta.agente}: ${alerta.razon}`);
-        registrarTelemetria({ tipo: 'alerta_pmu', subsistema: alerta.agente, resultado: 'advertencia', razon: alerta.razon });
+        console.warn(`\n⚠️  [PMU] ${alerta.agente || 'git'}: ${alerta.razon}`);
+        registrarTelemetria({ tipo: 'alerta_pmu', subsistema: alerta.agente || alerta.tipo, resultado: 'advertencia', razon: alerta.razon });
     }
 
-    escribirEstadoOperativo();
+    const estadoPmu = escribirEstadoOperativo();
+    // Proveedor de IA (2026-09-26) — solo informa; --check-gate no llama a la
+    // API. El bloqueo real ocurre en --aprobar-* si el fallo es crítico.
+    for (const al of estadoPmu.alertas_criticas_proveedor) {
+        console.warn(`\n🚨 [PMU] ${al.tipo} (${al.proveedor}, ${al.ultimo_error?.codigo || 'sin código'}) — ${al.accion}`);
+    }
     process.exitCode = (subgatesOk && chequeosOk) ? 0 : 1;
     return;
 }
@@ -1500,14 +1877,29 @@ if (process.argv.includes('--pmu-status')) {
     const estado = escribirEstadoOperativo();
     console.log(`\n🎖️  PUESTO DE MANDO UNIFICADO — Escuadrón Élite (${estado.generado})`);
     console.log(`   ${estado.total_agentes} agentes registrados · ${estado.agentes_con_gate} con gate técnico propio\n`);
+    const mando = new Map(estado.mapa_delegacion_001.map(m => [m.archivo, m]));
     for (const a of estado.agentes) {
         const escritura = a.permiso_escritura ? '✍️  ESCRITURA' : '👁️  solo lectura';
         const gate = a.gate === 'sin_gate_propio' ? '⚪ sin gate propio' : `🔒 ${a.gate}`;
-        const veredicto = a.ultimo_veredicto
-            ? (a.ultimo_veredicto.aprobado ? `✅ aprobado (${(a.ultimo_veredicto.timestamp || '').slice(0, 10)})` : '🛑 rechazado')
-            : '— sin veredicto registrado';
+        // Origen visible (2026-09-26): un soft-fail nunca se ve igual que
+        // una evaluación real del modelo.
+        const v = a.ultimo_veredicto;
+        const veredicto = v
+            ? (v.aprobado
+                ? (v.origen === 'api_directa' ? `✅ aprobado api_directa (${(v.timestamp || '').slice(0, 10)})` : `🟡 aprobado ${v.origen} (${(v.timestamp || '').slice(0, 10)}) — SIN evaluación del modelo`)
+                : '🛑 rechazado')
+            : (a.gate === 'sin_gate_propio' ? '— n/a' : '— sin cambios evaluados');
         console.log(`   ${a.nombre || a.archivo}`);
-        console.log(`      ${escritura} · ${gate} · ${veredicto}`);
+        console.log(`      ${escritura} · ${gate} · ${veredicto} · mando 001: ${mando.get(a.archivo)?.mapeado_por_001 ? 'sí' : 'NO'}`);
+    }
+    const pv = estado.proveedor_ia;
+    console.log(`\n   Proveedor IA: ${pv.proveedor} · ${pv.modelo || '—'} · key ${pv.key_configurada ? 'configurada' : 'AUSENTE'} · breaker ${pv.circuit_breaker.estado}`);
+    console.log(`   alertas_activas: ${estado.alertas_activas.length} · alertas_criticas_proveedor: ${estado.alertas_criticas_proveedor.length}`);
+    for (const al of estado.alertas_criticas_proveedor) {
+        console.log(`   🚨 ${al.tipo} [${al.severidad}] ${al.ultimo_error?.codigo || ''} — ${al.accion}`);
+    }
+    for (const al of estado.alertas_activas) {
+        console.log(`   ⚠️  ${al.tipo}: ${al.agente || al.subsistema || 'git'} — ${al.razon || al.ultima_razon || ''}`);
     }
     process.exitCode = 0;
     return;
@@ -1518,6 +1910,28 @@ if (process.argv.includes('--pmu-status')) {
 // (uno a la vez) y --aprobar-pendientes (todos en paralelo, ver abajo).
 // Nunca escribe en consola directamente salvo su propio resultado — el
 // caller decide cómo presentar/agregar varios resultados.
+// Registro de aprobación degradada (soft-fail): nunca se ve igual que un
+// veredicto evaluado — origen propio, sin diferimientos, responsable y
+// código de fallo explícitos.
+function construirRegistroSoftFail(firma, falloApi, permiso, evaluador) {
+    return {
+        aprobado: true,
+        origen: 'soft_fail_api',
+        soft_fail: {
+            codigo: falloApi.codigo,
+            detalle: falloApi.detalle,
+            request_id: falloApi.request_id || null,
+            autorizado_por: permiso.autorizadoPor,
+            habilitado_via: permiso.via,
+        },
+        firma,
+        timestamp: new Date().toISOString(),
+        firmado_por: `SOFT-FAIL (proveedor de IA ${process.env.GATE_PROVIDER || 'nim'} no disponible: ${falloApi.codigo}) — SIN evaluación de ${evaluador}. Autorizado por: ${permiso.autorizadoPor}`,
+        razones: [`SOFT-FAIL, no veredicto de ${evaluador}: ${falloApi.detalle}`],
+        diferimientos: [],
+    };
+}
+
 async function aprobarUnSubgate(agentId, archivosStaged) {
     const cfg = SUBGATES[agentId];
     const relevantes = archivosRelevantesPara(agentId, archivosStaged);
@@ -1525,6 +1939,17 @@ async function aprobarUnSubgate(agentId, archivosStaged) {
         return { agentId, estado: 'sin_archivos_relevantes' };
     }
     const veredicto = await pedirVeredictoSubagente(agentId, relevantes);
+    if (!veredicto.aprobado && veredicto.apiNoDisponible) {
+        const permiso = resolverPermisoSoftFail();
+        if (permiso.permitido) {
+            const firma = hashArchivosStaged(relevantes);
+            fs.writeFileSync(cfg.veredictoPath, JSON.stringify(
+                construirRegistroSoftFail(firma, veredicto.falloApi, permiso, agentId), null, 2) + '\n', 'utf8');
+            registrarTelemetria({ tipo: 'aprobar-subgate', subsistema: agentId, resultado: 'soft_fail', firma, razon: veredicto.falloApi.codigo });
+            return { agentId, estado: 'soft_fail', firma, falloApi: veredicto.falloApi };
+        }
+        veredicto.razon = `${veredicto.razon} — ${permiso.razon}`;
+    }
     if (!veredicto.aprobado) {
         registrarTelemetria({ tipo: 'aprobar-subgate', subsistema: agentId, resultado: 'rechazado', razon: veredicto.razon || null });
         return { agentId, estado: 'rechazado', razon: veredicto.razon, respuestaCruda: veredicto.respuestaCruda };
@@ -1535,7 +1960,7 @@ async function aprobarUnSubgate(agentId, archivosStaged) {
         origen: 'api_directa',
         firma,
         timestamp: new Date().toISOString(),
-        firmado_por: `${agentId} (${path.relative(dirRoot, cfg.promptPath)}, vía API Anthropic)`,
+        firmado_por: firmaEvaluador(agentId, path.relative(dirRoot, cfg.promptPath).replace(/\\/g, '/'), veredicto),
         veredictoCompleto: veredicto.veredictoCompleto,
     }, null, 2) + '\n', 'utf8');
     registrarTelemetria({ tipo: 'aprobar-subgate', subsistema: agentId, resultado: 'aprobado', firma });
@@ -1558,6 +1983,12 @@ if (process.argv.includes('--aprobar-subgate')) {
             : `\n🔎 [${agentId}] Evaluando ${relevantes.length} archivo(s) staged contra ${path.basename(SUBGATES[agentId].promptPath)}...`);
         const r = await aprobarUnSubgate(agentId, archivosStaged);
         if (r.estado === 'sin_archivos_relevantes') { process.exitCode = 0; return; }
+        if (r.estado === 'soft_fail') {
+            console.warn(`\n🟡 [SUBGATE_${agentId}] SOFT-FAIL — API no disponible (${r.falloApi.codigo}); commit permitido SIN evaluación de ${agentId}. Firma: ${r.firma}`);
+            escribirEstadoOperativo();
+            process.exitCode = 0;
+            return;
+        }
         if (r.estado === 'rechazado') {
             console.error(`\n🛑 [SUBGATE_${agentId}] Rechazado — o no se pudo evaluar.`);
             if (r.razon) console.error(`   - ${r.razon}`);
@@ -1601,6 +2032,8 @@ if (process.argv.includes('--aprobar-pendientes')) {
         for (const r of resultados) {
             if (r.estado === 'aprobado') {
                 console.log(`✅ [SUBGATE_${r.agentId}] Aprobado. Firma: ${r.firma}`);
+            } else if (r.estado === 'soft_fail') {
+                console.warn(`🟡 [SUBGATE_${r.agentId}] SOFT-FAIL — API no disponible (${r.falloApi.codigo}); SIN evaluación. Firma: ${r.firma}`);
             } else if (r.estado === 'rechazado') {
                 algunRechazo = true;
                 console.error(`🛑 [SUBGATE_${r.agentId}] Rechazado — o no se pudo evaluar.`);
@@ -1621,6 +2054,22 @@ if (process.argv.includes('--aprobar-diseno')) {
     (async () => {
         console.log('\n🔎 [Agente Arquitecto] Evaluando git diff HEAD contra .claude/agents/002-arquitecto-de-software.md...');
         const veredicto = await pedirVeredictoArquitecto();
+
+        if (!veredicto.aprobado && veredicto.apiNoDisponible) {
+            const permiso = resolverPermisoSoftFail();
+            if (permiso.permitido) {
+                const firma = hashEstado(listarCarpetasAgentes());
+                fs.writeFileSync(APROBACION_PATH, JSON.stringify(
+                    construirRegistroSoftFail(firma, veredicto.falloApi, permiso, '002_ARQUITECTO_DE_SOFTWARE'), null, 2) + '\n', 'utf8');
+                console.warn(`\n🟡 [GATE_ARQUITECTURA] SOFT-FAIL — proveedor de IA no disponible (${veredicto.falloApi.codigo}).`);
+                console.warn(`   Commit permitido SIN evaluación de 002. Autorizado por: ${permiso.autorizadoPor} (vía ${permiso.via}). Firma: ${firma}`);
+                registrarTelemetria({ tipo: 'aprobar-diseno', subsistema: '002_principal', resultado: 'soft_fail', firma, razon: veredicto.falloApi.codigo });
+                escribirEstadoOperativo();
+                process.exitCode = 0;
+                return;
+            }
+            veredicto.razones = [...(veredicto.razones || []), permiso.razon];
+        }
 
         if (!veredicto.aprobado) {
             console.error('\n🛑 [GATE_ARQUITECTURA] El Agente Arquitecto RECHAZÓ el diseño — o no pudo evaluarlo.');
@@ -1643,7 +2092,7 @@ if (process.argv.includes('--aprobar-diseno')) {
             origen: 'api_directa',
             firma,
             timestamp: new Date().toISOString(),
-            firmado_por: 'Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API Anthropic)',
+            firmado_por: firmaEvaluador('Agente Arquitecto', '.claude/agents/002-arquitecto-de-software.md', veredicto),
             razones: veredicto.razones,
             diferimientos: veredicto.diferimientos || [],
         }, null, 2) + '\n', 'utf8');
@@ -1871,7 +2320,9 @@ async function ejecutarConResiliencia(carpeta, comando) {
 }
 
 // OPERACIÓN 4 — Contrato de Salida (Audit Trail): artefacto obligatorio en disco al finalizar.
-const AUDIT_TRAIL_PATH = path.join(dirAgents, '001-orquestador-maestro', 'orquestacion_log.jsonl');
+// Reubicado 2026-09-25 a agents/pmu/ — la carpeta legacy 001 se movió a
+// _legacy_backup/ y el mkdir recursivo de escribirAuditTrail() la recrearía.
+const AUDIT_TRAIL_PATH = path.join(dirAgents, 'pmu', 'orquestacion_log.jsonl');
 
 function escribirAuditTrail(registro) {
     fs.mkdirSync(path.dirname(AUDIT_TRAIL_PATH), { recursive: true });
@@ -1903,7 +2354,11 @@ async function ejecutarTodosLosAgentes() {
             console.error('   Para aprobar: node agents/architecture-gate.cjs --aprobar-diseno');
             process.exit(1);
         }
-        console.log(`\n✅ [GATE_ARQUITECTURA] Diseño aprobado por el Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE) (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
+        if (veredicto.origen === 'soft_fail_api') {
+            console.warn(`\n🟡 [GATE_ARQUITECTURA] SOFT-FAIL vigente — SIN evaluación de 002 (${veredicto.softFail.codigo}) (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
+        } else {
+            console.log(`\n✅ [GATE_ARQUITECTURA] Diseño aprobado por el Agente Arquitecto (002_ARQUITECTO_DE_SOFTWARE) (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
+        }
 
         for (const carpeta of carpetasAgentes) {
             const rutaCarpeta = path.join(dirAgents, carpeta);
@@ -1969,6 +2424,14 @@ async function ejecutarTodosLosAgentes() {
     console.log(`   Agentes ejecutados: ${agentesEjecutados}`);
     console.log(`   Exitosos: ${agentesExitosos}`);
     console.log(`   Fallidos: ${agentesFallidos}`);
+    if (agentesEjecutados === 0) {
+        // Esperado desde 2026-09-25: las únicas carpetas con ejecutables
+        // (Sistema A legacy) se movieron a _legacy_backup/ y ese directorio se
+        // eliminó el 2026-09-26 (recuperable desde ac1721c); agents/00X-* restantes
+        // son punteros (solo README.md). Los agentes reales viven en
+        // .claude/agents/ y no los ejecuta este batch.
+        console.warn('\n⚠️ Batch sin ejecutables: agents/ solo contiene carpetas puntero (Sistema A legacy eliminado 2026-09-26; recuperable desde el commit ac1721c).');
+    }
 
     if (agentesFallidos > 0) {
         console.log('\n⚠️ ADVERTENCIA: Algunos agentes presentaron errores.');
@@ -2010,7 +2473,7 @@ async function ejecutarTodosLosAgentes() {
         duracion_total_ms: finBatchMs - inicioBatchMs,
         resultados: resultadosAuditTrail,
     });
-    console.log(`📊 [AUDIT_TRAIL] agents/001_ORQUESTADOR_MAESTRO/orquestacion_log.jsonl (append, +1 linea, ${resultadosAuditTrail.length} resultado(s))`);
+    console.log(`📊 [AUDIT_TRAIL] ${path.relative(dirRoot, AUDIT_TRAIL_PATH).replace(/\\/g, '/')} (append, +1 linea, ${resultadosAuditTrail.length} resultado(s))`);
 
     console.log('\n✅ OBRA FINALIZADA: Director Jairo Antonio Salinas Velasco | Asfáltica S.A.S.');
     console.log('------------------------------------------------------------');
@@ -2040,4 +2503,6 @@ module.exports = {
     extraerJSONConCampo, asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
     validarFormaVeredicto, VEREDICTO_SCHEMAS,
     validarOrigenVeredicto, ORIGENES_VALIDOS, HORAS_MAX_EXCEPCION_MANUAL,
+    clasificarFalloApi, resolverPermisoSoftFail, construirRegistroSoftFail,
+    mencionaAgente, generarMapaDelegacion001, consultarModelo, BREAKER_PATH,
 };

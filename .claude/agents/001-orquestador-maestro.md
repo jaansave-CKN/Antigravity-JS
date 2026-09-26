@@ -4,6 +4,7 @@ description: CEO y Kernel Determinista de Antigravity OS. Coordina el Escuadrón
 tools: Read, Grep, Glob, Agent, WebSearch, WebFetch
 model: inherit
 skills: writing-plans, executing-plans
+doc_revisado: 01b36ed1695b987ea14e7297ebadafdcf29a2521  # acuse administrativo (orden del usuario 2026-09-26) — ediciones del dictamen 007 pendientes
 ---
 
 # SYSTEM CORE: ANTIGRAVITY OS — KERNEL DETERMINISTA

@@ -2180,3 +2180,540 @@ commitear el trabajo de cierre de esta misma sesión. Los 2 hallazgos que sí er
 y 4) están cerrados y verificados (`test:gate` 135/135, boot limpio, curl real post-fix). Detalle completo,
 tabla de validación cruzada y scoring numérico: reporte forense entregado en el chat de esta sesión (no
 duplicado aquí — este documento registra arquitectura as-built, no transcribe el reporte conversacional completo).
+
+## §0-AL. POLÍTICA SOFT-FAIL DE API + DESACTIVACIÓN DE EXCEPCIONES VENCIDAS + AISLAMIENTO DEL SISTEMA A LEGACY (2026-09-25)
+
+Contexto: cierra el Hallazgo 3 de `§0-AK` (gate bloqueado por excepción manual caducada) sin volver a abrir una
+excepción manual, y cambia la política del gate ante la falta de saldo de la API de Anthropic — causa raíz
+recurrente de `§0-AI`, `§0-AJ.1/.2` y `§0-AK` Hallazgo 3. **Estado de persistencia al escribir esta sección:
+todos los cambios están en el working tree, SIN commit** (según el reporte de la sesión que ejecutó el trabajo;
+`007` no tiene `Bash` y no pudo correr `git status` por sí mismo — lo verificado aquí es el estado en disco, ver
+"Qué no se verificó" al final).
+
+### 0-AL.1 Mecanismo nuevo — origen `soft_fail_api` (`agents/architecture-gate.cjs`, bloque "SOFT-FAIL DE API", líneas ~582-649)
+
+- `ORIGENES_VALIDOS = ['api_directa', 'excepcion_manual', 'soft_fail_api']` (línea 592). Tercer origen legítimo
+  junto a los dos de `§0-AJ.2`.
+- `clasificarFalloApi(e)` (líneas 598-610): devuelve `{codigo, detalle, request_id}` solo para fallos de
+  **disponibilidad** — 402 (`http_402_sin_saldo`), 400 cuyo mensaje contiene "credit balance is too low"
+  (`http_400_sin_saldo`), 429, 529, cualquier 5xx, y `Anthropic.APIConnectionError` (`sin_respuesta`). Cualquier
+  otro error (400 genérico, 401, error no-API) devuelve `null` → bloqueo duro. Se invoca en el `catch` de
+  `pedirVeredictoArquitecto()` (línea 432) y en el de `pedirVeredictoSubagente()` (línea 937), que marcan
+  `apiNoDisponible: true`.
+- `resolverPermisoSoftFail(argv, env)` (líneas 615-630): opt-in obligatorio con responsable declarado —
+  `--permitir-soft-fail --autorizado-por "nombre"`, o `GATE_SOFT_FAIL=true` + `GATE_SOFT_FAIL_AUTORIZADO_POR` en
+  `.env`. Opt-in sin responsable → no permitido. `ANTHROPIC_BASE_URL` distinto de `https://api.anthropic.com` lo
+  deshabilita aunque haya opt-in (evita provocar un soft-fail a voluntad apuntando a un host que devuelve 402/529).
+- `construirRegistroSoftFail(firma, falloApi, permiso, evaluador)` (líneas 1611-1628): escribe `aprobado:true`,
+  `origen:'soft_fail_api'`, `soft_fail:{codigo, detalle, request_id, autorizado_por, habilitado_via}`,
+  `firmado_por` con el texto literal "SIN evaluación de <evaluador>", y `diferimientos: []`. Atado a la misma
+  firma hash del estado actual — cualquier cambio posterior en el alcance del hash la invalida igual que a una
+  aprobación real.
+- `validarOrigenVeredicto()` (líneas 639-649): para `soft_fail_api` exige `soft_fail.codigo` y
+  `soft_fail.autorizado_por` no vacíos, y rechaza cualquier `diferimientos` no vacío ("no hubo salida del
+  modelo" — un soft-fail no puede diferir subgates, cierre coherente con `§0-AH`).
+- Puntos de escritura: `--aprobar-diseno` (líneas 1753-1767, gate principal), `aprobarUnSubgate()` (líneas
+  1637-1644, usado por `--aprobar-subgate` y `--aprobar-pendientes`), cada uno registra en telemetría
+  `resultado:'soft_fail'`.
+- Visibilidad: `--check-gate` imprime la **línea principal** en 🟡 ("SOFT-FAIL vigente … SIN evaluación de 002")
+  en vez de ✅ cuando el origen es `soft_fail_api` (líneas 1514-1518); igual para subgates (línea 1542) y para el
+  batch legacy `ejecutarTodosLosAgentes()` (líneas 2052-2056).
+- **Bloqueo duro que se mantiene** (también declarado en el PMU, `politica_api.bloqueo_duro`, líneas 1204-1209):
+  rechazo real del modelo, respuesta no parseable, `ANTHROPIC_API_KEY` ausente (líneas 383-384 y 900-901 retornan
+  antes de llamar a la API, sin `apiNoDisponible`), `ANTHROPIC_BASE_URL` no oficial, y los chequeos estáticos de
+  `006`. `agents/pmu/estado_operativo.json` (generado 2026-09-25T18:24:07Z) ya contiene la clave `politica_api`.
+
+```mermaid
+flowchart TD
+    A["--aprobar-diseno / --aprobar-subgate / --aprobar-pendientes"] --> K{"ANTHROPIC_API_KEY presente?"}
+    K -- no --> R1["🛑 rechazo duro (config)"]
+    K -- sí --> API["Llamada a API de Anthropic"]
+    API -- respuesta --> P{"JSON parseable y aprobado:true?"}
+    P -- sí --> OK["origen: api_directa ✅"]
+    P -- no --> R2["🛑 rechazo duro (veredicto real o no parseable)"]
+    API -- excepción --> C{"clasificarFalloApi(e)"}
+    C -- null: 400 genérico / 401 / otro --> R3["🛑 rechazo duro"]
+    C -- 402 / 400 sin saldo / 429 / 529 / 5xx / sin_respuesta --> S{"resolverPermisoSoftFail()"}
+    S -- "BASE_URL no oficial, sin opt-in o sin responsable" --> R4["🛑 rechazo + razón del permiso"]
+    S -- permitido --> SF["construirRegistroSoftFail(): origen soft_fail_api, diferimientos []"]
+    SF --> CG["--check-gate: 🟡 en línea principal, commit procede"]
+```
+
+**Revisión de diseño por `002`**: según el reporte de la sesión, `002` revisó el diseño vía canal Agent tool; la
+primera versión fue **RECHAZADA** con 5 ajustes (clave ausente no debe disparar soft-fail; opt-in con
+responsable; 🟡 en la línea principal; cubrir batch/audit trail; actualizar `AGENTS.md §IV`), todos
+incorporados. **No hubo segundo veredicto formal de `002` sobre la versión corregida.** Evidencia en disco de 4
+de los 5 ajustes: línea 383-384/900-901 (clave ausente), líneas 615-630 (opt-in con responsable), líneas 1514-1518
+(🟡 principal), líneas 2052-2056 (batch). El quinto (`AGENTS.md §IV`) está **parcialmente** reflejado — ver
+0-AL.5.
+
+**Evidencia real de uso**: `agents/diseno_aprobado.json` = `origen:"soft_fail_api"`, `codigo:"http_400_sin_saldo"`,
+`request_id:"req_011CfQdBnoEjqMG2473JGLqS"`, `autorizado_por:"Jairo Antonio Salinas Velasco"`,
+`habilitado_via:"env"`, `timestamp 2026-09-25T18:23:37.225Z`, `diferimientos: []`. La API respondió **HTTP 400**
+con "Your credit balance is too low", no 402 — motivo por el que existe el código `http_400_sin_saldo`.
+Telemetría: `agents/pmu/telemetria.jsonl` línea 1210 (`aprobar-diseno`, `resultado:"soft_fail"`) y línea 1211
+(`check-gate`, `resultado:"aprobado"`, `origen:"soft_fail_api"`, misma firma `382e8c47…`). *(Actualización
+2026-09-25: esta primera firma fue reemplazada el mismo día por una segunda aprobación soft-fail, `eb521cfa…`
+de las 18:55:04Z, que es la vigente. Ver la actualización de 0-AL.4.)*
+
+**Tests**: `scripts/architecture-gate.test.cjs` contiene 75 declaraciones `test(` (conteo estático). Las nuevas de
+esta ronda están en líneas 767-821 (clasificarFalloApi ×2, resolverPermisoSoftFail ×4, validarOrigenVeredicto
+soft_fail ×1, validarDisenoAprobado soft_fail ×1 = 8); la de línea 674 (`ORIGENES_VALIDOS`) cubre el tercer
+origen. Resultado 75/75 en verde: reportado por la sesión, **no re-ejecutado por `007`** (sin `Bash`).
+
+**Implicación de gobernanza (registro, no bloqueo)**: con `GATE_SOFT_FAIL=true` persistente en `.env`, cualquier
+commit hecho mientras la API siga sin saldo pasa sin evaluación de `002` ni de subgates, con 🟡 como única señal.
+El Axioma II.1 de `AGENTS.md` ya lo declara explícitamente. La contención real es: responsable nominal
+obligatorio, origen distinguible en disco/telemetría/PMU, y firma atada al estado. El riesgo residual es que el
+🟡 se normalice; no existe hoy mecanismo que caduque el soft-fail por tiempo (a diferencia de `excepcion_manual`,
+tope `HORAS_MAX_EXCEPCION_MANUAL = 6`) — queda a decisión de `002`/usuario si hace falta.
+
+### 0-AL.2 Excepciones manuales vencidas del 2026-09-05 — desactivadas
+
+Telemetría confirma las 3 excepciones de `§0-AK`: `002_principal` expira `2026-09-05T03:31:26Z` (línea 1141),
+`005_INGENIERO_BACKEND` expira `2026-09-05T04:15:32Z` (línea 1167), `006_DEVSECOPS_INFRAESTRUCTURA` expira
+`2026-09-05T04:15:39Z` (línea 1168). Estado en disco hoy: `agents/veredicto_005.json` y `agents/veredicto_006.json`
+**no existen** (Glob de `agents/veredicto_*.json` devolvía solo 003, 004, 009, 010 al escribir esta subsección;
+tras la actualización de 0-AL.4 no devuelve ninguno); `agents/diseno_aprobado.json`
+fue reemplazado por la aprobación `soft_fail_api` de 0-AL.1. Efecto: si un commit futuro toca archivos del alcance
+de `005`/`006`, su subgate reportará "veredicto ausente" y exigirá `--aprobar-subgate` (real o soft-fail) — no
+hay excepción caducada reutilizable.
+
+### 0-AL.3 Aislamiento del Sistema A legacy — fin de la colisión de nombres con `.claude/agents/`
+
+Continuación directa de la advertencia de colisión de la nota post-`§0-AJ` (2026-08-16).
+
+- `_legacy_backup/` contiene exactamente **18 archivos** (Glob): `001-orquestador-maestro/` = 3 (`IDENTITY.md`,
+  `puente_ejecutor.py`, `run-agent`); `009-ingeniero-frontend/` = 11 (`IDENTITY.md`, 4 `Skill_001_*.cjs`, 6 de
+  `skills/paddleocr-text-recognition/`); `010-ingeniero-qa-automatizacion/` = 4 (`IDENTITY.md`,
+  `current_task.json`, 2 `Skill_002_*.cjs`). 3 + 11 + 4 = 18.
+- `agents/` ya no contiene carpetas `001`/`009`/`010`; quedan `agents/002-…` a `agents/008-…` con solo
+  `README.md` (carpetas puntero).
+- **Rescate MGA**: `docs/skills-rescate-mga/` contiene `Skill_002_Redactor_Propuestas.cjs`,
+  `Skill_002_Generador_Anexos.cjs`, `IDENTITY_redactor_tecnico_legacy.md` y `README.md`. Comparación de contenido
+  por lectura completa contra `_legacy_backup/010-ingeniero-qa-automatizacion/skills/`: **idénticos línea a línea**
+  (39 y 29 líneas). El README declara SHA-256 verificado; `007` no pudo recalcular el hash. El README también
+  documenta el alcance honesto: generador DOCX básico + plantilla de texto fijo, **no** metodología MGA (sin árbol
+  de problemas, cadena de valor, indicadores ni ficha DNP), sin consumidores en `src/`/`server.js`/`package.json`.
+- Referencias cortadas en código/config:
+  - `ESCUADRON_ELITE['005_INGENIERO_BACKEND'].subordinados = []` con comentario "AISLADA 2026-09-25"
+    (`architecture-gate.cjs` líneas 96-101).
+  - `AUDIT_TRAIL_PATH = agents/pmu/orquestacion_log.jsonl` (línea 2020) — antes apuntaba dentro de la carpeta
+    legacy 001; el `mkdir` recursivo de `escribirAuditTrail()` la habría recreado.
+  - Aviso "Batch sin ejecutables" cuando `agentesEjecutados === 0` (líneas 2122-2128).
+  - `skills/ag_skills_registry.json` → `"version": "4.2.0"`, sección `legacy_aislado` (3 carpetas, fecha
+    2026-09-25) y `skills_rescate_mga` con nota (líneas 27-37, 211-220).
+  - Advertencias "Legacy homónimo aislado (2026-09-25)" en `.claude/agents/009-ingeniero-frontend.md:18` y
+    `.claude/agents/010-ingeniero-qa-automatizacion.md:14`.
+  - `AGENTS.md` línea 40 (nota 2026-09-25 en la entrada de `001`) y Axioma II.1 (línea 22, soft-fail).
+- `public/estado_antigravity.json`: reportado como regenerado; `007` confirmó que existe pero no pudo validar su
+  contenido contra el cambio (Grep de "legacy"/"generado"/"politica" sin coincidencias en ese archivo).
+
+```mermaid
+flowchart LR
+    subgraph Antes["Antes (hasta 2026-09-25)"]
+        A1["agents/001-orquestador-maestro/ (Sistema A)"] -. mismo nombre .- C1[".claude/agents/001-orquestador-maestro.md"]
+        A9["agents/009-ingeniero-frontend/ (OCR/datos)"] -. mismo nombre .- C9[".claude/agents/009-ingeniero-frontend.md"]
+        A10["agents/010-ingeniero-qa-automatizacion/ (redactor MGA)"] -. mismo nombre .- C10[".claude/agents/010-ingeniero-qa-automatizacion.md"]
+    end
+    subgraph Despues["Después"]
+        L["_legacy_backup/{001,009,010}/ — 18 archivos"]
+        M["docs/skills-rescate-mga/ — 2 skills + IDENTITY + README"]
+        P["agents/pmu/orquestacion_log.jsonl (AUDIT_TRAIL_PATH)"]
+        E[".claude/agents/*.md — única fuente del Escuadrón"]
+    end
+    A1 --> L
+    A9 --> L
+    A10 --> L
+    A10 -- copia --> M
+```
+
+### 0-AL.4 PENDIENTE ABIERTO — `veredicto_003/004/009/010.json` sin campo `origen` → **CERRADO POR TRASLADO (actualización 2026-09-25, ver al final de esta subsección)**
+
+*Texto original, conservado como registro histórico:*
+
+**No cerrado.** Los 4 archivos (timestamp `2026-08-16T00:00:00.000Z`, `firmado_por` "vía canal Agent tool de
+Claude Code, no vía script (ANTHROPIC_API_KEY de .env sin saldo)", con agent run id) **no tienen campo
+`origen`** (Grep: 0 coincidencias de `"origen"` en `agents/veredicto_*.json`). Por `validarSubgate()`
+(`architecture-gate.cjs` líneas 882-887), cualquier `--check-gate` en que aplique uno de estos subgates los
+rechazará por "Veredicto sin campo origen válido".
+
+Según el reporte de la sesión, se intentó normalizarlos hoy y la acción fue **bloqueada por el clasificador de
+permisos de Claude Code** como posible manipulación de registros de auditoría. Queda a decisión del usuario
+(opciones naturales: re-aprobar por `--aprobar-subgate` real o soft-fail cuando se toquen sus archivos, o
+autorizar explícitamente la normalización). `007` no los tocó.
+
+Contexto verificado en `agents/pmu/telemetria.jsonl`: no existe ningún rechazo por "sin campo origen" para
+003/004/009/010 — los únicos dos registrados son `002_principal` (línea 732, 2026-08-16) y `005_INGENIERO_BACKEND`
+(línea 1155, 2026-09-04). Sí existen otros rechazos de esos subgates el 2026-08-16 (líneas 583-589, 681-683: veredicto
+ausente o archivos cambiados) y 193 entradas `alerta_pmu` de desactualización documental — ninguna relacionada con
+origen. Como la firma de cada veredicto está atada a los archivos staged del 2026-08-16, cualquier commit que toque
+sus archivos exige re-aprobación de todos modos; el riesgo práctico de dejarlos así es nulo mientras no se toquen,
+pero el estado en disco no es homogéneo con la regla de `§0-AJ.2`.
+
+**Actualización 2026-09-25 (misma jornada) — estado: CERRADO POR TRASLADO.**
+
+- **Decisión del usuario**: se rechazó la ruta de inyectar `"origen"` en los 4 JSON. Según el reporte de la
+  sesión, el clasificador de permisos de Claude Code la bloqueó dos veces ("Logging/Audit Tampering" y luego
+  "Auto-Mode Bypass"), y no se modificó `settings.json` para autoconceder permisos. En su lugar, el usuario ordenó
+  y se ejecutó `git mv agents/veredicto_003.json agents/veredicto_004.json agents/veredicto_009.json
+  agents/veredicto_010.json _legacy_backup/`: contenido intacto, sin editar, registrado por git como renombre (R),
+  aún sin commit.
+- **Verificado en disco por `007`**: los 4 archivos existen solo en `_legacy_backup/` (Glob `**/veredicto_*.json`
+  → únicamente `_legacy_backup/veredicto_{003,004,009,010}.json`, ninguno queda en `agents/`).
+  `_legacy_backup/veredicto_003.json` se leyó completo: firma `1afe1677…`, timestamp `2026-08-16T00:00:00.000Z`,
+  `firmado_por` original, sin campo `origen`, sin cambios de contenido visibles. Grep de `"origen"` en los 4
+  trasladados → 0 (sin inyección). En `agents/` ya no hay ningún veredicto sin campo `origen`: el único JSON de
+  aprobación que queda es `agents/diseno_aprobado.json` (`origen: soft_fail_api`).
+- **Efecto sobre el gate**: con el archivo ausente, `validarSubgate()` devuelve "`<agentId>` no tiene veredicto
+  (`veredicto_00X.json` ausente)" (`architecture-gate.cjs` líneas 873-874). Es el mismo estado en que quedaron
+  `005`/`006` en 0-AL.2. Si un commit toca archivos del alcance de 003/004/009/010, se exige un veredicto nuevo vía
+  `--aprobar-subgate`, y mientras no haya saldo será soft-fail con responsable (0-AL.1). No hay ruta que reutilice
+  un veredicto viejo sin procedencia.
+- **Firma del gate principal sin re-firma por este traslado**: `hashEstado()` (líneas 503-567) solo cubre las
+  subcarpetas de `agents/` que devuelve `listarCarpetasAgentes()`, además de `src/`, `public/src/`,
+  `public/*.html`/`app.js`, `.claude/agents/` y el motor del gate. Los `agents/veredicto_*.json` de nivel superior
+  no entran, así que moverlos no altera la firma. La firma vigente es
+  `eb521cfae295d66fc5dfb97e1858ba9d9d197b939b5cf0fd9d66db62201ffb8b` (`agents/diseno_aprobado.json`, soft-fail
+  `http_400_sin_saldo`, timestamp `2026-09-25T18:55:04.130Z`). Telemetría: línea 1224 (`aprobar-diseno`
+  soft_fail) y línea 1238 (`check-gate` 2026-09-25T20:24:29Z, `resultado:"aprobado"`, misma firma, origen
+  `soft_fail_api`). **Nota de consistencia con 0-AL.1**: la firma `382e8c47…` / `18:23:37Z` que se cita ahí fue
+  la primera aprobación soft-fail del día. Una segunda (`eb521cfa…`, 18:55:04Z, líneas 1224-1225) la reemplazó
+  antes de este traslado. Ambas son reales; la vigente es la segunda.
+- **PMU**: `agents/pmu/estado_operativo.json` (generado `2026-09-25T20:24:30.914Z`) muestra `002` con
+  `ultimo_veredicto.origen = "soft_fail_api"` y los otros 9 agentes con `ultimo_veredicto: null`.
+- **Reportado por la sesión, no re-ejecutado por `007`**: `scripts/architecture-gate.test.cjs` 75/75 y
+  `--check-gate` con exit 0 tras el traslado. La línea 1238 de telemetría es consistente con ese exit 0 del gate
+  principal.
+
+Riesgo residual: ninguno nuevo. Los 4 veredictos quedan como evidencia histórica en `_legacy_backup/` y dejan de
+ser insumo del gate.
+
+### 0-AL.5 Inconsistencias detectadas (señaladas, no corregidas — no son archivos de `007`)
+
+1. `AGENTS.md` línea 41 (entrada de `002` en §IV) sigue diciendo "`validarOrigenVeredicto()` — api_directa |
+   excepcion_manual acotada y expirable" — no menciona `soft_fail_api`. El Axioma II.1 (línea 22) sí está
+   actualizado. Es precisamente el ajuste 5 que pidió `002`; queda parcial.
+2. `architecture-gate.cjs` líneas 118-124 (comentario de `007_DOCUMENTADOR_AS_BUILD`) aún dice que
+   "`agents/010_redactor_tecnico/` en sí no se borró" — la carpeta ya está en `_legacy_backup/`. Comentario
+   obsoleto, sin efecto de ejecución.
+3. `CARPETAS_EXCLUIDAS_DEL_BATCH` (línea 465) sigue excluyendo `'001-orquestador-maestro'`, carpeta que ya no
+   existe en `agents/`. Inocuo, pero muerto.
+
+### 0-AL.6 Divisa / idempotencia
+
+Sin endpoints de mutación ni cálculos financieros nuevos en esta ronda. Única observación: la skill rescatada
+`Skill_002_Redactor_Propuestas.cjs` (línea 20) formatea el presupuesto con `Number(presupuesto).toLocaleString()`
+sin locale explícito — el texto dice "COP" pero el separador de miles depende del locale del host. No está
+conectada a producción; relevante solo si el Formulador la reutiliza.
+
+### Qué no se verificó en esta sección
+
+- Estado git (`git mv`, `git rm`, "sin commit", incluido el renombre R de los 4 veredictos de 0-AL.4): `007` no
+  tiene `Bash`; solo se verificó el estado resultante en disco.
+- Ejecución de la suite (75/75) y exit code de `--check-gate` tras el traslado de 0-AL.4: conteo estático de la
+  suite y telemetría únicamente.
+- Bloqueos del clasificador de permisos ("Logging/Audit Tampering", "Auto-Mode Bypass") y que `settings.json` no
+  se tocó: reporte de la sesión, sin artefacto verificable por `007`.
+- Estado de pendientes de esta sección al cierre: 0-AL.4 **cerrado por traslado**. Siguen abiertas las
+  inconsistencias de 0-AL.5 (sin dueño que las haya confirmado) y el riesgo de soft-fail sin caducidad por tiempo
+  (0-AL.1).
+- Revisión de `002` (rechazo inicial + 5 ajustes): no hay artefacto en disco de ese veredicto; se registra como
+  reporte de la sesión, con evidencia en código de 4 de 5 ajustes.
+- Hash SHA-256 del rescate MGA: verificado solo por lectura de contenido.
+- Contenido de `public/estado_antigravity.json` frente a este cambio.
+- PDF de este documento: no regenerado en esta ronda (`007` no tiene `Bash` para invocar Edge headless).
+
+## §0-AM. GATE SOBRE NVIDIA NIM + CIRCUIT BREAKER + VIGENCIA POR ACUSE `doc_revisado` (2026-09-26, ADR-0002)
+
+Contexto: continúa `§0-AL`. La causa raíz recurrente (la API de Anthropic sin saldo, ver `§0-AI`, `§0-AJ.1/.2`,
+`§0-AK` Hallazgo 3 y `§0-AL.1`) dejó al gate en `soft_fail_api` permanente: no evalúa ningún cambio de verdad. Esta
+ronda cambia el proveedor del gate a NVIDIA NIM (endpoint gratuito), le agrega un circuit breaker persistido y
+reemplaza la vigilancia de vigencia por fechas con un acuse explícito. Diseño: `docs/ADR/ADR-0002-gate-nim-circuit-breaker.md`,
+**estado "Propuesto"** (línea 3), pendiente del veredicto de `002` vía `--aprobar-diseno`. **Persistencia al escribir
+esta sección: working tree, SIN commit.** Rama `feat/gate-nim-circuit-breaker`. `.git/logs/refs/heads/feat/gate-nim-circuit-breaker`
+tiene una sola entrada: la creación de la rama desde `ac1721c` el 2026-09-26. `007` no tiene `Bash`, así que ese es
+el único estado git que verificó (lectura directa del reflog), sin `git status`.
+
+### 0-AM.1 Capa única de proveedor — `agents/gate-proveedor.cjs` (archivo nuevo, 363 líneas)
+
+- Constantes (líneas 18-30): `NIM_BASE_URL_OFICIAL = 'https://integrate.api.nvidia.com/v1'`,
+  `GATE_MODEL_DEFAULT = 'deepseek-ai/deepseek-v4.1-flash'` (se puede cambiar con `GATE_MODEL`), `TIMEOUT_MS = 30000`,
+  `MAX_REINTENTOS = 2` y `BREAKER_DEFAULT` con `umbral: 3` y `cooldown_s: 900`.
+- `resolverConfig()` (líneas 178-191): NIM por defecto. Anthropic se usa solo con `GATE_PROVIDER=anthropic` explícito.
+  **No hay cascada automática** NIM→Anthropic (comentario de las líneas 6-10: caer a un proveedor de pago es el
+  riesgo de cobro que el módulo corta). Si `GATE_NIM_BASE_URL` difiere de la URL oficial, el resultado es
+  `ErrorProveedor` de categoría `config`, que bloquea duro.
+- `clasificarHttp()` (líneas 70-87): 401/403 → `auth`. 402, 429 y 400 con texto de cuota o créditos → `cuota`.
+  404 y 400 de modelo retirado o no encontrado → `politica`. 5xx → `caida`. Cualquier otro 400 → `solicitud`.
+  Timeout (`AbortController`, línea 231) → `timeout_30s`/`caida`. Error de red → `sin_respuesta`/`caida`
+  (líneas 250-256).
+- `esReintentable()` (líneas 89-93): reintenta **solo** en `caida` (5xx, timeout, sin conexión) y en
+  `http_429_rate_limit`. El backoff es exponencial de 1 s y 2 s, más un jitter de 0-500 ms (línea 347). 400, 401,
+  402, 403 y 404 no se reintentan.
+- Circuit breaker persistido en `agents/pmu/circuit_breaker.json` (`leerBreaker`/`escribirBreaker`, líneas 97-108):
+  - `registrarFallo()` (líneas 144-154) abre el breaker en el primer fallo `auth`/`politica`, en cualquier fallo
+    en `semiabierto` o al llegar a 3 fallos consecutivos. `solicitud`/`config` no cuentan.
+  - `evaluarBreaker()` (líneas 120-133): con el breaker `abierto`, el gate no toca la red. Pasa a `semiabierto`
+    (1 sola llamada de prueba) cuando vence el cooldown, **o antes si el breaker se abrió por `auth` y la huella de
+    la key cambió** (rotar la credencial no espera 15 min).
+  - `huellaKey()` (líneas 112-114): primeros 12 hex del SHA-256 de la key. Es no reversible y la key nunca se
+    persiste.
+  - Con el circuito abierto, `llamarModelo()` (líneas 323-333) lanza `circuito_abierto` **heredando la categoría**
+    del fallo que lo abrió: `auth` sigue siendo bloqueo duro y no se vuelve elegible para soft-fail.
+- Datos que salen al tercero: `filtrarSecretosDiff()` (líneas 195-223) omite el contenido de `.env*` (salvo
+  `.env.example`), `*.pem`, `*.key`, `*.p12` y `*.pfx`, y redacta `nvapi-…`, `sk-ant-…`, `sk-…`, `gh?_…`, AWS keys,
+  JWT, bloques de llave privada y asignaciones `api_key/secret/token/password=…`. `redactar()` (líneas 61-68) limpia
+  todo texto de error antes de que llegue a consola, breaker o telemetría.
+- `alertasDeProveedor()` (líneas 158-174) emite `tipo: 'ALERTA CRÍTICA DE PROVEEDOR EXTERNO'`, con `efecto:
+  bloqueo_duro` si la categoría es `auth`/`politica` y `soft_fail_elegible` en los demás casos.
+
+### 0-AM.2 Cambios en `agents/architecture-gate.cjs`
+
+- `require('./gate-proveedor.cjs')` (línea 12). `BREAKER_PATH` (línea 200) queda fuera de `hashEstado()` a
+  propósito (comentario de las líneas 197-199): es estado generado y no debe autoinvalidar la firma.
+- `consultarModelo(subsistema, …)` (líneas 206-224) es el punto único de llamada para `002`
+  (`pedirVeredictoArquitecto`, línea 446) y para todos los subgates (`pedirVeredictoSubagente`, línea 962). Filtra
+  el diff, llama a `llamarModelo()` y registra en telemetría `uso_modelo` (tokens, intentos, archivos sensibles
+  omitidos) o `fallo_proveedor` (con `resultado: 'alerta_critica'` si es `auth`/`politica`). La key nunca se escribe.
+- `razonFalloProveedor()` (líneas 227-230) antepone `🚨 ALERTA CRÍTICA DE PROVEEDOR EXTERNO — ` a los fallos
+  críticos.
+- `clasificarFalloApi()` (líneas 636-656) reconoce `ErrorProveedor` (líneas 640-644): solo `cuota`/`caida`
+  devuelven un código elegible para soft-fail. `auth` (401/403), `politica` (modelo retirado), `solicitud` y
+  `config` devuelven `null`, es decir, **bloqueo duro aunque `GATE_SOFT_FAIL=true`**. Se conserva la rama anterior
+  para errores del SDK de Anthropic (líneas 645-655).
+- La validación de la key salió de `pedirVeredictoArquitecto()` (comentario de las líneas 420-422) y pasó a
+  `llamarModelo()`. `resolverPermisoSoftFail()` (líneas 666-669) aplica a `GATE_NIM_BASE_URL` el mismo veto de host
+  no oficial que ya tenía `ANTHROPIC_BASE_URL`.
+- Firma: `hashEstado()` incluye `gate-proveedor.cjs` en `payloadGateEngine` (líneas 593-598). Decide qué falla es
+  soft-fail y cuál bloquea, así que es motor del gate.
+- Vigencia (ADR-0002 §2.6), en `verificarVigenciaAgentes()` (líneas 1141-1182): se retira la comparación por fecha
+  de commit (`git log -1 --format=%ct`). Ahora cada `.claude/agents/*.md` declara `doc_revisado: <sha>` (regex en
+  `leerFrontmatterAgente`, línea 1213). Hay tres alertas:
+  - `agente_sin_acuse`: falta el campo.
+  - `agente_acuse_invalido`: el sha no es un commit que haya tocado este documento.
+  - `agente_desactualizado`: hay commits posteriores cuyas líneas **agregadas** mencionan al agente, según
+    `mencionaAgente()` (líneas 1133-1139: kebab, ID en mayúsculas o prefijo numérico aislado).
+- Mando del `001` (ADR-0002 §2.7): `generarMapaDelegacion001()` (líneas 1249-1265) lee las flechas
+  `` → `00X_…` `` de `.claude/agents/001-orquestador-maestro.md` y publica `mapa_delegacion_001` en el PMU (línea
+  1352). La alerta `agente_sin_mando` se genera en las líneas 1309-1312. No le devuelve `Write`/`Edit`/`Bash` al
+  `001`.
+- PMU: `generarEstadoOperativo()` expone `proveedor_ia` (config sin key + `circuit_breaker`) y
+  `alertas_criticas_proveedor` (líneas 1315-1342). Una key ausente o un error de configuración agrega una alerta
+  crítica (líneas 1326-1333). `politica_api.bloqueo_duro` ahora lista `http_401/403 (ALERTA CRÍTICA)` y
+  `modelo_no_disponible (ALERTA CRÍTICA)` (líneas 1346-1351).
+
+```mermaid
+flowchart TD
+    G["--aprobar-diseno (002) / --aprobar-subgate (003-010)"] --> CM["consultarModelo() — filtrarSecretosDiff()"]
+    CM --> CFG{"resolverConfig(): key presente y base URL oficial?"}
+    CFG -- no --> BD1["🛑 config — bloqueo duro, sin red"]
+    CFG -- sí --> BR{"evaluarBreaker(circuit_breaker.json)"}
+    BR -- "abierto, cooldown vigente, misma key" --> CA["circuito_abierto (hereda categoría)"]
+    BR -- "cerrado (hasta 3 intentos) / semiabierto (1 intento)" --> NIM["POST integrate.api.nvidia.com/v1/chat/completions — timeout 30 s"]
+    NIM -- 200 --> OK["registrarExito → cerrado → veredicto del modelo (Zod fail-closed)"]
+    NIM -- "429 / 5xx / timeout / sin red" --> RE{"¿quedan reintentos?"}
+    RE -- sí --> NIM
+    RE -- no --> F["registrarFallo (umbral 3 → abierto)"]
+    NIM -- "401 / 403 / 404 / modelo retirado" --> FC["registrarFallo → abierto de inmediato"]
+    NIM -- "402 / 400 de cuota" --> F
+    F --> CL{"clasificarFalloApi()"}
+    CA --> CL
+    FC --> CL
+    CL -- "cuota / caida" --> SF["soft-fail SOLO si opt-in + responsable (§0-AL.1) → 🟡"]
+    CL -- "auth / politica" --> AC["🛑 bloqueo duro + 🚨 ALERTA CRÍTICA DE PROVEEDOR EXTERNO"]
+    CL -- "solicitud" --> BD2["🛑 bloqueo duro"]
+```
+
+### 0-AM.3 Tests
+
+`tests/gate/gate-proveedor.test.cjs` tiene **16** declaraciones `test(` (conteo estático, líneas 47-268). Cubren:
+clasificación HTTP, éxito con uso de tokens, 401 sin reintento que no abre el gate, circuito abierto por 401 sin
+tocar la red, re-prueba al rotar la key, 503 con backoff, 400/402 de cuota elegibles para soft-fail, timeout
+simulado, transiciones cerrado→abierto→semiabierto→cerrado, fallo en semiabierto, config (key ausente o URL no
+oficial), `filtrarSecretosDiff`, key ausente de error/breaker/consola, `mencionaAgente`, mapa de delegación del
+`001` (10/10 enrutados) y alertas tipadas de vigencia "nunca por fecha". El archivo ya está en `test:gate`
+(`package.json:11`). Suite completa **159/159: reportado por la sesión, no re-ejecutado por `007`** (sin `Bash`).
+
+### 0-AM.4 Prueba negativa real (2026-09-26T18:38Z) — evidencia en disco
+
+Protocolo reportado por la sesión: se inyectó una key inválida en el entorno del proceso (no en `.env`), con
+`GATE_SOFT_FAIL=true`. Lo que `007` pudo leer en disco:
+
+- `agents/pmu/telemetria.jsonl`:
+  - Línea 1266, `18:38:16.365Z`: `tipo: fallo_proveedor`, `subsistema: 002_principal`, `resultado: alerta_critica`,
+    `codigo: http_403_auth`, `categoria: auth`, `http: 403`, cuerpo `"Authorization failed"`. NIM respondió 403.
+  - Línea 1267, `18:38:16.367Z`: `aprobar-diseno` → `resultado: rechazado`, con la razón
+    `🚨 ALERTA CRÍTICA DE PROVEEDOR EXTERNO — Fallo del proveedor de IA (http_403_auth, categoría auth)`.
+    **No hubo soft-fail pese al opt-in.** Es el comportamiento que exige ADR-0002 D2 (401/403 nunca abren el gate).
+- `agents/pmu/circuit_breaker.json`: `estado: "abierto"`, `fallos_consecutivos: 1`, `abierto_desde:
+  2026-09-26T18:38:16.361Z`, `ultimo_error.categoria: "auth"`, `http: 403`. Hay una huella de key de 12 hex (no se
+  transcribe aquí). Se abrió en el primer fallo, como define `registrarFallo()` para `auth`.
+- `agents/pmu/estado_operativo.json` (generado `18:38:16.433Z`) muestra el breaker `abierto` y **10 alertas
+  `agente_sin_acuse`** (ningún `.claude/agents/*.md` tiene aún `doc_revisado`). No hay ninguna `agente_sin_mando`.
+  `key_configurada: true` refleja la key inyectada en ese proceso, no el contenido de `.env`.
+- Exit code 1 del proceso: reportado por la sesión, sin artefacto verificable por `007`. La línea 1267 es
+  consistente con él.
+- `agents/diseno_aprobado.json` **no fue sobrescrito por el rechazo**. Sigue siendo `origen: soft_fail_api`,
+  `codigo: http_400_sin_saldo` (request_id de Anthropic), `timestamp 2026-09-26T18:30:30.053Z`, telemetría línea
+  1265, firma `eb521cfa…`. Es la **misma firma** que la aprobación soft-fail del 2026-09-25 (`§0-AL.4`). Inferencia
+  **no verificada**: como `hashEstado()` ahora incluye `gate-proveedor.cjs` y `architecture-gate.cjs` cambió, lo
+  esperable es que un `--check-gate` sobre el árbol actual reporte esa firma como desactualizada. Esa aprobación
+  no cubre el código de esta ronda.
+
+### 0-AM.5 Pendientes abiertos (honestos, no cerrados en esta ronda)
+
+1. **`NVIDIA_API_KEY` real no está en `.env`** (reportado por la sesión). El agente principal no pudo leer el
+   archivo de credenciales del usuario porque el clasificador de permisos lo bloqueó. `007` no abrió `.env` por
+   diseño. Consecuencia: siguen pendientes los veredictos reales de `002` y de los subgates sobre esta ronda, el
+   commit y el PMU en verde. Con la key real, el breaker debería pasar a `semiabierto` en la primera llamada, porque
+   la huella cambia (`evaluarBreaker`, líneas 123-126).
+2. ADR-0002 sigue en estado "Propuesto" y no hay veredicto de `002` en disco.
+3. `scripts/auditor_008_advisory_gate.cjs` **sigue llamando a Anthropic directamente** (líneas 9, 15, 92-126) y no
+   pasa por `gate-proveedor.cjs`. El alcance del ADR-0002 (línea 5) no lo incluye. En CI el paso advisory de `008`
+   sigue sin saldo; no bloquea (`continue-on-error: true`, `.github/workflows/gate.yml:79`), pero tampoco evalúa.
+   Pertenece al área de escritura de `006` (`scripts/*gate*.cjs`).
+4. Retención de prompts en el endpoint gratuito de NIM: no verificada. Es pendiente humano (ADR-0002 §2.5 y §3):
+   el diff filtrado, que es código fuente sin secretos, sale a un tercero.
+5. La calidad de juicio de `deepseek-v4.1-flash` frente a los contratos JSON/Zod de cada agente no está probada
+   (ADR-0002 §3). Los esquemas siguen siendo fail-closed.
+6. `AGENTS.md` Axioma II.1 todavía describe el gate como "invocado … vía API de Anthropic" y el bloqueo por
+   "`ANTHROPIC_API_KEY` ausente". Con ADR-0002 aprobado, el proveedor por defecto pasa a ser NIM y la key pasa a ser
+   `NVIDIA_API_KEY`. No es archivo de `007`; queda señalado.
+7. **Riesgo de falsos positivos de `mencionaAgente()`** (observación para `002`). El prefijo aislado
+   `(^|[^\d.])00X(?![\d.])` también coincide con nombres de migración que este documento cita a menudo:
+   `001_formulador.sql`, `005_fix_insertar_fase1.sql`, `007_worm_occ_shadow_ledger.sql`. Un commit que los cite
+   marcaría a `001`/`005`/`007` como `agente_desactualizado` sin que el texto trate de ellos.
+8. **Orden operativo del acuse.** El commit que lleve `§0-AL` + `§0-AM` agrega líneas que mencionan a los 10
+   agentes, así que cualquier `doc_revisado` que apunte a un commit anterior (p. ej. `01b36ed`) volverá a quedar
+   marcado. El acuse debe apuntar al sha del commit que contenga este documento y escribirse en un commit posterior.
+   Ese segundo commit toca `.claude/agents/` y exige una nueva aprobación de firma. ADR-0002 §2.6 dice "el agente
+   (o `007` en su nombre)", pero el blast radius de `007` es `docs/` (`.claude/agents/007-documentador-as-build.md`
+   §"Qué NO haces"). Quien edite los frontmatter tiene que decidirlo `002` o el usuario; `007` no lo asume.
+9. **Deriva de este documento detectada, no reescrita.** La "Nota breve (2026-08-16)" (líneas 1989-2052) ubica la
+   jerarquía RadFor-360 en `agents/Proy_03 */`, pero en disco está en `projects/Radford-360/` (Glob: 7 archivos
+   bajo `Proy_03 A Radar/`, `Proy_03 B Formulador/` y `Proy_03 GP Radford-360/`). El código ya lo refleja:
+   `architecture-gate.cjs:158` y `:166`, `ENRUTADOR_ESTATICO.formulacion: 'projects/Radford-360/Proy_03 B
+   Formulador'`. El traslado ocurrió en un commit posterior a la nota (`02c7c27`, según el reflog) que nunca se
+   registró aquí. Queda asentado desde esta sección.
+
+### 0-AM.6 Divisa / idempotencia
+
+No hay endpoints de mutación ni cálculos financieros nuevos: todo el cambio es tooling local del gate. Una
+observación menor: `escribirBreaker()` (líneas 105-108) usa `writeFileSync` sin bloqueo, y el último que escribe
+gana. Dos procesos del gate concurrentes (p. ej. hook + `--pmu-status` manual) podrían perder un incremento de
+`fallos_consecutivos`. El impacto es bajo (retrasa la apertura del breaker como mucho un fallo) y no hay dinero ni
+datos de usuario involucrados.
+
+### Qué no se verificó en esta sección
+
+- Ejecución de `test:gate` (159/159) y de la suite nueva (16/16): solo conteo estático.
+- Exit code 1 de la prueba negativa y que `GATE_SOFT_FAIL=true` estuviera activo en ese proceso: reporte de la
+  sesión, consistente con la telemetría de las líneas 1266-1267.
+- Que el modelo `deepseek-ai/deepseek-v4.1-flash` exista en `/v1/models`: lo afirma ADR-0002 (línea 18), `007` no
+  tiene red.
+- Contenido de `.env`, incluida la ausencia de `NVIDIA_API_KEY`: no abierto por diseño.
+- Vigencia real de la firma de `agents/diseno_aprobado.json` frente al árbol actual (ver 0-AM.4).
+- PDF de este documento: no regenerado. Regenerarlo es parte del mandato de `007`, pero requiere
+  `node scripts/generar_pdf_arquitectura.cjs` (`§0-W`) y `007` no tiene `Bash`. Queda para quien invoque a `007`.
+
+### Addendum 2026-09-26 (misma jornada, posterior a 0-AM.1-0-AM.6) — auditoría `008` sobre ADR-0002 y endurecimiento
+
+No se reescribe nada de lo anterior de esta sección. Estas son las **correcciones de cifras** que quedaron
+desactualizadas en esta misma sección:
+
+- **0-AM.3.** `tests/gate/gate-proveedor.test.cjs` ahora tiene **30** declaraciones `test(` (conteo estático de
+  `007`), no 16. `test:gate` está en **173/173** según la sesión; `007` no lo re-ejecutó (sin `Bash`).
+- **0-AM.1 y 0-AM.2.** Las citas de línea de `agents/gate-proveedor.cjs` corresponden a la versión de 363 líneas.
+  Tras el endurecimiento las funciones se desplazaron. Por ejemplo, ahora `escribirBreaker()` está en 124-129,
+  `registrarFallo()` en 166-189 y `filtrarSecretosDiff()` en 312-335. Esas citas describen la versión previa y no
+  son la referencia vigente.
+- **0-AM.5.7.** La observación de falsos positivos de `mencionaAgente()` está **cerrada**. La regex actual es
+  `(^|[^0-9A-Za-z.])${prefijo}(?![0-9A-Za-z._-])` (`agents/architecture-gate.cjs:1149`). El comentario de las
+  líneas 1143-1146 lo atribuye a "hallazgo de 007, 2026-09-26" y coincide con el #12 de `008`.
+- **0-AM.6.** La observación de `escribirBreaker()` está **mitigada parcialmente**: ahora escribe a un temporal y
+  lo renombra (`gate-proveedor.cjs:124-129`). No existe lock entre procesos, así que dos gates simultáneos pueden
+  perder un incremento, pero ya no pueden corromper el archivo. Es el mismo estado que el #9 de `008` (abajo).
+
+**1. Auditoría `008` (Protocolo Titán), primera pasada: 47/100, NO APTO, 15 hallazgos.** La tabla de ADR-0002
+§2.8 (`docs/ADR/ADR-0002-gate-nim-circuit-breaker.md:63-76`) registra los remediados. `007` los contrastó con el
+código actual:
+
+| # `008` | Corrección | Evidencia leída por `007` |
+|---|---|---|
+| 1 | `GATE_PROVIDER=anthropic` con `ANTHROPIC_BASE_URL` no oficial → `config`, bloqueo duro. Se pasa al SDK la base URL oficial explícita. | `gate-proveedor.cjs:222`, `:235-239` |
+| 2 | Key malformada → `config` (`*_API_KEY_malformada`). Solo cuentan como `caida` los códigos de red reales o el timeout propio. | `:461-463`; `CODIGOS_RED` y `esErrorDeRed()` en `:347-354` |
+| 3 | Campo `categoria_apertura`: una apertura crítica no se degrada mientras siga abierta. | `:178-187`, `:477` |
+| 4 | `filtrarSecretosDiff` ampliado: prefijos de proveedor, cabeceras `Basic`/`Bearer`, `user:pass@` en URIs, archivos de credenciales, rutas entre comillas; una cabecera no parseable omite la sección. | `:256-335` |
+| 6 | El timeout cubre también la lectura del cuerpo. | comentario de `:361-362` |
+| 7 | Cuota solo con `insufficient_quota` / `quota exceeded` / `credit balance`; `context_length`/`max_tokens` pasan a `solicitud`. | ADR §2.8 fila 7 (no re-leído línea a línea) |
+| 11 | `respuesta_vacia` / `respuesta_truncada`, bloqueo duro. | `:408` |
+| 12 | `mencionaAgente` excluye alfanuméricos, `_` y `-` alrededor del prefijo. | `architecture-gate.cjs:1149` |
+| 14/15 | Etiquetas neutrales. `breakerPublico()` publica el breaker sin `huella_key` y el PMU lo usa. `circuit_breaker.json` quedó en `.gitignore`. | `gate-proveedor.cjs:194-199`; `architecture-gate.cjs:1353`; `.gitignore:50-51` (incluye `*.tmp`) |
+| 9 (parcial) | Escritura atómica tmp+rename, **sin lock entre procesos**. | `gate-proveedor.cjs:120-129` |
+
+**2. Re-verificación de `008`: 70/100, todavía NO APTO.** Cerró 10 hallazgos y abrió 4 nuevos (N1-N4). La sesión
+corrigió N1-N4 **después** de esa re-verificación:
+
+- **N1.** Una sonda semiabierta que fallaba por 503 o por red degradaba una apertura por `auth` a soft-fail.
+  Ahora una apertura crítica sigue siéndolo hasta que haya un éxito, porque solo `registrarExito()` limpia
+  `categoria_apertura` (`gate-proveedor.cjs:174-187`, `:160`).
+- **N1b.** Un breaker con el formato previo pierde `categoria_apertura`. Ahora se infiere del último error
+  (`:114-116`).
+- **N2.** Se reemplazó el prefijo `UND_ERR_*` por una lista explícita que excluye `UND_ERR_INVALID_ARG`,
+  `UND_ERR_NOT_SUPPORTED` y `UND_ERR_PRX_TLS` (`:345-350`).
+- **N3.** Se redactan:
+  - cualquier nombre terminado en `_KEY` (`:280-285`);
+  - `sb_secret_`, `prv_prod_` y `prod_integrity_` (`:273-275`);
+  - `Basic`/`Bearer` (`:276`);
+  - pares `key:`/`value:` de `render.yaml` (`:295-296`);
+  - YAML en bloque (`:293-294`);
+  - passphrases entre comillas con espacios (`:286-288`);
+  - secciones `diff --cc` (`:305-307`, `:313`).
+- **N4.** `auth` suelto ya no se redacta, así que el código RBAC y multi-tenant queda visible para `002`
+  (comentario de `:282-284`).
+
+**Estado de verificación de N1-N4:** los verificó el agente principal con tests (`tests/gate` 30/30, `test:gate`
+173/173). **`008` no los re-auditó.** Esta sección no afirma que `008` los haya aprobado. La última calificación
+emitida por `008` sigue siendo 70/100, NO APTO.
+
+**3. Diferidos, pendientes de decisión de `002`/usuario. Según `008` siguen siendo explotables:**
+
+- **(5)** `soft_fail_api` no expira ni se corrobora contra la telemetría. Es el mismo riesgo ya señalado en
+  `§0-AL.1`.
+- **(8)** `GATE_SOFT_FAIL=true` es persistente en `.env` (el PMU lo confirma: `politica_api.soft_fail_habilitado_env:
+  true`) y el soft-fail se puede provocar cortando la red.
+- **(10)** La suite histórica escribe archivos de gobierno reales.
+- **(13)** Los acuses `doc_revisado` siguen pendientes (ver `0-AM.5.8` y el dictamen de vigencia entregado en esta
+  misma corrida). Además el CI hace checkout superficial: `.github/workflows/gate.yml` no declara `fetch-depth`
+  (Grep sin coincidencias), así que en CI `verificarVigenciaAgentes()` no tiene el historial que necesita para
+  `git rev-list`/`git diff` sobre el documento.
+
+**4. Incidencia de la auditoría.** En su primera pasada, `008` hizo por error una llamada real a NIM con una key
+falsa y contenido de prueba `'s'`/`'u'`. Recibió 403. No salió ningún dato del repositorio. Evidencia: solo el
+reporte de la sesión. No hay entrada en `agents/pmu/telemetria.jsonl` (las únicas del 2026-09-26 son las líneas
+1265-1267, ya citadas en 0-AM.4), y `agents/pmu/estado_operativo.json` conserva como último error del breaker el 403
+de las 18:38:16Z. Ambas cosas son consistentes con una llamada hecha fuera de `consultarModelo()` y sin
+`breakerPath`. Queda como registro: es la segunda llamada real a un tercero en esta jornada durante una auditoría,
+y el guion de `008` no prohíbe hoy llamadas de red reales en CAPA 6/9 (ver el dictamen de Parte A sobre esas
+capas).
+
+**5. PMU (`agents/pmu/estado_operativo.json`, `generado: 2026-09-26T19:05:22.216Z`)**, leído por `007`:
+
+- **Agentes:** `total_agentes: 10`, `agentes_con_gate: 7`, y `mapeado_por_001: true` en los 10 (mando 10/10 del
+  `001`, sin `agente_sin_mando`).
+- **`alertas_activas`:** 10, todas `agente_sin_acuse`, de `001` a `010`.
+- **`alertas_criticas_proveedor`:** 2.
+  - El breaker está `abierto` con `categoria_apertura: "auth"` por el `http_403_auth` de la prueba negativa
+    (18:38:16Z). Se publica sin `huella_key`.
+  - `NVIDIA_API_KEY_ausente`, categoría `config` (`proveedor_ia.key_configurada: false`).
+- **`002`:** `ultimo_veredicto.origen: "soft_fail_api"`. Es 🟡, sin evaluación del modelo.
+- **Subgates:** los otros 9 tienen `ultimo_veredicto: null`; ningún cambio fue evaluado.
+
+Divisa e idempotencia: sin cambios respecto a 0-AM.6. No hay endpoints de mutación ni cálculos financieros en
+este endurecimiento.
+
+**Qué no se verificó en este addendum:** la ejecución de 30/30 y 173/173; las calificaciones 47/100 y 70/100 y la
+lista original de 15 hallazgos y N1-N4 de `008` (no existe un reporte de `008` en disco que `007` pudiera leer; la
+fuente es ADR-0002 §2.8 más el reporte de la sesión); la llamada accidental a NIM; y la fila 7 línea a línea. El
+PDF tampoco se regeneró, por el mismo motivo que en 0-AM.
