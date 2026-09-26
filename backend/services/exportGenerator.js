@@ -148,8 +148,42 @@ function finalize(doc, ML, W, titulo) {
   });
 }
 
+// Fase 3 (B5): redacción consolidada del Formulador MGA. Solo se imprime una
+// consolidación con estado 'ok' (lo garantiza exportacion.routes.js). Si los
+// datos del proyecto cambiaron desde que se generó, se marca DESACTUALIZADA en
+// el propio PDF (el aviso de la pantalla no viaja con el archivo descargado).
+const TITULOS_CONSOLIDACION = [
+  ['identificacion_problema', 'Identificación del Problema'],
+  ['poblacion_beneficiaria', 'Población Beneficiaria'],
+  ['justificacion_tecnica', 'Justificación Técnica'],
+  ['analisis_riesgos', 'Análisis de Riesgos'],
+];
+function renderConsolidacionMGA(doc, ML, W, consolidacion) {
+  if (!consolidacion?.bloques) return;
+  sTitle(doc, ML, W, 'REDACCIÓN CONSOLIDADA (IA, a partir de Entrada, Viabilidad y MIROFISH)');
+  const fecha = consolidacion.generado_en ? new Date(consolidacion.generado_en).toLocaleString('es-CO', { timeZone: 'America/Bogota', hourCycle: 'h23' }) : '';
+  doc.font(NORMAL).fontSize(8).fillColor(C.muted)
+    .text(`Generada ${fecha}${consolidacion.modelo ? ` · modelo ${consolidacion.modelo}` : ''}. Cada párrafo cita sus fuentes; las cifras vienen del cálculo determinista del sistema.`, ML, doc.y, { width: W });
+  doc.moveDown(0.3);
+  if (consolidacion.desactualizada) {
+    doc.font(BOLD).fontSize(8.5).fillColor(C.warnText)
+      .text('DESACTUALIZADA respecto a los datos actuales del proyecto: vuelve a consolidar antes de radicar.', ML, doc.y, { width: W });
+    doc.moveDown(0.3);
+  }
+  for (const [clave, titulo] of TITULOS_CONSOLIDACION) {
+    const bloque = consolidacion.bloques[clave];
+    doc.font(BOLD).fontSize(9).fillColor(C.accent).text(titulo, ML, doc.y);
+    doc.moveDown(0.2);
+    bullets(doc, ML, W, (bloque?.parrafos || []).map(p => p.texto), '(sin contenido verificable en las fuentes)');
+  }
+}
+
 // ── MGA ───────────────────────────────────────────────────────────────────────
-export async function generarMGA(proyecto, arbol, indicadores, tdc, logistica, graficos = []) {
+// Fase 3 (B5): el último parámetro es un objeto de opciones { graficos,
+// consolidacion }. Se acepta el arreglo posicional viejo (graficos) por
+// compatibilidad con cualquier llamada que no se haya actualizado.
+export async function generarMGA(proyecto, arbol, indicadores, tdc, logistica, opciones = {}) {
+  const { graficos = [], consolidacion = null } = Array.isArray(opciones) ? { graficos: opciones } : (opciones || {});
   const ft = safeJson(proyecto.ficha_tecnica);
   const pre = safeJson(proyecto.presupuesto);
   const { doc, ML, W } = newDoc(proyecto, 'ESTRUCTURA MGA (Metodología General Ajustada — DNP Colombia)');
@@ -195,6 +229,7 @@ export async function generarMGA(proyecto, arbol, indicadores, tdc, logistica, g
   kv(doc, ML, W, 'Tipo de Entidad', logistica?.tipo_entidad || '');
   if (tdc?.impacto_largo_plazo) kv(doc, ML, W, 'Impacto de Largo Plazo (TdC)', tdc.impacto_largo_plazo);
 
+  renderConsolidacionMGA(doc, ML, W, consolidacion);
   renderGraficosSection(doc, ML, W, graficos);
   disclaimer(doc, ML, W, 'la Metodología General Ajustada (MGA) del DNP');
   return finalize(doc, ML, W, `MGA — ${proyecto.nombre}`);

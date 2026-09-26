@@ -162,3 +162,13 @@ test('--desde-archivo (script real, sin red): guarda solo grupos válidos, respa
   assert.ok(readdirSync(dir).some(f => f.startsWith('.env.backup-')), 'copia de seguridad creada');
   assert.match(salida, /AWS_BOOTSTRAP_\* ignoradas/);
 });
+
+test('NVIDIA (Fase 3): solo formato nvapi-…, y el prefijo se muestra sin revelar la llave', async () => {
+  const { validarLlaveNvidia, enmascarar: enm } = await import('../../scripts/setup-infra.mjs');
+  assert.equal(validarLlaveNvidia('nvapi-AbCdEfGhIjKlMnOpQrStUvWxYz0123').ok, true);
+  assert.equal(validarLlaveNvidia('sk-otra-cosa').ok, false);
+  assert.equal(validarLlaveNvidia('').ok, false);
+  const m = enm('nvapi-SecretoSecretoSecreto123');
+  assert.match(m, /^nvapi-/);
+  assert.doesNotMatch(m, /Secreto/);
+});

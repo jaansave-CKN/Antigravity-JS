@@ -76,7 +76,7 @@ export function actualizarEnv(texto, cambios, fecha = new Date()) {
   return lineas.join(eol).replace(new RegExp(`(${eol})*$`), '') + eol;
 }
 
-const PREFIJOS_PUBLICOS = /^(pub_prod_|pub_test_|prv_prod_|prv_test_|prod_events_|test_events_|prod_integrity_|test_integrity_|AKIA|ASIA|AIza)/;
+const PREFIJOS_PUBLICOS = /^(nvapi-|pub_prod_|pub_test_|prv_prod_|prv_test_|prod_events_|test_events_|prod_integrity_|test_integrity_|AKIA|ASIA|AIza)/;
 
 /** Representación segura de un secreto: solo prefijo público conocido + longitud. */
 export function enmascarar(valor) {
@@ -120,6 +120,18 @@ export function clasificarWompi({ publica, privada, eventos, integridad }) {
   if (ambientes.size > 1) errores.push('mezcla llaves de PRODUCCIÓN y de PRUEBA — deben ser todas del mismo ambiente');
   const ambiente = ambientes.size === 1 ? [...ambientes][0] : null;
   return { ok: errores.length === 0, ambiente, errores };
+}
+
+/**
+ * NVIDIA NIM (Fase 3, Formulador MGA): solo se valida el FORMATO. El listado
+ * de modelos de NIM es público (responde igual con cualquier llave), así que
+ * no prueba nada; la validez real se comprueba en la primera consolidación
+ * (una llave rechazada queda como motivo 'llave_rechazada', visible en la UI).
+ */
+export function validarLlaveNvidia(llave) {
+  return /^nvapi-[A-Za-z0-9_-]{20,}$/.test(String(llave || ''))
+    ? { ok: true, detalle: 'formato válido (nvapi-…); la validez real se comprueba en la primera consolidación MGA' }
+    : { ok: false, detalle: 'no tiene el formato de una llave de NVIDIA (debe empezar por nvapi-)' };
 }
 
 // ── Validaciones en vivo (solo lectura) ──────────────────────────────────────
@@ -233,6 +245,11 @@ export const GRUPOS = [
     id: 'gemini', titulo: 'Gemini — IA',
     campos: [{ clave: 'GOOGLE_API_KEY', secreto: true }],
     validar: (v) => validarGemini(v.GOOGLE_API_KEY),
+  },
+  {
+    id: 'nvidia', titulo: 'NVIDIA NIM — Formulador MGA (deepseek-v4.1-flash)',
+    campos: [{ clave: 'NVIDIA_API_KEY', secreto: true }],
+    validar: async (v) => validarLlaveNvidia(v.NVIDIA_API_KEY),
   },
   {
     id: 'alertas', titulo: 'Alertas — Sentry y/o webhook (Slack/Discord)',
@@ -488,7 +505,7 @@ async function main() {
   console.log('══ Resumen');
   for (const r of resultados) console.log(`   ${ICONO[r.estado].padEnd(12)} ${r.grupo.titulo}`);
   console.log('\nPróximos pasos que este asistente NO hace (requieren su cuenta):');
-  console.log('   · Render → radar360-app → Environment: WOMPI_*, PAYMENT_PROVIDER=wompi, GOOGLE_API_KEY, SENTRY_DSN / ERROR_WEBHOOK_URL.');
+  console.log('   · Render → radar360-app → Environment: WOMPI_*, PAYMENT_PROVIDER=wompi, GOOGLE_API_KEY, NVIDIA_API_KEY, SENTRY_DSN / ERROR_WEBHOOK_URL.');
   console.log('   · GitHub Secrets: AWS_* (o use --subir-github). Luego: gh workflow run backup-s3.yml');
   console.log('   · Google Cloud → Credenciales: restricción por HTTP referrer de la llave de Firebase.\n');
 
