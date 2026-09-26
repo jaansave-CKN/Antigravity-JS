@@ -20,6 +20,7 @@ import { withTenantRow, withTenantRows } from '../config/database.config.js';
 import { captureError } from '../config/sentry.config.js';
 import { evaluarReglas } from '../services/mirofishReglas.js';
 import { evaluarComiteIA } from '../services/mirofishComite.js';
+import { faltantesMirofish, respuesta422 } from '../services/datosMinimosIA.js';
 
 const MAX_LINEAS = 40;
 
@@ -94,6 +95,10 @@ export function registerMirofishRoutes(app, { authenticateToken, requireAccess, 
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
     const { datos, lineasPresupuesto, ubicacion, tramos } = await recolectar(proyecto, req.userId);
+    // LOTE 10: sin ubicación o sin presupuesto el comité no tiene qué evaluar
+    // → 422 con la lista exacta, ANTES de llamar a Gemini.
+    const faltantes = faltantesMirofish({ datos, lineasPresupuesto, ubicacion });
+    if (faltantes.length) return res.status(422).json(respuesta422('el Comité MIROFISH', faltantes));
     const reglas = evaluarReglas({ ubicacion, lineasPresupuesto, tramos });
     if (reglas.municipio_match.municipio) {
       datos['pdet.municipio'] = `${reglas.municipio_match.municipio.municipio} (${reglas.municipio_match.municipio.departamento}) — municipio PDET, subregión ${reglas.municipio_match.municipio.subregion}`;

@@ -47,6 +47,8 @@ import { geminiCB, loadPersistedKeyState, registrarLlamadaLLM, withKeyRotation, 
 import { conReintentoTransitorio } from './backend/services/geminiReintento.js';
 import { logTokenUsage } from './backend/services/aiTokenLogger.js';
 import { reenviarPendientesSystemLogs } from './backend/services/logService.js';
+import { alertarErrorServidor } from './backend/services/alertaErrores.js';
+import { faltantesViabilidad, respuesta422 } from './backend/services/datosMinimosIA.js';
 import { resolverContextoBYOK } from './backend/services/byokService.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
 import { wompiWebhookHandler } from './backend/routes/wompi.webhook.js';
@@ -4866,6 +4868,10 @@ Reglas:
       getRows: (sql, params) => withTenantRows(req.userId, sql, params),
     };
     const { ctx, fichaTecnica } = await recolectarContextoViabilidad(proyecto, req.userId, scopedDeps);
+    // LOTE 10: sin problema ni alcance no hay proporcionalidad que dictaminar
+    // → 422 con la lista exacta, ANTES de llamar a Gemini.
+    const faltantes = faltantesViabilidad(ctx);
+    if (faltantes.length) return res.status(422).json(respuesta422('el Dictamen de Viabilidad', faltantes));
     const resultado = await calcularViabilidadIA(ctx, req.userGeminiKeys);
 
     // Persistencia real dentro de ficha_tecnica (columna JSON ya existente) —
@@ -4983,6 +4989,11 @@ Reglas:
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({ success: false, message: 'El archivo supera el tamaño máximo permitido.' });
     }
+    // LOTE 10: después de CORS (403) y tamaño de archivo (413), que llegan sin
+    // status y no son fallos del servidor. Todo 5xx restante → system_logs +
+    // webhook (Discord) con project_id, módulo y hora; alertarErrorServidor
+    // ignora los 4xx y limita repeticiones. Sin await: la respuesta no espera.
+    alertarErrorServidor(err, { method: req.method, path: req.originalUrl || req.path, userId: req.userId }).catch(() => {});
     if (err.status) {
       return res.status(err.status).json({ success: false, message: err.message });
     }

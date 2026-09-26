@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAuthHeaders, http, ApiError } from '../lib/apiClient';
+import { useAutoSave } from '../hooks/useAutoSave';
 import CountdownReset from '../components/CountdownReset';
 import { useAiQuotaStatus } from '../hooks/useAiQuotaStatus';
 import './EntradaPage.css';
@@ -641,6 +642,33 @@ export default function EntradaPage() {
   }, [st.nombre, sincronizarProyectoActivo]);
 
   const [errorEntradaCompleta, setErrorEntradaCompleta] = useState<string | null>(null);
+
+  // LOTE 10 (2026-09-25): autoguardado contra el servidor (espera 1,5 s +
+  // cola SERIALIZADA, ver hooks/useAutoSave.ts). Antes solo el botón SAVE
+  // subía entrada_completa; el resto quedaba en el borrador local.
+  //   - Deshabilitado hasta que termine la hidratación (hidratacionListaRef):
+  //     si no, subiría el ESTADO_INICIAL encima de los datos reales.
+  //   - NUNCA autoguarda un formulario vacío ni sin proyecto activo: LIMPIAR
+  //     deja el formulario en blanco y, sin esto, 1,5 s después borraría en
+  //     el servidor la entrada real del proyecto. SAVE manual sí puede.
+  const guardarEntradaEnServidor = useCallback(async (valor: EntradaState) => {
+    const proyectoId = localStorage.getItem(ACTIVE_PROJECT_KEY);
+    if (!proyectoId) throw new Error('Sin proyecto activo');
+    try {
+      await http.patch(`/api/proyectos/${proyectoId}/ficha-tecnica-merge`, { key: 'entrada_completa', value: valor });
+      setErrorEntradaCompleta(null);
+    } catch (e) {
+      setErrorEntradaCompleta('Se guardó localmente, pero no se pudo sincronizar con el servidor.');
+      throw e;
+    }
+  }, []);
+  const autoGuardado = useAutoSave({
+    valor: st,
+    habilitado: hidratacionListaRef.current,
+    guardar: guardarEntradaEnServidor,
+    ultimoGuardadoRef,
+    puedeGuardar: (v) => !!localStorage.getItem(ACTIVE_PROJECT_KEY) && !borradorEstaVacio(v as unknown as Record<string, unknown>),
+  });
   // FIX (2026-08-24, "audita la demora — el botón no da ninguna señal de que
   // el clic se registró"): guardar() no tenía NINGÚN estado de "en curso" —
   // el botón se quedaba diciendo "SAVE" en rojo, sin diferencia visual entre
@@ -675,17 +703,11 @@ export default function EntradaPage() {
       return;
     }
     try {
-      await http.patch(`/api/proyectos/${proyectoId}/ficha-tecnica-merge`, { key: 'entrada_completa', value: st });
-      // FIX (2026-08-24, "verde/rojo puro, sin estado neutral"): actualizar
-      // ultimoGuardadoRef tras éxito confirmado es LO ÚNICO que hace falta —
-      // sinGuardar (derivado, ver arriba) pasa a false solo. Si el PATCH
-      // falla, ultimoGuardadoRef NO se actualiza, así que sinGuardar sigue en
-      // true (rojo) — refleja la realidad: el servidor no tiene la última
-      // versión todavía.
-      ultimoGuardadoRef.current = JSON.stringify(st);
-      setErrorEntradaCompleta(null);
-    } catch {
-      setErrorEntradaCompleta('Se guardó localmente, pero no se pudo sincronizar con el servidor.');
+      // LOTE 10: la MISMA cola del autoguardado (nunca compite con él).
+      // ultimoGuardadoRef solo avanza tras éxito confirmado (dentro de la
+      // cola) — si el PATCH falla, sinGuardar sigue en rojo y
+      // guardarEntradaEnServidor deja el mensaje de error visible.
+      await autoGuardado.guardarAhora({ forzar: true });
     } finally {
       guardandoRef.current = false;
       setGuardando(false);
