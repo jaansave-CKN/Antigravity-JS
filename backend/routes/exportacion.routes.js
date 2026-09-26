@@ -7,6 +7,7 @@
 import { generarMGA, generarBID, generarOXI } from '../services/exportGenerator.js';
 import { withTenantRow, withTenantRows } from '../config/database.config.js';
 import { validarBody, exportarGraficosSchema } from '../validators/zodSchemas.js';
+import { recolectarFuentes, huellaFuentes } from '../services/formuladorMga.js';
 
 function safeJson(v, fallback = {}) {
   if (v == null) return fallback;
@@ -26,6 +27,26 @@ export function registerExportacionRoutes(app, { authenticateToken, tryCatch }) 
     ]);
     const tdc = tdcRow ? { ...tdcRow, resultados_corto_plazo: safeJson(tdcRow.resultados_corto_plazo, []) } : null;
     return { proyecto, arbol, indicadores, tdc, logistica };
+  }
+
+  // Fase 3 (B5): última consolidación 'ok' del Formulador MGA (tabla propia,
+  // migración 072: solo escribe el servidor) + si quedó desactualizada frente
+  // a los datos actuales, recalculando la huella. Best-effort: un fallo aquí
+  // nunca bloquea la exportación del PDF (se omite la sección).
+  async function consolidacionParaPdf(proyecto, userId) {
+    try {
+      const fila = await withTenantRow(userId,
+        "SELECT bloques, huella_fuentes, modelo, created_at FROM project_formulador_mga WHERE project_id = ? AND estado = 'ok' ORDER BY created_at DESC LIMIT 1", [proyecto.id]);
+      if (!fila) return null;
+      const { datos } = await recolectarFuentes(proyecto, {
+        getRow: (sql, params) => withTenantRow(userId, sql, params),
+        getRows: (sql, params) => withTenantRows(userId, sql, params),
+      });
+      return { bloques: safeJson(fila.bloques, null), modelo: fila.modelo, generado_en: fila.created_at, desactualizada: huellaFuentes(datos) !== fila.huella_fuentes };
+    } catch (e) {
+      console.warn('[exportacion] consolidación MGA omitida del PDF:', e.message);
+      return null;
+    }
   }
 
   function sendPdf(res, buffer, filename) {
@@ -50,13 +71,13 @@ export function registerExportacionRoutes(app, { authenticateToken, tryCatch }) 
   app.get('/api/proyectos/:id/exportar/mga', authenticateToken, tryCatch(async (req, res) => {
     const ctx = await cargarContexto(req.params.id, req.userId);
     if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-    const buffer = await generarMGA(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica);
+    const buffer = await generarMGA(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica, { consolidacion: await consolidacionParaPdf(ctx.proyecto, req.userId) });
     sendPdf(res, buffer, `MGA_${req.params.id}.pdf`);
   }));
   app.post('/api/proyectos/:id/exportar/mga', authenticateToken, tryCatch(async (req, res) => {
     const ctx = await cargarContexto(req.params.id, req.userId);
     if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-    const buffer = await generarMGA(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica, graficosDe(req));
+    const buffer = await generarMGA(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica, { graficos: graficosDe(req), consolidacion: await consolidacionParaPdf(ctx.proyecto, req.userId) });
     sendPdf(res, buffer, `MGA_${req.params.id}.pdf`);
   }));
 

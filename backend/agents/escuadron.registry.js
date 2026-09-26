@@ -43,6 +43,7 @@ import { calcularViabilidadIA, recolectarContextoViabilidad, calcularPuntoEquili
 import { classifySectors } from '../services/sectorClassifier.js';
 import { extractConvocatoriaFields } from '../services/markitdownService.js';
 import { chatConCopiloto, obtenerHistorial as obtenerHistorialCopiloto } from '../services/CopilotoService.js';
+import { consolidarMGA } from '../services/formuladorMga.js';
 
 export const ESCUADRON = {
   // Ningún archivo del repo orquesta hoy a los demás — ver nota de cabecera.
@@ -90,6 +91,13 @@ export const ESCUADRON = {
       llamaLLM: true,
       invocadoDesde: 'backend/routes/entradaIA.routes.js',
       exporta: { generarEntradaDesdeInvestigacion },
+    },
+    {
+      nombre: 'formuladorMga',
+      descripcion: 'Fase 3 — CONSOLIDA (no redacta desde cero) lo generado por Entrada/EntradaIA, Viabilidad y MIROFISH en los 4 bloques MGA; cifras deterministas de Node; cada párrafo validado contra sus fuentes. Modelo: deepseek-ai/deepseek-v4.1-flash vía NVIDIA NIM (llave del servidor).',
+      llamaLLM: true,
+      invocadoDesde: 'backend/routes/formuladorMga.routes.js',
+      exporta: { consolidarMGA },
     },
   ],
 

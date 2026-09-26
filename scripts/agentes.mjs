@@ -55,6 +55,8 @@ export const CATALOGO = [
     rutas: [['post', '/api/proyectos/:id/copiloto/chat']] },
   { id: 'formulacionIntegral', dominio: 'Formulador', nombre: 'Formulación integral (secuencia fija Entrada→Árbol→Viabilidad)', archivo: 'backend/routes/formulacionIntegral.routes.js', llamaLLM: true, uso: 'formulacion_integral',
     rutas: [['post', '/api/formulacion/integral/:proyectoId']] },
+  { id: 'formuladorMga', dominio: 'Formulador', nombre: 'Formulador MGA (consolidador, NVIDIA NIM)', archivo: 'backend/services/formuladorMga.js', llamaLLM: true, log: 'formulador_mga',
+    rutas: [['post', '/api/proyectos/:id/formulador-mga']] },
   { id: 'normativo', dominio: 'Formulador', nombre: 'Marco normativo (M8, tabla de normas)', archivo: 'backend/agents/normativoAgent.js', llamaLLM: false,
     rutas: [['post', '/api/m8/normas/:proyectoId']] },
 ];

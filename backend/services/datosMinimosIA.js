@@ -35,6 +35,27 @@ export function faltantesViabilidad(ctx = {}) {
   return faltan;
 }
 
+/**
+ * Formulador MGA (Fase 3): consolida lo que YA generaron los otros módulos, así
+ * que exige que existan. `meta` viene de formuladorMga.recolectarFuentes().
+ * Tipo de obra = sectores + nivelProyecto (decisión del dueño). Una corrida
+ * Montecarlo calculada sobre otra inversión cuenta como faltante (B3).
+ * @returns {Array<{campo: string, donde: string}>}
+ */
+export function faltantesFormulador(meta = {}) {
+  const faltan = [];
+  if (!meta.sectores) faltan.push({ campo: 'sectores', donde: 'Sectores del proyecto (Entrada)' });
+  if (!meta.nivelProyecto) faltan.push({ campo: 'nivelProyecto', donde: 'Nivel del proyecto (Entrada)' });
+  if (!meta.ubicacion) faltan.push({ campo: 'ubicacion', donde: 'Municipio del proyecto (Entrada o Logística)' });
+  if (!meta.poblacion) faltan.push({ campo: 'poblacion', donde: 'Población beneficiaria (Entrada)' });
+  if (!meta.viabilidad) faltan.push({ campo: 'viabilidad', donde: 'Dictamen de Viabilidad IA (pantalla Viabilidad)' });
+  if (!meta.mirofish) faltan.push({ campo: 'mirofish', donde: 'Comité MIROFISH (pantalla Viabilidad)' });
+  if (!meta.lineasApu) faltan.push({ campo: 'presupuesto', donde: 'Líneas de presupuesto (APU en Anexos)' });
+  if (meta.corrida === 'ninguna') faltan.push({ campo: 'montecarlo', donde: 'Simulación Montecarlo (Evaluación Financiera)' });
+  if (meta.corrida === 'obsoleta') faltan.push({ campo: 'montecarlo', donde: 'Simulación Montecarlo actualizada: el presupuesto cambió desde la última corrida (Evaluación Financiera)' });
+  return faltan;
+}
+
 /** Cuerpo JSON del HTTP 422 — el mensaje ya es legible para mostrarlo tal cual en la UI. */
 export function respuesta422(modulo, faltantes) {
   return {

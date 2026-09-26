@@ -75,7 +75,8 @@ test('guardia de CI: toda llamada a Gemini pasa por el reintento (salvo el ping 
     if (/byokService\.js$|geminiReintento\.js$/.test(f)) continue;
     const src = readFileSync(f, 'utf8');
     // fetch directo al endpoint compatible-OpenAI de Gemini
-    for (const m of src.matchAll(/\bfetch\(\s*(GEMINI_URL|'https:\/\/generativelanguage\.googleapis\.com[^']*')/g)) fallos.push(`${f}: fetch directo sin reintento (${m[1].slice(0, 40)})`);
+    // Fase 3: también NVIDIA NIM (nimCliente.js usa fetchGeminiConReintento).
+    for (const m of src.matchAll(/\bfetch\(\s*(GEMINI_URL|NIM_URL|'https:\/\/(?:generativelanguage\.googleapis\.com|integrate\.api\.nvidia\.com)[^']*')/g)) fallos.push(`${f}: fetch directo sin reintento (${m[1].slice(0, 40)})`);
     // SDK: toda generateContent debe ir envuelta en conReintentoTransitorio
     for (const m of src.matchAll(/model\.generateContent\(/g)) {
       revisadas++;
