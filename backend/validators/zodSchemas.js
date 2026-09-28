@@ -428,7 +428,7 @@ export const subscriptionActivateSchema = z.object({
 const idConvocatoria = z.union([z.string().trim().min(1).max(200), z.number()]).transform(String);
 export const bridgeTransferSchema = z.object({
   convocatoria_id: idConvocatoria.optional(),
-  convocatoria: z.object({ id: idConvocatoria.optional(), externo_id: idConvocatoria.optional() }).passthrough().optional(),
+  convocatoria: z.object({ id: idConvocatoria.optional(), externo_id: idConvocatoria.optional() }).loose().optional(),
 }).transform(d => ({ convocatoriaId: d.convocatoria_id || d.convocatoria?.id || d.convocatoria?.externo_id || null }))
   .refine(d => !!d.convocatoriaId, 'convocatoria_id requerido');
 
