@@ -55,7 +55,7 @@ import { validarBody, carpetaNombreSchema, anexoPatchSchema, anexoVigenciaSchema
 import { calcularVigencia, hoyBogota, esFechaValida } from '../services/vigenciaDocumental.js';
 import { parseAndSanitizeExcel } from '../services/ExtractorService.js';
 import { ejecutarAuditoriaCompleta } from '../services/AuditorForenseService.js';
-import { convertBufferToMarkdown } from '../services/markitdownService.js';
+import { convertBufferToMarkdown } from '../utils/fileConverters.js';
 import { textToEmbedding, serializeEmbedding } from '../services/embeddingsService.js';
 import { captureError } from '../config/sentry.config.js';
 

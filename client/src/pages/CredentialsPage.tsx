@@ -117,7 +117,7 @@ function GeminiByokPanel() {
   }
 
   async function eliminarSlot(slot: number) {
-    if (!confirm('¿Eliminar esta llave de Gemini? Las acciones de IA dejarán de funcionar con ella.')) return;
+    if (!confirm('¿Eliminar esta llave de Gemini? Dejará de usarse como respaldo de la IA del servidor.')) return;
     setEliminando(slot);
     try {
       await http.delete(`/api/credenciales/gemini/${slot}`);
@@ -150,8 +150,8 @@ function GeminiByokPanel() {
           {data?.has_active_key ? <StatusBadge active /> : <StatusBadge active={false} />}
         </div>
         <p style={{ fontSize:12, fontFamily:'monospace', color:'#45464d', marginTop:6, lineHeight:'1.6' }}>
-          Configura al menos una llave propia de Google AI Studio (gratis) para usar las funciones de IA del Formulador.
-          Hasta 3 llaves — el sistema rota automáticamente a la siguiente si una se queda sin cuota.
+          La IA del Formulador está cubierta por la cuenta del servidor — no necesitas configurar ninguna llave.
+          Opcional: hasta 3 llaves propias de Google AI Studio como respaldo, usadas solo si la IA del servidor no está disponible (el sistema rota a la siguiente si una se queda sin cuota).
         </p>
       </div>
 

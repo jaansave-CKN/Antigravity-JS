@@ -28,9 +28,8 @@ import { auditarViabilidadFinancieraIncompleta } from '../services/AuditorForens
 // project_change_theory — las 3 con GRANT real: 055/057) y ahora recibe un
 // {getRow,getRows} construido inline con withTenantRow/withTenantRows en el
 // único call site de este archivo (continuar-formulacion, más abajo), en vez
-// del getRow/getRows plano de antes. requireByokOrExento() ya no necesita
-// deps tampoco (byokGate.js construye los suyos propios por request) — no
-// queda ningún getRow/getRows plano reenviado desde este archivo.
+// del getRow/getRows plano de antes — no queda ningún getRow/getRows plano
+// reenviado desde este archivo. (El gate BYOK se retiró en B1, 2026-09-28.)
 import { withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
 import { captureError } from '../config/sentry.config.js';
 import {

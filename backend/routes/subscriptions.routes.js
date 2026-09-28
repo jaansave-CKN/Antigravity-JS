@@ -1,7 +1,7 @@
-import crypto from 'crypto';
 import { paymentProvider } from '../payments/index.js';
 import { PLANES } from '../config/planes.config.js';
-import { withTenantRow, withTenantRun } from '../config/database.config.js';
+import { withTenantRow } from '../config/database.config.js';
+import { formularConvocatoria } from '../agents/gp/gerenteProyecto.js';
 import { validarBody, subscriptionActivateSchema, bridgeTransferSchema } from '../validators/zodSchemas.js';
 
 export { PLANES };
@@ -95,44 +95,21 @@ export function registerSubscriptionRoutes(app, { authenticateToken, tryCatch })
     res.json({ success: true, checkout_url: session.url, session_id: session.sessionId });
   }));
 
-  // POST /api/bridge/transfer — M2 Puente: valida acceso + crea proyecto borrador desde convocatoria
+  // POST /api/bridge/transfer — M2 Puente Radar → Formulador.
+  // Fase 4 (2026-09-28): delega en el Gerente de Proyecto (flujo A→B). Antes
+  // redirigía a /formulador (ruta inexistente → caía a "/"), creaba el
+  // proyecto con los datos que mandaba el cliente y no guardaba el origen.
   app.post('/api/bridge/transfer', authenticateToken, tryCatch(async (req, res) => {
-    const sub = await withTenantRow(req.userId,
-      'SELECT access_formulador FROM user_subscriptions WHERE user_id = ?',
-      [req.userId]
-    );
-
-    if (!sub?.access_formulador && req.userRole !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        code: 'NO_ACCESS_FORMULADOR',
-        message: 'Activa el plan Formulador para formular esta oportunidad',
-        upgrade_required: true,
-        redirect_to: '/planes',
-      });
-    }
-
     const validacionBridge = validarBody(bridgeTransferSchema, req.body);
-    if (!validacionBridge.ok) return res.status(400).json({ success: false, message: 'convocatoria requerida' });
-    const { convocatoria } = validacionBridge.data;
-
-    const proyectoId = crypto.randomUUID();
-    const nombre = `Formulación: ${(convocatoria.titulo || 'Sin título').substring(0, 80)}`;
-
-    await withTenantRun(req.userId,
-      `INSERT INTO proyectos (id, user_id, org_id, nombre, estado, problem_statement)
-       VALUES (?, ?, ?, ?, 'Borrador', ?)`,
-      [proyectoId, req.userId, req.userId, nombre, convocatoria.descripcion || '']
-    );
-
+    if (!validacionBridge.ok) return res.status(400).json({ success: false, message: 'convocatoria_id requerido' });
+    const r = await formularConvocatoria({ userId: req.userId, userRole: req.userRole, convocatoriaId: validacionBridge.data.convocatoriaId });
+    if (!r.ok) {
+      const { ok, status, ...cuerpo } = r;
+      return res.status(status).json({ success: false, ...cuerpo });
+    }
     res.json({
       success: true,
-      data: {
-        proyecto_id: proyectoId,
-        nombre,
-        convocatoria_id: convocatoria.id || convocatoria.externo_id,
-        redirect_to: `/formulador?proyecto=${proyectoId}&from_radar=true`,
-      },
+      data: { proyecto_id: r.proyecto_id, nombre: r.nombre, convocatoria_id: r.convocatoria_id, redirect_to: r.redirect_to },
     });
   }));
 }

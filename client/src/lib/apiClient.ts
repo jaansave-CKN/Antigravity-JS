@@ -116,13 +116,8 @@ async function parseResponse<T>(resp: Response): Promise<T> {
       window.dispatchEvent(new CustomEvent('auth-session-expired', { detail: { code: parsed.code, message: parsed.message } }));
     }
 
-    // BYOK (migración 045): las 7 acciones interactivas de IA cortan con 428
-    // antes de tocar Gemini si el usuario no exento no tiene llave propia
-    // válida (backend/middlewares/byokGate.js). Modal global, NUNCA redirect
-    // — evita el bucle de redirección que ya existe entre AuthGuard→/apis.
-    if (resp.status === 428 && parsed.code === 'BYOK_REQUIRED') {
-      window.dispatchEvent(new CustomEvent('byok-required', { detail: { message: parsed.message } }));
-    }
+    // B1 (2026-09-28): se retiró el gate BYOK del backend — ya no existe el
+    // 428 BYOK_REQUIRED que disparaba aquí el evento 'byok-required'.
 
     throw new ApiError(
       parsed.message || parsed.error || `HTTP ${resp.status}`,
@@ -169,11 +164,19 @@ function withDefaultTimeout(init: RequestInit, ms = 60_000): RequestInit {
   return { ...init, signal };
 }
 
-export async function fetchWithRetry(url: string, init: RequestInit, retries = 3): Promise<Response> {
+/** Ajustes por llamada (B4, 2026-09-28): operaciones largas que NO deben
+ *  reenviarse solas (p. ej. formulación integral: hasta 3 llamadas de IA
+ *  encadenadas) piden más tiempo y 0 reintentos. */
+export interface OpcionesRed { timeoutMs?: number; retries?: number }
+
+export async function fetchWithRetry(url: string, init: RequestInit, retries = 3, timeoutMs = 60_000): Promise<Response> {
   let lastError: Error = new Error('Network error');
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const resp = await fetch(url, withDefaultTimeout(init));
+      const resp = await fetch(url, withDefaultTimeout(init, timeoutMs));
+      // B3 (2026-09-28): un 503 de IA con X-RF-No-Retry ya agotó toda la
+      // cascada de proveedores en el servidor — reenviarlo solo gasta cuota.
+      if (resp.status === 503 && resp.headers.get('X-RF-No-Retry') === '1') return resp;
       if (resp.status === 502 || resp.status === 503) {
         if (attempt < retries) {
           await new Promise(r => setTimeout(r, backoffMs(attempt, 1000)));
@@ -198,7 +201,7 @@ async function get<T>(endpoint: string, opts?: RequestInit): Promise<T> {
   return parseResponse<T>(resp);
 }
 
-async function post<T>(endpoint: string, body?: unknown, opts?: RequestInit): Promise<T> {
+async function post<T>(endpoint: string, body?: unknown, opts?: RequestInit, red?: OpcionesRed): Promise<T> {
   const resp = await fetchWithRetry(
     `${API_BASE}${endpoint}`,
     {
@@ -207,7 +210,9 @@ async function post<T>(endpoint: string, body?: unknown, opts?: RequestInit): Pr
       body:    body !== undefined ? JSON.stringify(body) : undefined,
       ...opts,
       headers: buildHeaders('POST', opts?.headers),
-    }
+    },
+    red?.retries ?? 3,
+    red?.timeoutMs ?? 60_000,
   );
   return parseResponse<T>(resp);
 }

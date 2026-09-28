@@ -1,13 +1,10 @@
 /**
- * arbolObjetivosAgent.js — Módulo 3b: Árbol de Objetivos con Gemini
+ * arbolObjetivosAgent.js — Módulo 3b: Árbol de Objetivos con IA (llmProveedor.js)
  * Spec v2.0 Sección C-M3: Grafo dirigido Causas→Problema→Efectos invertido a Medios→Objetivo→Fines
  */
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from '../utils/logger.js';
-import { geminiCB, isQuotaError, withKeyRotation, GeminiPoolExhaustedError } from '../services/geminiCircuitBreaker.js';
-import { withUserKeyRotation, UserKeyPoolExhaustedError } from '../services/byokService.js';
-import { logTokenUsage } from '../services/aiTokenLogger.js';
-import { conReintentoTransitorio } from '../services/geminiReintento.js';
+import { LlmLoopGuardError } from '../services/geminiCircuitBreaker.js';
+import { generarConIA, IaNoDisponibleError, IaTopeAgotadoError } from '../services/llmProveedor.js';
 
 export const ARBOL_SYSTEM_PROMPT = `Eres un experto en formulación de proyectos de cooperación internacional, \
 contratación pública colombiana y Metodología General Ajustada (MGA).
@@ -37,109 +34,67 @@ FORMATO:
 // 503 explícito ANTES de que ningún caller toque objetivos_arbol (ambos
 // hacen el DELETE después de generar), así el árbol previo queda intacto.
 export class ArbolIANoDisponibleError extends Error {
-  constructor(message) {
+  constructor(message, { code = 'IA_NO_DISPONIBLE', status = 503, retryAt = null } = {}) {
     super(message);
     this.name = 'ArbolIANoDisponibleError';
-    this.status = 503;
-    this.code = 'IA_CUOTA_AGOTADA';
+    this.status = status;
+    this.code = code;
+    this.retryAt = retryAt;
   }
 }
 
-const MSG_SIN_IA = 'La IA del servidor no está disponible en este momento (cuota agotada o sin llaves configuradas). Conecta tu propia llave de Gemini (BYOK) para generar el árbol ahora, o intenta más tarde. Tu árbol de objetivos actual no se modificó.';
+const MSG_SIN_IA = 'Servicio de IA no disponible en este momento — ningún proveedor respondió. Tu árbol de objetivos actual no se modificó. Intenta de nuevo más tarde.';
 
-// Llamada real al SDK con una llave dada — factorizada para poder usarse
-// tanto con el pool BYOK propio de un usuario (withUserKeyRotation) como
-// con el pool de llaves del servidor (withKeyRotation, 2026-08-19).
-async function intentarGenerarArbol(key, objetivoCentral) {
-  const genAI = new GoogleGenerativeAI(key);
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-3.6-flash',
-    generationConfig: {
-      temperature:     0.3,
-      topP:            0.8,
-      // LOTE 8 (auditoría minera 2026-09-24): gemini-3.6-flash razona y esos
-      // tokens cuentan contra el tope (verificado en vivo en MIROFISH con
-      // 3072). Mismo margen que los agentes ya corregidos.
-      maxOutputTokens: 8192,
-      responseMimeType: 'application/json',
-    },
-  });
+/** Valida y extrae los nodos de la respuesta del modelo (lanza si no sirven). Exportada para test. */
+export function parsearNodosArbol(texto) {
+  let parsed;
+  try {
+    parsed = JSON.parse(texto);
+  } catch {
+    // Intentar extraer JSON del texto si viene envuelto en markdown
+    const match = String(texto).match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('la respuesta no contiene JSON válido');
+    parsed = JSON.parse(match[0]);
+  }
+  const nodos = parsed.nodos || parsed;
+  if (!Array.isArray(nodos) || nodos.length === 0) throw new Error('árbol de objetivos vacío');
+  return nodos;
+}
 
+// B1 (2026-09-28): la generación pasa por llmProveedor.js (OpenRouter →
+// pool Gemini del servidor → BYOK del usuario), con timeout (antes la
+// llamada del SDK no tenía). Nunca se devuelve un árbol fabricado: si nadie
+// responde con un árbol válido → ArbolIANoDisponibleError (503), o 429 si
+// el tope de gasto del usuario está agotado.
+export async function generarArbolConIA(objetivoCentral, userId) {
   // Sanitización anti-prompt-injection: limitar longitud y strip de delimitadores
   const sanitized = String(objetivoCentral || '')
     .slice(0, 400)
     .replace(/["`\\]/g, '')
     .replace(/\n{2,}/g, ' ');
-  const prompt = `${ARBOL_SYSTEM_PROMPT}\n\nOBJETIVO CENTRAL DEL PROYECTO:\n"${sanitized}"`;
-  const result = await conReintentoTransitorio(() => model.generateContent(prompt), { origen: 'ArbolAgent' });
-  // LOTE 8: un árbol cortado por el tope se reporta con motivo explícito en
-  // vez de fallar después con un "JSON no válido" sin causa.
-  if (result.response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
-    logger.error('[ArbolAgent] Respuesta de Gemini truncada por maxOutputTokens', { usage: result.response.usageMetadata });
-    throw new Error('Respuesta de Gemini truncada (maxOutputTokens)');
-  }
-  const text   = result.response.text().trim();
-
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    // Intentar extraer JSON del texto si viene envuelto en markdown
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error('Respuesta de Gemini no contiene JSON válido');
-    parsed = JSON.parse(match[0]);
-  }
-
-  const nodos = parsed.nodos || parsed;
-  if (!Array.isArray(nodos) || nodos.length === 0) {
-    throw new Error('Árbol de objetivos vacío en respuesta de Gemini');
-  }
-
-  // SDK oficial @google/generative-ai — forma distinta a las llamadas fetch
-  // directas de los otros agentes (data.usage.prompt_tokens): acá viene en
-  // result.response.usageMetadata.{promptTokenCount,candidatesTokenCount}.
-  return { nodos, usage: result.response.usageMetadata || {} };
-}
-
-// REFACTOR (2026-08-22, BYOK migración 045): `apiKey` (una sola llave de
-// server.js:resolveGoogleApiKey) se reemplaza por `userGeminiKeys` (array de
-// llaves propias del usuario ya desencriptadas, resuelto por
-// requireByokOrExento). Pool BYOK agotado → UserKeyPoolExhaustedError (429)
-// tal cual; pool del SERVIDOR agotado o sin llaves → ArbolIANoDisponibleError
-// (503, F-02). Nunca se devuelve un árbol fabricado.
-export async function generarArbolConIA(objetivoCentral, userGeminiKeys, userId) {
-  const useUserKeys = Array.isArray(userGeminiKeys) && userGeminiKeys.length > 0;
-
-  if (!useUserKeys && !geminiCB.keys.length) {
-    logger.warn('[ArbolAgent] Sin llaves configuradas — 503, sin árbol de demostración', { userId });
-    throw new ArbolIANoDisponibleError(MSG_SIN_IA);
-  }
 
   try {
-    let nodos, usage;
-    if (useUserKeys) {
-      ({ nodos, usage } = await withUserKeyRotation(userGeminiKeys, (key) => intentarGenerarArbol(key, objetivoCentral)));
-    } else {
-      ({ nodos, usage } = await withKeyRotation((key) => intentarGenerarArbol(key, objetivoCentral)));
-    }
-
-    console.log(`[ArbolAgent] Árbol generado con ${nodos.length} nodos via Gemini`);
-    logTokenUsage({
-      userId, agentName: 'arbol_objetivos',
-      tokensInput: usage.promptTokenCount ?? 0,
-      tokensOutput: usage.candidatesTokenCount ?? 0,
-    }).catch(() => {});
+    const { valor: nodos, proveedor, modelo } = await generarConIA({
+      userId, agente: 'arbol_objetivos', temperature: 0.3,
+      messages: [
+        { role: 'system', content: ARBOL_SYSTEM_PROMPT },
+        { role: 'user', content: `OBJETIVO CENTRAL DEL PROYECTO:\n"${sanitized}"` },
+      ],
+      responseFormat: { type: 'json_object' },
+      validar: parsearNodosArbol,
+    });
+    console.log(`[ArbolAgent] Árbol generado con ${nodos.length} nodos via ${proveedor} (${modelo})`);
     return nodos;
   } catch (err) {
-    if (err instanceof UserKeyPoolExhaustedError) {
-      logger.warn('[ArbolAgent] Pool BYOK del usuario agotado — sin fallback a demostración (anti-fabricación)', { objetivoCentral, userId });
-      throw err;
+    if (err instanceof IaTopeAgotadoError) {
+      throw new ArbolIANoDisponibleError(`${err.message} Tu árbol de objetivos actual no se modificó.`, { code: err.code, status: 429, retryAt: err.retryAt });
     }
-    if (isQuotaError(err) || err instanceof GeminiPoolExhaustedError) {
-      logger.warn('[ArbolAgent] Cuota del pool del servidor agotada — 503, sin árbol de demostración', { objetivoCentral });
-      throw new ArbolIANoDisponibleError(MSG_SIN_IA);
+    if (err instanceof IaNoDisponibleError) {
+      logger.warn('[ArbolAgent] Ningún proveedor de IA respondió — 503, sin árbol de demostración', { userId });
+      throw new ArbolIANoDisponibleError(MSG_SIN_IA, { retryAt: err.retryAt });
     }
-    logger.error('[ArbolAgent] Fallo al generar árbol con Gemini', { err: err.message, objetivoCentral });
-    throw new Error('La IA de Gemini está experimentando alta latencia. Por favor, reintenta en unos momentos.');
+    if (err instanceof LlmLoopGuardError) throw err;
+    logger.error('[ArbolAgent] Fallo al generar árbol', { err: err.message, userId });
+    throw new ArbolIANoDisponibleError(MSG_SIN_IA);
   }
 }

@@ -1,28 +1,27 @@
 /**
  * mirofishComite.test.mjs — F-09: IA adversarial MIROFISH sin red ni BD.
  * Cubre la validación anti-alucinación y los motivos de "no disponible"
- * (nunca un resultado fabricado). Gemini/BYOK/logger simulados.
+ * (nunca un resultado fabricado). B1 (2026-09-28): la llamada pasa por la
+ * capa única (llmProveedor, simulada aquí; su cascada tiene su propio test).
  * Ejecutar: npm run test:unit
  */
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-class GeminiPoolExhaustedError extends Error {}
-class UserKeyPoolExhaustedError extends Error { constructor() { super('agotada'); this.code = 'USER_KEY_EXHAUSTED'; } }
-const geminiCB = { keys: [] };
-let comportamiento = async () => { throw new Error('no configurado'); };
+class IaNoDisponibleError extends Error { constructor(intentos) { super('sin IA'); this.code = 'IA_NO_DISPONIBLE'; this.intentos = intentos; } }
+class IaTopeAgotadoError extends Error { constructor(retryAt) { super('Alcanzaste el tope diario de uso de IA de tu cuenta.'); this.code = 'IA_TOPE_AGOTADO'; this.retryAt = retryAt; } }
+class LlmLoopGuardError extends Error { constructor() { super('bucle'); this.code = 'LLM_LOOP_GUARD'; } }
+let generar = async () => { throw new Error('no configurado'); };
+let ultimaPeticion = null;
 
 const svc = (f) => new URL(`../../backend/services/${f}`, import.meta.url).href;
-mock.module(svc('geminiCircuitBreaker.js'), { namedExports: {
-  geminiCB, GeminiPoolExhaustedError, isQuotaError: () => false,
-  withKeyRotation: async (fn) => comportamiento(fn),
+mock.module(svc('llmProveedor.js'), { namedExports: {
+  IaNoDisponibleError, IaTopeAgotadoError,
+  generarConIA: async (p) => { ultimaPeticion = p; return generar(p); },
 } });
-mock.module(svc('byokService.js'), { namedExports: {
-  UserKeyPoolExhaustedError, withUserKeyRotation: async () => { throw new UserKeyPoolExhaustedError(); },
-} });
-mock.module(svc('aiTokenLogger.js'), { namedExports: { logTokenUsage: async () => {} } });
+mock.module(svc('geminiCircuitBreaker.js'), { namedExports: { LlmLoopGuardError } });
 
-const { evaluarComiteIA, validarHallazgosIA } = await import('../../backend/services/mirofishComite.js');
+const { evaluarComiteIA, validarHallazgosIA, parsearRespuestaComite } = await import('../../backend/services/mirofishComite.js');
 
 const DATOS = { 'tramo[02].estado_via': 'Destapada', 'tramo[02].distancia_km': '180', 'logistica.duracion_meses': '3' };
 
@@ -42,48 +41,34 @@ test('validación anti-alucinación: solo pasan hallazgos con evidencia literal 
   assert.equal(validos[0].evidencia[0].valor, 'Destapada', 'la evidencia guardada es el valor REAL enviado');
 });
 
-test('sin llaves del servidor ni BYOK → no_disponible/sin_llaves_servidor (sin hallazgos inventados)', async () => {
-  geminiCB.keys = [];
-  const r = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1', userGeminiKeys: [] });
-  assert.deepEqual([r.estado, r.motivo, r.hallazgos.length], ['no_disponible', 'sin_llaves_servidor', 0]);
+test('respuesta sin arreglo "hallazgos" es rechazada (la capa prueba el siguiente proveedor)', () => {
+  assert.throws(() => parsearRespuestaComite('lo siento, no puedo'));
+  assert.throws(() => parsearRespuestaComite('{"hallazgos": [{"titulo": "corta'));
+  assert.deepEqual(parsearRespuestaComite('{"hallazgos": []}'), { hallazgos: [] });
 });
 
-test('llave BYOK agotada → USER_KEY_EXHAUSTED; pool del servidor agotado → pool_servidor_agotado', async () => {
-  const byok = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1', userGeminiKeys: ['k'] });
-  assert.equal(byok.motivo, 'USER_KEY_EXHAUSTED');
-  geminiCB.keys = ['srv'];
-  comportamiento = async () => { throw new GeminiPoolExhaustedError('agotado'); };
-  const srv = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1', userGeminiKeys: [] });
-  assert.equal(srv.motivo, 'pool_servidor_agotado');
-});
-
-test('Gemini 503 saturado: 1 reintento; si se recupera → ok, si persiste → modelo_saturado', async () => {
-  geminiCB.keys = ['srv'];
-  const saturado = () => Object.assign(new Error('503'), { code: 'MODEL_OVERLOADED' });
-  let llamadas = 0;
-  comportamiento = async () => { llamadas++; if (llamadas === 1) throw saturado(); return { texto: '{"hallazgos":[]}', usage: {} }; };
-  const recuperado = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1', reintentoMs: 0 });
-  assert.deepEqual([recuperado.estado, llamadas], ['ok', 2]);
-
-  llamadas = 0;
-  comportamiento = async () => { llamadas++; throw saturado(); };
-  const persistente = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1', reintentoMs: 0 });
-  assert.deepEqual([persistente.estado, persistente.motivo, llamadas], ['no_disponible', 'modelo_saturado', 2]);
-});
-
-test('respuesta cortada por límite de tokens (finish_reason: length) → respuesta_truncada, no inválida', async () => {
-  geminiCB.keys = ['srv'];
-  comportamiento = async () => ({ texto: '{"hallazgos": [{"titulo": "corta', finishReason: 'length', usage: { prompt_tokens: 1059, completion_tokens: 272, total_tokens: 4127 } });
-  const r = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1' });
-  assert.deepEqual([r.estado, r.motivo, r.hallazgos.length], ['no_disponible', 'respuesta_truncada', 0]);
-});
-
-test('respuesta de la IA no-JSON → respuesta_invalida; JSON válido → ok con hallazgos validados', async () => {
-  geminiCB.keys = ['srv'];
-  comportamiento = async () => ({ texto: 'lo siento, no puedo', usage: {} });
-  assert.equal((await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1' })).motivo, 'respuesta_invalida');
-  comportamiento = async () => ({ texto: JSON.stringify({ hallazgos: [{ categoria: 'costos_transporte', severidad: 'ALTA', titulo: 'T', evidencia: [{ campo: 'tramo[02].distancia_km', valor: '180' }] }] }), usage: {} });
+test('JSON válido → ok con hallazgos validados y el modelo que realmente respondió (B7)', async () => {
+  const texto = JSON.stringify({ hallazgos: [{ categoria: 'costos_transporte', severidad: 'ALTA', titulo: 'T', evidencia: [{ campo: 'tramo[02].distancia_km', valor: '180' }] }] });
+  generar = async (p) => ({ valor: p.validar(texto), modelo: 'anthropic/claude-sonnet-5', proveedor: 'openrouter' });
   const ok = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1' });
-  assert.equal(ok.estado, 'ok');
-  assert.equal(ok.hallazgos.length, 1);
+  assert.deepEqual([ok.estado, ok.hallazgos.length, ok.modelo, ok.proveedor], ['ok', 1, 'anthropic/claude-sonnet-5', 'openrouter']);
+  assert.deepEqual([ultimaPeticion.userId, ultimaPeticion.agente, ultimaPeticion.responseFormat.type], ['u1', 'mirofish_comite', 'json_object']);
+});
+
+test('sin IA disponible → no_disponible con los intentos, sin hallazgos inventados (las reglas siguen en la ruta)', async () => {
+  const intentos = [{ proveedor: 'openrouter', motivo: 'sin_llave' }, { proveedor: 'gemini_servidor', motivo: 'cuota_agotada' }];
+  generar = async () => { throw new IaNoDisponibleError(intentos); };
+  const r = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1' });
+  assert.deepEqual([r.estado, r.motivo, r.hallazgos.length], ['no_disponible', 'ia_no_disponible', 0]);
+  assert.deepEqual(r.intentos, intentos);
+});
+
+test('tope agotado y guardián anti-bucle → no_disponible con su motivo y mensaje', async () => {
+  const manana = new Date('2026-09-29T05:00:00Z');
+  generar = async () => { throw new IaTopeAgotadoError(manana); };
+  const tope = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1' });
+  assert.deepEqual([tope.estado, tope.motivo, tope.retryAt], ['no_disponible', 'IA_TOPE_AGOTADO', manana]);
+  generar = async () => { throw new LlmLoopGuardError(); };
+  const bucle = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1' });
+  assert.equal(bucle.motivo, 'LLM_LOOP_GUARD');
 });

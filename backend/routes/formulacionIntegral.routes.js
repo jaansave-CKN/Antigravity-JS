@@ -63,12 +63,13 @@ import crypto from 'crypto';
 import { generarArbolConIA } from '../agents/arbolObjetivosAgent.js';
 import { generarEntradaDesdeInvestigacion } from '../services/EntradaIAService.js';
 import { calcularViabilidadIA, recolectarContextoViabilidad } from '../services/viabilidadAgent.js';
-import { requireByokOrExento } from '../middlewares/byokGate.js';
 import { captureError } from '../config/sentry.config.js';
 import { withTenantRow, withTenantRun, withTenantRows, withTenantTransaction } from '../config/database.config.js';
 import { validarBody, formulacionIntegralSchema } from '../validators/zodSchemas.js';
 
 const PASOS = ['entrada', 'arbol', 'viabilidad'];
+// B4: más que el peor caso de una cadena completa (3 pasos × ~50 s de IA + BD).
+const EN_CURSO_MAX_MS = 5 * 60_000;
 const LABEL_PASO = {
   entrada: 'Contexto/Entrada',
   arbol: 'Árbol de Objetivos',
@@ -108,7 +109,7 @@ function primerPasoPendiente(progreso) {
 }
 
 export function registerFormulacionIntegralRoutes(app, { authenticateToken, requireAccess, formulacionIntegralLimiter }) {
-  const byokGate = requireByokOrExento();
+  // B1 (2026-09-28): sin byokGate — cada agente pasa por llmProveedor.js.
 
   async function cargarProyecto(proyectoId, userId) {
     return withTenantRow(userId,
@@ -137,7 +138,7 @@ export function registerFormulacionIntegralRoutes(app, { authenticateToken, requ
   }));
 
   // POST /api/formulacion/integral/:proyectoId — inicia o reanuda la cadena.
-  app.post('/api/formulacion/integral/:proyectoId', authenticateToken, requireAccess('formulador'), formulacionIntegralLimiter, byokGate, wrap(async (req, res) => {
+  app.post('/api/formulacion/integral/:proyectoId', authenticateToken, requireAccess('formulador'), formulacionIntegralLimiter, wrap(async (req, res) => {
     const proyectoId = req.params.proyectoId;
     const validacion = validarBody(formulacionIntegralSchema, req.body);
     if (!validacion.ok) return res.status(400).json({ success: false, message: validacion.message });
@@ -169,6 +170,22 @@ export function registerFormulacionIntegralRoutes(app, { authenticateToken, requ
     }
     if (objetivoCentral) progreso.objetivo_central_usado = objetivoCentral;
 
+    // B4 (2026-09-28): candado contra dos cadenas en paralelo del mismo
+    // proyecto (un reintento del cliente mientras la primera sigue corriendo
+    // gastaba IA doble y se pisaban ficha_tecnica). Marca con fecha: si el
+    // proceso muere a mitad, a los EN_CURSO_MAX_MS deja de bloquear.
+    const enCursoDesde = progreso.en_curso_at ? new Date(progreso.en_curso_at).getTime() : 0;
+    if (enCursoDesde && Date.now() - enCursoDesde < EN_CURSO_MAX_MS) {
+      return res.status(409).json({
+        success: false,
+        code: 'FORMULACION_EN_CURSO',
+        message: 'La formulación integral de este proyecto ya se está ejecutando. Espera a que termine; el avance se actualiza solo.',
+        data: progreso,
+      });
+    }
+    progreso.en_curso_at = new Date().toISOString();
+    fichaTecnica = await persistirProgreso(req.userId, proyectoId, fichaTecnica, progreso);
+
     while (true) {
       const paso = primerPasoPendiente(progreso);
       if (!paso) break; // todos los pasos completados dentro de este mismo request
@@ -182,7 +199,7 @@ export function registerFormulacionIntegralRoutes(app, { authenticateToken, requ
             getRows: (sql, params) => withTenantRows(req.userId, sql, params),
             runSql:  (sql, params) => withTenantRun(req.userId, sql, params),
           };
-          const generado = await generarEntradaDesdeInvestigacion(proyectoId, req.userId, { ...scopedDeps, userGeminiKeys: req.userGeminiKeys });
+          const generado = await generarEntradaDesdeInvestigacion(proyectoId, req.userId, scopedDeps);
 
           // Fusión sin pisar datos ya escritos — mismo criterio que el botón
           // manual "Generar con AI" de Entrada (nunca sobreescribe lo real).
@@ -197,7 +214,7 @@ export function registerFormulacionIntegralRoutes(app, { authenticateToken, requ
           fichaTecnica = { ...fichaTecnica, entrada_completa: { ...entradaActual, contexto: contextoFusionado } };
 
         } else if (paso === 'arbol') {
-          const nodos = await generarArbolConIA(objetivoCentral, req.userGeminiKeys, req.userId);
+          const nodos = await generarArbolConIA(objetivoCentral, req.userId);
           const ids = nodos.map(() => crypto.randomUUID());
           const queries = [
             { sql: 'DELETE FROM objetivos_arbol WHERE proyecto_id = ?', params: [proyectoId] },
@@ -225,7 +242,7 @@ export function registerFormulacionIntegralRoutes(app, { authenticateToken, requ
           };
           const proyectoParaViabilidad = { ...proyecto, ficha_tecnica: fichaTecnica };
           const { ctx, fichaTecnica: fichaBase } = await recolectarContextoViabilidad(proyectoParaViabilidad, req.userId, scopedDeps);
-          const resultado = await calcularViabilidadIA(ctx, req.userGeminiKeys);
+          const resultado = await calcularViabilidadIA(ctx);
           fichaTecnica = { ...fichaBase, viabilidad_ia: resultado };
         }
 
@@ -235,9 +252,12 @@ export function registerFormulacionIntegralRoutes(app, { authenticateToken, requ
       } catch (err) {
         const mensajeError = err.message || 'Error desconocido';
         progreso.pasos[paso] = { estado: 'fallido', completado_at: null, error: mensajeError };
+        progreso.en_curso_at = null;
         await persistirProgreso(req.userId, proyectoId, fichaTecnica, progreso);
 
         const status = err.status || 502;
+        // B3: un 503 de IA ya agotó la cascada de proveedores — sin reintento automático.
+        if (err.code === 'IA_NO_DISPONIBLE') res.set('X-RF-No-Retry', '1');
         return res.status(status).json({
           success: false,
           code: err.code || 'FORMULACION_INTEGRAL_PASO_FALLIDO',
@@ -247,6 +267,8 @@ export function registerFormulacionIntegralRoutes(app, { authenticateToken, requ
       }
     }
 
+    progreso.en_curso_at = null;
+    await persistirProgreso(req.userId, proyectoId, fichaTecnica, progreso);
     res.json({ success: true, completo: true, message: 'Formulación integral completa.', data: progreso });
   }));
 }

@@ -421,9 +421,16 @@ export const subscriptionActivateSchema = z.object({
   target_user_id: z.string().trim().max(100).optional(),
 });
 
+// Fase 4 (2026-09-28): el puente ya NO confía en los campos de la
+// convocatoria que manda el cliente — solo necesita su id; el Gerente de
+// Proyecto la relee del catálogo. Se acepta la forma vieja
+// { convocatoria: { id | externo_id } } por compatibilidad del cliente.
+const idConvocatoria = z.union([z.string().trim().min(1).max(200), z.number()]).transform(String);
 export const bridgeTransferSchema = z.object({
-  convocatoria: z.record(z.string(), z.any()),
-});
+  convocatoria_id: idConvocatoria.optional(),
+  convocatoria: z.object({ id: idConvocatoria.optional(), externo_id: idConvocatoria.optional() }).passthrough().optional(),
+}).transform(d => ({ convocatoriaId: d.convocatoria_id || d.convocatoria?.id || d.convocatoria?.externo_id || null }))
+  .refine(d => !!d.convocatoriaId, 'convocatoria_id requerido');
 
 // ────────────────────────────────────────────────────────────────────────────
 // BYOK / proyectos (Fase 1, sin cambios)

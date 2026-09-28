@@ -1,98 +1,59 @@
 /**
- * viabilidadAgent.test.mjs — Lote 6 T1: blindaje forense del dictamen de
- * viabilidad. Toda caída al MODO RESPALDO debe (1) no colapsar, (2) devolver
- * el cálculo heurístico etiquetado y (3) REGISTRAR su causa exacta en el log.
- * Gemini (fetch), pool de llaves, BYOK, logger y FinOps simulados: sin red, sin BD.
+ * viabilidadAgent.test.mjs — dictamen de viabilidad sobre la capa única de IA.
+ * B1 (2026-09-28, regla de oro): se eliminó el respaldo heurístico — si
+ * ningún proveedor entrega un dictamen válido, calcularViabilidadIA LANZA y
+ * el caller no guarda nada. La cascada, el cuerpo de la petición y FinOps se
+ * prueban en llmProveedor.test.mjs; aquí se simula generarConIA.
  * Ejecutar: npm run test:unit
  */
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-class GeminiPoolExhaustedError extends Error {}
-class UserKeyPoolExhaustedError extends Error { constructor() { super('agotada'); this.code = 'USER_KEY_EXHAUSTED'; } }
-const geminiCB = { keys: ['llave-servidor'] };
-let rotacion = async (fn) => fn('llave-servidor');
-const logs = [];
-const tokens = [];
+class IaNoDisponibleError extends Error { constructor() { super('sin IA'); this.status = 503; this.code = 'IA_NO_DISPONIBLE'; } }
+let generar = async () => { throw new Error('no configurado'); };
+let ultimaPeticion = null;
 
 const u = (p) => new URL(`../../backend/${p}`, import.meta.url).href;
-mock.module(u('services/geminiCircuitBreaker.js'), { namedExports: {
-  geminiCB, GeminiPoolExhaustedError,
-  isQuotaError: (e) => /429|quota|rate.?limit/i.test(e?.message || ''),
-  withKeyRotation: (fn) => rotacion(fn),
+mock.module(u('services/llmProveedor.js'), { namedExports: {
+  IaNoDisponibleError,
+  generarConIA: async (p) => { ultimaPeticion = p; return generar(p); },
 } });
-mock.module(u('services/byokService.js'), { namedExports: { UserKeyPoolExhaustedError, withUserKeyRotation: async () => { throw new UserKeyPoolExhaustedError(); } } });
-mock.module(u('services/aiTokenLogger.js'), { namedExports: { logTokenUsage: async (t) => { tokens.push(t); } } });
-mock.module(u('utils/logger.js'), { namedExports: { logger: {
-  info: () => {}, debug: () => {},
-  warn: (m, extra) => logs.push({ nivel: 'warn', m, ...extra }),
-  error: (m, extra) => logs.push({ nivel: 'error', m, ...extra }),
-} } });
+mock.module(u('utils/logger.js'), { namedExports: { logger: { info() {}, debug() {}, warn() {}, error() {} } } });
 
-const { calcularViabilidadIA } = await import('../../backend/services/viabilidadAgent.js');
+const { calcularViabilidadIA, parsearDictamen } = await import('../../backend/services/viabilidadAgent.js');
 
-const CTX = { userId: 'u1', problema: 'Déficit de acueducto en la vereda El Mango con 320 familias sin agua potable', metaEsperada: 'Cobertura del 100% en 2027', poblacionAfectada: 320, presupuesto: { total: 412000000 }, anexos: [{ categoria: 'financiero' }], supuestosArbol: [], resultadosCambio: [] };
+const CTX = { userId: 'u1', problema: 'Déficit de acueducto en la vereda El Mango con 320 familias sin agua potable', metaEsperada: 'Cobertura del 100% en 2027', poblacionAfectada: 320, presupuesto: { total: 412000000 }, anexos: [{ categoria: 'financiero', nombre_archivo: 'presupuesto.xlsx' }], supuestosArbol: [], resultadosCambio: [] };
+const DICTAMEN = { estado_auditoria: 'APROBADO_TECNICAMENTE', score_viabilidad: 81.6, analisis_escala_poblacion: { proporcion_logica: true, veredicto_escala: 'Proporcional' }, cruce_anexos: { respaldo_financiero_detectado: true, marco_normativo_validado: false, brechas_detectadas: ['Sin anexo legal'] }, teoria_del_cambio_generada: { supuestos: ['s1'], resultados_esperados: ['r1'] } };
 
-let ultimoCuerpo = null;
-function simularGemini({ status = 200, finish = 'stop', content = '', usage = { prompt_tokens: 900, completion_tokens: 300, total_tokens: 3900 } } = {}) {
-  globalThis.fetch = async (_url, init) => {
-    ultimoCuerpo = JSON.parse(init.body);
-    return { status, ok: status >= 200 && status < 300, text: async () => 'cuerpo de error', json: async () => ({ choices: [{ finish_reason: finish, message: { content } }], usage }) };
-  };
-}
-const ultimoLog = () => logs[logs.length - 1];
-const reset = () => { logs.length = 0; tokens.length = 0; geminiCB.keys = ['llave-servidor']; rotacion = async (fn) => fn('llave-servidor'); };
-
-test('JSON cortado (finish_reason: length) → MODO RESPALDO sin colapsar y log con motivo respuesta_truncada', async () => {
-  reset();
-  simularGemini({ finish: 'length', content: '{"estado_auditoria": "APROBADO_TECNI' });
-  const r = await calcularViabilidadIA(CTX);
-  assert.equal(r.fuente, 'heuristica');
-  assert.equal(r.motivo_respaldo, 'respuesta_truncada');
-  assert.equal(typeof r.score_viabilidad, 'number');
-  assert.equal(ultimoLog().nivel, 'error');
-  assert.equal(ultimoLog().motivo, 'respuesta_truncada');
-  assert.equal(ultimoLog().usage.total_tokens, 3900, 'el log conserva el consumo real para diagnóstico');
+test('pide salida estructurada (json_schema) con el esquema del dictamen y el userId del dueño', async () => {
+  generar = async (p) => ({ valor: p.validar(JSON.stringify(DICTAMEN)), modelo: 'anthropic/claude-sonnet-5', proveedor: 'openrouter' });
+  await calcularViabilidadIA(CTX);
+  assert.equal(ultimaPeticion.userId, 'u1');
+  assert.equal(ultimaPeticion.agente, 'viabilidad');
+  assert.equal(ultimaPeticion.responseFormat.type, 'json_schema');
+  assert.deepEqual(ultimaPeticion.responseFormat.json_schema.schema.properties.estado_auditoria.enum, ['APROBADO_TECNICAMENTE', 'OBSERVACION_CRITICA', 'RECHAZADO_INCOHERENCIA']);
+  assert.equal(typeof ultimaPeticion.validar, 'function', 'una salida inválida hace probar el siguiente proveedor');
 });
 
-test('la petición sale con max_tokens 8192 y razonamiento acotado (antes 2048)', async () => {
-  reset();
-  simularGemini({ content: JSON.stringify({ estado_auditoria: 'APROBADO_TECNICAMENTE', score_viabilidad: 81 }) });
+test('dictamen válido: se normaliza y `fuente` es el modelo que REALMENTE respondió (B7)', async () => {
+  generar = async (p) => ({ valor: p.validar(JSON.stringify(DICTAMEN)), modelo: 'anthropic/claude-sonnet-5', proveedor: 'openrouter' });
   const r = await calcularViabilidadIA(CTX);
-  assert.equal(ultimoCuerpo.max_tokens, 8192);
-  assert.equal(ultimoCuerpo.reasoning_effort, 'low');
-  assert.equal(ultimoCuerpo.response_format.type, 'json_schema', 'el esquema se exige en la API, no solo en el prompt');
-  assert.deepEqual(ultimoCuerpo.response_format.json_schema.schema.properties.estado_auditoria.enum, ['APROBADO_TECNICAMENTE', 'OBSERVACION_CRITICA', 'RECHAZADO_INCOHERENCIA']);
-  assert.equal(r.fuente, 'gemini-3.6-flash');
-  assert.equal(r.motivo_respaldo, undefined);
-  assert.equal(logs.length, 0, 'un dictamen real no deja log de respaldo');
-  assert.equal(tokens[0].tokensOutput, 3000, 'FinOps: salida real = total − entrada (incluye razonamiento)');
+  assert.equal(r.score_viabilidad, 82);
+  assert.equal(r.estado_auditoria, 'APROBADO_TECNICAMENTE');
+  assert.deepEqual(r.cruce_anexos.brechas_detectadas, ['Sin anexo legal']);
+  assert.deepEqual([r.fuente, r.proveedor], ['anthropic/claude-sonnet-5', 'openrouter']);
+  assert.equal('motivo_respaldo' in r, false);
 });
 
-test('cuota agotada: antes caía al respaldo EN SILENCIO; ahora deja log warn con motivo', async () => {
-  reset();
-  rotacion = async () => { throw new GeminiPoolExhaustedError('pool agotado'); };
-  const r = await calcularViabilidadIA(CTX);
-  assert.equal(r.motivo_respaldo, 'cuota_agotada');
-  assert.deepEqual([ultimoLog().nivel, ultimoLog().motivo], ['warn', 'cuota_agotada']);
+test('REGLA DE ORO: sin IA disponible LANZA — ya no existe el veredicto heurístico', async () => {
+  generar = async () => { throw new IaNoDisponibleError(); };
+  await assert.rejects(calcularViabilidadIA(CTX), (e) => e.status === 503 && e.code === 'IA_NO_DISPONIBLE');
 });
 
-test('cada causa queda identificada: sin llaves, BYOK agotada, 503, JSON inválido, esquema, HTTP', async () => {
-  const casos = [
-    { prep: () => { geminiCB.keys = []; }, motivo: 'sin_llaves_servidor' },
-    { prep: () => {}, byok: ['mi-llave'], motivo: 'USER_KEY_EXHAUSTED' },
-    { prep: () => simularGemini({ status: 503 }), motivo: 'modelo_saturado' },
-    { prep: () => simularGemini({ content: '{"estado_auditoria": APROBADO_SIN_COMILLAS}' }), motivo: 'json_invalido' },
-    { prep: () => simularGemini({ content: '{"estado_auditoria": "INVENTADO", "score_viabilidad": 50}' }), motivo: 'esquema_invalido' },
-    { prep: () => simularGemini({ content: 'lo siento, no puedo' }), motivo: 'respuesta_sin_json' },
-    { prep: () => simularGemini({ status: 500 }), motivo: 'http_500' },
-  ];
-  for (const c of casos) {
-    reset();
-    c.prep();
-    const r = await calcularViabilidadIA(CTX, c.byok ?? null);
-    assert.equal(r.fuente, 'heuristica', c.motivo);
-    assert.equal(r.motivo_respaldo, c.motivo);
-    assert.equal(ultimoLog().motivo, c.motivo, `log de ${c.motivo}`);
-  }
+test('validación del esquema: rechaza JSON roto, estados fuera del enum y score no numérico', () => {
+  assert.throws(() => parsearDictamen('lo siento, no puedo'), /sin JSON/);
+  assert.throws(() => parsearDictamen('{"estado_auditoria": APROBADO}'));
+  assert.throws(() => parsearDictamen('{"estado_auditoria": "INVENTADO", "score_viabilidad": 50}'), /esquema inválido/);
+  assert.throws(() => parsearDictamen('{"estado_auditoria": "OBSERVACION_CRITICA", "score_viabilidad": "alto"}'), /esquema inválido/);
+  assert.equal(parsearDictamen('```json\n' + JSON.stringify(DICTAMEN) + '\n```').score_viabilidad, 81.6);
 });

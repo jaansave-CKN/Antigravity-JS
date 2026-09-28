@@ -30,9 +30,12 @@ function estimarCostoCOP(tokensInput, tokensOutput) {
 }
 
 /**
- * @param {{ userId: string, agentName: string, tokensInput?: number, tokensOutput?: number }} params
+ * @param {{ userId: string, agentName: string, tokensInput?: number, tokensOutput?: number, costoUsdReal?: number }} params
+ * costoUsdReal (B1, 2026-09-28): costo facturado real (usage.cost de
+ * OpenRouter). Si llega, reemplaza la estimación con tarifas de Gemini, que
+ * subestimaría el gasto de claude-sonnet-5 en órdenes de magnitud.
  */
-export async function logTokenUsage({ userId, agentName, tokensInput = 0, tokensOutput = 0 }) {
+export async function logTokenUsage({ userId, agentName, tokensInput = 0, tokensOutput = 0, costoUsdReal = null }) {
   if (!supabaseAdmin || !userId || !agentName) return;
   try {
     // LOTE 8 (auditoría minera 2026-09-24): supabase-js NO lanza en un INSERT
@@ -44,7 +47,9 @@ export async function logTokenUsage({ userId, agentName, tokensInput = 0, tokens
       agent_name: agentName,
       tokens_input: tokensInput,
       tokens_output: tokensOutput,
-      cost_cop_estimated: estimarCostoCOP(tokensInput, tokensOutput),
+      cost_cop_estimated: Number.isFinite(costoUsdReal)
+        ? Math.round(costoUsdReal * USD_COP_REF * 10000) / 10000
+        : estimarCostoCOP(tokensInput, tokensOutput),
     }]);
     if (error) console.warn(`[aiTokenLogger] No se pudo registrar consumo (${agentName}):`, error.message);
   } catch (e) {

@@ -12,12 +12,10 @@ import assert from 'node:assert/strict';
 const u = (p) => new URL(`../../backend/${p}`, import.meta.url).href;
 class E extends Error {}
 mock.module(u('config/supabase.config.js'), { namedExports: { supabaseStorage: {}, supabaseAdmin: {} } });
-mock.module(u('services/markitdownService.js'), { namedExports: { convertBufferToMarkdown: async () => '' } });
-mock.module(u('services/geminiCircuitBreaker.js'), {
-  namedExports: { withKeyRotation: async () => { throw new E(); }, isQuotaError: () => false, GeminiPoolExhaustedError: E, retryDelayDe429: () => null },
-});
-mock.module(u('services/byokService.js'), { namedExports: { withUserKeyRotation: async () => { throw new E(); }, UserKeyPoolExhaustedError: E } });
-mock.module(u('services/aiTokenLogger.js'), { namedExports: { logTokenUsage: async () => {} } });
+mock.module(u('utils/fileConverters.js'), { namedExports: { convertBufferToMarkdown: async () => '' } });
+// B1 (2026-09-28): la IA pasa por la capa única llmProveedor.js.
+mock.module(u('services/geminiCircuitBreaker.js'), { namedExports: { LlmLoopGuardError: E } });
+mock.module(u('services/llmProveedor.js'), { namedExports: { generarConIA: async () => { throw new E(); }, IaNoDisponibleError: E, IaTopeAgotadoError: E } });
 mock.module(u('services/scoringDinamico.js'), { namedExports: { calcularScoringDinamico: async () => ({}) } });
 // SecurityMiddleware → PostgresRateLimitStore → database.config abriría pools reales.
 class StoreFalso {

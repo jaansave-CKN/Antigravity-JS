@@ -43,7 +43,11 @@ class LlaveInvalidaError extends Error {
   }
 }
 
-/** true si el usuario está exento de BYOK (usa la llave del servidor sin restricción). */
+/** true si el usuario está exento de BYOK. B1 (2026-09-28): ya NO decide el
+ *  acceso a la IA (el gate byokGate.js se eliminó junto con
+ *  resolverContextoBYOK); solo lo usa la página /apis (byokCredentials.routes.js)
+ *  para su texto. Las llaves propias siguen siendo el ÚLTIMO recurso de la
+ *  cascada de llmProveedor.js (resolverLlavesUsuario + withUserKeyRotation). */
 export async function esExento(userId, { getRow }) {
   const row = await getRow('SELECT byok_exento FROM usuarios WHERE id = ?', [userId]);
   return !!row?.byok_exento;
@@ -55,7 +59,7 @@ export async function esExento(userId, { getRow }) {
  * decide qué hacer (el middleware ya corta antes con 428, esto es defensa
  * en profundidad si algo llama esta función sin pasar por el middleware).
  */
-async function resolverLlavesUsuario(userId, { getRows }) {
+export async function resolverLlavesUsuario(userId, { getRows }) {
   const enc = process.env.ENCRYPTION_KEY;
   if (!enc) return [];
   const filas = await getRows(
@@ -93,24 +97,6 @@ export async function withUserKeyRotation(llaves, attemptFn) {
     }
   }
   throw new UserKeyPoolExhaustedError();
-}
-
-/**
- * Ejecuta la resolución completa para una de las 7 acciones gateadas:
- * exento → { exento: true } (el caller sigue con withKeyRotation del pool
- * del servidor, comportamiento intacto); no exento → { exento: false,
- * llaves: [...] } para usar con withUserKeyRotation.
- */
-export async function resolverContextoBYOK(userId, { getRow, getRows }) {
-  const exento = await esExento(userId, { getRow });
-  // FIX (2026-08-24, "ModalBYOK" — válvula de escape para exentos): antes,
-  // un exento nunca resolvía sus propias llaves (siempre []) porque nunca
-  // las necesitaba. Ahora sí se resuelven siempre — byokGate.js decide con
-  // ellas si el pool del servidor está agotado y el usuario ya guardó una
-  // llave propia voluntariamente, para usarla como escape en vez de esperar.
-  // Un exento SIN llave propia guardada sigue exactamente igual que antes.
-  const llaves = await resolverLlavesUsuario(userId, { getRows });
-  return { exento, llaves };
 }
 
 // Pre-flight: un intento real mínimo contra Gemini antes de guardar/aceptar

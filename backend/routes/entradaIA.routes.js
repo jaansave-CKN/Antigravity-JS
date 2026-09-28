@@ -11,7 +11,6 @@
  * re-parseo si el anexo no cambió desde la última generación.
  */
 import { generarCampoIndividual, generarProblematicasTerritorio, generarPosiblesSoluciones, generarNombreProyecto, generarPitchProyecto, CAMPOS_INDIVIDUALES } from '../services/EntradaIAService.js';
-import { requireByokOrExento } from '../middlewares/byokGate.js';
 import { captureError } from '../config/sentry.config.js';
 import { withTenantRow, withTenantRows, withTenantRun } from '../config/database.config.js';
 import {
@@ -46,13 +45,18 @@ function wrap(fn) {
       // genérico.
       const body = { success: false, message: err.status ? err.message : 'Error interno del servidor. Si el problema persiste, contacta al administrador.' };
       if (err.retryAt) { body.retryAt = new Date(err.retryAt).toISOString(); body.esEstimado = !!err.esEstimado; }
+      // B1 (2026-09-28): code estable de la capa de IA; un 503 de IA ya agotó
+      // la cascada completa — el cliente no debe reenviarlo (B3).
+      if (err.code) body.code = err.code;
+      if (err.code === 'IA_NO_DISPONIBLE') res.set('X-RF-No-Retry', '1');
       res.status(err.status || 500).json(body);
     }
   };
 }
 
 export function registerEntradaIARoutes(app, { authenticateToken, requireAccess, entradaCampoLimiter }) {
-  const byokGate = requireByokOrExento(); // ya no toma deps — ver byokGate.js (Prioridad Roja, 2026-09-05)
+  // B1 (2026-09-28): sin byokGate — la cascada de proveedores y el tope de
+  // gasto por usuario viven en llmProveedor.js / iaPresupuesto.js.
 
   async function checkOwnership(proyectoId, userId) {
     return withTenantRow(userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
@@ -65,7 +69,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
   // demografia: { beneficiarios, cobertura } }. Mismos gates que el bulk
   // (BYOK + ownership), limiter dedicado (30/h) en vez del aiLimiter global
   // compartido — ver comentario de entradaCampoLimiter en SecurityMiddleware.js.
-  app.post('/api/proyectos/:id/entrada/generar-ai-campo', authenticateToken, requireAccess('formulador'), entradaCampoLimiter, byokGate, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/entrada/generar-ai-campo', authenticateToken, requireAccess('formulador'), entradaCampoLimiter, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -79,7 +83,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
       req.params.id, req.userId, campo,
       contextoPrevio && typeof contextoPrevio === 'object' ? contextoPrevio : {},
       demografia && typeof demografia === 'object' ? demografia : {},
-      { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys }
+      scopedDeps(req.userId)
     );
     res.json({ success: true, data });
   }));
@@ -88,7 +92,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
   // en Anexos/Investigación. Esquema de array, endpoint separado a propósito
   // (ver revisión de architect: mezclar formas de respuesta en una sola ruta
   // es ambiguo). Body opcional: { demografia: { beneficiarios, cobertura } }.
-  app.post('/api/proyectos/:id/entrada/generar-ai-problematicas', authenticateToken, requireAccess('formulador'), entradaCampoLimiter, byokGate, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/entrada/generar-ai-problematicas', authenticateToken, requireAccess('formulador'), entradaCampoLimiter, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -98,7 +102,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
     const data = await generarProblematicasTerritorio(
       req.params.id, req.userId,
       demografia && typeof demografia === 'object' ? demografia : {},
-      { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys }
+      scopedDeps(req.userId)
     );
     res.json({ success: true, data });
   }));
@@ -107,7 +111,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
   // la escribe el usuario a mano en el frontend, este endpoint nunca la ve).
   // Mismo patrón/gates que generar-ai-problematicas (array de salida). Body:
   // { contextoPrevio, demografia: { beneficiarios, cobertura, tipoFormulacion } }.
-  app.post('/api/proyectos/:id/entrada/generar-ai-soluciones', authenticateToken, requireAccess('formulador'), entradaCampoLimiter, byokGate, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/entrada/generar-ai-soluciones', authenticateToken, requireAccess('formulador'), entradaCampoLimiter, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -118,7 +122,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
       req.params.id, req.userId,
       contextoPrevio && typeof contextoPrevio === 'object' ? contextoPrevio : {},
       demografia && typeof demografia === 'object' ? demografia : {},
-      { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys }
+      scopedDeps(req.userId)
     );
     res.json({ success: true, data });
   }));
@@ -130,7 +134,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
   // EntradaIAService.js::generarNombreProyecto. Body:
   // { contextoPrevio, problematica: {problema, deficit_valor, deficit_unidad},
   //   demografia: { beneficiarios, cobertura, tipoFormulacion } }.
-  app.post('/api/proyectos/:id/entrada/generar-ai-nombre', authenticateToken, requireAccess('formulador'), entradaCampoLimiter, byokGate, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/entrada/generar-ai-nombre', authenticateToken, requireAccess('formulador'), entradaCampoLimiter, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -144,7 +148,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
         problematica: problematica && typeof problematica === 'object' ? problematica : null,
         demografia: demografia && typeof demografia === 'object' ? demografia : {},
       },
-      { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys }
+      scopedDeps(req.userId)
     );
     res.json({ success: true, data });
   }));
@@ -152,7 +156,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
   // "Generar con AI" del campo Pitch (mandato 2026-08-24, debajo de Nombre
   // del Proyecto) — mismas fuentes/gates que generar-ai-nombre, párrafo
   // persuasivo en vez de título. Body idéntico a generar-ai-nombre.
-  app.post('/api/proyectos/:id/entrada/generar-ai-pitch', authenticateToken, requireAccess('formulador'), entradaCampoLimiter, byokGate, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/entrada/generar-ai-pitch', authenticateToken, requireAccess('formulador'), entradaCampoLimiter, wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -166,7 +170,7 @@ export function registerEntradaIARoutes(app, { authenticateToken, requireAccess,
         problematica: problematica && typeof problematica === 'object' ? problematica : null,
         demografia: demografia && typeof demografia === 'object' ? demografia : {},
       },
-      { ...scopedDeps(req.userId), userGeminiKeys: req.userGeminiKeys }
+      scopedDeps(req.userId)
     );
     res.json({ success: true, data });
   }));

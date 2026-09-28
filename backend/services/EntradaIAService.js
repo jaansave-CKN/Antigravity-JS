@@ -68,18 +68,16 @@
  */
 import { Agent, setGlobalDispatcher } from 'undici';
 import { supabaseStorage } from '../config/supabase.config.js';
-import { convertBufferToMarkdown } from './markitdownService.js';
+import { convertBufferToMarkdown } from '../utils/fileConverters.js';
 import { sanitizeTechnicalText } from '../middlewares/SecurityMiddleware.js';
-import { withKeyRotation, isQuotaError, GeminiPoolExhaustedError, retryDelayDe429 } from './geminiCircuitBreaker.js';
-import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js';
-import { logTokenUsage } from './aiTokenLogger.js';
+import { LlmLoopGuardError } from './geminiCircuitBreaker.js';
+import { generarConIA, IaNoDisponibleError, IaTopeAgotadoError } from './llmProveedor.js';
 import { logger } from '../utils/logger.js';
 import { calcularScoringDinamico } from './scoringDinamico.js';
-import { fetchGeminiConReintento } from './geminiReintento.js';
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-// Lote 8: hora de renovación de la cuota diaria, en hora Colombia y 24 h.
-const HORA_BOGOTA = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+// Renovación del tope de IA del usuario, en hora Colombia y 24 h (el tope
+// mensual se renueva otro día, por eso lleva fecha y no solo hora).
+const FECHA_HORA_BOGOTA = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const ANEXOS_BUCKET = 'anexos';
 const EXTENSIONES_CON_TEXTO = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'md']);
 // Subido 2026-08-17 (pedido explícito: "analizando a profundidad" el
@@ -90,11 +88,12 @@ const MAX_CHARS_TOTAL = 120000;
 
 class EntradaIAError extends Error {
   // retryAt (opcional, Date): momento real en que se puede reintentar — se
-  // propaga desde GeminiPoolExhaustedError (ver llamarGemini más abajo) para
+  // propaga desde la capa de IA (ver llamarIA más abajo) para
   // que el frontend pueda mostrar el reloj de cuenta regresiva real.
   // esEstimado (2026-09-06): true si retryAt es una estimación (cooldown fijo
   // de sondeo, sin dato real de Google) — ver GeminiPoolExhaustedError.
-  constructor(message, status = 422, retryAt = null, esEstimado = false) { super(message); this.status = status; this.retryAt = retryAt; this.esEstimado = esEstimado; }
+  // code (B1, 2026-09-28): IA_NO_DISPONIBLE | IA_TOPE_AGOTADO | LLM_LOOP_GUARD — el cliente distingue casos sin parsear el mensaje.
+  constructor(message, status = 422, retryAt = null, esEstimado = false, code = null) { super(message); this.status = status; this.retryAt = retryAt; this.esEstimado = esEstimado; if (code) this.code = code; }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -364,107 +363,30 @@ MATERIAL DE INVESTIGACIÓN REAL DEL PROYECTO:
 ${contenido}`;
 }
 
-// REFACTOR (2026-08-19, pool de llaves; 2026-08-22, BYOK): withKeyRotation()
-// prueba cada llave del pool DEL SERVIDOR; si `userGeminiKeys` llega con
-// contenido (usuario no exento de BYOK, ver byokGate.js), se usa
-// withUserKeyRotation() sobre SUS propias llaves en su lugar — nunca se
-// mezclan los dos pools. Mismo contrato en ambos casos: siempre lanza
-// EntradaIAError con status HTTP claro, nunca deja el formulario a medias,
-// nunca degrada a un fallback fabricado si el pool (del servidor o del
-// usuario) se agota.
-async function llamarGemini(systemPrompt, orgId, userGeminiKeys) {
-  const intentar = async (apiKey) => {
-    const upstream = await fetchGeminiConReintento(GEMINI_URL, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'gemini-3.6-flash',
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: 'Genera el JSON del formulario a partir del material de investigación.' }],
-        temperature: 0.2,
-        // LOTE 8 (auditoría minera 2026-09-24): mismo defecto ya verificado
-        // en vivo en MIROFISH/Viabilidad/Co-Piloto — gemini-3.6-flash RAZONA
-        // y esos tokens cuentan contra max_tokens. Con 4096 y sin acotar el
-        // razonamiento, ai_token_logs registra una mediana de 13 tokens
-        // visibles para un JSON de formulario completo.
-        max_tokens: 8192,
-        reasoning_effort: 'low',
-      }),
-      signal: AbortSignal.timeout(45_000),
-    });
-
-    if (upstream.status === 429) {
-      // FIX (2026-08-24, "cuándo la cuota está al 100%"): antes se descartaba
-      // el body real de Google en el 429 — Gemini normalmente incluye
-      // retryDelay/quotaMetric en el detalle del error, información que
-      // nunca llegaba ni a los logs. Se captura para poder responder con la
-      // hora real de reset en vez de "en unos minutos" genérico, y se le
-      // pasa a geminiCircuitBreaker.js (vía err.retryDelayMs) para que el
-      // cooldown real (~45s en el free tier de RPM) reemplace el fijo de
-      // 5 min cuando Google nos dice exactamente cuánto esperar.
-      const cuerpo = await upstream.text().catch(() => '');
-      logger.error('[EntradaIA] Gemini 429 — detalle real de cuota', { body: cuerpo.slice(0, 1000) });
-      const err = new Error('Gemini 429 quota exceeded');
-      // LOTE 8: la cuota DIARIA trae retryDelay "34s" falso — retryDelayDe429
-      // lo reemplaza por el tiempo real hasta la medianoche del Pacífico.
-      const espera = retryDelayDe429(cuerpo);
-      if (espera) err.retryDelayMs = espera;
-      throw err;
-    }
-    if (!upstream.ok) {
-      const cuerpo = await upstream.text().catch(() => '');
-      logger.error('[EntradaIA] Fallo Gemini', { status: upstream.status, body: cuerpo.slice(0, 300) });
-      throw new Error(`Gemini HTTP ${upstream.status}`);
-    }
-
-    const data = await upstream.json();
-    // LOTE 8: un JSON cortado por max_tokens ya no se entrega como si fuera
-    // válido — se registra y se reporta con motivo explícito.
-    if (data?.choices?.[0]?.finish_reason === 'length') {
-      logger.error('[EntradaIA] Respuesta de Gemini truncada por max_tokens', { usage: data?.usage });
-      throw new Error('Gemini devolvió una respuesta truncada (max_tokens)');
-    }
-    const texto = data?.choices?.[0]?.message?.content?.trim();
-    if (!texto) throw new Error('Gemini sin contenido en la respuesta');
-    return { texto, usage: data?.usage ?? {} };
-  };
-
+// B1 (2026-09-28): la llamada pasa por llmProveedor.js (OpenRouter → pool
+// Gemini del servidor → BYOK del usuario). Mismo contrato que antes: devuelve
+// el texto o lanza EntradaIAError con status HTTP claro — nunca deja el
+// formulario a medias ni degrada a un fallback fabricado (regla de oro).
+// validar: una salida que no sea JSON parseable hace probar el siguiente
+// proveedor en vez de llegarle al usuario como "formato inválido".
+async function llamarIA(systemPrompt, orgId) {
   try {
-    const { texto, usage } = userGeminiKeys?.length
-      ? await withUserKeyRotation(userGeminiKeys, intentar)
-      : await withKeyRotation(intentar);
-
-    logTokenUsage({
-      userId: orgId, agentName: 'entrada-ia',
-      tokensInput: usage?.prompt_tokens ?? 0,
-      tokensOutput: usage?.completion_tokens ?? 0,
-    }).catch(() => {});
+    const { texto } = await generarConIA({
+      userId: orgId, agente: 'entrada-ia', temperature: 0.2,
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: 'Genera el JSON del formulario a partir del material de investigación.' }],
+      validar: (t) => parseJsonRespuesta(t),
+    });
     return texto;
   } catch (err) {
     if (err instanceof EntradaIAError) throw err;
-    if (err instanceof UserKeyPoolExhaustedError) throw new EntradaIAError(err.message, 429);
-    if (err instanceof GeminiPoolExhaustedError) {
-      // FIX (2026-09-06, "el banner engaña al usuario"): el mensaje ya no es
-      // fijo. esEstimado=false significa que Google reportó un retryDelay
-      // real (rate_limit_exceeded temporal, típicamente RPM del free tier,
-      // se libera en segundos) — "intenta de nuevo" es una promesa cierta.
-      // esEstimado=true significa que NO hay ese dato (posible cuota diaria
-      // agotada — insufficient_quota — que se libera a medianoche UTC, no en
-      // minutos) — el mensaje debe ser definitivo y apuntar a la única
-      // acción real disponible en esta app para no esperar: BYOK.
-      // LOTE 8: con la cuota DIARIA agotada, retryAt es real pero está a
-      // horas — "intenta de nuevo en unos segundos" sería falso.
-      const esperaLarga = err.retryAt && new Date(err.retryAt).getTime() - Date.now() > 10 * 60_000;
-      const horaReset = esperaLarga ? HORA_BOGOTA.format(new Date(err.retryAt)) : null;
-      const msg = err.esEstimado
-        ? 'Créditos de IA agotados por ahora — no hay una hora de reset garantizada. Conecta tu propia llave de Gemini (BYOK) para seguir usando la IA, o llena el formulario manualmente.'
-        : esperaLarga
-          ? `La cuota diaria de IA del servidor está agotada — se renueva a las ${horaReset} (hora Colombia). Conecta tu propia llave de Gemini (BYOK) para seguir ahora, o llena el formulario manualmente.`
-          : 'El límite de uso de IA está agotado por ahora — intenta de nuevo en unos segundos, o llena el formulario manualmente.';
-      throw new EntradaIAError(msg, 429, err.retryAt, err.esEstimado);
+    if (err instanceof IaTopeAgotadoError) {
+      throw new EntradaIAError(`${err.message} Se renueva el ${FECHA_HORA_BOGOTA.format(new Date(err.retryAt))} (hora Colombia). Mientras tanto puedes llenar el formulario manualmente.`, 429, err.retryAt, false, err.code);
     }
-    if (isQuotaError(err)) throw new EntradaIAError('Límite de IA agotado — intenta de nuevo en unos minutos.', 429);
-    if (err.status === 503) throw new EntradaIAError('La generación con IA no está configurada en el servidor (falta GOOGLE_API_KEY).', 503);
-    logger.error('[EntradaIA] Excepción Gemini', { err: err.message });
+    if (err instanceof IaNoDisponibleError) {
+      throw new EntradaIAError(`${err.message} Mientras tanto puedes llenar el formulario manualmente.`, 503, err.retryAt, true, err.code);
+    }
+    if (err instanceof LlmLoopGuardError) throw new EntradaIAError(err.message, 429, null, false, err.code);
+    logger.error('[EntradaIA] Excepción en la capa de IA', { err: err.message });
     throw new EntradaIAError('No se pudo generar con IA en este momento — intenta de nuevo o llena el formulario manualmente.', 502);
   }
 }
@@ -560,7 +482,7 @@ function sanitizarRespuesta(raw, contenido, negra) {
  * @param {string} projectId
  * @param {string} orgId
  */
-export async function generarEntradaDesdeInvestigacion(projectId, orgId, { getRow, getRows, runSql, userGeminiKeys }) {
+export async function generarEntradaDesdeInvestigacion(projectId, orgId, { getRow, getRows, runSql }) {
   if (mockAiActivo()) {
     logMock('generarEntradaDesdeInvestigacion');
     return Object.fromEntries(CAMPOS_CONTEXTO.map(id => [id, `[MOCK] Texto de prueba para "${id}" — MOCK_AI activo, sin llamada real a Gemini.`]));
@@ -580,7 +502,7 @@ export async function generarEntradaDesdeInvestigacion(projectId, orgId, { getRo
 
   const listas = await cargarListasDialectica(projectId, orgId, getRows);
   const systemPrompt = conListasDialectica(buildSystemPrompt(contenido), listas);
-  const textoRespuesta = await llamarGemini(systemPrompt, orgId, userGeminiKeys);
+  const textoRespuesta = await llamarIA(systemPrompt, orgId);
   const raw = parseJsonRespuesta(textoRespuesta);
   return sanitizarRespuesta(raw, contenido, listas.negra);
 }
@@ -641,7 +563,7 @@ const ALERTA_ND_BACKEND = '⚠️ REQUERIDO: FALTA INFORMACIÓN EN ANEXOS'; // d
  * contrato de errores que generarEntradaDesdeInvestigacion (EntradaIAError
  * con status claro, nunca fabrica datos, nunca lanza algo sin manejar).
  */
-export async function generarCampoIndividual(projectId, orgId, campoId, contextoPrevio, demografia, { getRows, runSql, userGeminiKeys }) {
+export async function generarCampoIndividual(projectId, orgId, campoId, contextoPrevio, demografia, { getRows, runSql }) {
   if (!CAMPOS_INDIVIDUALES.includes(campoId)) {
     throw new EntradaIAError(`Campo "${campoId}" no es válido para generación individual.`, 400);
   }
@@ -663,7 +585,7 @@ export async function generarCampoIndividual(projectId, orgId, campoId, contexto
 
   const listas = await cargarListasDialectica(projectId, orgId, getRows);
   const systemPrompt = conListasDialectica(buildSystemPromptCampoIndividual(campoId, contenido, demografia, contextoPrevio), listas);
-  const textoRespuesta = await llamarGemini(systemPrompt, orgId, userGeminiKeys);
+  const textoRespuesta = await llamarIA(systemPrompt, orgId);
   const raw = parseJsonRespuesta(textoRespuesta);
   return { valor: verificarListaNegra(verificarCitasFuente(txt(raw?.valor), contenido), listas.negra) };
 }
@@ -708,7 +630,7 @@ function sanitizarRespuestaProblematicas(raw) {
   }).filter(p => p.problema);
 }
 
-export async function generarProblematicasTerritorio(projectId, orgId, demografia, { getRows, runSql, userGeminiKeys }) {
+export async function generarProblematicasTerritorio(projectId, orgId, demografia, { getRows, runSql }) {
   if (mockAiActivo()) {
     logMock('generarProblematicasTerritorio');
     // Incluye a propósito una fila con deficit_valor:null — deja probar
@@ -741,7 +663,7 @@ export async function generarProblematicasTerritorio(projectId, orgId, demografi
 
   const listas = await cargarListasDialectica(projectId, orgId, getRows);
   const systemPrompt = conListasDialectica(buildSystemPromptProblematicas(contenido, demografia), listas);
-  const textoRespuesta = await llamarGemini(systemPrompt, orgId, userGeminiKeys);
+  const textoRespuesta = await llamarIA(systemPrompt, orgId);
   const raw = parseJsonRespuesta(textoRespuesta);
   return {
     problematicas: sanitizarRespuestaProblematicas(raw)
@@ -795,7 +717,7 @@ function sanitizarRespuestaSoluciones(raw, contenido) {
  * — la 10ª propuesta es manual, este servicio nunca la genera ni la toca.
  * Mismo contrato de errores que generarProblematicasTerritorio.
  */
-export async function generarPosiblesSoluciones(projectId, orgId, contextoPrevio, demografia, { getRows, runSql, userGeminiKeys }) {
+export async function generarPosiblesSoluciones(projectId, orgId, contextoPrevio, demografia, { getRows, runSql }) {
   if (mockAiActivo()) {
     logMock('generarPosiblesSoluciones');
     // Las 9 completas a propósito (a diferencia de generarProblematicasTerritorio,
@@ -831,7 +753,7 @@ export async function generarPosiblesSoluciones(projectId, orgId, contextoPrevio
 
   const listas = await cargarListasDialectica(projectId, orgId, getRows);
   const systemPrompt = conListasDialectica(buildSystemPromptSoluciones(contenido, contextoPrevio, demografia), listas);
-  const textoRespuesta = await llamarGemini(systemPrompt, orgId, userGeminiKeys);
+  const textoRespuesta = await llamarIA(systemPrompt, orgId);
   const raw = parseJsonRespuesta(textoRespuesta);
   return { soluciones: sanitizarRespuestaSoluciones(raw, contenido).map(s => verificarListaNegra(s, listas.negra)) };
 }
@@ -922,7 +844,7 @@ ${bloquesComunes}`;
  * negra), Evaluación de Impacto Integral y lo ya escrito en Entrada. Mismo
  * contrato de errores que el resto de este archivo.
  */
-export async function generarNombreProyecto(projectId, orgId, { contextoPrevio, problematica, demografia }, { getRow, getRows, userGeminiKeys }) {
+export async function generarNombreProyecto(projectId, orgId, { contextoPrevio, problematica, demografia }, { getRow, getRows }) {
   if (mockAiActivo()) {
     logMock('generarNombreProyecto');
     return { nombre: '[MOCK] Fortalecimiento del acceso a agua potable y saneamiento básico rural — Cantagallo, Bolívar (320 usuarios)' };
@@ -945,7 +867,7 @@ export async function generarNombreProyecto(projectId, orgId, { contextoPrevio, 
   ]);
 
   const systemPrompt = buildSystemPromptNombre(contextoPrevio, problematica, demografia, dialectica, scoring);
-  const textoRespuesta = await llamarGemini(systemPrompt, orgId, userGeminiKeys);
+  const textoRespuesta = await llamarIA(systemPrompt, orgId);
   const raw = parseJsonRespuesta(textoRespuesta);
   const nombre = txt(raw?.nombre, 300);
   if (!nombre) throw new EntradaIAError('La IA no devolvió un nombre válido — intenta de nuevo.', 502);
@@ -985,7 +907,7 @@ ${bloquesComunes}`;
  * generarNombreProyecto, párrafo persuasivo en vez de título. Mismo
  * contrato de errores que el resto de este archivo.
  */
-export async function generarPitchProyecto(projectId, orgId, { contextoPrevio, problematica, demografia }, { getRow, getRows, userGeminiKeys }) {
+export async function generarPitchProyecto(projectId, orgId, { contextoPrevio, problematica, demografia }, { getRow, getRows }) {
   if (mockAiActivo()) {
     logMock('generarPitchProyecto');
     return { pitch: '[MOCK] En la zona rural de Cantagallo, Bolívar, 320 usuarios carecen de acceso a agua potable segura. Este proyecto propone la construcción de un sistema de abastecimiento veredal que resuelve el déficit identificado, con cobertura directa sobre la población afectada. La intervención se ejecuta bajo un enfoque técnico verificable, alineado con los estándares de sostenibilidad ambiental y social exigidos por la metodología MGA, y sienta las bases para un impacto medible en la calidad de vida de la comunidad.' };
@@ -1004,7 +926,7 @@ export async function generarPitchProyecto(projectId, orgId, { contextoPrevio, p
   ]);
 
   const systemPrompt = buildSystemPromptPitch(contextoPrevio, problematica, demografia, dialectica, scoring);
-  const textoRespuesta = await llamarGemini(systemPrompt, orgId, userGeminiKeys);
+  const textoRespuesta = await llamarIA(systemPrompt, orgId);
   const raw = parseJsonRespuesta(textoRespuesta);
   const pitch = txt(raw?.pitch, 1200);
   if (!pitch) throw new EntradaIAError('La IA no devolvió un pitch válido — intenta de nuevo.', 502);
