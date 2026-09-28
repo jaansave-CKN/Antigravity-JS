@@ -118,7 +118,11 @@ export async function ejecutarBatchEmbeddings({ max, dryRun = false, cfg = confi
         WHERE deleted_at IS NULL AND estado != 'cerrada' AND embedding_vec IS NULL
         ORDER BY created_at DESC
         LIMIT ?`, [limite]);
-    const candidatas = filas.map(f => ({ id: f.id, texto: convocatoriaToText(f) })).filter(c => c.texto.trim());
+    const candidatas = [];
+    for (const f of filas) {
+      const texto = convocatoriaToText(f);
+      if (texto.trim()) candidatas.push({ id: f.id, texto });
+    }
     resumen.candidatas = candidatas.length;
     if (dryRun) {
       resumen.tokensEstimados = estimarTokens(candidatas.map(c => c.texto));

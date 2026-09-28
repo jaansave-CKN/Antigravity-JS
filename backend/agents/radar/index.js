@@ -63,10 +63,11 @@ export async function buscarConvocatoriasPorVector(vec, { limit = 50, threshold 
     return { resultados, motor: 'pgvector·HNSW' };
   }
   const convs = await getRows("SELECT id, titulo, donante, descripcion, monto_min, monto_max, fecha_limite, estado, url_convocatoria, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL AND estado != 'cerrada'", []);
-  const resultados = convs
-    .map(c => ({ ...c, embedding: undefined, similitud: Math.round(cosineSimilarity(vec, deserializeEmbedding(c.embedding)) * 10000) / 10000 }))
-    .filter(c => c.similitud >= thr)
-    .sort((a, b) => b.similitud - a.similitud)
-    .slice(0, lim);
+  const resultados = [];
+  for (const c of convs) {
+    const similitud = Math.round(cosineSimilarity(vec, deserializeEmbedding(c.embedding)) * 10000) / 10000;
+    if (similitud >= thr) resultados.push({ ...c, embedding: undefined, similitud });
+  }
+  resultados.sort((a, b) => b.similitud - a.similitud).splice(lim);
   return { resultados, motor: 'js-coseno' };
 }
