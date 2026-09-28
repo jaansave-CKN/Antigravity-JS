@@ -1,32 +1,26 @@
 /**
- * mirofishComite.js — F-09: IA adversarial del comité hostil MIROFISH (BYOK).
+ * mirofishComite.js — F-09: IA adversarial del comité hostil MIROFISH.
  *
- * Mismo patrón de llamada que calcularViabilidadIA (viabilidadAgent.js):
- * endpoint OpenAI-compatible de Gemini, pool BYOK del usuario si lo tiene
- * (withUserKeyRotation), si no el pool del servidor (withKeyRotation) — el
- * gate byokGate de la ruta ya decidió cuál aplica.
+ * La IA pasa por llmProveedor.js (OpenRouter → pool Gemini → BYOK), igual
+ * que calcularViabilidadIA (viabilidadAgent.js). B1, 2026-09-28.
  *
  * DIFERENCIA DELIBERADA con viabilidadAgent (fiscalización architect
  * 2026-09-24, B4): aquí NO hay respaldo heurístico. Si la IA no responde se
  * devuelve { estado: 'no_disponible', motivo } y el comité entrega solo las
  * reglas deterministas — nunca hallazgos fabricados.
- *   motivo: USER_KEY_EXHAUSTED | pool_servidor_agotado | sin_llaves_servidor
- *           | modelo_saturado (503 de Google, tras 1 reintento)
- *           | respuesta_truncada (finish_reason: length) | respuesta_invalida | error
+ *   motivo: ia_no_disponible (ningún proveedor respondió; detalle en intentos)
+ *           | IA_TOPE_AGOTADO | LLM_LOOP_GUARD | error
  *
  * Anti-alucinación (mismo criterio que F-07): el modelo recibe los datos como
  * un diccionario plano campo → valor y cada hallazgo debe citar
  * `evidencia: [{campo, valor}]`. Se DESCARTA todo hallazgo sin evidencia o
  * con un campo que no se envió o un valor que no coincide con lo enviado.
  */
-import { geminiCB, withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
-import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js';
-import { logTokenUsage } from './aiTokenLogger.js';
+import { LlmLoopGuardError } from './geminiCircuitBreaker.js';
+import { generarConIA, IaNoDisponibleError, IaTopeAgotadoError } from './llmProveedor.js';
 import { logger } from '../utils/logger.js';
 import { normalizar } from './mirofishReglas.js';
-import { fetchGeminiConReintento } from './geminiReintento.js';
 
-export const MODELO = 'gemini-3.6-flash';
 const CATEGORIAS = new Set(['cronograma_clima', 'costos_transporte', 'orden_publico', 'otro']);
 const SEVERIDADES = new Set(['CRITICA', 'ALTA', 'MEDIA', 'INFO']);
 
@@ -84,91 +78,42 @@ export function validarHallazgosIA(crudos, datos) {
   return { validos, descartados };
 }
 
-export async function evaluarComiteIA({ datos, hallazgosReglas, userId, userGeminiKeys, reintentoMs = 2500 }) {
-  const useUserKeys = Array.isArray(userGeminiKeys) && userGeminiKeys.length > 0;
-  if (!useUserKeys && !geminiCB.keys.length) {
-    return { estado: 'no_disponible', motivo: 'sin_llaves_servidor', hallazgos: [], descartados: [] };
-  }
+/** Extrae el objeto { hallazgos: [...] } de la respuesta (lanza si no sirve → siguiente proveedor). Exportada para test. */
+export function parsearRespuestaComite(texto) {
+  const m = String(texto || '').match(/\{[\s\S]*\}/);
+  const parsed = m ? JSON.parse(m[0]) : null;
+  if (!parsed || !Array.isArray(parsed.hallazgos)) throw new Error('respuesta sin arreglo "hallazgos"');
+  return parsed;
+}
 
-  const intentar = async (apiKey) => {
-    const upstream = await fetchGeminiConReintento('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: MODELO,
-        messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: buildUserPrompt(datos, hallazgosReglas) }],
-        // Lote 5 T4 (2026-09-24, verificado en vivo): gemini-3.6-flash
-        // RAZONA ("thinking") y esos tokens cuentan contra max_tokens. Con
-        // 3072, ~2.800 se iban en razonamiento, quedaban 272 de salida y el
-        // JSON llegaba cortado (finish_reason: length). reasoning_effort acota
-        // el razonamiento; 8192 deja espacio real a la respuesta.
-        temperature: 0.2, max_tokens: 8192, reasoning_effort: 'low', response_format: { type: 'json_object' },
-      }),
-      signal: AbortSignal.timeout(45_000),
-    });
-    if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');
-    // 503 UNAVAILABLE = modelo saturado en Google ("high demand"), transitorio
-    // (verificado en vivo 2026-09-24). Se marca para reintentar, no es cuota.
-    if (upstream.status === 503) {
-      const e = new Error('Gemini 503 modelo saturado');
-      e.code = 'MODEL_OVERLOADED';
-      throw e;
-    }
-    if (!upstream.ok) {
-      const cuerpo = await upstream.text().catch(() => '');
-      logger.error('[MIROFISH] Fallo Gemini no-cuota', { status: upstream.status, body: cuerpo.slice(0, 300) });
-      throw new Error(`Gemini HTTP ${upstream.status}`);
-    }
-    const data = await upstream.json();
-    const eleccion = data?.choices?.[0];
-    return { texto: eleccion?.message?.content ?? '', finishReason: eleccion?.finish_reason ?? null, usage: data?.usage ?? {} };
-  };
-
-  const llamar = () => (useUserKeys ? withUserKeyRotation(userGeminiKeys, intentar) : withKeyRotation(intentar));
-  let respuesta;
+// B1 (2026-09-28): la llamada pasa por llmProveedor.js (OpenRouter → pool
+// Gemini del servidor → BYOK). Sigue SIN respaldo heurístico: si la IA no
+// responde, el comité entrega solo las reglas deterministas reales con
+// ia.estado 'no_disponible' (se mantiene 201: convertirlo en 503 descartaría
+// hallazgos reales de las reglas — excepción a confirmar por el dueño).
+export async function evaluarComiteIA({ datos, hallazgosReglas, userId }) {
+  let r;
   try {
-    try {
-      respuesta = await llamar();
-    } catch (err) {
-      if (err?.code !== 'MODEL_OVERLOADED') throw err;
-      // Un solo reintento tras una pausa corta: la saturación suele ser breve.
-      await new Promise(r => setTimeout(r, reintentoMs));
-      respuesta = await llamar();
-    }
+    r = await generarConIA({
+      userId, agente: 'mirofish_comite', temperature: 0.2,
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: buildUserPrompt(datos, hallazgosReglas) }],
+      responseFormat: { type: 'json_object' },
+      validar: parsearRespuestaComite,
+    });
   } catch (err) {
-    if (err?.code === 'MODEL_OVERLOADED') {
-      return { estado: 'no_disponible', motivo: 'modelo_saturado', hallazgos: [], descartados: [] };
+    if (err instanceof IaTopeAgotadoError) {
+      return { estado: 'no_disponible', motivo: 'IA_TOPE_AGOTADO', mensaje: err.message, retryAt: err.retryAt, hallazgos: [], descartados: [] };
     }
-    if (err instanceof UserKeyPoolExhaustedError || err?.code === 'USER_KEY_EXHAUSTED') {
-      return { estado: 'no_disponible', motivo: 'USER_KEY_EXHAUSTED', mensaje: err.message, hallazgos: [], descartados: [] };
+    if (err instanceof IaNoDisponibleError) {
+      return { estado: 'no_disponible', motivo: 'ia_no_disponible', intentos: err.intentos, hallazgos: [], descartados: [] };
     }
-    if (err instanceof GeminiPoolExhaustedError || isQuotaError(err)) {
-      return { estado: 'no_disponible', motivo: 'pool_servidor_agotado', hallazgos: [], descartados: [] };
+    if (err instanceof LlmLoopGuardError) {
+      return { estado: 'no_disponible', motivo: 'LLM_LOOP_GUARD', mensaje: err.message, hallazgos: [], descartados: [] };
     }
-    logger.error('[MIROFISH] Excepción Gemini', { err: err.message });
+    logger.error('[MIROFISH] Excepción en la capa de IA', { err: err.message });
     return { estado: 'no_disponible', motivo: 'error', hallazgos: [], descartados: [] };
   }
-
-  // FinOps: los tokens de razonamiento no vienen en completion_tokens pero sí
-  // en total_tokens (verificado: 1059 entrada + 272 salida visible = 4127
-  // total). Se registra la salida REAL facturada = total − entrada.
-  const u = respuesta.usage || {};
-  const salidaReal = Number.isFinite(u.total_tokens) && Number.isFinite(u.prompt_tokens) ? u.total_tokens - u.prompt_tokens : (u.completion_tokens ?? 0);
-  logTokenUsage({ userId, agentName: 'mirofish_comite', tokensInput: u.prompt_tokens ?? 0, tokensOutput: salidaReal }).catch(() => {});
-
-  if (respuesta.finishReason === 'length') {
-    logger.warn('[MIROFISH] Respuesta de Gemini truncada por max_tokens', { usage: u });
-    return { estado: 'no_disponible', motivo: 'respuesta_truncada', hallazgos: [], descartados: [] };
-  }
-
-  let parsed;
-  try {
-    const m = respuesta.texto.match(/\{[\s\S]*\}/);
-    parsed = m ? JSON.parse(m[0]) : null;
-  } catch { parsed = null; }
-  if (!parsed || !Array.isArray(parsed.hallazgos)) {
-    return { estado: 'no_disponible', motivo: 'respuesta_invalida', hallazgos: [], descartados: [] };
-  }
-  const { validos, descartados } = validarHallazgosIA(parsed.hallazgos, datos);
-  return { estado: 'ok', modelo: MODELO, hallazgos: validos, descartados };
+  const { validos, descartados } = validarHallazgosIA(r.valor.hallazgos, datos);
+  // B7: el modelo que realmente respondió (queda en project_mirofish_evaluaciones.ia).
+  return { estado: 'ok', modelo: r.modelo, proveedor: r.proveedor, hallazgos: validos, descartados };
 }

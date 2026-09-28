@@ -6,7 +6,7 @@
  *
  * Diseño fiscalizado por architect (2026-09-24, APROBADO CON CAMBIOS):
  *  - Cadena de middlewares idéntica a POST /viabilidad-ia (server.js):
- *    authenticateToken, requireAccess('formulador'), aiLimiter, byokGate.
+ *    authenticateToken, requireAccess('formulador'), aiLimiter (sin byokGate desde B1, 2026-09-28).
  *  - R1 busca el rubro de seguridad en AMBAS fuentes de presupuesto
  *    (project_apu_lineas del APU en Anexos + project_budgets del módulo
  *    Presupuesto) — B2: mirar solo una daba falsos CRÍTICOS.
@@ -85,12 +85,12 @@ async function recolectar(proyecto, userId) {
   return { datos, lineasPresupuesto, ubicacion, tramos: tramos.map(t => ({ numero: texto(t.numero), orden_publico: texto(t.orden_publico) })) };
 }
 
-export function registerMirofishRoutes(app, { authenticateToken, requireAccess, aiLimiter, byokGate }) {
+export function registerMirofishRoutes(app, { authenticateToken, requireAccess, aiLimiter }) {
   async function cargarProyecto(proyectoId, userId) {
     return withTenantRow(userId, 'SELECT id, nombre, ficha_tecnica FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
   }
 
-  app.post('/api/proyectos/:id/mirofish', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/mirofish', authenticateToken, requireAccess('formulador'), aiLimiter, wrap(async (req, res) => {
     const proyecto = await cargarProyecto(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -103,7 +103,7 @@ export function registerMirofishRoutes(app, { authenticateToken, requireAccess, 
     if (reglas.municipio_match.municipio) {
       datos['pdet.municipio'] = `${reglas.municipio_match.municipio.municipio} (${reglas.municipio_match.municipio.departamento}) — municipio PDET, subregión ${reglas.municipio_match.municipio.subregion}`;
     }
-    const ia = await evaluarComiteIA({ datos, hallazgosReglas: reglas.hallazgos, userId: req.userId, userGeminiKeys: req.userGeminiKeys });
+    const ia = await evaluarComiteIA({ datos, hallazgosReglas: reglas.hallazgos, userId: req.userId });
 
     const fila = await withTenantRow(req.userId,
       `INSERT INTO project_mirofish_evaluaciones (project_id, org_id, municipio_match, reglas, ia, created_by)

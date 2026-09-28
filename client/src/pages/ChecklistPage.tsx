@@ -220,8 +220,12 @@ export default function ChecklistPage() {
     pollFormRef.current = setInterval(refrescarEstadoFormulacion, 2500);
     try {
       const body = objetivoCentralInput.trim() ? { objetivoCentral: objetivoCentralInput.trim() } : {};
+      // B4 (2026-09-28): hasta 3 llamadas de IA encadenadas en un request
+      // (~50 s máx. cada una). Con el timeout de 60 s y 3 reintentos por
+      // defecto, el cliente abortaba y relanzaba la cadena mientras la
+      // primera seguía corriendo en el servidor (doble gasto).
       const resultado = await http.post<{ success: boolean; completo?: boolean; message: string; data: ProgresoFormulacion }>(
-        `/api/formulacion/integral/${proyectoId}`, body
+        `/api/formulacion/integral/${proyectoId}`, body, undefined, { timeoutMs: 180_000, retries: 0 }
       );
       setProgresoForm(resultado.data);
       if (!resultado.completo) setErrorForm(resultado.message);

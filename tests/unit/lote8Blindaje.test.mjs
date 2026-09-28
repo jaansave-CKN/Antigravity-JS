@@ -142,6 +142,16 @@ test('guardia de CI: toda llamada compatible-OpenAI a Gemini usa max_tokens >= 8
       if (!/reasoning_effort/.test(ventana)) fallos.push(`${f}: sin reasoning_effort junto a max_tokens`);
     }
   }
-  assert.ok(revisadas >= 4, `se esperaban >= 4 llamadas revisadas, hubo ${revisadas}`);
   assert.deepEqual(fallos, []);
+
+  // B1 (2026-09-28): las llamadas compatible-OpenAI a Gemini (antes 4 sitios
+  // con max_tokens literal) se consolidaron en UN punto: llmProveedor.js.
+  // Se verifica ese punto en vez de contar sitios — y que ningún otro archivo
+  // vuelva a llamar directo al endpoint de chat de Gemini saltándoselo.
+  const proveedor = readFileSync(join(raiz, 'services', 'llmProveedor.js'), 'utf8');
+  assert.match(proveedor, /maxTokens = 8192/, 'el punto único usa 8192 por defecto');
+  assert.match(proveedor, /max_tokens: maxTokens, reasoning_effort: 'low'/, 'el cuerpo a Gemini lleva el tope y el razonamiento acotado');
+  const directos = archivos.filter(f => !/llmProveedor\.js$|byokService\.js$/.test(f))
+    .filter(f => /v1beta\/openai\/chat\/completions/.test(readFileSync(f, 'utf8')));
+  assert.deepEqual(directos, [], 'toda llamada de chat a Gemini debe pasar por llmProveedor.js');
 });

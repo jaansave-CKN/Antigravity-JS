@@ -14,27 +14,31 @@
  * Origen (2026-08-19, mandato del usuario, revisado por el agente
  * `architect` antes de escribirse — ver decisiones abajo):
  *
- *   - GP (Gerente de Proyecto): NINGÚN archivo del repo cumple hoy esa
- *     función. Verificado por grep: cero llamadas cruzadas entre estos 7
- *     agentes — ninguno decide "esto va a A, esto va a B". No se fuerza
- *     ninguna etiqueta "GP" sobre un archivo que no orquesta, para no
- *     fingir una infraestructura que no existe. Queda vacío a propósito.
+ *   - GP (Gerente de Proyecto): hasta la Fase 4 ningún archivo cumplía esa
+ *     función y quedó vacío a propósito. Desde 2026-09-28 existe
+ *     agents/gp/gerenteProyecto.js (versión mínima: solo los 2 flujos A↔B).
+ *     formulacionIntegral sigue siendo una secuencia FIJA del Formulador
+ *     (Entrada→Árbol→Viabilidad) — no enruta, no es GP.
  *   - CopilotoService.js NO es "GP": es un chat de solo lectura (arma un
  *     snapshot de datos ya calculados y responde preguntas) — no despacha
  *     trabajo hacia A/B/C. Se lista aparte, como TRANSVERSAL.
- *   - Alcance: SOLO los 7 archivos que llaman realmente a Gemini —
+ *   - Alcance: SOLO los componentes que llaman realmente a un LLM —
  *     deja fuera EntityScraper.js (scraping puro, sin LLM) y
  *     normativoAgent.js (M8, tabla estática de normas, sin LLM) a
  *     propósito, por honestidad con el nombre "agentes de IA".
  *   - markitdownService.js: su única función que llama a Gemini
  *     (extractConvocatoriaFields) la usa exclusivamente EntityScraper.js
- *     (Radar) — la otra función del mismo archivo (convertBufferToMarkdown,
- *     usada por Anexos/Entrada) es conversión de archivo sin IA (CLI de
- *     MarkItDown), fuera del alcance de este registro. No hay ambigüedad
- *     real una vez que se mira la función exacta, no el archivo completo.
+ *     (Radar). convertBufferToMarkdown (usada por Anexos/Entrada) se movió
+ *     a utils/fileConverters.js el 2026-09-28 — conversión sin IA, neutral
+ *     entre Radar y Formulador, fuera de este registro.
  *
- * Mantenimiento: si agregas un noveno agente que llame a un LLM, agrégalo
- * aquí también — no hay ningún test/lint que lo fuerce automáticamente.
+ * Sincronizado 2026-09-28 con scripts/agentes.mjs (CATALOGO, fuente de
+ * verdad con estado en vivo): se agregaron los 4 que faltaban —
+ * lookupEntidad, busquedaSemantica, mirofishComite y formulacionIntegral.
+ *
+ * Mantenimiento: si agregas otro componente que llame a un LLM, agrégalo
+ * aquí Y en el CATALOGO de scripts/agentes.mjs — no hay ningún test/lint
+ * que lo fuerce automáticamente.
  */
 
 import { generarArbolConIA } from './arbolObjetivosAgent.js';
@@ -44,11 +48,26 @@ import { classifySectors } from '../services/sectorClassifier.js';
 import { extractConvocatoriaFields } from '../services/markitdownService.js';
 import { chatConCopiloto, obtenerHistorial as obtenerHistorialCopiloto } from '../services/CopilotoService.js';
 import { consolidarMGA } from '../services/formuladorMga.js';
+import { evaluarComiteIA } from '../services/mirofishComite.js';
+import { textToEmbedding } from '../services/embeddingsService.js';
+import { registerFormulacionIntegralRoutes } from '../routes/formulacionIntegral.routes.js';
+import { formularConvocatoria, convocatoriasParaProyecto } from './gp/gerenteProyecto.js';
 
 export const ESCUADRON = {
-  // Ningún archivo del repo orquesta hoy a los demás — ver nota de cabecera.
-  // No agregar nada aquí sin que exista lógica de despacho real primero.
-  GP: [],
+  // Fase 4 (2026-09-28, dictamen architect + aprobación del dueño): el GP
+  // existe en código, en su versión MÍNIMA — despacha solo los 2 flujos
+  // reales Radar↔Formulador vía los coordinadores (agents/radar/index.js y
+  // agents/formulador/index.js). No es un enrutador por intención (rechazado).
+  // La jerarquía completa y la regla de aislamiento: agents/modulos.map.js.
+  GP: [
+    {
+      nombre: 'gerenteProyecto',
+      descripcion: 'Gerente de Proyecto mínimo: formularConvocatoria (Radar→Formulador, crea el proyecto desde el catálogo) y convocatoriasParaProyecto (Formulador→Radar, búsqueda semántica con el vector real del proyecto).',
+      llamaLLM: false,
+      invocadoDesde: ['backend/routes/subscriptions.routes.js (POST /api/bridge/transfer)', 'server.js (POST /api/radar/barrido[-masivo])'],
+      exporta: { formularConvocatoria, convocatoriasParaProyecto },
+    },
+  ],
 
   TRANSVERSAL: [
     {
@@ -70,10 +89,26 @@ export const ESCUADRON = {
     },
     {
       nombre: 'markitdownService (extractConvocatoriaFields)',
-      descripcion: 'Extrae campos estructurados de una convocatoria ya convertida a Markdown. Único export de este archivo que llama a Gemini — convertBufferToMarkdown (usado por Anexos/Entrada) es conversión de archivo sin IA, fuera de este registro.',
+      descripcion: 'Extrae campos estructurados de una convocatoria ya convertida a Markdown. Único export de este archivo que llama a Gemini — convertBufferToMarkdown (usado por Anexos/Entrada) vive ahora en utils/fileConverters.js, sin IA, fuera de este registro.',
       llamaLLM: true,
       invocadoDesde: 'backend/pipeline/EntityScraper.js',
       exporta: { extractConvocatoriaFields },
+    },
+    {
+      nombre: 'lookupEntidad',
+      descripcion: 'Búsqueda de entidades del Directorio — analiza una URL con Gemini y valida si aplica a Colombia (POST /api/entidades/lookup).',
+      llamaLLM: true,
+      invocadoDesde: 'server.js (handler inline de POST /api/entidades/lookup, llamado desde DirectoryPage.tsx)',
+      // Sin función exportable: la lógica vive dentro del handler en
+      // server.js, que no se puede importar sin arrancar el servidor.
+      exporta: null,
+    },
+    {
+      nombre: 'busquedaSemantica (embeddingsService)',
+      descripcion: 'Embeddings vector(768) para búsqueda semántica (GET /api/radar/buscar, POST /api/radar/buscar-masivo). Estado 2026-09-28: 0 de 1866 convocatorias con embedding — devuelve vacío; generación por lotes suspendida hasta diseño de architect.',
+      llamaLLM: true,
+      invocadoDesde: ['server.js', 'backend/routes/anexos.routes.js'],
+      exporta: { textToEmbedding },
     },
   ],
 
@@ -99,6 +134,13 @@ export const ESCUADRON = {
       invocadoDesde: 'backend/routes/formuladorMga.routes.js',
       exporta: { consolidarMGA },
     },
+    {
+      nombre: 'formulacionIntegral',
+      descripcion: 'Secuencia FIJA Entrada→Árbol→Viabilidad sobre un proyecto (POST /api/formulacion/integral/:proyectoId) — encadena agentes del Formulador, no enruta ni decide: no es un GP.',
+      llamaLLM: true,
+      invocadoDesde: 'server.js (registerFormulacionIntegralRoutes)',
+      exporta: { registerFormulacionIntegralRoutes },
+    },
   ],
 
   C_VALIDADOR: [
@@ -108,6 +150,13 @@ export const ESCUADRON = {
       llamaLLM: true,
       invocadoDesde: ['backend/routes/proyectos.routes.js', 'server.js'],
       exporta: { calcularViabilidadIA, recolectarContextoViabilidad, calcularPuntoEquilibrio },
+    },
+    {
+      nombre: 'mirofishComite',
+      descripcion: 'Comité Hostil MIROFISH — panel de evaluadores escépticos que ataca la formulación buscando vacíos reales antes que el financiador.',
+      llamaLLM: true,
+      invocadoDesde: 'backend/routes/mirofish.routes.js',
+      exporta: { evaluarComiteIA },
     },
   ],
 };

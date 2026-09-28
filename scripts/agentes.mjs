@@ -64,10 +64,14 @@ export const CATALOGO = [
 // Dominios lógicos: nombres que AGRUPAN funciones reales. Su ficha externa
 // (projects/Radford-360/…) es solo una identidad declarada, sin código.
 export const DOMINIOS = [
+  // Fase 4 (2026-09-28): GP con código real (versión mínima del dictamen de
+  // architect) — gobierna SOLO los 2 flujos A↔B; no es un enrutador por
+  // intención. Coordinadores A y B = fachadas en backend/agents/radar|formulador.
   { id: 'GP', nombre: 'Gerente de Proyecto', ficha: 'Proy_03 GP Radford-360',
-    nota: 'Ningún componente despacha tareas entre agentes (verificado: cero llamadas cruzadas). La formulación integral es una secuencia fija, no un enrutador.' },
-  { id: 'Radar', nombre: 'Radar', ficha: 'Proy_03 A Radar' },
-  { id: 'Formulador', nombre: 'Formulador', ficha: 'Proy_03 B Formulador' },
+    codigo: 'backend/agents/gp/gerenteProyecto.js',
+    nota: 'Gobierna solo los 2 flujos reales Radar↔Formulador: formularConvocatoria (POST /api/bridge/transfer) y convocatoriasParaProyecto (POST /api/radar/barrido[-masivo]). No enruta por intención; la formulación integral sigue siendo una secuencia fija dentro del Formulador.' },
+  { id: 'Radar', nombre: 'Radar', ficha: 'Proy_03 A Radar', codigo: 'backend/agents/radar/index.js' },
+  { id: 'Formulador', nombre: 'Formulador', ficha: 'Proy_03 B Formulador', codigo: 'backend/agents/formulador/index.js' },
 ];
 
 // ── Utilidades puras (exportadas para pruebas) ───────────────────────────────
@@ -214,7 +218,10 @@ async function modoSaas({ sinBD, json }) {
   const dominios = DOMINIOS.map(d => {
     const miembros = agentes.filter(a => a.dominio === d.id);
     const ficha = existsSync(resolve(raizAntigravity, 'projects', 'Radford-360', d.ficha, 'IDENTITY.md'));
-    return { ...d, estado: miembros.length ? `${miembros.length} función(es) real(es)` : 'definido, sin código', ficha: ficha ? `projects/Radford-360/${d.ficha} — definido, sin código` : null, miembros };
+    const conCodigo = !!d.codigo && existsSync(resolve(RAIZ_PROYECTO, d.codigo));
+    const estado = miembros.length ? `${miembros.length} función(es) real(es)${conCodigo ? ` · coordinador ${d.codigo}` : ''}`
+      : conCodigo ? `código real (${d.codigo}) · 2 operaciones Radar↔Formulador` : 'definido, sin código';
+    return { ...d, estado, ficha: ficha ? `projects/Radford-360/${d.ficha} — ficha declarativa (el código real vive en el repo)` : null, miembros };
   });
 
   if (json) { console.log(JSON.stringify({ contexto: 'saas', bd: bd ? (bd.error ? { error: bd.error } : { byok: bd.byok, embeddings: bd.embeddings }) : null, dominios }, null, 2)); return; }
@@ -231,7 +238,9 @@ async function modoSaas({ sinBD, json }) {
       console.log(`      ${a.motivo} · ${a.archivo}${a.pantallas.length ? ` · llamada desde: ${a.pantallas.map(p => p.split('/').pop()).join(', ')}` : ''}`);
     }
   }
-  if (bd?.byok) {
+  // B1 (2026-09-28): el gate BYOK se retiró de todas las rutas; esta línea
+  // solo aparece si alguna función vuelve a exigirlo.
+  if (bd?.byok && dominios.some(d => d.miembros.some(a => a.byok))) {
     console.log(`\nBYOK: las funciones marcadas BYOK responden solo a usuarios exentos o con llave propia → hoy ${bd.byok.exentos + bd.byok.con_llave} de ${bd.byok.usuarios} usuarios.`);
   }
   console.log('\nLeyenda: 🟢 conectado y funcional · 🟡 conectado, sin uso real · 🟠 sin pantalla · 🔴 no funciona');

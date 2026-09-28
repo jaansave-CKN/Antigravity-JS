@@ -19,16 +19,12 @@
  * objetivos_arbol.supuestos y project_change_theory — todas con
  * degradación con gracia si la tabla/columna aún no existe (migración 016).
  *
- * Igual que el resto de agentes IA del proyecto: intenta Gemini primero
- * (gateado por geminiCB), y si no hay key/cuota/la respuesta es inválida,
- * cae a un cálculo heurístico determinista — nunca lanza, siempre devuelve
- * un resultado real utilizable, con el MISMO esquema en ambos casos.
+ * La IA pasa por llmProveedor.js (OpenRouter → pool Gemini → BYOK). Si
+ * ningún proveedor responde con un dictamen válido, calcularViabilidadIA
+ * LANZA (503/429) — sin respaldo heurístico desde B1 (2026-09-28).
  */
-import { geminiCB, withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
-import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js';
-import { logTokenUsage } from './aiTokenLogger.js';
+import { generarConIA } from './llmProveedor.js';
 import { logger } from '../utils/logger.js';
-import { fetchGeminiConReintento } from './geminiReintento.js';
 
 function r2(n) { return Math.round(n * 100) / 100; }
 
@@ -180,197 +176,69 @@ ${anexosTaxonomia}
 Responde ÚNICAMENTE con el JSON del esquema Radfor360ViabilityAudit, sin texto adicional.`;
 }
 
-/** Heurística determinista — usada si Gemini no está disponible o falla.
- *  cruce_anexos es 100% real (deriva de la taxonomía real de anexos, sin IA).
- *  analisis_escala_poblacion y teoria_del_cambio_generada requieren juicio
- *  semántico que la heurística no puede emular — se marcan explícitamente
- *  como no evaluados en vez de inventar un veredicto. */
-function calcularViabilidadHeuristica({ problema, metaEsperada, poblacionAfectada, presupuesto, anexos, supuestosArbol = [], resultadosCambio = [] }) {
-  const tieneFinanciero = anexos.some(a => a.categoria === 'financiero');
-  const tieneNormativo  = anexos.some(a => a.categoria === 'legal');
-  const tieneTecnico    = anexos.some(a => a.categoria === 'tecnico');
-
-  const brechas = [];
-  if (!tieneFinanciero) brechas.push('Sin anexo Financiero/Presupuestal adjunto — el proyecto carece de sustento económico auditable.');
-  if (!tieneNormativo)  brechas.push('Sin anexo Normativo/Legal adjunto.');
-  if (!tieneTecnico)    brechas.push('Sin anexo Técnico/Operativo adjunto.');
-
-  let score = 0;
-  if ((problema || '').trim().length >= 40) score += 25;
-  if ((metaEsperada || '').trim().length >= 20) score += 20;
-  if (poblacionAfectada) score += 15;
-  if (tieneFinanciero) score += 20;
-  if (Object.keys(presupuesto || {}).length > 0) score += 20;
-
-  const estado_auditoria = tieneFinanciero ? (score >= 60 ? 'APROBADO_TECNICAMENTE' : 'OBSERVACION_CRITICA') : 'OBSERVACION_CRITICA';
-
-  return {
-    estado_auditoria,
-    score_viabilidad: score,
-    analisis_escala_poblacion: {
-      proporcion_logica: true,
-      veredicto_escala: 'No evaluable sin IA — configure GOOGLE_API_KEY para el análisis real de proporción población/problema/meta.',
-      alerta: '',
-    },
-    cruce_anexos: {
-      respaldo_financiero_detectado: tieneFinanciero,
-      marco_normativo_validado: tieneNormativo,
-      brechas_detectadas: brechas,
-    },
-    teoria_del_cambio_generada: {
-      supuestos: supuestosArbol,
-      resultados_esperados: resultadosCambio,
-    },
-    fuente: 'heuristica',
-    calculadoEn: new Date().toISOString(),
-  };
+/**
+ * Valida la salida del modelo contra el esquema del dictamen (lanza si no
+ * cumple, y llmProveedor prueba el siguiente proveedor). Exportada para test.
+ * El error lleva solo la ESTRUCTURA (claves y valores de control), nunca el
+ * texto del proyecto: basta para diagnosticar sin volcar contenido en logs.
+ */
+export function parsearDictamen(texto) {
+  const match = String(texto || '').match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('respuesta sin JSON');
+  const p = JSON.parse(match[0]);
+  const validEstados = JSON_SCHEMA.schema.properties.estado_auditoria.enum;
+  if (!validEstados.includes(p?.estado_auditoria) || typeof p?.score_viabilidad !== 'number') {
+    throw new Error(`esquema inválido (claves: ${Object.keys(p || {}).slice(0, 20).join(',')}; estado_auditoria: ${p?.estado_auditoria}; score: ${typeof p?.score_viabilidad})`);
+  }
+  return p;
 }
 
 /**
- * @param {object} ctx
+ * B1 (2026-09-28, regla de oro ratificada por el dueño): se ELIMINÓ el
+ * respaldo heurístico (calcularViabilidadHeuristica). Entregaba un
+ * score_viabilidad y un estado_auditoria calculados sin IA que se guardaban
+ * en ficha_tecnica.viabilidad_ia y marcaban el paso de la formulación
+ * integral como completado. Ahora la llamada pasa por llmProveedor.js
+ * (OpenRouter → pool Gemini → BYOK) y, si ningún proveedor devuelve un
+ * dictamen que cumpla el esquema, LANZA: IaNoDisponibleError (503) o
+ * IaTopeAgotadoError (429). El caller no guarda nada.
+ * @param {object} ctx — de recolectarContextoViabilidad()
  * @returns {Promise<object>}
  */
-// REFACTOR (2026-08-19, pool de llaves): withKeyRotation() prueba cada
-// llave del pool ante 429 — mismo contrato (nunca lanza, siempre cae a
-// calcularViabilidadHeuristica ante cualquier fallo real o pool agotado).
-// REFACTOR (2026-08-22, BYOK migración 045): si el caller pasa
-// userGeminiKeys (usuario no exento, ya resuelto por requireByokOrExento),
-// se rota sobre SU pool personal (withUserKeyRotation) en vez del pool
-// compartido del servidor — mismo contrato de nunca lanzar: cualquier
-// agotamiento (propio o del servidor) sigue cayendo al mismo cálculo
-// heurístico ya etiquetado `fuente: 'heuristica'` (real, determinista sobre
-// datos del proyecto — no es la fabricación narrativa ya rechazada para
-// EntradaIAService, así que no aplica aquí la regla de "nunca degradar").
-// LOTE 6 T1 (2026-09-24): blindaje forense. gemini-3.6-flash RAZONA y esos
-// tokens cuentan contra max_tokens (verificado en vivo con el mismo modelo en
-// MIROFISH: 1059 entrada + 272 visibles = 4127 total → JSON cortado con
-// finish_reason 'length'). Con max_tokens 2048 este agente caía al MODO
-// RESPALDO y, si la causa era cuota, SIN NINGÚN LOG. Ahora: 8192 + razonamiento
-// acotado, y toda caída al respaldo registra su causa exacta (motivo) en el
-// log y en el resultado (`motivo_respaldo`, campo aditivo).
-function falloGemini(motivo, mensaje, extra = {}) {
-  const e = new Error(mensaje);
-  e.motivoRespaldo = motivo;
-  Object.assign(e, extra);
-  return e;
-}
-
-export async function calcularViabilidadIA(ctx, userGeminiKeys = null) {
-  const useUserKeys = Array.isArray(userGeminiKeys) && userGeminiKeys.length > 0;
-  try {
-    if (!useUserKeys && !geminiCB.keys.length) {
-      throw falloGemini('sin_llaves_servidor', 'No hay llaves de Gemini configuradas en el servidor');
-    }
-    const intentar = async (apiKey) => {
-      const upstream = await fetchGeminiConReintento(
-        'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-        {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: 'gemini-3.6-flash',
-            messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              { role: 'user', content: buildUserPrompt(ctx) },
-            ],
-            temperature: 0.2,
-            max_tokens: 8192,
-            reasoning_effort: 'low',
-            // Lote 6 T1 (verificado en vivo 2026-09-24): con 'json_object' el
-            // modelo inventaba su propia estructura (claves id_proyecto,
-            // auditoria_anexos, dictamen_final…; estado_auditoria
-            // "APROBADO_CON_OBSERVACIONES" fuera del enum; sin score_viabilidad)
-            // y el dictamen caía SIEMPRE al MODO RESPALDO por esquema inválido.
-            // Salida estructurada: la API obliga el esquema JSON_SCHEMA, que ya
-            // existía pero nunca se enviaba. La validación local se mantiene.
-            response_format: { type: 'json_schema', json_schema: JSON_SCHEMA },
-          }),
-          signal: AbortSignal.timeout(45_000),
-        }
-      );
-
-      if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');
-      if (upstream.status === 503) throw falloGemini('modelo_saturado', 'Gemini 503: modelo saturado (alta demanda en Google)');
-      if (!upstream.ok) {
-        // FIX (auditoría SRE Red Team 2026-08-10, Capa 4): mismo patrón que
-        // CopilotoService.js — un fallo no-429 quedaba invisible en logs.
-        const cuerpo = await upstream.text().catch(() => '');
-        throw falloGemini(`http_${upstream.status}`, `Gemini HTTP ${upstream.status}`, { cuerpo: cuerpo.slice(0, 300) });
-      }
-
-      const data = await upstream.json();
-      const eleccion = data?.choices?.[0];
-      const usage = data?.usage ?? {};
-      // Mensajes SIN "429/quota/rate limit": isQuotaError los rotaría como cuota.
-      if (eleccion?.finish_reason === 'length') {
-        throw falloGemini('respuesta_truncada', 'Respuesta de Gemini cortada por el límite de tokens (finish_reason: length)', { usage });
-      }
-      const text = eleccion?.message?.content ?? '';
-      const match = text.match(/\{[\s\S]*\}/);
-      if (!match) throw falloGemini('respuesta_sin_json', 'Respuesta de Gemini sin JSON', { usage });
-
-      let parsedLocal;
-      try { parsedLocal = JSON.parse(match[0]); }
-      catch (e) { throw falloGemini('json_invalido', `JSON de Gemini inválido: ${e.message}`, { usage }); }
-      const validEstados = JSON_SCHEMA.schema.properties.estado_auditoria.enum;
-      if (!validEstados.includes(parsedLocal.estado_auditoria) || typeof parsedLocal.score_viabilidad !== 'number') {
-        // Solo la ESTRUCTURA (claves y valores de control), nunca el texto del
-        // proyecto: basta para diagnosticar sin volcar contenido en los logs.
-        throw falloGemini('esquema_invalido', 'Respuesta de Gemini con esquema inválido', {
-          usage,
-          estructura: { claves: Object.keys(parsedLocal || {}).slice(0, 20), estado_auditoria: parsedLocal?.estado_auditoria, tipo_score: typeof parsedLocal?.score_viabilidad },
-        });
-      }
-      return { parsed: parsedLocal, usage };
-    };
-
-    const { parsed, usage } = useUserKeys
-      ? await withUserKeyRotation(userGeminiKeys, intentar)
-      : await withKeyRotation(intentar);
-
-    // FinOps: los tokens de razonamiento no vienen en completion_tokens pero
-    // sí en total_tokens — se registra la salida REAL facturada.
-    const salidaReal = Number.isFinite(usage?.total_tokens) && Number.isFinite(usage?.prompt_tokens)
-      ? usage.total_tokens - usage.prompt_tokens : (usage?.completion_tokens ?? 0);
-    logTokenUsage({
-      userId: ctx.userId, agentName: 'viabilidad',
-      tokensInput: usage?.prompt_tokens ?? 0,
-      tokensOutput: salidaReal,
-    }).catch(() => {});
-    return {
-      estado_auditoria: parsed.estado_auditoria,
-      score_viabilidad: Math.max(0, Math.min(100, Math.round(parsed.score_viabilidad))),
-      analisis_escala_poblacion: {
-        proporcion_logica: !!parsed.analisis_escala_poblacion?.proporcion_logica,
-        veredicto_escala: parsed.analisis_escala_poblacion?.veredicto_escala || '',
-        alerta: parsed.analisis_escala_poblacion?.alerta || '',
-      },
-      cruce_anexos: {
-        respaldo_financiero_detectado: !!parsed.cruce_anexos?.respaldo_financiero_detectado,
-        marco_normativo_validado: !!parsed.cruce_anexos?.marco_normativo_validado,
-        brechas_detectadas: Array.isArray(parsed.cruce_anexos?.brechas_detectadas) ? parsed.cruce_anexos.brechas_detectadas : [],
-      },
-      teoria_del_cambio_generada: {
-        supuestos: Array.isArray(parsed.teoria_del_cambio_generada?.supuestos) ? parsed.teoria_del_cambio_generada.supuestos : [],
-        resultados_esperados: Array.isArray(parsed.teoria_del_cambio_generada?.resultados_esperados) ? parsed.teoria_del_cambio_generada.resultados_esperados : [],
-      },
-      fuente: 'gemini-3.6-flash',
-      calculadoEn: new Date().toISOString(),
-    };
-  } catch (err) {
-    // Toda caída al respaldo deja rastro con su causa exacta — antes la cuota
-    // agotada (el caso más frecuente) caía al MODO RESPALDO sin ningún log.
-    const motivo = err.motivoRespaldo
-      || (err instanceof UserKeyPoolExhaustedError || err?.code === 'USER_KEY_EXHAUSTED' ? 'USER_KEY_EXHAUSTED'
-        : err instanceof GeminiPoolExhaustedError || isQuotaError(err) ? 'cuota_agotada'
-        : err?.name === 'TimeoutError' ? 'timeout'
-        : 'error');
-    const esperado = ['USER_KEY_EXHAUSTED', 'cuota_agotada', 'sin_llaves_servidor', 'modelo_saturado'].includes(motivo);
-    logger[esperado ? 'warn' : 'error']('[ViabilidadAgent] Gemini no disponible → MODO RESPALDO heurístico', {
-      motivo, detalle: err.message, usage: err.usage, cuerpo: err.cuerpo, estructura: err.estructura, userId: ctx.userId,
-    });
-    return { ...calcularViabilidadHeuristica(ctx), motivo_respaldo: motivo };
-  }
+export async function calcularViabilidadIA(ctx) {
+  const { valor: parsed, modelo, proveedor } = await generarConIA({
+    userId: ctx.userId, agente: 'viabilidad', temperature: 0.2,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: buildUserPrompt(ctx) },
+    ],
+    // Lote 6 T1 (verificado en vivo 2026-09-24): con 'json_object' el modelo
+    // inventaba su propia estructura; la salida estructurada obliga el esquema.
+    responseFormat: { type: 'json_schema', json_schema: JSON_SCHEMA },
+    validar: parsearDictamen,
+  });
+  return {
+    estado_auditoria: parsed.estado_auditoria,
+    score_viabilidad: Math.max(0, Math.min(100, Math.round(parsed.score_viabilidad))),
+    analisis_escala_poblacion: {
+      proporcion_logica: !!parsed.analisis_escala_poblacion?.proporcion_logica,
+      veredicto_escala: parsed.analisis_escala_poblacion?.veredicto_escala || '',
+      alerta: parsed.analisis_escala_poblacion?.alerta || '',
+    },
+    cruce_anexos: {
+      respaldo_financiero_detectado: !!parsed.cruce_anexos?.respaldo_financiero_detectado,
+      marco_normativo_validado: !!parsed.cruce_anexos?.marco_normativo_validado,
+      brechas_detectadas: Array.isArray(parsed.cruce_anexos?.brechas_detectadas) ? parsed.cruce_anexos.brechas_detectadas : [],
+    },
+    teoria_del_cambio_generada: {
+      supuestos: Array.isArray(parsed.teoria_del_cambio_generada?.supuestos) ? parsed.teoria_del_cambio_generada.supuestos : [],
+      resultados_esperados: Array.isArray(parsed.teoria_del_cambio_generada?.resultados_esperados) ? parsed.teoria_del_cambio_generada.resultados_esperados : [],
+    },
+    // B7: el modelo que REALMENTE respondió, no uno fijo en código.
+    fuente: modelo,
+    proveedor,
+    calculadoEn: new Date().toISOString(),
+  };
 }
 
 /**

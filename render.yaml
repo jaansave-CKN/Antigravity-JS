@@ -82,6 +82,18 @@ services:
       - key: GOOGLE_API_KEY
         sync: false
 
+      # ── OpenRouter (IA primaria del Formulador — B1, 2026-09-28) ─────────────
+      # Cascada en backend/services/llmProveedor.js: OpenRouter → pool Gemini →
+      # BYOK. OpenRouter SOLO se usa si están la llave Y los dos topes de gasto
+      # por usuario (USD); sin topes se salta (nunca gasto sin límite). Requiere
+      # la migración 073 aplicada (ai_consumo_usuario / ai_tope_usuario).
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: LLM_TOPE_USD_DIA
+        sync: false
+      - key: LLM_TOPE_USD_MES
+        sync: false
+
       # ── Google OAuth2 (login social — opcional) ──────────────────────────────
       # Crear en: console.cloud.google.com → APIs & Services → Credentials
       - key: GOOGLE_CLIENT_ID

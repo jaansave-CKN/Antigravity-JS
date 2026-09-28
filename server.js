@@ -49,7 +49,9 @@ import { logTokenUsage } from './backend/services/aiTokenLogger.js';
 import { reenviarPendientesSystemLogs } from './backend/services/logService.js';
 import { alertarErrorServidor } from './backend/services/alertaErrores.js';
 import { faltantesViabilidad, respuesta422 } from './backend/services/datosMinimosIA.js';
-import { resolverContextoBYOK } from './backend/services/byokService.js';
+import { resolverLlavesUsuario } from './backend/services/byokService.js';
+import { estadoOpenRouter } from './backend/services/llmProveedor.js';
+import { estadoPresupuesto } from './backend/services/iaPresupuesto.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
 import { wompiWebhookHandler } from './backend/routes/wompi.webhook.js';
 import { isRevoked, checkSessionValid, checkAccountStatus, revokeToken, revokeUserSession, initBlacklist, purgeExpiredTokens } from './backend/middlewares/tokenBlacklist.js';
@@ -75,7 +77,8 @@ import { registerBibliotecaRoutes } from './backend/routes/biblioteca.routes.js'
 import { registerCopilotoRoutes } from './backend/routes/copiloto.routes.js';
 import { registerEntradaIARoutes } from './backend/routes/entradaIA.routes.js';
 import { registerFormulacionIntegralRoutes } from './backend/routes/formulacionIntegral.routes.js';
-import { requireByokOrExento } from './backend/middlewares/byokGate.js';
+import { convocatoriasParaProyecto } from './backend/agents/gp/gerenteProyecto.js';
+import { ejecutarBatchEmbeddings, estadoBatch } from './backend/pipeline/EmbeddingsBatch.js';
 import { registerByokCredentialsRoutes } from './backend/routes/byokCredentials.routes.js';
 import { radarCacheMiddleware, invalidateRadarCache } from './backend/middlewares/radarCache.js';
 import { resolverNivelRadar } from './backend/middlewares/radarTier.js';
@@ -364,6 +367,17 @@ function tryCatch(fn) {
       if (err.code === 'LLM_LOOP_GUARD') {
         return res.status(429).json({ success: false, code: 'LLM_LOOP_GUARD', message: err.message });
       }
+      // B1 (2026-09-28): capa de IA (llmProveedor.js). Tope agotado → 429 con la
+      // hora real de renovación; ningún proveedor respondió → 503 honesto.
+      if (err.code === 'IA_TOPE_AGOTADO') {
+        return res.status(429).json({ success: false, code: err.code, message: err.message, retryAt: err.retryAt ? new Date(err.retryAt).toISOString() : null, esEstimado: false });
+      }
+      if (err.code === 'IA_NO_DISPONIBLE') {
+        // X-RF-No-Retry: apiClient.fetchWithRetry reintenta los 503 — aquí la
+        // cascada completa ya se intentó; reenviar solo gasta cuota (B3).
+        res.set('X-RF-No-Retry', '1');
+        return res.status(503).json({ success: false, code: err.code, message: err.message, ...(err.retryAt ? { retryAt: new Date(err.retryAt).toISOString(), esEstimado: true } : {}) });
+      }
       // Errores de IA por clave faltante → 503 con mensaje claro para el usuario
       if (err.message?.includes('EMBEDDINGS_ERROR') || err.message?.includes('GOOGLE_API_KEY')) {
         return res.status(503).json({
@@ -383,12 +397,9 @@ function tryCatch(fn) {
 }
 
 
-// BYOK (migración 045): gate compartido para las 7 acciones interactivas de
-// IA — exento (usuarios.byok_exento) sigue con el pool del servidor sin
-// cambios; no exento sin llave propia válida corta con 428 antes de tocar
-// Gemini. req.userGeminiKeys queda null (exento) o array (no exento) para
-// que cada handler lo pase al agente/servicio correspondiente.
-const byokGate = requireByokOrExento(); // no toma deps — construye sus propios adaptadores escopados por request (byokGate.js)
+// B1 (2026-09-28): se retiró el gate BYOK (byokGate.js, migración 045) de las
+// rutas de IA — la cascada OpenRouter → pool Gemini → BYOK vive en
+// backend/services/llmProveedor.js, con tope de gasto por usuario en BD.
 
 // V8.0 RBAC: verifica suscripción por módulo (radar | formulador)
 function requireAccess(module) {
@@ -1446,6 +1457,9 @@ async function start() {
     // a verifyCsrf — descubierto revisando esta lista ANTES de activar
     // CSRF_ENFORCE, no en producción.
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Smoke-Token', 'X-CSRF-Token'],
+    // B3 (2026-09-28): el cliente debe poder LEER X-RF-No-Retry en orígenes
+    // cruzados (dev con VITE_API_URL) para no reenviar un 503 de IA definitivo.
+    exposedHeaders: ['X-RF-No-Retry'],
   }));
   // STRIPE WEBHOOK — debe ir ANTES de express.json() para recibir raw body
   // (la verificación de firma de Stripe falla si el body ya fue parseado)
@@ -1516,6 +1530,23 @@ async function start() {
   }));
 
   // ── Quota Status — Gemini Circuit Breaker ───────────────────────────────
+  // ── Embeddings por lotes del catálogo (Fase 4, 2026-09-28) ────────────────
+  // SOLO admin: gasta la llave de IA del servidor. POST responde 202 y corre en
+  // segundo plano (acotado por EMBEDDINGS_MAX_POR_CORRIDA y el tope de tokens);
+  // { dryRun: true } solo cuenta candidatas y tokens estimados, sin llamar a la API.
+  app.post('/api/radar/embeddings/batch', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    const max = Math.min(Number(req.body?.max) || 0, 500) || undefined;
+    if (req.body?.dryRun === true) return res.json({ success: true, data: await ejecutarBatchEmbeddings({ max, dryRun: true }) });
+    ejecutarBatchEmbeddings({ max, log: logger })
+      .catch(err => logger.error('[EmbeddingsBatch] Corrida manual falló', { err: err.message }));
+    res.status(202).json({ success: true, message: 'Corrida de embeddings iniciada en segundo plano.', data: await estadoBatch() });
+  }));
+  app.get('/api/radar/embeddings/estado', authenticateToken, tryCatch(async (req, res) => {
+    if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
+    res.json({ success: true, data: await estadoBatch() });
+  }));
+
   app.get('/api/admin/quota-status', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });
     res.json({ success: true, data: geminiCB.getStatus() });
@@ -1533,28 +1564,26 @@ async function start() {
   // — un GeminiPoolExhaustedError SÍ lleva retryAt, un UserKeyPoolExhaustedError
   // NUNCA lo lleva) — un usuario no-exento con llave propia nunca se bloquea
   // por el estado del pool del servidor, que no le aplica.
+  // B1 (2026-09-28): refleja la CASCADA real de llmProveedor.js. "Agotado"
+  // solo si el próximo intento real fallaría en todos los pasos: OpenRouter
+  // no disponible para este usuario (sin llave, pausado, sin tope o tope
+  // agotado), el pool Gemini del servidor en enfriamiento, y sin llaves BYOK.
+  // Si no, EntradaPage abriría el modal en vez de generar aunque OpenRouter
+  // funcione (B1 del dictamen de architect). Sin retryAt real no se bloquea:
+  // el intento real responde el 503 honesto.
   app.get('/api/ia/estado-cuota', authenticateToken, tryCatch(async (req, res) => {
+    const libre = () => res.json({ success: true, data: { exhausted: false, retryAt: null, esEstimado: false } });
+    if (estadoOpenRouter().activo) {
+      const presupuesto = await estadoPresupuesto(req.userId);
+      if (presupuesto && !presupuesto.agotado) return libre();
+    }
     const retryAt = geminiCB.getEarliestRetryAt();
-    if (!retryAt) return res.json({ success: true, data: { exhausted: false, retryAt: null, esEstimado: false } });
-    // Adaptador escopado (mismo patrón que byokGate.js) -- REGLA DE ORO: la
-    // resolución de llaves BYOK de un tenant nunca debe poder leer/consumir
-    // las de otro. resolverContextoBYOK() no cambia su firma ({getRow,getRows}
-    // genérico), solo recibe funciones ya ligadas a req.userId.
-    const { exento, llaves } = await resolverContextoBYOK(req.userId, {
-      getRow:  (sql, params) => withTenantRow(req.userId, sql, params),
+    if (!retryAt) return libre();
+    // Adaptador escopado: la lectura de llaves BYOK de un tenant nunca puede ver las de otro.
+    const llaves = await resolverLlavesUsuario(req.userId, {
       getRows: (sql, params) => withTenantRows(req.userId, sql, params),
-    });
-    // No exento: usa su propio pool BYOK (withUserKeyRotation), nunca el del
-    // servidor — el agotamiento de ESTE pool no le aplica en absoluto.
-    // Exento CON llave propia guardada: la usará como válvula de escape
-    // (ver byokGate.js) — el próximo intento real SÍ pasaría, no está
-    // bloqueado de verdad, aunque el pool del servidor lo esté.
-    if (!exento || llaves.length) return res.json({ success: true, data: { exhausted: false, retryAt: null, esEstimado: false } });
-    // esEstimado (2026-09-06): true si retryAt es un cooldown fijo de sondeo
-    // (5 min), no un retryDelay real reportado por Google — ver
-    // geminiCircuitBreaker.js::esRetryEstimado(). La UI usa esto para no
-    // prometer una hora de reset que puede no cumplirse (típico cuando la
-    // causa real es cuota diaria agotada, que se libera a medianoche UTC).
+    }).catch(() => []);
+    if (llaves.length) return libre();
     res.json({ success: true, data: { exhausted: true, retryAt: retryAt.toISOString(), esEstimado: geminiCB.esRetryEstimado() } });
   }));
 
@@ -4516,50 +4545,21 @@ Reglas:
 
 
   // Handler compartido — /api/radar/barrido es un alias real de esta misma
-  // lógica (antes devolvía 501 diciendo "usa barrido-masivo"; ahora corre la
-  // búsqueda vectorial directamente en vez de redirigir con un mensaje).
+  // lógica. Fase 4 (2026-09-28): delega en el Gerente de Proyecto (flujo
+  // B→A, "convocatorias para mi proyecto"). Antes leía proyectos.embedding,
+  // que nadie escribía — el barrido por proyecto nunca funcionó; ahora el
+  // coordinador del Formulador recalcula y guarda el vector del proyecto, y
+  // un catálogo sin vectores responde 503 explícito en vez de [] silencioso.
   const barridoMasivoHandler = tryCatch(async (req, res) => {
     const validacionBarridoMasivo = validarBody(barridoMasivoSchema, req.body);
     if (!validacionBarridoMasivo.ok) return res.status(400).json({ success: false, message: validacionBarridoMasivo.message });
     const { texto, proyectoId, limit = 50, threshold = 0.25 } = validacionBarridoMasivo.data;
-    let qVec;
-    if (proyectoId) {
-      // proyectos es dato de tenant -- escopado. Las búsquedas de convocatorias
-      // más abajo NO se escopan a propósito: es el catálogo global (sin
-      // columna org_id, RLS sin políticas -- ver 065_rls_scoped_grants_fase5_bloque4.sql).
-      const proy = await withTenantRow(req.userId, 'SELECT embedding FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, req.userId]);
-      if (!proy) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
-      qVec = proy.embedding ? deserializeEmbedding(proy.embedding) : null;
+    const r = await convocatoriasParaProyecto({ userId: req.userId, proyectoId, texto, limit, threshold });
+    if (!r.ok) {
+      if (r.status === 503) res.set('X-RF-No-Retry', '1');
+      return res.status(r.status).json({ success: false, code: r.code, message: r.message });
     }
-    if (!qVec) {
-      if (!texto?.trim()) return res.status(400).json({ success: false, message: 'El proyecto no tiene embeddings calculados — provee texto de búsqueda' });
-      qVec = await textToEmbedding(texto.trim());
-    }
-    const vecStr = JSON.stringify(qVec);
-    const usePg  = !!process.env.DATABASE_URL;
-    const lim    = Math.min(Number(limit) || 50, 500);
-    const thr    = Number(threshold) || 0.25;
-    let resultados = [];
-    if (usePg) {
-      resultados = await getRows(
-        `SELECT id, titulo, donante, descripcion, monto_min, monto_max, fecha_limite, estado, url_convocatoria,
-                round((1 - (embedding_vec <=> $1::vector))::numeric, 4) AS similitud
-         FROM convocatorias
-         WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL AND estado != 'cerrada'
-           AND (1 - (embedding_vec <=> $1::vector)) >= $2
-         ORDER BY embedding_vec <=> $1::vector
-         LIMIT $3`,
-        [vecStr, thr, lim]
-      );
-    } else {
-      const convs = await getRows("SELECT id, titulo, donante, descripcion, monto_min, monto_max, fecha_limite, estado, url_convocatoria, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL AND estado != 'cerrada'", []);
-      resultados = convs
-        .map(c => ({ ...c, embedding: undefined, similitud: Math.round(cosineSimilarity(qVec, deserializeEmbedding(c.embedding)) * 10000) / 10000 }))
-        .filter(c => c.similitud >= thr)
-        .sort((a, b) => b.similitud - a.similitud)
-        .slice(0, lim);
-    }
-    res.json({ success: true, resultados, total: resultados.length, motor: usePg ? 'pgvector·HNSW' : 'js-coseno' });
+    res.json({ success: true, resultados: r.resultados, total: r.total, motor: r.motor, cobertura: r.cobertura });
   });
   app.post('/api/radar/barrido-masivo', authenticateToken, requireAccess('radar'), aiLimiter, barridoMasivoHandler);
   app.post('/api/convocatorias/filtros', (req, res) => res.json({ success: true, data: [] }));
@@ -4590,16 +4590,10 @@ Reglas:
   }
 
   // F4-03: Módulo 3b - Árbol de Objetivos.
-  // FIX (BYOK migración 045, hallazgo bloqueante del Arquitecto): antes esta
-  // ruta llamaba resolveGoogleApiKey() incondicionalmente — esa función lee
-  // la tabla LEGACY user_credentials (desconectada de BYOK, 0 filas reales,
-  // constraint rota, ver CredentialsPage.tsx) y cae en silencio a
-  // process.env.GOOGLE_API_KEY si no hay fila. Un usuario NO exento que
-  // pasara el gate 428 seguía consumiendo la cuota del SISTEMA sin aviso,
-  // anulando el propósito de BYOK para esta ruta. Ahora usa exclusivamente
-  // req.userGeminiKeys (byokGate → user_gemini_keys): null = exento → pool
-  // del servidor; array = rota sobre las llaves propias del usuario.
-  app.post('/api/modulo3b/arbol/generar', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, tryCatch(async (req, res) => {
+  // B1 (2026-09-28): sin byokGate — la cascada de proveedores (OpenRouter →
+  // pool Gemini → llaves BYOK del usuario como último recurso) y el tope de
+  // gasto por usuario viven en llmProveedor.js / iaPresupuesto.js.
+  app.post('/api/modulo3b/arbol/generar', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
     const validacionArbolGen = validarBody(arbolGenerarSchema, req.body);
     if (!validacionArbolGen.ok) return res.status(400).json({ success: false, message: validacionArbolGen.message });
     const { proyectoId, objetivoCentral } = validacionArbolGen.data;
@@ -4608,10 +4602,13 @@ Reglas:
     }
     let nodos;
     try {
-      nodos = await generarArbolConIA(objetivoCentral, req.userGeminiKeys, req.userId);
+      nodos = await generarArbolConIA(objetivoCentral, req.userId);
     } catch (err) {
-      if (err.code === 'USER_KEY_EXHAUSTED' || err.code === 'IA_CUOTA_AGOTADA') {
-        return res.status(err.status).json({ success: false, code: err.code, message: err.message });
+      // ArbolIANoDisponibleError (503 IA_NO_DISPONIBLE / 429 IA_TOPE_AGOTADO):
+      // el árbol previo no se tocó (el DELETE va después de generar).
+      if (err.code === 'IA_NO_DISPONIBLE' || err.code === 'IA_TOPE_AGOTADO') {
+        if (err.status === 503) res.set('X-RF-No-Retry', '1');
+        return res.status(err.status).json({ success: false, code: err.code, message: err.message, ...(err.retryAt ? { retryAt: new Date(err.retryAt).toISOString() } : {}) });
       }
       throw err;
     }
@@ -4850,7 +4847,7 @@ Reglas:
   // a un análisis real de IA sobre el proyecto y sus anexos. Usa la tabla
   // `proyectos` (esquema realmente activo: TEXT ids, sin tenant_id) en vez de
   // `projects`, porque POST /api/proyectos inserta ahí, no en `projects`.
-  app.post('/api/proyectos/:id/viabilidad-ia', authenticateToken, requireAccess('formulador'), aiLimiter, byokGate, tryCatch(async (req, res) => {
+  app.post('/api/proyectos/:id/viabilidad-ia', authenticateToken, requireAccess('formulador'), aiLimiter, tryCatch(async (req, res) => {
     const proyecto = await withTenantRow(req.userId,
       'SELECT id, nombre, ficha_tecnica, presupuesto, problem_statement FROM proyectos WHERE id = ? AND org_id = ?',
       [req.params.id, req.userId]
@@ -4873,7 +4870,9 @@ Reglas:
     // → 422 con la lista exacta, ANTES de llamar a Gemini.
     const faltantes = faltantesViabilidad(ctx);
     if (faltantes.length) return res.status(422).json(respuesta422('el Dictamen de Viabilidad', faltantes));
-    const resultado = await calcularViabilidadIA(ctx, req.userGeminiKeys);
+    // B1: sin IA disponible LANZA (503/429, mapeado en tryCatch) — nada se
+    // guarda en ficha_tecnica (antes se guardaba un veredicto heurístico).
+    const resultado = await calcularViabilidadIA(ctx);
 
     // Persistencia real dentro de ficha_tecnica (columna JSON ya existente) —
     // evita depender de una columna/tabla nueva que requeriría DDL.
@@ -4928,10 +4927,10 @@ Reglas:
   await registerValorExponencialRoutes(app, { authenticateToken, requireAccess, financialPipelineLimiter });
   registerEvaluacionFinancieraRoutes(app, { authenticateToken, requireAccess, financialPipelineLimiter });
 
-  // F-09 MIROFISH (2026-09-24): comité hostil — reglas PDET + IA BYOK.
-  // Misma cadena que POST /viabilidad-ia (aiLimiter + byokGate).
-  registerMirofishRoutes(app, { authenticateToken, requireAccess, aiLimiter, byokGate });
-  // Fase 3: Formulador MGA (NVIDIA NIM, llave del servidor → sin byokGate).
+  // F-09 MIROFISH (2026-09-24): comité hostil — reglas PDET + IA (llmProveedor).
+  // Misma cadena que POST /viabilidad-ia (aiLimiter; sin byokGate desde B1).
+  registerMirofishRoutes(app, { authenticateToken, requireAccess, aiLimiter });
+  // Fase 3: Formulador MGA (NVIDIA NIM, llave del servidor).
   registerFormuladorMgaRoutes(app, { authenticateToken, requireAccess, aiLimiter });
 
   // V8.0 — Formulador: M8 Marco Normativo
@@ -4956,7 +4955,9 @@ Reglas:
   // Biblioteca Gubernamental: clon aislado de Anexos (migración 039) — bucket
   // de Storage propio, sin pipeline financiero (ExtractorService/AuditorForenseService)
   await registerBibliotecaRoutes(app, { authenticateToken });
-  await registerCopilotoRoutes(app, { authenticateToken, aiLimiter });
+  // B1/B6 (2026-09-28): requireAccess — sin el gate BYOK, el Co-Piloto
+  // consumiría IA pagada por el servidor para cualquier usuario sin plan.
+  await registerCopilotoRoutes(app, { authenticateToken, requireAccess, aiLimiter });
 
   registerByokCredentialsRoutes(app, { authenticateToken, aiLimiter });
   // Entrada (M1) — "Generar con AI" a partir de la carpeta "Investigación" de Anexos

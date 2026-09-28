@@ -6,6 +6,7 @@
 import cron from 'node-cron';
 import { ingestConvocatorias } from './DataIngestor.js';
 import { ingestDirectorioConvocatorias } from './EntityScraper.js';
+import { ejecutarBatchEmbeddings } from './EmbeddingsBatch.js';
 import { runSql, getRows } from '../db.js';
 
 const NOISE_CRON_RE = /^(our |their |its |the [\w])|^about\s(us|the\s|our\s)|^(who|what)\s(we|is)\s|^(learn|read|see|view|explore)\s(more|all)|^(sign|log)\s(in|out)|funding\sfaq|grants?\sfaq|grants?\sdata|grants?\sdatabase|^descarga |^download\sour\s|brochure$/i;
@@ -152,7 +153,24 @@ export function startScheduler() {
   // en Render, donde no existe pg_dump: fallaba a diario y ensuciaba los logs
   // y system_logs con "✗ Backup S3 NO realizado" sin posibilidad de éxito.
 
-  console.log('[Cron] Programador activo · Expiración 01:45 · Rastreo2 02:00 · Rastreo1 02:30 COT (backup S3: GitHub Actions backup-s3.yml)');
+  // Fase 4 (2026-09-28): embeddings por lotes — 03:45 COT, DESPUÉS de los
+  // rastreos (Rastreo 1 empieza 02:30 con timeout de 60 min), para vectorizar
+  // lo recién ingerido. APAGADO por defecto: solo si EMBEDDINGS_BATCH_ENABLED=true.
+  // En scheduledTasks → /api/radar/stop también lo pausa.
+  const embeddingsActivo = process.env.EMBEDDINGS_BATCH_ENABLED === 'true';
+  if (embeddingsActivo) {
+    scheduledTasks.push(cron.schedule('45 3 * * *', async () => {
+      console.log('[Cron] ▶ Embeddings por lotes del catálogo...');
+      try {
+        const r = await withTimeout(() => ejecutarBatchEmbeddings(), 20 * 60_000, 'EmbeddingsBatch');
+        console.log(`[Cron] ✓ Embeddings: ${r.procesadas} vectorizadas · ${r.restantes ?? '?'} pendientes · ${r.detenidoPor}`);
+      } catch (err) {
+        console.error('[Cron] ✗ Error en embeddings por lotes:', err.message);
+      }
+    }, { timezone: 'America/Bogota' }));
+  }
+
+  console.log(`[Cron] Programador activo · Expiración 01:45 · Rastreo2 02:00 · Rastreo1 02:30 · Embeddings 03:45 ${embeddingsActivo ? 'ACTIVO' : 'apagado (EMBEDDINGS_BATCH_ENABLED)'} COT (backup S3: GitHub Actions backup-s3.yml)`);
 }
 
 // Permite ejecutar la ingesta manualmente (llamado desde /api/convocatorias/refresh)

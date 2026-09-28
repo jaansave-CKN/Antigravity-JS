@@ -373,7 +373,7 @@ export default function EntradaPage() {
   // recuperación confiable), el mensaje debe ser definitivo y accionable —
   // ver CountdownReset.tsx para el mismo criterio en el sub-mensaje.
   const MENSAJE_CUOTA_AGOTADA = esEstimadoIA
-    ? 'Créditos de IA agotados por ahora — no hay una hora de reset garantizada. Conecta tu propia llave de Gemini (BYOK) para seguir usando la IA, o llena el formulario manualmente.'
+    ? 'La IA del servidor no está disponible por ahora — no hay una hora de reset garantizada. Puedes llenar el formulario manualmente o intentar más tarde (opcional: conectar tu propia llave de Gemini como respaldo).'
     : 'El límite de uso de IA está agotado por ahora — intenta de nuevo en unos segundos, o llena el formulario manualmente.';
   // Mandato 2026-08-24 ("ModalBYOK — interceptar el bloqueo"): los botones ✨
   // ya NO quedan 100% inactivos durante cuotaAgotada — siguen siendo

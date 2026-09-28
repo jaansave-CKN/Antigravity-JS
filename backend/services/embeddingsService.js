@@ -25,6 +25,36 @@ function getClient() {
 }
 
 /**
+ * Vectoriza VARIOS textos en una sola llamada (Fase 4, proceso por lotes del
+ * Radar — backend/pipeline/EmbeddingsBatch.js). Mismo modelo, dimensión y
+ * taskType que textToEmbedding: los vectores son comparables entre sí.
+ * GEMINI_EMBEDDINGS_API_KEY (opcional) separa la cuota del lote de la llave
+ * que usan las funciones interactivas.
+ * @param {string[]} textos
+ * @returns {Promise<number[][]>} un vector por texto, en el mismo orden
+ */
+export async function textosAEmbeddings(textos) {
+  if (!Array.isArray(textos) || !textos.length || textos.some(t => typeof t !== 'string' || !t.trim())) {
+    throw new Error('EMBEDDINGS_ERROR: lote vacío o con textos vacíos');
+  }
+  const key = process.env.GEMINI_EMBEDDINGS_API_KEY || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('EMBEDDINGS_ERROR: GOOGLE_API_KEY no configurado');
+  const ai = new GoogleGenAI({ apiKey: key });
+  const response = await ai.models.embedContent({
+    model: EMBEDDING_MODEL,
+    contents: textos.map(t => t.trim()),
+    config: { outputDimensionality: EMBEDDING_DIM, taskType: 'SEMANTIC_SIMILARITY' },
+  });
+  const vectores = (response.embeddings || []).map(e => e?.values);
+  if (vectores.length !== textos.length || vectores.some(v => !v || v.length !== EMBEDDING_DIM)) {
+    throw new Error(`EMBEDDINGS_ERROR: se esperaban ${textos.length} vectores de ${EMBEDDING_DIM}, llegaron ${vectores.length}`);
+  }
+  return vectores.map(v => Array.from(v));
+}
+
+export { EMBEDDING_MODEL };
+
+/**
  * Convierte texto a vector de embeddings via Gemini.
  * @param {string} text
  * @returns {Promise<number[]>} — array de EMBEDDING_DIM floats

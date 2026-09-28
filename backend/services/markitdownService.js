@@ -4,18 +4,11 @@
  * luego extrae campos estructurados de convocatoria con Gemini.
  */
 
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import { writeFile, unlink } from 'fs/promises';
-import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { withKeyRotation } from './geminiCircuitBreaker.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { conReintentoTransitorio } from './geminiReintento.js';
-
-const execFileAsync = promisify(execFile);
+import { convertBufferToMarkdown } from '../utils/fileConverters.js';
 
 // Extensiones soportadas por MarkItDown
 const DOC_EXT_RE = /\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp|txt|md)(\?[^"'\s]*)?$/i;
@@ -33,57 +26,22 @@ export function isPdfOrDoc(url) {
  */
 export async function convertUrlToMarkdown(url, timeoutMs = 30_000) {
   const ext = (new URL(url).pathname.match(/\.([a-z]{2,5})(\?|$)/i)?.[1] ?? 'pdf').toLowerCase();
-  const tmpFile = join(tmpdir(), `radar_mid_${crypto.randomUUID()}.${ext}`);
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: {
+      'User-Agent': 'RadarFondos/1.0 PDF-Reader',
+      'Accept': 'application/pdf,application/octet-stream,*/*',
+    },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} al descargar ${url}`);
 
-  try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(timeoutMs),
-      headers: {
-        'User-Agent': 'RadarFondos/1.0 PDF-Reader',
-        'Accept': 'application/pdf,application/octet-stream,*/*',
-      },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} al descargar ${url}`);
-
-    const buffer = Buffer.from(await res.arrayBuffer());
-    await writeFile(tmpFile, buffer);
-
-    const { stdout } = await execFileAsync('python', ['-m', 'markitdown', tmpFile], {
-      timeout: timeoutMs,
-      maxBuffer: 5 * 1024 * 1024, // 5 MB
-    });
-
-    return stdout.trim();
-  } finally {
-    unlink(tmpFile).catch(() => {});
-  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return convertBufferToMarkdown(buffer, ext, timeoutMs);
 }
 
-/**
- * Convierte un archivo ya en memoria (buffer subido por el usuario, ej.
- * multer memoryStorage) a Markdown — mismo motor que convertUrlToMarkdown,
- * sin el paso de descarga. Usado por anexos.routes.js para extraer texto de
- * PDFs/DOCX/XLSX subidos y alimentar el embedding semántico (ver
- * embeddingsService.js) — se reusa este servicio en vez de instalar un
- * segundo motor de extracción de texto.
- * @param {Buffer} buffer
- * @param {string} ext — extensión sin punto (pdf, docx, xlsx, ...)
- * @param {number} [timeoutMs=30000]
- * @returns {Promise<string>} Markdown resultante
- */
-export async function convertBufferToMarkdown(buffer, ext, timeoutMs = 30_000) {
-  const tmpFile = join(tmpdir(), `radar_mid_${crypto.randomUUID()}.${ext}`);
-  try {
-    await writeFile(tmpFile, buffer);
-    const { stdout } = await execFileAsync('python', ['-m', 'markitdown', tmpFile], {
-      timeout: timeoutMs,
-      maxBuffer: 5 * 1024 * 1024,
-    });
-    return stdout.trim();
-  } finally {
-    unlink(tmpFile).catch(() => {});
-  }
-}
+// convertBufferToMarkdown se movió a utils/fileConverters.js (2026-09-28):
+// es conversión sin IA que usa también el Formulador (EntradaIAService,
+// anexos.routes.js) — no debe depender de este archivo del Radar.
 
 // ── Gemini extractor ─────────────────────────────────────────────────────────
 

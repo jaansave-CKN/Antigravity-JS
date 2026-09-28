@@ -167,6 +167,10 @@ const MOTIVO_IA: Record<string, string> = {
   modelo_saturado: 'el modelo de Google está saturado en este momento (reintenta en unos minutos)',
   respuesta_invalida: 'la IA devolvió una respuesta inválida',
   respuesta_truncada: 'la respuesta de la IA llegó incompleta (límite de tokens)',
+  // B1 (2026-09-28): motivos de la capa única de IA (llmProveedor.js).
+  ia_no_disponible: 'ningún proveedor de IA respondió en este momento',
+  IA_TOPE_AGOTADO: 'alcanzaste el tope de uso de IA de tu cuenta',
+  LLM_LOOP_GUARD: 'demasiadas llamadas de IA seguidas; intenta en un minuto',
   error: 'la IA no respondió',
 };
 const MATCH_TEXTO: Record<string, string> = {

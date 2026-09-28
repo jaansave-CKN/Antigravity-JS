@@ -1,10 +1,9 @@
 /**
  * CopilotoService.js — Co-Piloto conversacional RadFor-360 (chat fijo del panel derecho).
  *
- * Mismo patrón que viabilidadAgent.js: intenta Gemini gateado por geminiCB,
- * y si no hay GOOGLE_API_KEY / la cuota está agotada / la llamada falla,
- * cae a una respuesta determinística de "Modo Respaldo" — nunca lanza,
- * nunca inventa cifras.
+ * La IA pasa por llmProveedor.js (OpenRouter → pool Gemini → BYOK). Sin
+ * respuesta de ningún proveedor lanza 503/429 y no guarda nada (B1,
+ * 2026-09-28: se eliminó el "Modo Respaldo" de texto fijo).
  *
  * El snapshot que se inyecta en el system prompt se arma EXCLUSIVAMENTE con
  * datos reales ya calculados por los servicios del pipeline financiero
@@ -16,15 +15,11 @@
 // completo del hallazgo/fix. withTenant() usa rf360_rls_scoped (migración
 // 053_rls_scoped_role.sql), sin BYPASSRLS.
 import { withTenant } from '../config/database.config.js';
-import { geminiCB, withKeyRotation, isQuotaError, GeminiPoolExhaustedError } from './geminiCircuitBreaker.js';
-import { withUserKeyRotation, UserKeyPoolExhaustedError } from './byokService.js';
+import { generarConIA } from './llmProveedor.js';
 import { SMMLV_2026_COP } from './ValorExponencialService.js';
-import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
-import { fetchGeminiConReintento } from './geminiReintento.js';
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-const MAX_HISTORIAL_CONTEXTO = 12; // últimos N mensajes enviados a Gemini como contexto
+const MAX_HISTORIAL_CONTEXTO = 12; // últimos N mensajes enviados al modelo como contexto
 
 class CopilotoError extends Error {
   constructor(message) { super(message); this.status = 422; }
@@ -105,96 +100,24 @@ SNAPSHOT REAL DEL PROYECTO (datos financieros/auditoría ya calculados):
 ${snapshotTexto}`;
 }
 
-// REFACTOR (2026-08-19, pool de llaves): antes leía una sola GOOGLE_API_KEY
-// y llamaba a geminiCB directamente; ahora withKeyRotation() prueba cada
-// llave configurada en el pool, rotando solo ante 429 — mismo contrato de
-// retorno (texto o null, nunca lanza) y mismo log de errores no-cuota.
-// LOTE 7 (2026-09-24): mismo blindaje que viabilidadAgent.js (Lote 6, verificado
-// en vivo): gemini-3.6-flash RAZONA y esos tokens cuentan contra max_tokens.
-// Con 1024, una respuesta larga llegaba CORTADA a mitad de frase y se
-// entregaba al usuario como si estuviera completa (texto libre: no hay JSON
-// que falle). Ahora 8192 + razonamiento acotado; un corte se registra y se
-// marca visiblemente; toda caída al Modo Respaldo registra su causa exacta
-// (antes la cuota agotada caía en silencio).
+// LOTE 7 (2026-09-24): una respuesta cortada por max_tokens se entrega marcada
+// visiblemente en vez de parecer completa (texto libre: no hay JSON que falle).
 export const AVISO_RESPUESTA_CORTADA = '\n\n[⚠️ Respuesta incompleta: se alcanzó el límite de extensión de la IA. Pide que continúe o reformula la pregunta de forma más acotada.]';
 
-function falloGemini(motivo, mensaje, extra = {}) {
-  const e = new Error(mensaje);
-  e.motivoRespaldo = motivo;
-  return Object.assign(e, extra);
-}
-
-/** @returns {Promise<{ texto: string|null, motivo: string|null, truncada?: boolean }>} */
-export async function llamarGemini(messages, userId, userGeminiKeys) {
-  const useUserKeys = Array.isArray(userGeminiKeys) && userGeminiKeys.length > 0;
-  const intentar = async (apiKey) => {
-    const upstream = await fetchGeminiConReintento(GEMINI_URL, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'gemini-3.6-flash', messages, temperature: 0.3, max_tokens: 8192, reasoning_effort: 'low' }),
-      signal: AbortSignal.timeout(45_000),
-    });
-
-    if (upstream.status === 429) throw new Error('Gemini 429 quota exceeded');
-    if (upstream.status === 503) throw falloGemini('modelo_saturado', 'Gemini 503: modelo saturado (alta demanda en Google)');
-    if (!upstream.ok) {
-      // FIX (auditoría SRE Red Team 2026-08-10, Capa 4): antes, cualquier
-      // fallo no-429 (401 clave inválida, 400 malformado, 500/503 caído)
-      // se tragaba en silencio — el usuario siempre veía "cuota agotada"
-      // sin importar la causa real, invisible en logs/monitoreo.
-      const cuerpo = await upstream.text().catch(() => '');
-      throw falloGemini(`http_${upstream.status}`, `Gemini HTTP ${upstream.status}`, { cuerpo: cuerpo.slice(0, 300) });
-    }
-
-    const data = await upstream.json();
-    const eleccion = data?.choices?.[0];
-    const texto = eleccion?.message?.content?.trim();
-    // Mensaje SIN "429/quota/rate limit": isQuotaError lo rotaría como cuota.
-    if (!texto) throw falloGemini('respuesta_vacia', 'Gemini sin contenido en la respuesta', { usage: data?.usage, finish: eleccion?.finish_reason });
-    return { texto, usage: data?.usage ?? {}, truncada: eleccion?.finish_reason === 'length' };
-  };
-
-  try {
-    if (!useUserKeys && !geminiCB.keys.length) {
-      throw falloGemini('sin_llaves_servidor', 'No hay llaves de Gemini configuradas en el servidor');
-    }
-    // BYOK (2026-08-22): usuario no exento → rota SUS propias llaves, nunca
-    // el pool del servidor. Si se agota, cae al "Modo Respaldo" ya existente
-    // (respuestaRespaldo), que es honesto (no fabrica análisis).
-    const { texto, usage, truncada } = useUserKeys
-      ? await withUserKeyRotation(userGeminiKeys, intentar)
-      : await withKeyRotation(intentar);
-
-    // FinOps — fire-and-forget. Salida REAL facturada = total − entrada
-    // (completion_tokens no incluye los tokens de razonamiento).
-    const salidaReal = Number.isFinite(usage?.total_tokens) && Number.isFinite(usage?.prompt_tokens)
-      ? usage.total_tokens - usage.prompt_tokens : (usage?.completion_tokens ?? 0);
-    logTokenUsage({ userId, agentName: 'copiloto', tokensInput: usage?.prompt_tokens ?? 0, tokensOutput: salidaReal }).catch(() => {});
-
-    if (truncada) {
-      logger.warn('[Copiloto] Respuesta de Gemini cortada por el límite de tokens (finish_reason: length) — se entrega marcada', { motivo: 'respuesta_truncada', usage, userId });
-      return { texto: texto + AVISO_RESPUESTA_CORTADA, motivo: null, truncada: true };
-    }
-    return { texto, motivo: null };
-  } catch (err) {
-    const motivo = err.motivoRespaldo
-      || (err instanceof UserKeyPoolExhaustedError || err?.code === 'USER_KEY_EXHAUSTED' ? 'USER_KEY_EXHAUSTED'
-        : err instanceof GeminiPoolExhaustedError || isQuotaError(err) ? 'cuota_agotada'
-        : err?.name === 'TimeoutError' ? 'timeout'
-        : 'error');
-    const esperado = ['USER_KEY_EXHAUSTED', 'cuota_agotada', 'sin_llaves_servidor', 'modelo_saturado'].includes(motivo);
-    logger[esperado ? 'warn' : 'error']('[Copiloto] Gemini no disponible → Modo Respaldo', {
-      motivo, detalle: err.message, usage: err.usage, cuerpo: err.cuerpo, userId,
-    });
-    return { texto: null, motivo };
+// B1 (2026-09-28): la llamada pasa por llmProveedor.js (OpenRouter → pool
+// Gemini del servidor → BYOK del usuario). Se ELIMINÓ el "Modo Respaldo"
+// (respuestaRespaldo): un texto fijo que se guardaba en project_chat_history
+// como si fuera un turno del modelo — regla de oro ratificada por el dueño.
+// Si ningún proveedor responde, esto LANZA (IaNoDisponibleError 503 /
+// IaTopeAgotadoError 429) y chatConCopiloto no guarda nada.
+/** @returns {Promise<{ texto: string, modelo: string, truncada: boolean }>} */
+export async function llamarIA(messages, userId) {
+  const r = await generarConIA({ userId, agente: 'copiloto', messages, temperature: 0.3, permitirTruncado: true });
+  if (r.truncada) {
+    logger.warn('[Copiloto] Respuesta cortada por el límite de tokens — se entrega marcada', { proveedor: r.proveedor, modelo: r.modelo, userId });
+    return { texto: r.texto + AVISO_RESPUESTA_CORTADA, modelo: r.modelo, truncada: true };
   }
-}
-
-function respuestaRespaldo(snapshot) {
-  const tieneDatos = snapshot.numLineasApu > 0 || snapshot.ultimoEscenarioEstres || snapshot.ultimaMetricaSROI;
-  return tieneDatos
-    ? 'Modo Respaldo activo (cuota de IA agotada o sin configurar): puedo mostrarte los datos reales ya calculados del proyecto, pero no puedo generar un análisis narrativo nuevo en este momento. Consulta los módulos de Presupuesto, Estrés Financiero y Valor Exponencial para ver las cifras exactas.'
-    : 'Modo Respaldo activo (cuota de IA agotada o sin configurar). Además, este proyecto todavía no tiene presupuesto/APU ingerido en Anexos — sin eso no hay datos financieros que analizar.';
+  return { texto: r.texto, modelo: r.modelo, truncada: false };
 }
 
 export async function obtenerHistorial(projectId, orgId) {
@@ -209,7 +132,7 @@ export async function obtenerHistorial(projectId, orgId) {
   }
 }
 
-export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo, userGeminiKeys }) {
+export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo }) {
   if (!mensaje?.trim()) throw new CopilotoError('mensaje es requerido');
 
   const [snapshot, historialPrevio] = await Promise.all([
@@ -234,9 +157,10 @@ export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo,
     { role: 'user', content: mensaje },
   ];
 
-  const ia = await llamarGemini(messages, orgId, userGeminiKeys);
-  const respuesta = ia.texto || respuestaRespaldo(snapshot);
-  const fuente = ia.texto ? 'gemini-3.6-flash' : 'heuristica';
+  // Si la IA no responde, llamarIA lanza y NADA se guarda en el historial.
+  const ia = await llamarIA(messages, orgId);
+  const respuesta = ia.texto;
+  const fuente = ia.modelo; // B7: el modelo que realmente respondió
 
   try {
     await withTenant(orgId, client => client.query(
@@ -248,6 +172,6 @@ export async function chatConCopiloto(projectId, orgId, { mensaje, moduloActivo,
     throw new Error(`No se pudo guardar el mensaje del co-piloto: ${err.message}`);
   }
 
-  // motivo_respaldo / truncada: campos ADITIVOS (Lote 7) para diagnóstico.
-  return { respuesta, fuente, ...(ia.motivo ? { motivo_respaldo: ia.motivo } : {}), ...(ia.truncada ? { truncada: true } : {}) };
+  // truncada: campo ADITIVO (Lote 7) para diagnóstico.
+  return { respuesta, fuente, ...(ia.truncada ? { truncada: true } : {}) };
 }

@@ -521,6 +521,10 @@ export default function Dashboard() {
       });
       const data = await r.json();
       if (data.success && data.data?.redirect_to) {
+        // Fase 4 (2026-09-28): las páginas del Formulador leen el proyecto
+        // activo de localStorage (no de la URL) — sin esto el Checklist abría
+        // otro proyecto o ninguno.
+        if (data.data.proyecto_id) localStorage.setItem('rf360_proyecto_activo', data.data.proyecto_id);
         navigate(data.data.redirect_to);
       } else if (data.code === 'NO_ACCESS_FORMULADOR') {
         navigate('/planes');

@@ -56,21 +56,25 @@ test('evidencia real del repo: rutas registradas, BYOK y llamadores correctos', 
   const ev = Object.fromEntries(reunirEvidencia().map(a => [a.id, a]));
   for (const a of Object.values(ev)) assert.ok(a.archivoOk, `${a.id}: archivo ${a.archivo}`);
   assert.equal(ev.mirofish.rutasEv[0].registrada, true);
-  assert.equal(ev.mirofish.rutasEv[0].byok, true);
+  // B1 (2026-09-28): ninguna ruta de IA exige ya BYOK (byokGate retirado).
+  assert.equal(ev.mirofish.rutasEv[0].byok, false);
   assert.ok(ev.mirofish.rutasEv[0].pantallas.some(p => p.endsWith('ViabilidadPage.tsx')));
   assert.equal(ev.lookupEntidad.rutasEv[0].byok, false, 'la búsqueda de entidades no exige BYOK');
   assert.deepEqual(ev.busquedaSemantica.rutasEv.flatMap(r => r.pantallas), [], 'la búsqueda semántica no tiene pantalla real');
   assert.ok(ev.sectorClassifier.invocadores.some(i => i.ok));
 });
 
-test('script real modo SaaS (sin BD): GP "definido, sin código"; Radar y Formulador con funciones reales', () => {
+test('script real modo SaaS (sin BD): GP con código real (Fase 4) y sin funciones propias; Radar y Formulador con funciones reales', () => {
   const r = spawnSync(process.execPath, [SCRIPT, '--saas', '--sin-bd', '--json'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const { contexto, dominios } = JSON.parse(r.stdout);
   assert.equal(contexto, 'saas');
   const d = Object.fromEntries(dominios.map(x => [x.id, x]));
-  assert.equal(d.GP.estado, 'definido, sin código');
+  // Fase 4 (2026-09-28): el GP existe en código y gobierna los flujos A↔B;
+  // las 13 funciones siguen perteneciendo a Radar o Formulador, no al GP.
+  assert.match(d.GP.estado, /^código real \(backend\/agents\/gp\/gerenteProyecto\.js\)/);
   assert.equal(d.GP.miembros.length, 0);
+  assert.equal(d.Radar.miembros.length + d.Formulador.miembros.length, 13);
   assert.ok(d.Radar.miembros.some(m => m.id === 'sectorClassifier'));
   assert.ok(d.Formulador.miembros.some(m => m.id === 'mirofish'));
   for (const m of [...d.Radar.miembros, ...d.Formulador.miembros]) assert.notEqual(m.estado, 'ACTIVO · en uso', 'sin BD nadie puede declararse "en uso"');
