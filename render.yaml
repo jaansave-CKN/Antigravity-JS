@@ -94,6 +94,12 @@ services:
       - key: LLM_TOPE_USD_MES
         sync: false
 
+      # ── NVIDIA NIM (Formulador MGA — Fase 3, backend/services/nimCliente.js) ──
+      # Sin la llave, el consolidador MGA responde estado no_disponible (motivo
+      # sin_llave_nvidia) y el resto de la app sigue funcionando.
+      - key: NVIDIA_API_KEY
+        sync: false
+
       # ── Google OAuth2 (login social — opcional) ──────────────────────────────
       # Crear en: console.cloud.google.com → APIs & Services → Credentials
       - key: GOOGLE_CLIENT_ID
