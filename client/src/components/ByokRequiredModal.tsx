@@ -1,23 +1,15 @@
 /**
- * ByokRequiredModal.tsx — Guard global BYOK (migración 045).
+ * ByokRequiredModal.tsx — Modal global de llave propia (rescate).
  *
- * Escucha 2 eventos globales distintos, mismo formulario de guardado:
+ * Escucha 'byok-rescate' (mandato 2026-08-24, "ModalBYOK — degradación
+ * elegante", disparado por cada página al hacer clic en un botón ✨ mientras
+ * `cuotaAgotada` es true): se ofrece (voluntario, nunca obligatorio) agregar
+ * una llave propia para saltarse la fila. Guardar aquí tiene efecto real: la
+ * llave del usuario es el último eslabón de la cascada de
+ * backend/services/llmProveedor.js (OpenRouter → pool Gemini → BYOK).
  *
- * 1. 'byok-required' (disparado por apiClient.ts cuando cualquiera de las 7
- *    acciones interactivas de IA responde 428/BYOK_REQUIRED —
- *    backend/middlewares/byokGate.js) — usuario NO exento sin ninguna llave
- *    propia todavía. Modal, nunca redirect: mandato explícito del usuario
- *    para evitar un bucle con el redirect ya existente de AuthGuard
- *    (hasCredentials === false → /apis).
- *
- * 2. 'byok-rescate' (mandato 2026-08-24, "ModalBYOK — degradación
- *    elegante", disparado por cada página al hacer clic en un botón ✨
- *    mientras `cuotaAgotada` es true) — usuario EXENTO viendo el pool
- *    compartido agotado, a quien se le ofrece (voluntario, nunca obligatorio)
- *    agregar su propia llave para saltarse la fila — ver la válvula de
- *    escape en byokGate.js (exento + llave propia + pool agotado → usa la
- *    llave propia). Guardar aquí SÍ tiene efecto real para un exento gracias
- *    a ese cambio de backend — antes de esa fecha no lo tenía.
+ * B1 (2026-09-28): eliminado el modo 'requerido' ('byok-required', 428
+ * BYOK_REQUIRED) — byokGate.js ya no existe y nadie emite ese evento.
  *
  * Guarda la llave del slot 1 directamente aquí (caso más común: primera
  * llave propia) vía POST /api/credenciales/gemini. Gestión completa de los
@@ -30,17 +22,9 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { http, ApiError } from '../lib/apiClient';
 
-type Modo = 'requerido' | 'rescate';
-
-const COPY: Record<Modo, { titulo: string; cuerpoDefault: string }> = {
-  requerido: {
-    titulo: 'Llave de Gemini requerida',
-    cuerpoDefault: 'Configura tu propia llave de Gemini antes de usar esta función.',
-  },
-  rescate: {
-    titulo: 'Alta Demanda en los Servidores de IA',
-    cuerpoDefault: 'Nuestra cuota global está al límite en este momento. Para saltarte la fila y continuar sin interrupciones, ingresa tu propia API Key de Google Gemini (es gratuita).',
-  },
+const COPY = {
+  titulo: 'Alta Demanda en los Servidores de IA',
+  cuerpoDefault: 'Nuestra cuota global está al límite en este momento. Para saltarte la fila y continuar sin interrupciones, ingresa tu propia API Key de Google Gemini (es gratuita).',
 };
 
 const C = {
@@ -54,7 +38,6 @@ const C = {
 
 export default function ByokRequiredModal() {
   const [open, setOpen] = useState(false);
-  const [modo, setModo] = useState<Modo>('requerido');
   const [message, setMessage] = useState('');
   const [key, setKey] = useState('');
   const [label, setLabel] = useState('');
@@ -69,24 +52,17 @@ export default function ByokRequiredModal() {
   const guardandoRef = useRef(false);
 
   useEffect(() => {
-    const abrir = (m: Modo) => (e: Event) => {
+    const onRescate = (e: Event) => {
       const detail = (e as CustomEvent).detail as { message?: string } | undefined;
-      setModo(m);
-      setMessage(detail?.message || COPY[m].cuerpoDefault);
+      setMessage(detail?.message || COPY.cuerpoDefault);
       setError('');
       setExito(false);
       setKey('');
       setLabel('');
       setOpen(true);
     };
-    const onRequerido = abrir('requerido');
-    const onRescate = abrir('rescate');
-    window.addEventListener('byok-required', onRequerido);
     window.addEventListener('byok-rescate', onRescate);
-    return () => {
-      window.removeEventListener('byok-required', onRequerido);
-      window.removeEventListener('byok-rescate', onRescate);
-    };
+    return () => window.removeEventListener('byok-rescate', onRescate);
   }, []);
 
   const cerrar = useCallback(() => { if (!guardando) setOpen(false); }, [guardando]);
@@ -138,7 +114,7 @@ export default function ByokRequiredModal() {
         onClick={e => e.stopPropagation()}
       >
         <h2 style={{ fontSize: 16, fontWeight: 700, color: C.text, margin: '0 0 6px', fontFamily: "'JetBrains Mono', monospace" }}>
-          {COPY[modo].titulo}
+          {COPY.titulo}
         </h2>
         <p style={{ fontSize: 12, color: C.textMuted, margin: '0 0 18px', lineHeight: 1.5 }}>
           {message}
@@ -186,7 +162,7 @@ export default function ByokRequiredModal() {
                 disabled={guardando}
                 style={{ flex: 1, height: 40, borderRadius: 8, border: 'none', background: C.accent, color: 'white', fontSize: 12, fontWeight: 700, cursor: guardando ? 'default' : 'pointer', opacity: guardando ? 0.7 : 1, letterSpacing: '0.03em', textTransform: 'uppercase' }}
               >
-                {guardando ? 'Validando…' : (modo === 'rescate' ? 'Guardar Llave y Continuar' : 'Guardar llave')}
+                {guardando ? 'Validando…' : 'Guardar Llave y Continuar'}
               </button>
               <button
                 onClick={cerrar}
