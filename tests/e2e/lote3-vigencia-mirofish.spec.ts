@@ -118,7 +118,8 @@ test.describe.serial('Lote 3 — vigencia documental (F-10) y comité MIROFISH (
     // IA: o respondió con hallazgos ya validados, o declara por qué no — nunca otra cosa.
     expect(['ok', 'no_disponible']).toContain(ev.ia.estado);
     if (ev.ia.estado === 'no_disponible') {
-      expect(['USER_KEY_EXHAUSTED', 'pool_servidor_agotado', 'sin_llaves_servidor', 'modelo_saturado', 'respuesta_invalida', 'error']).toContain(ev.ia.motivo);
+      // B1 (2026-09-28): motivos de llmProveedor.js vía mirofishComite.js.
+      expect(['ia_no_disponible', 'IA_TOPE_AGOTADO', 'LLM_LOOP_GUARD', 'error']).toContain(ev.ia.motivo);
       expect(ev.ia.hallazgos).toEqual([]);
     }
     for (const h of ev.ia.hallazgos) expect(h.evidencia.length).toBeGreaterThan(0);
