@@ -107,7 +107,7 @@ export const crearEntidadSchema = z.object({
   telefono: z.string().trim().max(50).optional(),
   email: z.string().trim().max(254).optional(),
   alcance: z.string().trim().max(100).optional(),
-}).passthrough();
+}).loose();
 
 export const patchEntidadUrlSchema = z.object({
   url_convocatorias: z.string().trim().min(1, 'url_convocatorias requerida').max(500),
@@ -183,7 +183,7 @@ export const patchProyectoSchema = z.object({
   nombreArchivo: z.string().trim().max(200).optional(),
   fichaTecnica: z.record(z.string(), z.any()).optional(),
   presupuesto: z.record(z.string(), z.any()).optional(),
-}).passthrough();
+}).loose();
 
 export const etapaConstruccionSchema = z.object({
   etapa_construccion_finalizada: z.boolean(),
@@ -327,10 +327,10 @@ export const marcoNormativoGuardarSchema = z.object({
 });
 
 // Lote 5 T1 (2026-09-24): PATCH /api/proyectos/:id/config-logistica.
-// .strict(): una clave desconocida es 400, nunca se ignora en silencio.
+// z.strictObject: una clave desconocida es 400, nunca se ignora en silencio.
 // duracion_meses SIN coerce ("" no puede volverse 0). null = borrar el campo.
 const textoCfg = (max) => z.string().trim().max(max).nullable().optional();
-export const configLogisticaPatchSchema = z.object({
+export const configLogisticaPatchSchema = z.strictObject({
   proponente_nombre: textoCfg(300),
   proponente_nit: textoCfg(50),
   tipo_entidad: textoCfg(100),
@@ -341,7 +341,7 @@ export const configLogisticaPatchSchema = z.object({
   duracion_meses: z.number({ message: 'duracion_meses debe ser un número entero de meses' }).int().min(1).max(600).nullable().optional(),
   equipo_director: textoCfg(300),
   equipo_coordinador: textoCfg(300),
-}).strict();
+});
 
 export const logisticaTramosSchema = z.object({
   tramos: z.array(z.record(z.string(), z.any())).max(500, 'Máximo 500 tramos por guardado.'),
@@ -409,7 +409,7 @@ export const exportarGraficosSchema = z.object({
   graficos: z.array(z.object({
     svg: z.string().optional(),
     titulo: z.string().optional(),
-  }).passthrough()).optional(),
+  }).loose()).optional(),
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -444,7 +444,7 @@ export const crearProyectoSchema = z.object({
   nombreArchivo: z.string().trim().max(200).optional(),
   fichaTecnica: z.record(z.string(), z.any()).optional(),
   presupuesto: z.record(z.string(), z.any()).optional(),
-}).passthrough(); // otros campos legacy del body no se tocan ni se pierden
+}).loose(); // otros campos legacy del body no se tocan ni se pierden
 
 export const credencialGeminiSchema = z.object({
   key_slot: z.coerce.number().int().refine(n => [1, 2, 3].includes(n), 'key_slot debe ser 1, 2 o 3'),
