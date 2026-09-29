@@ -42,12 +42,23 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   // suscribirCambioSesion(), sin duplicar esa suscripción aquí.
   const { isAuthenticated, token } = useAuth();
   const esSesionReal = isAuthenticated && token !== 'demo-mode-token';
+  // FIX (2026-09-29, verificado en producción): al cargar directo /entrada,
+  // /checklist, /busqueda-semantica… (recargar o abrir un enlace), el primer
+  // render llegaba con loading=false y el plan 'free' por defecto ANTES de que
+  // el efecto pidiera la suscripción: PlanGate mandaba a /planes a usuarios
+  // CON plan. "Pendiente" se deriva en el render: hay sesión real y la
+  // suscripción aún no se resolvió para ESA sesión. (En DEV PlanGate se salta,
+  // por eso ni la suite local ni el CI lo veían.)
+  const claveSesion = esSesionReal ? String(token ?? 'sesion') : null;
+  const [resueltaPara, setResueltaPara] = useState<string | null>(null);
+  const pendiente = claveSesion !== null && claveSesion !== resueltaPara;
 
   const loadSubscription = useCallback(async () => {
     if (!esSesionReal) { setSubscription(DEFAULT_SUB); return; }
     setLoading(true);
     try {
-      const r = await fetch(`${API_BASE}/subscription`, { credentials: 'include' });
+      // Tope de 15 s: "pendiente" bloquea PlanGate, nunca debe quedar colgado.
+      const r = await fetch(`${API_BASE}/subscription`, { credentials: 'include', signal: AbortSignal.timeout(15_000) });
       if (!r.ok) { setSubscription(DEFAULT_SUB); return; }
       const data = await r.json();
       if (data.success && data.data) {
@@ -66,8 +77,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       setSubscription(DEFAULT_SUB);
     } finally {
       setLoading(false);
+      setResueltaPara(claveSesion);
     }
-  }, [esSesionReal]);
+  }, [esSesionReal, claveSesion]);
 
   const activatePlan = useCallback(async (plan: PlanId) => {
     if (!esSesionReal) throw new Error('Debes iniciar sesión para cambiar de plan');
@@ -112,13 +124,13 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({
     subscription,
-    loading,
+    loading: loading || pendiente,
     hasRadar:       subscription.access_radar,
     hasFormulador:  subscription.access_formulador,
     hasSuite:       subscription.access_radar && subscription.access_formulador,
     loadSubscription,
     activatePlan,
-  }), [subscription, loading, loadSubscription, activatePlan]);
+  }), [subscription, loading, pendiente, loadSubscription, activatePlan]);
 
   return (
     <SubscriptionContext.Provider value={value}>
