@@ -10,7 +10,7 @@ import fs from 'node:fs';
 
 class StoreFalso { async increment() { return { totalHits: 1, resetTime: new Date() }; } async decrement() {} async resetKey() {} }
 mock.module(new URL('../../backend/middlewares/PostgresRateLimitStore.js', import.meta.url).href, { namedExports: { PostgresRateLimitStore: StoreFalso } });
-const { slowDown, esExencionSlowDownDeCI } = await import('../../backend/middlewares/SecurityMiddleware.js');
+const { slowDown, esExencionSlowDownDeCI, topeLimiteGlobalApi, TOPE_GLOBAL_API, TOPE_GLOBAL_API_PRUEBAS } = await import('../../backend/middlewares/SecurityMiddleware.js');
 
 let ipSeq = 0;
 // Envía 101 peticiones desde una IP nueva y reporta si la última fue retrasada.
@@ -57,6 +57,28 @@ test('sin bandera (producción real hoy): la petición 101 se retrasa', () => {
 
 test('CI (bandera + NODE_ENV=test): sin retraso', () => {
   conEntorno({ E2E_DESACTIVAR_SLOWDOWN: '1', NODE_ENV: 'test' }, () => assert.equal(ultimaRetrasada(), false));
+});
+
+test('tope del limitador global /api: 1000 solo en el entorno E2E sellado, 300 siempre en producción', () => {
+  assert.equal(TOPE_GLOBAL_API, 300);
+  assert.equal(TOPE_GLOBAL_API_PRUEBAS, 1000);
+  const casos = [
+    [{}, 300],
+    [{ NODE_ENV: 'production' }, 300],
+    [{ E2E_DESACTIVAR_SLOWDOWN: '1' }, 300],
+    [{ E2E_DESACTIVAR_SLOWDOWN: '1', NODE_ENV: 'development' }, 300],
+    [{ E2E_DESACTIVAR_SLOWDOWN: '1', NODE_ENV: 'test' }, 1000],
+    [{ E2E_DESACTIVAR_SLOWDOWN: '1', CI: 'true' }, 1000],
+    [{ E2E_DESACTIVAR_SLOWDOWN: '1', NODE_ENV: 'production' }, 300],
+    [{ E2E_DESACTIVAR_SLOWDOWN: '1', NODE_ENV: 'production', CI: 'true' }, 300],   // prod gana aunque CI=true
+  ];
+  for (const [env, esperado] of casos) assert.equal(topeLimiteGlobalApi(env), esperado, JSON.stringify(env));
+  // server.js consulta el tope SOLO por la función (sin leer el entorno él mismo).
+  const srv = fs.readFileSync(new URL('../../server.js', import.meta.url), 'utf8');
+  const global = srv.slice(srv.indexOf("app.use('/api', rateLimit({")).split('}));')[0];
+  assert.match(global, /max:\s*topeLimiteGlobalApi\(\)/);
+  assert.doesNotMatch(global, /process\.env|NODE_ENV|\bCI\b/);
+  assert.match(global, /skip:\s*esHealthCheck,/, 'el único skip sigue siendo el health check');
 });
 
 test('ningún otro limitador lee la bandera ni variables de entorno de CI', () => {

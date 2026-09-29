@@ -16,6 +16,7 @@ import { invalidateRadarCache } from '../middlewares/radarCache.js';
 import { fetchEntityConvocatorias, isSameOrParentUrl } from './EntityScraper.js';
 import { classifySectors } from '../services/sectorClassifier.js';
 import { getApexDomain } from '../utils/domainUtils.js';
+import { resolverMoneda, montoParaGuardar } from '../utils/montos.js';
 import { sweepEndsWith } from '../services/sweepService.js';
 
 const FETCH_TIMEOUT_MS = 15000;
@@ -217,8 +218,21 @@ export async function ingestConvocatorias() {
             ? (entidadByDomain.get(convRootDomain.toLowerCase()) ?? null)
             : null;
 
-          const montoMax = Number(item.monto_max ?? 0) || 0;
-          const moneda   = item.moneda || 'USD';
+          // Misma dedup por URL que EntityScraper: sin ella, dos externo_id
+          // distintos para la misma página generaban duplicados reales.
+          const byUrl = await getRow(
+            `SELECT id FROM convocatorias WHERE url_convocatoria = ? AND url_convocatoria != '' LIMIT 1`,
+            [urlConvToStore]
+          );
+          if (byUrl) { fuenteReport.skipped++; continue; }
+
+          // Moneda según el país de la fuente (antes 'USD' fijo) y montos
+          // imposibles → 0 = "no especificado" (backend/utils/montos.js).
+          const monedaBase = source.pais === 'Colombia' ? 'COP' : 'USD';
+          const moneda   = item.moneda
+            ? resolverMoneda({ moneda: item.moneda, ambigua: !!item.monedaAmbigua }, source.pais)
+            : monedaBase;
+          const montoMax = montoParaGuardar(item.monto_max, moneda);
           await runSql(
             `INSERT INTO convocatorias
                (id, externo_id, titulo, donante, entidad_id, fuente, descripcion,

@@ -11,7 +11,7 @@ import jwt from 'jsonwebtoken';
 import { authenticator } from 'otplib';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, entradaCampoLimiter, slowDown, esHealthCheck, financialPipelineLimiter, formulacionIntegralLimiter } from './backend/middlewares/SecurityMiddleware.js';
+import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, entradaCampoLimiter, slowDown, esHealthCheck, topeLimiteGlobalApi, financialPipelineLimiter, formulacionIntegralLimiter } from './backend/middlewares/SecurityMiddleware.js';
 import { authenticateToken, optionalAuth, requireAdmin, extractToken, AUTH_COOKIE_NAME } from './backend/middlewares/auth.middleware.js';
 import {
   validarBody, registroUsuarioSchema, loginSchema, mfaChallengeSchema, mfaCodeSchema,
@@ -41,6 +41,7 @@ import { emailAdapter } from './backend/notifications/BrevoEmailAdapter.js';
 import { pool, getRow, getRows, getCount, runSql, runTransaction } from './backend/db.js';
 import { dbStatus, esperarPgInicial, withTenant, withTenantRow, withTenantRun, withTenantRows, withTenantTransaction } from './backend/config/database.config.js';
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
+import { extraerMonto, resolverMoneda, montoParaGuardar } from './backend/utils/montos.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { geminiCB, loadPersistedKeyState } from './backend/services/geminiCircuitBreaker.js';
 import { reenviarPendientesSystemLogs } from './backend/services/logService.js';
@@ -1122,24 +1123,17 @@ function isGarbageTitle(title) {
 }
 
 // ── Enriquecedor de montos (regex sin Gemini) ────────────────────────────────
-const MONTO_ENRICH_RE = /(?:up\s+to|hasta|m[aá]ximo|maximum|prize(?:\s+of)?|award(?:\s+of)?|funding\s+of|total\s+de?|value\s+of|por\s+valor\s+de|subsidio\s+de|grant\s+of|monto\s+m[aá]ximo|monto\s+de)\s*:?\s*(?:USD|EUR|COP|GBP|CAD|\$|€|£)\s*([\d,. ]+)\s*(M(?:illion)?|B(?:illion)?|K)?|(?:USD|EUR|COP|GBP|CAD|\$|€|£)\s*([\d,. ]+)\s*(M(?:illion)?|B(?:illion)?|K)?(?:\s*(?:USD|EUR|COP|GBP))?\b|([\d,. ]+)\s*(M(?:illion)?|B(?:illion)?|K)?\s+(?:USD|EUR|COP|GBP|CAD|d[oó]lares?|dollars?|euros?|pesos?)/i;
-
-function parseMontoFromHtml(html) {
+// Parser único de montos (backend/utils/montos.js, higiene de datos 2026-09-29):
+// antes este archivo tenía su propia copia del regex con los mismos defectos
+// (sin "millones", punto de miles como decimal, "$" siempre USD) y volvía a
+// escribir montos absurdos en las filas que el saneamiento deja en 0.
+function parseMontoFromHtml(html, paisesElegibles = '') {
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 80_000);
-  const m = text.match(MONTO_ENRICH_RE);
-  if (!m) return null;
-  let currency = 'USD';
-  const sym = m[0].match(/EUR|COP|GBP|CAD|USD|€|£|\$/i)?.[0] || '';
-  if (/EUR|€/.test(sym)) currency = 'EUR';
-  else if (/GBP|£/.test(sym)) currency = 'GBP';
-  else if (/COP/.test(sym)) currency = 'COP';
-  else if (/CAD/.test(sym)) currency = 'CAD';
-  const numRaw = (m[1] || m[3] || m[5] || '').replace(/\s/g, '').replace(/,/g, '');
-  const num = parseFloat(numRaw);
-  if (!num || isNaN(num) || num <= 0 || num > 1e13) return null;
-  const suffix = (m[2] || m[4] || m[6] || '').toUpperCase();
-  const mult = suffix.startsWith('B') ? 1e9 : suffix.startsWith('M') ? 1e6 : suffix.startsWith('K') ? 1e3 : 1;
-  return { value: Math.round(num * mult), currency };
+  const info = extraerMonto(text);
+  if (!info) return null;
+  const currency = resolverMoneda(info, paisesElegibles);
+  const value = montoParaGuardar(info.valor, currency);
+  return value ? { value, currency } : null;
 }
 
 let _enrichingMontos = false;
@@ -1150,7 +1144,7 @@ async function enriquecerMontosBatch(limit = 300) {
   console.log(`[Montos] Iniciando enriquecimiento de montos — hasta ${limit} convocatorias...`);
   try {
     const rows = await getRows(
-      `SELECT id, url_convocatoria, moneda FROM convocatorias
+      `SELECT id, url_convocatoria, moneda, paises_elegibles FROM convocatorias
        WHERE deleted_at IS NULL AND monto_max = 0 AND url_convocatoria IS NOT NULL AND url_convocatoria != ''
        ORDER BY created_at DESC LIMIT ${Math.min(limit, 1000)}`
     );
@@ -1163,7 +1157,7 @@ async function enriquecerMontosBatch(limit = 300) {
         });
         if (!resp.ok) { procesadas++; continue; }
         const html = await resp.text();
-        const found = parseMontoFromHtml(html);
+        const found = parseMontoFromHtml(html, row.paises_elegibles || '');
         if (found && found.value > 0) {
           await runSql(
             'UPDATE convocatorias SET monto_max = $1, moneda = $2 WHERE id = $3',
@@ -1491,7 +1485,8 @@ async function start() {
   // ── Rate limiter global — todas las rutas /api ────────────────────────────
   app.use('/api', rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 300,
+    // 300 en producción; 1000 solo en el entorno E2E sellado (ver SecurityMiddleware.js).
+    max: topeLimiteGlobalApi(),
     // Health check exento (2026-09-23): el sondeo de Render agotaba el cupo — ver esHealthCheck().
     skip: esHealthCheck,
     standardHeaders: true,
