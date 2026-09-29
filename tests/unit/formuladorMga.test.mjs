@@ -2,7 +2,8 @@
  * formuladorMga.test.mjs — Fase 3: Formulador MGA (consolidador, NVIDIA NIM).
  * Cubre la regla de oro numérica (B4, casos R9 del architect), la recolección
  * (B2/B3/R4/R5), el 422 previo (faltantesFormulador) y la llamada a NIM
- * (sin llave, respuesta válida, cifra inventada, truncada). Sin red ni BD.
+ * (sin llave, respuesta válida, cifra inventada, truncada) y la cascada de
+ * respaldo de llmProveedor (2026-09-28). Sin red ni BD.
  * Ejecutar: npm run test:unit
  */
 import { test, mock } from 'node:test';
@@ -11,6 +12,16 @@ import assert from 'node:assert/strict';
 const u = (p) => new URL(`../../backend/${p}`, import.meta.url).href;
 const tokens = [];
 mock.module(u('services/aiTokenLogger.js'), { namedExports: { logTokenUsage: async (t) => { tokens.push(t); } } });
+// La cascada de respaldo del MGA (llmProveedor) se simula: sin red, sin BD,
+// sin cargar el pool Gemini ni BYOK reales (dictamen architect, condición 9).
+const cascada = { llamadas: [], impl: null };
+mock.module(u('services/llmProveedor.js'), { namedExports: {
+  generarConIA: async (op) => {
+    cascada.llamadas.push(op);
+    if (!cascada.impl) { const e = new Error('ningún proveedor respondió'); e.code = 'IA_NO_DISPONIBLE'; e.intentos = []; throw e; }
+    return cascada.impl(op);
+  },
+} });
 
 const F = await import(u('services/formuladorMga.js'));
 const { faltantesFormulador } = await import(u('services/datosMinimosIA.js'));
@@ -161,16 +172,37 @@ const respuestaNim = (content, extra = {}) => new Response(JSON.stringify({
   model: F.MODELO_NIM_FORMULADOR, choices: [{ finish_reason: 'stop', message: { content }, ...extra }], usage: { prompt_tokens: 900, total_tokens: 1500 },
 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
-test('sin NVIDIA_API_KEY → no_disponible (sin_llave_nvidia), sin llamar a la red', async () => {
+// ── NIM primero; si falla → cascada de llmProveedor (2026-09-28) ─────────────
+const cascadaNoDisponible = () => { cascada.impl = null; };
+const jsonMga = JSON.stringify({
+  identificacion_problema: { parrafos: [{ texto: 'El proyecto beneficia a 320 familias.', fuentes: ['entrada.numeroBeneficiarios'] }] },
+  poblacion_beneficiaria: { parrafos: [] }, justificacion_tecnica: { parrafos: [] }, analisis_riesgos: { parrafos: [] },
+});
+
+test('sin NVIDIA_API_KEY → cascada; si la cascada tampoco responde → no_disponible ia_no_disponible, sin fetch a NIM', async () => {
   delete process.env.NVIDIA_API_KEY;
+  cascadaNoDisponible(); cascada.llamadas.length = 0;
   let llamadas = 0;
   globalThis.fetch = async () => { llamadas++; return respuestaNim('{}'); };
   const r = await F.consolidarMGA(DATOS, { userId: 'u1' });
-  assert.deepEqual([r.estado, r.motivo, llamadas], ['no_disponible', 'sin_llave_nvidia', 0]);
+  assert.deepEqual([r.estado, r.motivo, llamadas, cascada.llamadas.length], ['no_disponible', 'ia_no_disponible', 0, 1]);
+  const op = cascada.llamadas[0];
+  assert.deepEqual([op.userId, op.agente, op.maxTokens, op.soloServidor], ['u1', 'formulador_mga', MAX_TOKENS_NIM, undefined], 'cascada COMPLETA (no soloServidor), FinOps formulador_mga');
+  assert.ok(op.deadlineMs > 100_000 && op.deadlineMs <= 165_000, `presupuesto compartido: ${op.deadlineMs}`);
+  assert.throws(() => op.validar('texto sin json'), /JSON esperado/);
 });
 
-test('respuesta válida → ok; la cifra inventada se descarta; modelo y URL correctos; FinOps total − prompt', async () => {
+test('sin NVIDIA_API_KEY → la cascada responde: MISMA validación anti-alucinación y modelo REAL', async () => {
+  delete process.env.NVIDIA_API_KEY;
+  cascada.impl = async (op) => ({ valor: op.validar(jsonMga), modelo: 'anthropic/claude-sonnet-5' });
+  const r = await F.consolidarMGA(DATOS, { userId: 'u1' });
+  assert.deepEqual([r.estado, r.modelo], ['ok', 'anthropic/claude-sonnet-5']);
+  assert.equal(r.bloques.identificacion_problema.parrafos.length, 1);
+});
+
+test('respuesta válida de NIM → ok sin cascada; la cifra inventada se descarta; modelo y URL correctos; FinOps total − prompt', async () => {
   process.env.NVIDIA_API_KEY = 'nvapi-prueba';
+  cascada.llamadas.length = 0;
   let peticion;
   const json = JSON.stringify({
     identificacion_problema: { parrafos: [{ texto: 'El proyecto beneficia a 320 familias.', fuentes: ['entrada.numeroBeneficiarios'] }] },
@@ -182,6 +214,7 @@ test('respuesta válida → ok; la cifra inventada se descarta; modelo y URL cor
   tokens.length = 0;
   const r = await F.consolidarMGA(DATOS, { userId: 'u1' });
   assert.equal(r.estado, 'ok');
+  assert.equal(cascada.llamadas.length, 0, 'con NIM respondiendo no se toca la cascada');
   assert.equal(peticion.url, NIM_URL);
   assert.equal(peticion.body.model, 'deepseek-ai/deepseek-v4.1-flash');
   assert.equal(peticion.body.max_tokens, 8192);
@@ -193,23 +226,48 @@ test('respuesta válida → ok; la cifra inventada se descarta; modelo y URL cor
   assert.equal(tokens[0].tokensOutput, 600);
 });
 
-test('respuesta cortada (finish_reason length) → no_disponible respuesta_truncada, nunca texto parcial', async () => {
+test('respuesta cortada de NIM → cascada (nunca texto parcial); sin cascada disponible → no_disponible', async () => {
   process.env.NVIDIA_API_KEY = 'nvapi-prueba';
+  cascadaNoDisponible(); cascada.llamadas.length = 0;
   globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: '{"identificacion_problema":' } }] }), { status: 200 });
   const r = await F.consolidarMGA(DATOS, { userId: 'u1' });
-  assert.deepEqual([r.estado, r.motivo], ['no_disponible', 'respuesta_truncada']);
+  assert.deepEqual([r.estado, r.motivo, cascada.llamadas.length], ['no_disponible', 'ia_no_disponible', 1]);
   assert.equal(r.bloques, undefined);
 });
 
-test('NIM: 401 → llave_rechazada; 429 → cuota_nvidia (sin reintentos de cuota)', async () => {
+test('NIM 401 y 429 → cascada (sin reintentos de cuota contra NIM)', async () => {
   process.env.NVIDIA_API_KEY = 'nvapi-prueba';
-  for (const [status, motivo] of [[401, 'llave_rechazada'], [429, 'cuota_nvidia']]) {
+  for (const status of [401, 429]) {
+    cascadaNoDisponible(); cascada.llamadas.length = 0;
     let llamadas = 0;
     globalThis.fetch = async () => { llamadas++; return new Response('{}', { status }); };
     const r = await F.consolidarMGA(DATOS, { userId: 'u1' });
-    assert.equal(r.motivo, motivo);
-    assert.equal(llamadas, 1);
+    assert.deepEqual([r.motivo, llamadas, cascada.llamadas.length], ['ia_no_disponible', 1, 1]);
   }
+});
+
+test('timeout de NIM (TimeoutError, no es NimError) → también cae a la cascada', async () => {
+  process.env.NVIDIA_API_KEY = 'nvapi-prueba';
+  cascada.impl = async (op) => ({ valor: op.validar(jsonMga), modelo: 'gemini-3.6-flash' });
+  globalThis.fetch = async () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); };
+  const r = await F.consolidarMGA(DATOS, { userId: 'u1' });
+  assert.deepEqual([r.estado, r.modelo], ['ok', 'gemini-3.6-flash']);
+});
+
+test('NIM responde pero nada pasa la verificación → sin_contenido_verificable y NO se cobra una cascada', async () => {
+  process.env.NVIDIA_API_KEY = 'nvapi-prueba';
+  cascada.llamadas.length = 0;
+  const inventado = JSON.stringify({ identificacion_problema: { parrafos: [{ texto: 'Son 9.999 personas.', fuentes: ['entrada.numeroBeneficiarios'] }] } });
+  globalThis.fetch = async () => respuestaNim(inventado);
+  const r = await F.consolidarMGA(DATOS, { userId: 'u1' });
+  assert.deepEqual([r.estado, r.motivo, cascada.llamadas.length], ['no_disponible', 'sin_contenido_verificable', 0]);
+});
+
+test('cascada con tope USD agotado → no_disponible tope_agotado (motivo legible, sin detalle interno)', async () => {
+  delete process.env.NVIDIA_API_KEY;
+  cascada.impl = async () => { const e = new Error('tope'); e.code = 'IA_TOPE_AGOTADO'; throw e; };
+  const r = await F.consolidarMGA(DATOS, { userId: 'u1' });
+  assert.deepEqual([r.estado, r.motivo], ['no_disponible', 'tope_agotado']);
 });
 
 test('guardia: el tope de tokens de NIM no baja de 8192 (el razonamiento consume tokens)', () => {

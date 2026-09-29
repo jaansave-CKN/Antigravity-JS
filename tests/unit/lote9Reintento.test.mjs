@@ -87,10 +87,12 @@ test('guardia de CI: toda llamada a Gemini pasa por el reintento (salvo el ping 
   }
   assert.deepEqual(fallos, []);
   // B1 (2026-09-28): los 5 fetch compatible-OpenAI a Gemini se consolidaron en
-  // llmProveedor.js (1 fetchGeminiConReintento). Se exige ese punto y el de NIM,
-  // más las 4 llamadas SDK (Radar y lookup), en vez de un conteo global.
+  // llmProveedor.js (1 fetchGeminiConReintento). Núcleo (2026-09-28): las 4
+  // llamadas SDK del Radar/lookup también pasan por llmProveedor — 3 van por el
+  // fetch compatible y queda 1 SDK (Search Grounding, buscarConGroundingServidor).
+  // Total exacto: 2 fetchGeminiConReintento (llmProveedor + NIM) + 1 SDK.
   const usa = (rel) => readFileSync(join(raiz, rel), 'utf8').includes('fetchGeminiConReintento(');
   assert.ok(usa('backend/services/llmProveedor.js'), 'el punto único de IA reintenta 5xx');
   assert.ok(usa('backend/services/nimCliente.js'), 'NIM reintenta 5xx');
-  assert.ok(revisadas >= 6, `se esperaban >= 6 llamadas revisadas (2 fetch + 4 SDK), hubo ${revisadas}`);
+  assert.equal(revisadas, 3, `se esperaban 3 llamadas revisadas (2 fetch + 1 SDK de grounding), hubo ${revisadas}`);
 });

@@ -1,8 +1,14 @@
 /**
  * backfill_sectors.mjs — Clasifica sectores para convocatorias sin sector.
  *
- * Usa Gemini para asignar 1-3 sectores del taxonomy a cada convocatoria
- * cuyo campo `sectores` sea vacío ('[]' o null).
+ * Usa classifySectors() para asignar 1-3 sectores del taxonomy a cada
+ * convocatoria cuyo campo `sectores` sea vacío ('[]' o null).
+ *
+ * AVISO (2026-09-28): classifySectors pasa por llmProveedor con el tope DURO
+ * diario de tokens del sistema (iaTopeSistema.js), que server.js configura al
+ * arrancar. Ejecutado suelto, este script NO lo configura → el tope falla
+ * cerrado y la clasificación se hace SOLO por palabras clave (sin IA ni gasto).
+ * Para clasificar con IA, hacerlo desde el proceso del servidor (pipelines).
  *
  * Uso:
  *   node backfill_sectors.mjs [--dry-run] [--limit=N]

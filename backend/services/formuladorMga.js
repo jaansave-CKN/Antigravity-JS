@@ -10,7 +10,9 @@
  *      Las cifras se formatean UNA vez aquí; el modelo no calcula nada.
  *   2. faltantesFormulador() (datosMinimosIA.js): 422 antes de gastar tokens.
  *   3. consolidarMGA(): deepseek-v4.1-flash (NVIDIA NIM) ordena `datos` en los
- *      4 bloques MGA; cada párrafo cita sus fuentes.
+ *      4 bloques MGA; cada párrafo cita sus fuentes. Si NIM falla o está
+ *      apagado (2026-09-28, decisión del dueño) → cascada de llmProveedor
+ *      (OpenRouter con tope USD → pool Gemini → BYOK) con el mismo prompt.
  *   4. validarConsolidacion(): determinista, anti-alucinación. Un párrafo sin
  *      fuente válida o con una cifra que no está en SUS fuentes se descarta.
  *      Nada se rellena con heurística.
@@ -18,6 +20,7 @@
 import crypto from 'crypto';
 import { llamarNim, NimError, MAX_TOKENS_NIM } from './nimCliente.js';
 import { logTokenUsage } from './aiTokenLogger.js';
+import { generarConIA } from './llmProveedor.js';
 
 export const MODELO_NIM_FORMULADOR = 'deepseek-ai/deepseek-v4.1-flash';
 export const BLOQUES = ['identificacion_problema', 'poblacion_beneficiaria', 'justificacion_tecnica', 'analisis_riesgos'];
@@ -269,40 +272,90 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional, con esta f
 /**
  * @returns {Promise<{ estado: 'ok'|'no_disponible', motivo?: string, bloques?: object, descartados: array, modelo: string }>}
  */
+// Presupuesto de tiempo del POST completo (2026-09-28, dictamen architect
+// condición 6): NIM hasta 55 s y el resto para la cascada de respaldo, dejando
+// margen para el INSERT. El cliente llama con { timeoutMs: 180_000,
+// retries: 0 } (ExportacionPage.tsx) y la ruta tiene candado por
+// (usuario, proyecto) → 409: si el navegador cortara o reenviara, NUNCA se
+// duplicaría una consulta cobrada.
+const PRESUPUESTO_TOTAL_MS = 170_000;
+const NIM_MAX_MS = 55_000;
+const MARGEN_INSERT_MS = 5_000;
+
+const esSalidaMga = (salida) => !!salida && BLOQUES.some(b => b in salida);
+
+function usageNim(u = {}) {
+  const salida = Number.isFinite(u.total_tokens) && Number.isFinite(u.prompt_tokens) ? u.total_tokens - u.prompt_tokens : (u.completion_tokens ?? 0);
+  return { entrada: u.prompt_tokens ?? 0, salida };
+}
+
+/**
+ * NVIDIA NIM primero; si falla, está apagado desde el Búnker o devuelve una
+ * salida inválida → cascada de llmProveedor (OpenRouter con tope USD del
+ * usuario → pool Gemini → BYOK). Decisión del dueño 2026-09-28: la resiliencia
+ * del Formulador va primero. REGLA DE ORO intacta: la salida de CUALQUIER
+ * proveedor pasa por el mismo validarConsolidacion() anti-alucinación, y si
+ * nadie responde → 'no_disponible' sin texto inventado.
+ * NO cae a la cascada ante 'sin_contenido_verificable': el modelo respondió y
+ * la validación descartó todo (fuentes insuficientes) — reintentar cobraría al
+ * usuario por un resultado predecible.
+ * @returns {Promise<{ estado: 'ok'|'no_disponible', motivo?: string, bloques?: object, descartados: array, modelo: string }>}
+ */
 export async function consolidarMGA(datos, { userId }) {
+  const inicio = Date.now();
   const listado = Object.entries(datos).map(([id, valor]) => ({ id, valor }));
-  let respuesta;
+  const messages = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: `DATOS (id → valor):\n${JSON.stringify(listado)}` },
+  ];
+  const finalizar = (salida, modelo) => {
+    const { bloques, descartados, parrafosValidos } = validarConsolidacion(salida, datos);
+    if (!parrafosValidos) return { estado: 'no_disponible', motivo: 'sin_contenido_verificable', descartados, modelo };
+    return { estado: 'ok', bloques, descartados, modelo };
+  };
+
+  let motivoNim;
   try {
-    respuesta = await llamarNim({
+    const respuesta = await llamarNim({
       model: MODELO_NIM_FORMULADOR,
       max_tokens: MAX_TOKENS_NIM,
       temperature: 0.1,
-      // Tope TOTAL (reintentos incluidos) por debajo de los 60 s del cliente
-      // (apiClient.withDefaultTimeout): si el navegador cortara primero,
-      // fetchWithRetry REENVIARÍA el POST → consulta duplicada y cobrada.
-      timeoutMs: 50_000,
+      timeoutMs: NIM_MAX_MS,
       origen: 'formulador_mga',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: `DATOS (id → valor):\n${JSON.stringify(listado)}` },
-      ],
+      messages,
     });
+    const u = usageNim(respuesta.usage);
+    logTokenUsage({ userId, agentName: 'formulador_mga', tokensInput: u.entrada, tokensOutput: u.salida }).catch(() => {});
+    const salida = extraerJson(respuesta.texto);
+    if (esSalidaMga(salida)) return finalizar(salida, respuesta.modelo);
+    motivoNim = 'respuesta_invalida';
   } catch (err) {
-    const motivo = err instanceof NimError ? err.motivo : 'error';
-    console.warn(`[FormuladorMGA] IA no disponible (${motivo}): ${String(err.message).slice(0, 160)}`);
+    motivoNim = err instanceof NimError ? err.motivo
+      : (err?.name === 'TimeoutError' || err?.name === 'AbortError') ? 'timeout' : 'error';
+    // Respuesta truncada/vacía: NIM ya la cobró → queda en FinOps igual.
+    if (err?.usage && Object.keys(err.usage).length) {
+      const u = usageNim(err.usage);
+      logTokenUsage({ userId, agentName: 'formulador_mga', tokensInput: u.entrada, tokensOutput: u.salida }).catch(() => {});
+    }
+  }
+
+  console.warn(`[FormuladorMGA] NVIDIA NIM no disponible (${motivoNim}) — se intenta la cascada de llmProveedor`);
+  try {
+    const r = await generarConIA({
+      userId, agente: 'formulador_mga', messages, temperature: 0.1, maxTokens: MAX_TOKENS_NIM,
+      deadlineMs: Math.max(0, PRESUPUESTO_TOTAL_MS - (Date.now() - inicio) - MARGEN_INSERT_MS),
+      validar: (texto) => {
+        const salida = extraerJson(texto);
+        if (!esSalidaMga(salida)) throw new Error('respuesta sin el JSON esperado');
+        return salida;
+      },
+    });
+    return finalizar(r.valor, r.modelo);
+  } catch (err) {
+    // Se captura TODO (incluido LlmLoopGuardError): el POST responde
+    // 'no_disponible' con motivo legible; el detalle va solo al log.
+    const motivo = err?.code === 'IA_TOPE_AGOTADO' ? 'tope_agotado' : 'ia_no_disponible';
+    console.warn(`[FormuladorMGA] cascada sin respuesta (nim:${motivoNim}|${err?.code || err?.name || 'error'})`, JSON.stringify(err?.intentos || []).slice(0, 400));
     return { estado: 'no_disponible', motivo, descartados: [], modelo: MODELO_NIM_FORMULADOR };
   }
-
-  const u = respuesta.usage || {};
-  const salidaReal = Number.isFinite(u.total_tokens) && Number.isFinite(u.prompt_tokens) ? u.total_tokens - u.prompt_tokens : (u.completion_tokens ?? 0);
-  logTokenUsage({ userId, agentName: 'formulador_mga', tokensInput: u.prompt_tokens ?? 0, tokensOutput: salidaReal }).catch(() => {});
-
-  const salida = extraerJson(respuesta.texto);
-  if (!salida || !BLOQUES.some(b => b in salida)) {
-    console.warn('[FormuladorMGA] respuesta sin el JSON esperado');
-    return { estado: 'no_disponible', motivo: 'respuesta_invalida', descartados: [], modelo: respuesta.modelo };
-  }
-  const { bloques, descartados, parrafosValidos } = validarConsolidacion(salida, datos);
-  if (!parrafosValidos) return { estado: 'no_disponible', motivo: 'sin_contenido_verificable', descartados, modelo: respuesta.modelo };
-  return { estado: 'ok', bloques, descartados, modelo: respuesta.modelo };
 }

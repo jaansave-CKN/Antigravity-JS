@@ -1,6 +1,8 @@
 /**
  * sectorClassifier.js — Asigna sectores del taxonomy a convocatorias.
- * Estrategia 1: Gemini (si disponible).
+ * Estrategia 1: Gemini vía llmProveedor.generarConIA({ soloServidor: true })
+ *   — solo pool del servidor (nunca OpenRouter/BYOK) y bajo el tope diario
+ *   de tokens del sistema (iaTopeSistema.js, 2026-09-28).
  * Estrategia 2: Clasificación por palabras clave (fallback sin API).
  *
  * v2: Acepta `donante` como tercer argumento para mejorar clasificación
@@ -8,10 +10,7 @@
  *     cubrir idiomas internacionales (inglés, francés, alemán, portugués).
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { withKeyRotation } from './geminiCircuitBreaker.js';
-import { logTokenUsage } from './aiTokenLogger.js';
-import { conReintentoTransitorio } from './geminiReintento.js';
+import { generarConIA } from './llmProveedor.js';
 
 // Espejo plano del taxonomy del frontend (sectoresTaxonomy.ts).
 // Actualizar aquí cuando se modifique el taxonomy en el cliente.
@@ -118,49 +117,30 @@ function classifyByKeywords(titulo, descripcion, donante) {
  * @param {string} [donante]  — nombre del donante/entidad para enriquecer la clasificación
  * @returns {Promise<string[]>}
  */
-// REFACTOR (2026-08-19, pool de llaves): withKeyRotation() crea un cliente
-// del SDK por intento (rota entre llaves ante 429) — antes cacheaba un solo
-// cliente ligado a una sola llave (_genAI). Mismo contrato: nunca lanza,
-// cae a classifyByKeywords ante cualquier fallo real o pool agotado.
+// 2026-09-28 (directiva "Contención y sincronización de núcleo"): pasa por
+// llmProveedor.generarConIA({ soloServidor: true }) — solo pool Gemini del
+// servidor, tope DURO diario de tokens del sistema (iaTopeSistema.js) y FinOps
+// bajo 'sistema-radar-batch'/'sector-classifier' (lo registra llmProveedor).
+// maxTokens 2048: gemini-3.6-flash razona y esos tokens cuentan contra el
+// límite (512 truncaba). Mismo contrato de siempre: NUNCA lanza — cualquier
+// fallo (tope, cuota, red, truncado, salida inválida) cae a classifyByKeywords;
+// DataIngestor/EntityScraper lo llaman sin try por convocatoria.
 export async function classifySectors(titulo, descripcion, donante = '') {
   try {
-    const valid = await withKeyRotation(async (apiKey) => {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): sin
-      // maxOutputTokens, a diferencia de arbolObjetivosAgent.js (mismo SDK)
-      // que sí lo fija — inconsistencia real entre archivos del mismo
-      // patrón. La respuesta es un array de máx. 3 strings cortos, 512 es
-      // holgado.
-      const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash', generationConfig: { maxOutputTokens: 512 } });
-      const result = await conReintentoTransitorio(() => model.generateContent(PROMPT_TEMPLATE(titulo, descripcion, donante)), { origen: 'sectorClassifier' });
-      // LOTE 9: la caída al respaldo por truncamiento queda registrada (antes era silenciosa).
-      if (result.response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
-        console.warn('[sectorClassifier] Respuesta de Gemini truncada por maxOutputTokens (512) — respaldo por palabras clave');
-        throw new Error('Respuesta de Gemini truncada (maxOutputTokens)');
-      }
-      const text = result.response.text().trim();
-      const match = text.match(/\[[\s\S]*\]/);
-      if (!match) throw new Error('Respuesta de Gemini sin array JSON');
-
-      const parsed = JSON.parse(match[0]);
-      if (!Array.isArray(parsed)) throw new Error('Respuesta de Gemini no es un array');
-
-      const validLocal = parsed.filter(s => SECTOR_NAMES.includes(String(s).trim())).slice(0, 3);
-      if (!validLocal.length) throw new Error('Sin sectores válidos en la respuesta');
-      return { validLocal, usage: result.response.usageMetadata || {} };
+    const r = await generarConIA({
+      userId: 'sistema-radar-batch', agente: 'sector-classifier', soloServidor: true, maxTokens: 2048,
+      messages: [{ role: 'user', content: PROMPT_TEMPLATE(titulo, descripcion, donante) }],
+      validar: (texto) => {
+        const match = texto.match(/\[[\s\S]*\]/);
+        if (!match) throw new Error('Respuesta sin array JSON');
+        const parsed = JSON.parse(match[0]);
+        if (!Array.isArray(parsed)) throw new Error('Respuesta no es un array');
+        const validos = parsed.filter(s => SECTOR_NAMES.includes(String(s).trim())).slice(0, 3);
+        if (!validos.length) throw new Error('Sin sectores válidos en la respuesta');
+        return validos;
+      },
     });
-    // FinOps (auditoría PROTOCOLO 5x5): antes este archivo nunca llamaba
-    // logTokenUsage — su gasto era invisible en /api/admin/finops. Se
-    // dispara desde pipelines en background (EntityScraper/DataIngestor),
-    // sin userId real de request — se registra bajo un identificador de
-    // sistema fijo (ai_token_logs.user_id no tiene FK real, ver migración
-    // 034, admite esto a propósito).
-    logTokenUsage({
-      userId: 'sistema-radar-batch', agentName: 'sector-classifier',
-      tokensInput: valid.usage.promptTokenCount ?? 0,
-      tokensOutput: valid.usage.candidatesTokenCount ?? 0,
-    }).catch(() => {});
-    return valid.validLocal;
+    return r.valor;
   } catch {
     return classifyByKeywords(titulo, descripcion, donante);
   }

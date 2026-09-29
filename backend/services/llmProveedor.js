@@ -1,7 +1,16 @@
 /**
- * llmProveedor.js — punto ÚNICO de llamada a un LLM para las funciones de IA
- * del Formulador (Entrada-AI, Árbol, Viabilidad, MIROFISH, Co-Piloto y, a
- * través de ellas, Formulación integral).
+ * llmProveedor.js — punto ÚNICO de llamada a un LLM del backend: funciones de
+ * IA del Formulador (Entrada-AI, Árbol, Viabilidad, MIROFISH, Co-Piloto,
+ * Formulación integral y respaldo del Formulador MGA) y, desde 2026-09-28,
+ * también las llamadas de SISTEMA del Radar (clasificación de sectores,
+ * extracción de convocatorias, lookup y búsqueda profunda del Directorio).
+ * Es el ÚNICO archivo que puede importar el SDK @google/generative-ai
+ * (guardia de CI en tests/unit/nucleoRadar.test.mjs).
+ *
+ * Llamadas de sistema (`soloServidor: true`, directiva "Contención y
+ * sincronización de núcleo", dueño 2026-09-28): SOLO pool Gemini del servidor
+ * — sin OpenRouter (no se convierte gasto gratuito en gasto en USD) ni BYOK —
+ * y bajo el tope DURO diario de tokens de iaTopeSistema.js (falla cerrado).
  *
  * B1 (decisión del dueño 2026-09-28, diseño fiscalizado por architect):
  * se retiró el gate BYOK — los 67 usuarios usan la IA sin llave propia.
@@ -30,11 +39,13 @@ import {
 import { geminiCB, withKeyRotation, registrarLlamadaLLM, LlmLoopGuardError, GeminiPoolExhaustedError, retryDelayDe429, isQuotaError } from './geminiCircuitBreaker.js';
 import { withUserKeyRotation, resolverLlavesUsuario, UserKeyPoolExhaustedError } from './byokService.js';
 import { withTenantRows } from '../config/database.config.js';
-import { fetchGeminiConReintento } from './geminiReintento.js';
+import { fetchGeminiConReintento, conReintentoTransitorio } from './geminiReintento.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { reservarTopeSistema, liquidarTopeSistema, estimarTokensLlamada, IaTopeSistemaError } from './iaTopeSistema.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
 
-export { IaTopeAgotadoError };
+export { IaTopeAgotadoError, IaTopeSistemaError };
 
 export const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 export const MODELO_GEMINI = 'gemini-3.6-flash';
@@ -145,12 +156,28 @@ function motivoDe(err) {
  * @param {string} p.userId — dueño de la solicitud (tope, FinOps, BYOK)
  * @param {string} p.agente — nombre FinOps (ai_token_logs.agent_name)
  * @param {Array<{role:string, content:string}>} p.messages — formato OpenAI (system/user/assistant)
+ * @param {boolean} [p.soloServidor] — llamada de SISTEMA: solo pool Gemini, bajo el tope diario de iaTopeSistema.js
  * @returns {Promise<{ texto: string, valor: any, proveedor: 'openrouter'|'gemini_servidor'|'byok', modelo: string, usage: object, truncada: boolean }>}
- * @throws {IaNoDisponibleError|IaTopeAgotadoError|LlmLoopGuardError}
+ * @throws {IaNoDisponibleError|IaTopeAgotadoError|IaTopeSistemaError|LlmLoopGuardError}
  */
-export async function generarConIA({
+export async function generarConIA(opciones) {
+  if (!opciones.soloServidor) return generarConIAInterno(opciones);
+  // Reserva ANTES de llamar: si el tope no se puede verificar o no alcanza,
+  // lanza IaTopeSistemaError y no sale ninguna petición.
+  const reserva = await reservarTopeSistema(opciones.agente, estimarTokensLlamada(opciones.messages, opciones.maxTokens ?? 8192));
+  let tokens = 0;
+  try {
+    const r = await generarConIAInterno(opciones);
+    tokens = (r.usage?.prompt_tokens ?? 0) + salidaFacturada(r.usage);
+    return r;
+  } finally {
+    liquidarTopeSistema(reserva, tokens);
+  }
+}
+
+async function generarConIAInterno({
   userId, agente, messages, temperature = 0.2, maxTokens = 8192,
-  responseFormat = null, validar = null, permitirTruncado = false, deadlineMs = 50_000,
+  responseFormat = null, validar = null, permitirTruncado = false, deadlineMs = 50_000, soloServidor = false,
 }) {
   const inicio = Date.now();
   const restante = () => deadlineMs - (Date.now() - inicio);
@@ -159,10 +186,10 @@ export async function generarConIA({
   let retryAtGemini = null;
 
   // ── 1. OpenRouter ──────────────────────────────────────────────────────────
-  const or = estadoOpenRouter();
+  const or = soloServidor ? { activo: false, motivo: 'omitido_solo_servidor' } : estadoOpenRouter();
   if (!or.activo) {
     intentos.push({ proveedor: 'openrouter', motivo: or.motivo });
-    if (or.motivo !== 'pausado_por_configuracion' && Date.now() - _ultimoAvisoSinLlave > PAUSA_CONFIG_MS) {
+    if (!['pausado_por_configuracion', 'omitido_solo_servidor'].includes(or.motivo) && Date.now() - _ultimoAvisoSinLlave > PAUSA_CONFIG_MS) {
       _ultimoAvisoSinLlave = Date.now();
       logger.warn('[llmProveedor] OpenRouter no se intenta — se salta al pool Gemini', { motivo: or.motivo, faltante: or.faltante });
     }
@@ -235,13 +262,13 @@ export async function generarConIA({
 
   // ── 3. BYOK del usuario (último recurso, también salida del tope) ──────────
   let llaves = [];
-  try {
+  if (!soloServidor) try {
     llaves = await resolverLlavesUsuario(userId, { getRows: (sql, params) => withTenantRows(userId, sql, params) });
   } catch (err) {
     logger.warn('[llmProveedor] No se pudieron leer las llaves BYOK del usuario', { userId, err: err.message });
   }
   if (!llaves.length) {
-    intentos.push({ proveedor: 'byok', motivo: 'sin_llaves_usuario' });
+    intentos.push({ proveedor: 'byok', motivo: soloServidor ? 'omitido_solo_servidor' : 'sin_llaves_usuario' });
   } else if (restante() < TIEMPO_MIN_PASO_MS) {
     intentos.push({ proveedor: 'byok', motivo: 'sin_tiempo' });
   } else {
@@ -260,6 +287,36 @@ export async function generarConIA({
   logger.error('[llmProveedor] Ningún proveedor de IA respondió', { agente, userId, intentos });
   if (topeAgotado) throw topeAgotado;
   throw new IaNoDisponibleError(intentos, retryAtGemini);
+}
+
+/**
+ * Búsqueda con Google Search Grounding para el lookup del Directorio (Radar).
+ * El endpoint compatible con OpenAI no expone googleSearch, por eso usa el SDK
+ * — y por eso vive AQUÍ y no en server.js: antes usaba UNA llave fuera del
+ * pool, sin FinOps y sin tope (dictamen architect 2026-09-28, condición 4).
+ * Pool de llaves (withKeyRotation), tope diario del sistema, guardián
+ * anti-bucle, reintento del 503 transitorio y FinOps como 'lookup-deepsearch'.
+ * @returns {Promise<{ texto: string, groundingChunks: Array }>}
+ * @throws {IaTopeSistemaError|GeminiPoolExhaustedError|LlmLoopGuardError|Error}
+ */
+export async function buscarConGroundingServidor({ userId, prompt, modelo = 'gemini-2.5-flash', maxTokens = 8192 }) {
+  const agente = 'lookup-deepsearch';
+  const reserva = await reservarTopeSistema(agente, estimarTokensLlamada([{ content: prompt }], maxTokens));
+  let tokens = 0;
+  try {
+    return await withKeyRotation(async (apiKey) => {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: modelo, tools: [{ googleSearch: {} }], generationConfig: { maxOutputTokens: maxTokens } });
+      registrarLlamadaLLM(agente); // guardián anti-bucle (FinOps)
+      const result = await conReintentoTransitorio(() => model.generateContent(prompt), { origen: agente });
+      const u = result.response.usageMetadata || {};
+      tokens = u.totalTokenCount ?? ((u.promptTokenCount ?? 0) + (u.candidatesTokenCount ?? 0));
+      logTokenUsage({ userId, agentName: agente, tokensInput: u.promptTokenCount ?? 0, tokensOutput: Math.max(0, tokens - (u.promptTokenCount ?? 0)) }).catch(() => {});
+      return { texto: result.response.text().trim(), groundingChunks: result.response.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [] };
+    });
+  } finally {
+    liquidarTopeSistema(reserva, tokens);
+  }
 }
 
 // Timeout/corte sin usage.cost: se liquida al peor caso reservado (OpenRouter pudo cobrar).

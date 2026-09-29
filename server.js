@@ -42,15 +42,13 @@ import { pool, getRow, getRows, getCount, runSql, runTransaction } from './backe
 import { dbStatus, esperarPgInicial, withTenant, withTenantRow, withTenantRun, withTenantRows, withTenantTransaction } from './backend/config/database.config.js';
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { geminiCB, loadPersistedKeyState, registrarLlamadaLLM, withKeyRotation, isQuotaError } from './backend/services/geminiCircuitBreaker.js';
-import { conReintentoTransitorio } from './backend/services/geminiReintento.js';
-import { logTokenUsage } from './backend/services/aiTokenLogger.js';
+import { geminiCB, loadPersistedKeyState } from './backend/services/geminiCircuitBreaker.js';
 import { reenviarPendientesSystemLogs } from './backend/services/logService.js';
 import { alertarErrorServidor } from './backend/services/alertaErrores.js';
 import { faltantesViabilidad, respuesta422 } from './backend/services/datosMinimosIA.js';
 import { resolverLlavesUsuario } from './backend/services/byokService.js';
-import { estadoOpenRouter } from './backend/services/llmProveedor.js';
+import { estadoOpenRouter, generarConIA, buscarConGroundingServidor } from './backend/services/llmProveedor.js';
+import { configurarTopeSistema, topeSistemaDia } from './backend/services/iaTopeSistema.js';
 import { estadoPresupuesto } from './backend/services/iaPresupuesto.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
 import { wompiWebhookHandler } from './backend/routes/wompi.webhook.js';
@@ -1234,6 +1232,13 @@ async function start() {
   // Espera el primer sondeo de pg (máx. ~8s) para que initDb no caiga a REST
   // por una carrera de arranque — ver esperarPgInicial() en database.config.js.
   await esperarPgInicial();
+  // Tope DURO diario de tokens de las llamadas de IA del SISTEMA (Radar:
+  // clasificador, extractor, lookup): lee ai_token_logs con el pool PRINCIPAL
+  // (RLS sin políticas: withTenant leería 0). Se configura ANTES de
+  // startScheduler; sin esto, esas llamadas fallan cerrado a su respaldo.
+  configurarTopeSistema({ getRow, dbStatus });
+  try { console.info(`[IA] Tope diario del sistema: ${topeSistemaDia()} tokens (LLM_TOPE_TOKENS_SISTEMA_DIA)`); }
+  catch (e) { console.error(`[IA] ${e.message} — las llamadas de IA del sistema quedan bloqueadas (falla cerrado)`); }
   try {
     await initDb();
   } catch (err) {
@@ -3225,7 +3230,7 @@ async function start() {
     // Estrategia C: sondeo de rutas canónicas.
     // Estrategia D: subdominios canónicos.
     const LINK_GRANT_KW = /convocator|becas?|grant|fund(?!ament)|financiami|cooperaci|postulaci|llamado|oportunidad(?:es)?|programa(?:s)?|iniciativa|apoyo|subsidio|subvenci|fellowship|award|call[-_]|apply|edital|appel|opportunity|open[-_]call/i;
-    async function runDeepSearch(orgName, domain, apiKey) {
+    async function runDeepSearch(orgName, domain, userIdDeep) {
       // ── Estrategia 0: parsear links de la homepage ya descargada (sin request extra) ──
       // rawHtml es accesible por closure. Extrae todos los <a href> cuyo href o texto
       // contenga palabras clave de grants. Luego fetcha esas páginas y verifica contenido.
@@ -3342,14 +3347,12 @@ async function start() {
         }
       }
 
-      // A) Gemini Search Grounding — una sola llamada, busca Y evalúa
-      // apiKey es undefined cuando el circuit breaker está cerrado: se omite Strategy A.
-      if (apiKey) try {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({
-          model: 'gemini-2.5-flash', // LLM-001: gemini-2.0-flash retirado
-          tools: [{ googleSearch: {} }],
-        });
+      // A) Gemini Search Grounding — una sola llamada, busca Y evalúa.
+      // 2026-09-28: vía llmProveedor.buscarConGroundingServidor (pool de
+      // llaves, tope diario del sistema, FinOps 'lookup-deepsearch'); antes
+      // usaba UNA llave fuera del pool, sin FinOps ni tope. Si el tope o el
+      // pool no alcanzan, lanza y se sigue con las estrategias B/B2/sitemap.
+      try {
         const deepPrompt =
           `Organización: "${orgName}" — Dominio: ${domain}\n\n` +
           `Tarea: busca si esta organización tiene programas de grants, fundaciones, filantropía, ` +
@@ -3358,9 +3361,7 @@ async function start() {
           `/philanthropy, /csr, /social-impact, /giving, /convocatorias, /becas, /responsibility.\n\n` +
           `Responde EXCLUSIVAMENTE con JSON válido (sin bloques markdown ni texto extra):\n` +
           `{"aplica_colombia":true,"deep_url":"URL exacta de la página de grants encontrada","evidencia":"descripción breve de los programas","nombre_oficial":"nombre oficial de la organización"}`;
-        registrarLlamadaLLM('lookup-deepsearch'); // guardián anti-bucle (FinOps)
-        const result = await conReintentoTransitorio(() => model.generateContent(deepPrompt), { origen: 'lookup-deepsearch' });
-        const text = result.response.text().trim();
+        const { texto: text, groundingChunks } = await buscarConGroundingServidor({ userId: userIdDeep, prompt: deepPrompt });
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
@@ -3369,7 +3370,7 @@ async function start() {
           }
         }
         // Extraer URLs de los chunks de grounding aunque el JSON falle
-        const chunks = result.response.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
+        const chunks = groundingChunks;
         const foundUrl = chunks.map(c => c.web?.uri).find(u => {
           try { return new URL(u).hostname.includes(domain); } catch { return false; }
         });
@@ -3464,36 +3465,26 @@ Reglas:
 - "pais": país sede de la entidad (no de Colombia).
 - Responde SOLO con el JSON. Sin texto antes ni después.`;
 
-    // LOTE 9 (auditoría 2026-09-24): antes este bloque NO usaba el pool de
-    // llaves — solo leía GOOGLE_API_KEY (GEMINI_API_KEY_FALLBACK/GEMINI_API_KEY
-    // no existen en .env), nunca rotaba a GEMINI_API_KEY_2, imputaba todo 429 a
-    // la llave #1 y su gasto no aparecía en ai_token_logs. Ahora pasa por
-    // withKeyRotation (rotación + disyuntor), reintenta el 503 transitorio y
-    // registra FinOps. Sin IA → misma heurística de respaldo de siempre.
+    // 2026-09-28 (directiva "Contención y sincronización de núcleo", decisión
+    // del dueño 2a): pasa por llmProveedor.generarConIA({ soloServidor: true })
+    // — SOLO pool Gemini del servidor (nunca OpenRouter ni la llave del
+    // usuario), tope DURO diario de tokens del sistema (iaTopeSistema.js) y
+    // FinOps con el usuario real que lo disparó (agent 'lookup-entidad').
+    // Un solo modelo (MODELO_GEMINI) en vez de probar 2. Sin IA → la misma
+    // heurística de respaldo de siempre (clasificación del Radar, no Formulador).
     let geminiResult = null;
-    const models  = ['gemini-2.5-flash', 'gemini-3.6-flash']; // LLM-001 (2026-09-23): 2.0/1.5-flash ya no existen en la API
     const userMsg = `URL: ${url}\nNombre detectado: ${pageTitle}\nContenido de la página (primeros 3000 chars):\n${pageText.slice(0, 3000)}`;
     try {
-      geminiResult = await withKeyRotation(async (apiKey) => {
-        let ultimoError = new Error('Gemini sin JSON en la respuesta');
-        for (const modelName of models) {
-          try {
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: modelName, systemInstruction: systemPrompt });
-            registrarLlamadaLLM('lookup-entidad'); // guardián anti-bucle (FinOps)
-            const result = await conReintentoTransitorio(() => model.generateContent(userMsg), { origen: 'lookup' });
-            const u = result.response.usageMetadata || {};
-            logTokenUsage({ userId: req.user?.id || 'sistema-lookup', agentName: 'lookup-entidad', tokensInput: u.promptTokenCount ?? 0, tokensOutput: (u.totalTokenCount ?? 0) - (u.promptTokenCount ?? 0) }).catch(() => {});
-            const jsonMatch = result.response.text().trim().match(/\{[\s\S]*\}/);
-            if (jsonMatch) return JSON.parse(jsonMatch[0]);
-          } catch (err) {
-            if (isQuotaError(err)) throw err; // withKeyRotation rota a la siguiente llave
-            ultimoError = err;
-            console.warn(`[lookup] Gemini ${modelName} falló:`, err.message?.slice(0, 100));
-          }
-        }
-        throw ultimoError;
+      const r = await generarConIA({
+        userId: req.userId || 'sistema-lookup', agente: 'lookup-entidad', soloServidor: true, maxTokens: 2048,
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMsg }],
+        validar: (texto) => {
+          const jsonMatch = texto.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) throw new Error('Respuesta sin JSON');
+          return JSON.parse(jsonMatch[0]);
+        },
       });
+      geminiResult = r.valor;
     } catch (err) {
       console.info(`[lookup] IA no disponible (${String(err.message).slice(0, 100)}) — usando heurística (modo Respaldo).`);
     }
@@ -3550,17 +3541,14 @@ Reglas:
 
     if (!aplica && isRootOrShallow) {
       console.info(`[lookup/deep] Fase 1 rechazó ${hostname} — iniciando Deep Search...`);
-      const apiKeyDeep = [process.env.GOOGLE_API_KEY, process.env.GEMINI_API_KEY_FALLBACK, process.env.GEMINI_API_KEY].find(Boolean);
-      const deepApiKey = geminiCB.canCall() ? apiKeyDeep : undefined;
       try {
-        const deepResult = await runDeepSearch(nombre, hostname, deepApiKey);
+        const deepResult = await runDeepSearch(nombre, hostname, req.userId || 'sistema-lookup');
         if (deepResult) {
           aplica   = true;
           estado   = 'Aceptado';
           resumen  = `[Búsqueda profunda] ${deepResult.evidencia || 'Se encontraron programas de cooperación en el dominio.'}`;
           if (deepResult.nombre_oficial?.trim()) nombre = deepResult.nombre_oficial.trim();
           if (deepResult.deep_url && deepResult.deep_url !== url) urlConvFinal = deepResult.deep_url;
-          if (deepApiKey) geminiCB.recordSuccess();
           console.info(`[lookup/deep] ✓ ${hostname} aprobado → ${deepResult.deep_url}`);
         } else {
           console.info(`[lookup/deep] ✗ ${hostname} sin evidencia — confirmado Rechazado.`);

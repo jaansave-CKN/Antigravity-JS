@@ -82,7 +82,7 @@ export const ESCUADRON = {
   A_RADAR: [
     {
       nombre: 'sectorClassifier',
-      descripcion: 'Clasifica convocatorias por sector (con fallback a palabras clave si Gemini no está disponible).',
+      descripcion: 'Clasifica convocatorias por sector vía llmProveedor (soloServidor: pool Gemini, tope diario del sistema); fallback a palabras clave si la IA no está disponible.',
       llamaLLM: true,
       invocadoDesde: ['backend/pipeline/DataIngestor.js', 'backend/pipeline/EntityScraper.js', 'server.js'],
       exporta: { classifySectors },
@@ -96,7 +96,7 @@ export const ESCUADRON = {
     },
     {
       nombre: 'lookupEntidad',
-      descripcion: 'Búsqueda de entidades del Directorio — analiza una URL con Gemini y valida si aplica a Colombia (POST /api/entidades/lookup).',
+      descripcion: 'Búsqueda de entidades del Directorio — analiza una URL vía llmProveedor (soloServidor: pool Gemini, tope diario del sistema; búsqueda profunda con Search Grounding en buscarConGroundingServidor) y valida si aplica a Colombia (POST /api/entidades/lookup).',
       llamaLLM: true,
       invocadoDesde: 'server.js (handler inline de POST /api/entidades/lookup, llamado desde DirectoryPage.tsx)',
       // Sin función exportable: la lógica vive dentro del handler en

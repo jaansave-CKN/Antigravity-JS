@@ -90,6 +90,8 @@ const MOTIVOS_NO_DISPONIBLE: Record<string, string> = {
   respuesta_vacia: 'el modelo no devolvió contenido',
   respuesta_invalida: 'el modelo no devolvió el formato esperado',
   sin_contenido_verificable: 'ningún párrafo pasó la verificación de fuentes y cifras',
+  ia_no_disponible: 'ni NVIDIA NIM ni los proveedores de respaldo respondieron; intenta más tarde',
+  tope_agotado: 'se alcanzó tu tope diario/mensual de IA; se restablece automáticamente',
 };
 const fechaHora = (iso: string) => new Date(iso).toLocaleString('es-CO', { timeZone: 'America/Bogota', hourCycle: 'h23' });
 
@@ -143,7 +145,10 @@ function FormuladorMgaPanel({ proyectoId }: { proyectoId: string }) {
     setConsolidando(true);
     setError(null);
     try {
-      await http.post(`/api/proyectos/${proyectoId}/formulador-mga`, {});
+      // NIM + cascada de respaldo pueden tardar hasta ~170 s en el servidor:
+      // timeout 180 s y SIN reintentos (un reenvío duplicaría una consulta
+      // cobrada); la ruta además responde 409 si ya hay una en curso.
+      await http.post(`/api/proyectos/${proyectoId}/formulador-mga`, {}, undefined, { timeoutMs: 180_000, retries: 0 });
       await cargar();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo consolidar la redacción MGA.');

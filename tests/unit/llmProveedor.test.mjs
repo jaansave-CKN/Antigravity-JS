@@ -236,3 +236,91 @@ test('guardián anti-bucle: corta toda la cascada (no se prueba BYOK)', async ()
   await assert.rejects(generarConIA({ userId: 'u1', agente: 'x', messages: MSGS }), (e) => e instanceof LlmLoopGuardError);
   assert.equal(estado.leyoLlaves, 0);
 });
+
+// ── Llamadas de SISTEMA: soloServidor + tope duro diario (núcleo 2026-09-28) ──
+const TS = await import('../../backend/services/iaTopeSistema.js');
+function topeFalso({ consumido = 0, pgReady = true, falla = false, fila } = {}) {
+  const consultas = [];
+  TS._reiniciarTopeSistema();
+  TS.configurarTopeSistema({
+    dbStatus: () => ({ pgReady }),
+    getRow: async (sql, params) => {
+      consultas.push({ sql, params });
+      if (falla) throw new Error('BD caída');
+      return fila !== undefined ? fila : { consumido: String(consumido) };
+    },
+  });
+  return consultas;
+}
+
+test('soloServidor: SOLO pool Gemini — cero llamadas a OpenRouter y no se leen llaves BYOK; el tope se consulta por agentes de sistema en hora de Colombia', async () => {
+  preparar();
+  red();
+  const consultas = topeFalso({ consumido: 1000 });
+  const r = await generarConIA({ userId: 'sistema-radar-batch', agente: 'sector-classifier', soloServidor: true, maxTokens: 2048, messages: MSGS });
+  assert.equal(r.proveedor, 'gemini_servidor');
+  assert.equal(llamadas.some(l => l.destino === 'openrouter'), false);
+  assert.equal(estado.leyoLlaves, 0);
+  assert.equal(consultas.length, 1);
+  assert.match(consultas[0].sql, /America\/Bogota/);
+  assert.match(consultas[0].sql, /agent_name = ANY/);
+  assert.deepEqual(consultas[0].params[0], TS.AGENTES_SISTEMA);
+  TS._reiniciarTopeSistema();
+});
+
+test('soloServidor: tope diario excedido → IaTopeSistemaError y CERO peticiones', async () => {
+  preparar();
+  red();
+  topeFalso({ consumido: 49_000 });
+  await assert.rejects(
+    generarConIA({ userId: 'sistema-radar-batch', agente: 'sector-classifier', soloServidor: true, maxTokens: 2048, messages: MSGS }),
+    (e) => e.code === 'IA_TOPE_SISTEMA' && e.motivo === 'tope_diario_agotado');
+  assert.equal(llamadas.length, 0);
+  TS._reiniciarTopeSistema();
+});
+
+test('soloServidor FALLA CERRADO: sin configurar, BD en modo REST, consulta con error, valor no finito, tope mal configurado o agente no listado → cero peticiones', async () => {
+  preparar();
+  const casos = [
+    ['no_configurado', () => TS._reiniciarTopeSistema()],
+    ['bd_no_verificable', () => topeFalso({ pgReady: false })],
+    ['consumo_no_verificable', () => topeFalso({ falla: true })],
+    ['consumo_no_verificable', () => topeFalso({ fila: { consumido: 'NaN' } })],
+    ['consumo_no_verificable', () => topeFalso({ fila: {} })],
+  ];
+  for (const [motivo, montar] of casos) {
+    red(); montar();
+    await assert.rejects(generarConIA({ userId: 's', agente: 'markitdown-extract', soloServidor: true, maxTokens: 2048, messages: MSGS }), (e) => e.motivo === motivo, motivo);
+    assert.equal(llamadas.length, 0, motivo);
+  }
+  red(); topeFalso();
+  process.env.LLM_TOPE_TOKENS_SISTEMA_DIA = 'mucho';
+  await assert.rejects(generarConIA({ userId: 's', agente: 'lookup-entidad', soloServidor: true, messages: MSGS }), (e) => e.motivo === 'tope_mal_configurado');
+  delete process.env.LLM_TOPE_TOKENS_SISTEMA_DIA;
+  await assert.rejects(generarConIA({ userId: 's', agente: 'viabilidad', soloServidor: true, messages: MSGS }), (e) => e.motivo === 'agente_no_es_de_sistema');
+  assert.equal(llamadas.length, 0);
+  TS._reiniciarTopeSistema();
+});
+
+test('soloServidor: si el pool Gemini falla → IaNoDisponibleError con OpenRouter y BYOK OMITIDOS (nunca la llave del usuario)', async () => {
+  preparar();
+  red({ gemini: () => respuesta({ status: 500 }) });
+  topeFalso();
+  estado.llavesUsuario = ['clave-del-usuario'];
+  await assert.rejects(
+    generarConIA({ userId: 'u1', agente: 'lookup-entidad', soloServidor: true, maxTokens: 2048, messages: MSGS }),
+    (e) => e instanceof IaNoDisponibleError
+      && e.intentos.some(i => i.proveedor === 'openrouter' && i.motivo === 'omitido_solo_servidor')
+      && e.intentos.some(i => i.proveedor === 'byok' && i.motivo === 'omitido_solo_servidor'));
+  assert.equal(estado.leyoLlaves, 0);
+  TS._reiniciarTopeSistema();
+});
+
+test('tope del sistema: el contador en memoria suma las reservas en vuelo (dos llamadas concurrentes no pasan juntas el tope)', async () => {
+  topeFalso({ consumido: 45_000 });
+  const primera = await TS.reservarTopeSistema('sector-classifier', 3_000);
+  await assert.rejects(TS.reservarTopeSistema('sector-classifier', 3_000), (e) => e.motivo === 'tope_diario_agotado');
+  TS.liquidarTopeSistema(primera, 500);
+  assert.ok(await TS.reservarTopeSistema('sector-classifier', 3_000), 'liberada la reserva, cabe otra');
+  TS._reiniciarTopeSistema();
+});
