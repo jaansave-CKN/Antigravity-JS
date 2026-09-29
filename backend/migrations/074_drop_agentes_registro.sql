@@ -8,7 +8,9 @@
 --     PUT /api/modulo8/agentes/:nombre/status (server.js), sin ningún
 --     llamador en client/src ni en tests — un control de agentes que no
 --     controlaba nada (ningún código leía su status antes de ejecutar).
---   - El control real de proveedores de IA vive en app_settings
---     (ia_flag_openrouter / ia_flag_nvidia, backend/services/iaFlags.js).
+--   - El control real de proveedores de IA son los interruptores del Búnker
+--     de Conexiones (app_settings ia_flag_openrouter / ia_flag_nvidia,
+--     backend/services/iaFlags.js), que llegan con el PR #38 — aún no
+--     fusionado al escribir esta migración.
 -- server.js ya no la crea al arrancar (mismo cambio).
 DROP TABLE IF EXISTS agentes_registro;
