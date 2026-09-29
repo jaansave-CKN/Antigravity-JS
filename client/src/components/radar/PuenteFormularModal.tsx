@@ -79,18 +79,32 @@ export default function PuenteFormularModal({ conv, onCerrar }: Props) {
   const [exito, setExito] = useState<Exito | null>(null);
   const [verMas, setVerMas] = useState(false);
   const enVueloRef = useRef(false);
+  const dialogoRef = useRef<HTMLDivElement>(null);
   const titulo = String(conv.titulo || '');
   const nombreProyecto = `Formulación: ${titulo.slice(0, 80)}`;
 
   const cerrar = useCallback(() => { if (!enVueloRef.current) onCerrar(); }, [onCerrar]);
 
-  // Escape cierra; useEffectEvent lee siempre el cerrar vigente sin
-  // re-suscribir el listener en cada render.
-  const alTeclear = useEffectEvent((e: KeyboardEvent) => { if (e.key === 'Escape') cerrar(); });
+  // Teclado: Escape cierra y Tab/Shift+Tab giran DENTRO del modal (trampa de
+  // foco: sin ella se podía tabular hacia la página de fondo). useEffectEvent
+  // lee siempre el cerrar vigente sin re-suscribir el listener en cada render.
+  const alTeclear = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key === 'Escape') { cerrar(); return; }
+    if (e.key !== 'Tab' || !dialogoRef.current) return;
+    const focos = Array.from(dialogoRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'));
+    if (!focos.length) return;
+    const primero = focos[0];
+    const ultimo = focos[focos.length - 1];
+    const dentro = dialogoRef.current.contains(document.activeElement);
+    if (e.shiftKey && (document.activeElement === primero || !dentro)) { e.preventDefault(); ultimo.focus(); }
+    else if (!e.shiftKey && (document.activeElement === ultimo || !dentro)) { e.preventDefault(); primero.focus(); }
+  });
   useEffect(() => {
+    const previo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogoRef.current?.querySelector<HTMLElement>('button:not([disabled]), a[href]')?.focus();
     const onKey = (e: KeyboardEvent) => alTeclear(e);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); previo?.focus(); };
   }, []);
 
   const irAlDestino = useCallback((d: Exito) => {
@@ -146,6 +160,7 @@ export default function PuenteFormularModal({ conv, onCerrar }: Props) {
       onClick={cerrar}
     >
       <div
+        ref={dialogoRef}
         role="dialog" aria-modal="true" aria-labelledby="puente-titulo"
         onClick={e => e.stopPropagation()}
         style={{ background: C.blanco, borderRadius: 12, width: 560, maxWidth: '92vw', maxHeight: '90vh', overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 16, fontFamily: UI, color: C.texto }}
