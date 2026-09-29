@@ -23,6 +23,7 @@ type ReportState = 'idle' | 'open' | 'sending' | 'sent' | 'error';
 // ── Pilares de navegación ──────────────────────────────────────────────────────
 const LEFT_LINKS = [
   { to: '/radar',      label: 'Radar',      icon: '◎', requireAuth: false },
+  { to: '/busqueda-semantica', label: 'Búsqueda semántica', icon: '⌕', requireAuth: true },
   { to: '/panel',      label: 'Panel',      icon: '⊞', requireAuth: false },
   { to: '/directorio', label: 'Directorio', icon: '⊟', requireAuth: false },
   { to: '/favoritos',  label: 'Favoritos',  icon: '♥', requireAuth: true  },
@@ -329,7 +330,7 @@ export default function TopNavBar() {
               );
             }
             // Favoritos y Calendario requieren plan Radar además de auth
-            const requiresPlan = link.to === '/favoritos' || link.to === '/calendario';
+            const requiresPlan = link.to === '/favoritos' || link.to === '/calendario' || link.to === '/busqueda-semantica';
             const planLocked   = isAuth && link.requireAuth && requiresPlan && !hasRadar;
             return <NavItem key={link.to} {...link} isAuthenticated={isAuth} planLocked={planLocked} />;
           })}

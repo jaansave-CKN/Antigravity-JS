@@ -1,5 +1,5 @@
 import { test, expect, request as pwRequest } from '@playwright/test';
-import * as XLSX from 'xlsx';
+import { generarExcelApuCOP } from './helpers/apuFixture';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -38,19 +38,7 @@ function leerEstadoE2E() {
 
 /** Genera un Excel de presupuesto/APU real en memoria — mismos encabezados
  * que ExtractorService.HEADER_ALIASES reconoce, valores 100% en COP. */
-function generarExcelApuCOP(): Buffer {
-  const filas = [
-    ['Item', 'Descripción', 'Unidad', 'Cantidad', 'Valor Unitario', 'Valor Total'],
-    ['1', 'Excavación manual en material común', 'm3', 120, 45000, 5400000],
-    ['2', 'Suministro e instalación de tubería PVC 6"', 'ml', 300, 82000, 24600000],
-    ['3', 'Casco de seguridad industrial (EPP)', 'und', 15, 38000, 570000],
-    ['4', 'Señalización y cerramiento de obra', 'gl', 1, 3200000, 3200000],
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(filas);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Presupuesto');
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-}
+// Planilla APU compartida: tests/e2e/helpers/apuFixture.ts
 
 test.describe('Formulador — flujo financiero (COP)', () => {
   test('autenticación real + navegación a Anexos + carga de archivo por la UI', async ({ page }) => {

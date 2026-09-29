@@ -8,6 +8,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 import { obtenerCsrfHeaders } from '../lib/authStorage';
 import { SECTORES_TAXONOMY } from '../data/sectoresTaxonomy';
+import BotonFormularConvocatoria from '../components/radar/BotonFormularConvocatoria';
 import './RadarCalcoPage.css';
 
 // FIX (react-doctor client-localstorage-no-version, 2026-09-05): clave
@@ -640,7 +641,7 @@ const ConvocatoriasList = React.memo(function ConvocatoriasList({
         const entidad  = c.entidad_nombre || c.donante;
 
         return (
-          <article key={c.id} className="radx__card">
+          <article key={c.id} className="radx__card" style={{ position: 'relative' }}>
 
             {/* Col 1 — Favorito */}
             <button
@@ -755,6 +756,14 @@ const ConvocatoriasList = React.memo(function ConvocatoriasList({
                 <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
               </svg>
             </a>
+
+            {/* Puente "Formular esta convocatoria" (2026-09-29, OMEGA-7):
+                icono en la esquina superior derecha, en posición absoluta —
+                un hijo absoluto no ocupa celda de la rejilla, así que las 5
+                columnas y el alto de la tarjeta no cambian (arnés visual). */}
+            <span style={{ position: 'absolute', top: 3, right: 5 }}>
+              <BotonFormularConvocatoria conv={c} tamano={22} />
+            </span>
 
           </article>
         );

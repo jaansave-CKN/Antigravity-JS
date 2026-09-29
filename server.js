@@ -48,6 +48,7 @@ import { alertarErrorServidor } from './backend/services/alertaErrores.js';
 import { faltantesViabilidad, respuesta422 } from './backend/services/datosMinimosIA.js';
 import { resolverLlavesUsuario } from './backend/services/byokService.js';
 import { estadoOpenRouter, generarConIA, buscarConGroundingServidor } from './backend/services/llmProveedor.js';
+import { buscarPorTexto, estadoBusquedaSemantica } from './backend/agents/radar/index.js';
 import { configurarTopeSistema, topeSistemaDia } from './backend/services/iaTopeSistema.js';
 import { configurarFlagsIA, leerFlagsIA, fijarFlagIA } from './backend/services/iaFlags.js';
 import { estadoApis } from './backend/services/apisEstado.js';
@@ -4293,36 +4294,32 @@ Reglas:
     if (result.error) return res.status(500).json({ success: false, error: result.error });
     res.json({ success: true, message: 'Columna fuente reparada: R2=RASTREO_WEB_EXTERNO, R1=RASTREO_DIRECTORIO' });
   }));
+  // Búsqueda semántica de PRODUCCIÓN (pantalla /busqueda-semantica, 2026-09-29;
+  // dictamen architect C1-C6). La orquestación vive en el coordinador A
+  // (buscarPorTexto): BD no verificable / catálogo sin vectores / embeddings
+  // caídos → 503 con código propio y X-RF-No-Retry (el cliente no reintenta ni
+  // paga dos veces el embedding). Nunca se inventan resultados.
+  app.get('/api/radar/busqueda-semantica/estado', authenticateToken, requireAccess('radar'), tryCatch(async (_req, res) => {
+    const r = await estadoBusquedaSemantica();
+    if (!r.ok) { res.set('X-RF-No-Retry', '1'); return res.status(r.status).json({ success: false, code: r.code, message: 'No se pudo verificar el catálogo en este momento.' }); }
+    res.json({ success: true, data: { cobertura: r.cobertura } });
+  }));
   app.post('/api/radar/buscar-masivo', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
     const validacionBm = validarBody(busquedaSemanticaSchema, req.body);
     if (!validacionBm.ok) return res.status(400).json({ success: false, message: validacionBm.message });
-    const { texto, limit = 20, threshold = 0.30 } = validacionBm.data;
-    const qVec   = await textToEmbedding(texto.trim());
-    const vecStr = JSON.stringify(qVec); // "[0.1,-0.45,...]" — compatible con pgvector
-    const usePg  = !!process.env.DATABASE_URL;
-    const lim    = Math.min(Number(limit) || 20, 50);
-    const thr    = Number(threshold) || 0.30;
-    let resultados = [];
-    if (usePg) {
-      resultados = await getRows(
-        `SELECT id, titulo, donante, descripcion, monto_min, monto_max, fecha_limite, estado,
-                round((1 - (embedding_vec <=> $1::vector))::numeric, 4) AS similitud
-         FROM convocatorias
-         WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL AND estado != 'cerrada'
-           AND (1 - (embedding_vec <=> $1::vector)) >= $2
-         ORDER BY embedding_vec <=> $1::vector
-         LIMIT $3`,
-        [vecStr, thr, lim]
-      );
-    } else {
-      const convs = await getRows("SELECT id, titulo, donante, descripcion, monto_min, monto_max, fecha_limite, estado, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL AND estado != 'cerrada'", []);
-      resultados = convs
-        .map(c => ({ ...c, embedding: undefined, similitud: Math.round(cosineSimilarity(qVec, deserializeEmbedding(c.embedding)) * 10000) / 10000 }))
-        .filter(c => c.similitud >= thr)
-        .sort((a, b) => b.similitud - a.similitud)
-        .slice(0, lim);
+    const { texto, limit, threshold } = validacionBm.data;
+    const r = await buscarPorTexto({ texto, limit, threshold });
+    if (!r.ok) {
+      if (r.detalleInterno) logger.warn('[busqueda-semantica] embeddings no disponibles', { err: r.detalleInterno });
+      const mensajes = {
+        CATALOGO_SIN_EMBEDDINGS: 'El catálogo se está indexando. La búsqueda semántica estará disponible pronto.',
+        IA_NO_DISPONIBLE: 'No se pudo procesar la búsqueda en este momento.',
+        BUSQUEDA_NO_VERIFICABLE: 'No se pudo verificar el catálogo en este momento.',
+      };
+      res.set('X-RF-No-Retry', '1');
+      return res.status(r.status).json({ success: false, code: r.code, message: mensajes[r.code] || 'Búsqueda no disponible.', cobertura: r.cobertura });
     }
-    res.json({ success: true, resultados, total: resultados.length, motor: usePg ? 'pgvector·HNSW' : 'js-coseno' });
+    res.json({ success: true, resultados: r.resultados, total: r.resultados.length, motor: r.motor, cobertura: r.cobertura });
   }));
   // GET /api/radar/buscar?q= — búsqueda semántica (alias legacy de /api/ia/busqueda-semantica)
   // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): alias sin auth ni
