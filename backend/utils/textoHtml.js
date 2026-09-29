@@ -50,6 +50,12 @@ export function decodificarEntidades(texto) {
       const cp = cuerpo[1] === 'x' || cuerpo[1] === 'X' ? parseInt(cuerpo.slice(2), 16) : parseInt(cuerpo.slice(1), 10);
       return codigoPermitido(cp) ? String.fromCodePoint(cp) : completa;
     }
-    return Object.hasOwn(NOMBRADAS, cuerpo) ? NOMBRADAS[cuerpo] : completa;
+    if (Object.hasOwn(NOMBRADAS, cuerpo)) return NOMBRADAS[cuerpo];
+    // "&quotMUJERES" (el ';' lo borró sanitizeInput): quot/apos se decodifican
+    // aunque las siga una letra, porque " y ' no pueden formar otra entidad —
+    // sigue siendo una sola pasada idempotente. Las demás ("&amplt") quedan igual.
+    const prefijo = /^(quot|apos)(?=[A-Za-z0-9])/.exec(cuerpo);
+    if (prefijo && !completa.endsWith(';')) return NOMBRADAS[prefijo[1]] + cuerpo.slice(prefijo[1].length);
+    return completa;
   });
 }

@@ -32,6 +32,12 @@ test('una sola pasada, nombres desconocidos intactos y códigos peligrosos recha
   assert.equal(decodificarEntidades('&amp;lt;b&amp;gt;'), '&lt;b&gt;', 'nunca itera hasta estabilizar');
   assert.equal(decodificarEntidades('&amplt'), '&amplt', 'nombrada sin ";" seguida de letra: intacta');
   assert.equal(decodificarEntidades('&copy2024'), '&copy2024');
+  // Casos reales en producción tras el primer saneamiento: quot/apos pegados a una letra.
+  assert.equal(decodificarEntidades('CONVOCATORIA DE MOVILIDAD &quotMUJERES CIENTÍFICAS"'), 'CONVOCATORIA DE MOVILIDAD "MUJERES CIENTÍFICAS"');
+  assert.equal(decodificarEntidades('&quotMUJERES ECHANDO RAICES'), '"MUJERES ECHANDO RAICES');
+  assert.equal(decodificarEntidades("l&aposAgence"), "l'Agence");
+  assert.equal(decodificarEntidades(decodificarEntidades('&quotX &amplt')), '"X &amplt', 'idempotente; &amplt sigue intacto');
+  assert.equal(decodificarEntidades('&quotation;'), '&quotation;', 'con ";" final es otra entidad desconocida: intacta');
   for (const peligroso of ['&#1', '&#x202E', '&#x2066', '&#xD800', '&#9999999', '&#x110000', '&#127', '&#x9F']) {
     assert.equal(decodificarEntidades(`a ${peligroso} b`), `a ${peligroso} b`, `${peligroso} queda como texto`);
   }
