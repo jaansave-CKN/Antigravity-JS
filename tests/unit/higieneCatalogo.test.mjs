@@ -38,6 +38,14 @@ test('una sola pasada, nombres desconocidos intactos y códigos peligrosos recha
   assert.equal(decodificarEntidades("l&aposAgence"), "l'Agence");
   assert.equal(decodificarEntidades(decodificarEntidades('&quotX &amplt')), '"X &amplt', 'idempotente; &amplt sigue intacto');
   assert.equal(decodificarEntidades('&quotation;'), '&quotation;', 'con ";" final es otra entidad desconocida: intacta');
+  // &amp pegado a mayúscula (R&D), casos reales; nunca si el resto es otra entidad.
+  assert.equal(decodificarEntidades('Farming Futures R&ampD fund'), 'Farming Futures R&D fund');
+  assert.equal(decodificarEntidades('Local Communities (IP&ampLCs)'), 'Local Communities (IP&LCs)');
+  assert.equal(decodificarEntidades('&ampAacute'), '&ampAacute', 'el resto sería "&Aacute": intacto');
+  assert.equal(decodificarEntidades('&ampQuotX'), '&QuotX', 'mayúscula no es quot: se decodifica solo el amp');
+  for (const s of ['R&ampD', 'IP&ampLCs', '&ampAacute', '&ampQuotX', '&amplt']) {
+    assert.equal(decodificarEntidades(decodificarEntidades(s)), decodificarEntidades(s), `${s}: idempotente`);
+  }
   for (const peligroso of ['&#1', '&#x202E', '&#x2066', '&#xD800', '&#9999999', '&#x110000', '&#127', '&#x9F']) {
     assert.equal(decodificarEntidades(`a ${peligroso} b`), `a ${peligroso} b`, `${peligroso} queda como texto`);
   }
