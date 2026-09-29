@@ -31,7 +31,7 @@ class StoreFalso { async increment() { return { totalHits: 1, resetTime: new Dat
 mock.module(u('middlewares/PostgresRateLimitStore.js'), { namedExports: { PostgresRateLimitStore: StoreFalso } });
 
 const { requireAdmin } = await import(u('middlewares/auth.middleware.js'));
-const { importToConvocatorias, prepararFilaConvocatoria, MAX_FILAS_IMPORTACION } = await import(u('pipeline/FileImporter.js'));
+const { importToConvocatorias, prepararFilaConvocatoria, MAX_FILAS_IMPORTACION, parseCSVBuffer } = await import(u('pipeline/FileImporter.js'));
 const { motivoBasura, esRuidoDeNavegacion } = await import(u('utils/tituloBasura.js'));
 const { normalizarFechaLimite, calcEstado } = await import(u('utils/fechasConvocatoria.js'));
 const { planificarPurga, TOPE } = await import(u('scripts/purgarBasuraCatalogo.mjs'));
@@ -84,6 +84,15 @@ test('F2: prepararFilaConvocatoria mapea al esquema real (montos, moneda, fechas
   assert.equal(num.datos.estado, 'cerrada');
 
   assert.equal(prepararFilaConvocatoria({ titulo: 'Fondo para huertas escolares', url: 'https://x.org/y', monto: '30' }, COLS).datos.montoMax, 0, 'monto imposible → 0');
+});
+
+test('F2: camino REAL desde el CSV — ";" separa sectores (sanitizeInput ya no los funde) y las entidades se decodifican', async () => {
+  const filas = await parseCSVBuffer(Buffer.from('titulo,url,sectores,descripcion\n"R&amp;D fund for water",https://fund.org/rd,"Agua; Saneamiento","Fase 1; fase 2"\n', 'utf8'));
+  const p = prepararFilaConvocatoria(filas[0], COLS);
+  assert.equal(p.ok, true);
+  assert.deepEqual(p.datos.sectores, ['Agua', 'Saneamiento'], 'verificado en producción: antes quedaba ["Agua Saneamiento"]');
+  assert.equal(p.datos.titulo, 'R&D fund for water');
+  assert.equal(p.datos.descripcion, 'Fase 1, fase 2');
 });
 
 test('F2: filas inválidas se rechazan con motivo claro y la basura se omite', () => {
