@@ -85,7 +85,7 @@ export const MODULOS = {
     'backend/services/aiTokenLogger.js', 'backend/services/byokService.js',
     'backend/services/embeddingsService.js', 'backend/services/nimCliente.js',
     'backend/services/llmProveedor.js', 'backend/services/openRouterCliente.js',
-    'backend/services/iaPresupuesto.js',
+    'backend/services/iaPresupuesto.js', 'backend/services/iaTopeSistema.js',
     'backend/services/logService.js', 'backend/services/alertaErrores.js', 'backend/services/emailService.js',
     'backend/pipeline/CryptoHelper.js', 'backend/pipeline/seed-predios.js',
     'backend/routes/authGoogle.controller.js', 'backend/routes/byokCredentials.routes.js',

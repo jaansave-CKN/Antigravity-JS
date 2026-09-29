@@ -1,13 +1,11 @@
 /**
  * markitdownService.js
  * Convierte PDFs / DOCX / XLSX a Markdown vía CLI de MarkItDown (Python),
- * luego extrae campos estructurados de convocatoria con Gemini.
+ * luego extrae campos estructurados de convocatoria con IA vía llmProveedor
+ * (soloServidor: pool Gemini del servidor bajo el tope diario del sistema).
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { withKeyRotation } from './geminiCircuitBreaker.js';
-import { logTokenUsage } from './aiTokenLogger.js';
-import { conReintentoTransitorio } from './geminiReintento.js';
+import { generarConIA } from './llmProveedor.js';
 import { convertBufferToMarkdown } from '../utils/fileConverters.js';
 
 // Extensiones soportadas por MarkItDown
@@ -65,51 +63,35 @@ ${md.slice(0, 8000)}`;
  * @param {string} markdown
  * @returns {Promise<{titulo,descripcion,fecha_limite,monto_max,moneda}|null>}
  */
-// REFACTOR (2026-08-19, pool de llaves): withKeyRotation() crea un cliente
-// por intento y rota entre llaves ante 429 — antes un solo cliente cacheado
-// con una sola llave, y ni siquiera pasaba por geminiCB. Mismo contrato:
-// nunca lanza, retorna null ante cualquier fallo real o pool agotado.
+// 2026-09-28 (directiva "Contención y sincronización de núcleo"): pasa por
+// llmProveedor.generarConIA({ soloServidor: true }) — solo pool Gemini del
+// servidor, tope DURO diario de tokens del sistema (iaTopeSistema.js) y FinOps
+// bajo 'sistema-radar-batch'/'markitdown-extract' (lo registra llmProveedor).
+// maxTokens 2048: gemini-3.6-flash razona y esos tokens cuentan contra el
+// límite. Un JSON cortado se descarta (permitirTruncado false), sin campos
+// inventados. Mismo contrato: NUNCA lanza, retorna null ante cualquier fallo
+// (tope, cuota, red, salida inválida) — EntityScraper lo llama en background.
 export async function extractConvocatoriaFields(markdown) {
   if (!markdown || markdown.length < 80) return null;
 
   try {
-    const { campos, usage } = await withKeyRotation(async (apiKey) => {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): sin
-      // maxOutputTokens, igual que sectorClassifier.js — inconsistencia
-      // real frente a arbolObjetivosAgent.js (mismo SDK, sí lo fija). El
-      // JSON de salida es acotado (5 campos cortos), 1024 es holgado.
-      const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash', generationConfig: { maxOutputTokens: 1024 } });
-      const result = await conReintentoTransitorio(() => model.generateContent(EXTRACT_PROMPT(markdown)), { origen: 'markitdown' });
-      // LOTE 9: un JSON cortado se descarta con motivo explícito (antes caía en silencio a null).
-      if (result.response.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
-        console.warn('[markitdown] Respuesta de Gemini truncada por maxOutputTokens (1024) — se descarta, sin campos inventados');
-        throw new Error('Respuesta de Gemini truncada (maxOutputTokens)');
-      }
-      const text = result.response.text().trim();
-      const match = text.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error('Respuesta de Gemini sin JSON');
-      const parsed = JSON.parse(match[0]);
-      return {
-        campos: {
+    const r = await generarConIA({
+      userId: 'sistema-radar-batch', agente: 'markitdown-extract', soloServidor: true, maxTokens: 2048,
+      messages: [{ role: 'user', content: EXTRACT_PROMPT(markdown) }],
+      validar: (texto) => {
+        const match = texto.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error('Respuesta sin JSON');
+        const parsed = JSON.parse(match[0]);
+        return {
           titulo:       String(parsed.titulo       ?? '').slice(0, 255),
           descripcion:  String(parsed.descripcion  ?? '').slice(0, 500),
           fecha_limite: String(parsed.fecha_limite ?? '').slice(0, 20),
           monto_max:    Number(parsed.monto_max    ?? 0) || 0,
           moneda:       String(parsed.moneda       ?? '').slice(0, 10),
-        },
-        usage: result.response.usageMetadata || {},
-      };
+        };
+      },
     });
-    // FinOps (auditoría PROTOCOLO 5x5): igual que sectorClassifier.js, este
-    // archivo nunca llamaba logTokenUsage — invisible en /api/admin/finops.
-    // Se dispara desde EntityScraper.js en background, sin userId real.
-    logTokenUsage({
-      userId: 'sistema-radar-batch', agentName: 'markitdown-extract',
-      tokensInput: usage.promptTokenCount ?? 0,
-      tokensOutput: usage.candidatesTokenCount ?? 0,
-    }).catch(() => {});
-    return campos;
+    return r.valor;
   } catch {
     return null;
   }

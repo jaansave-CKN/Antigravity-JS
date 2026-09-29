@@ -12,9 +12,15 @@
  *   - B1: persistencia en project_formulador_mga (migración 072, append-only),
  *     nunca en ficha_tecnica: allí se perdería o se podría falsificar desde el
  *     navegador (PUT /api/proyectos/:id acepta ficha_tecnica del cliente).
- *   - Sin byokGate: el modelo es deepseek-v4.1-flash en NVIDIA NIM con la
- *     llave del servidor; las llaves BYOK del usuario son de Gemini.
- *     aiLimiter (20/h por usuario) sigue acotando el gasto.
+ *   - Sin byokGate: el modelo primario es deepseek-v4.1-flash en NVIDIA NIM
+ *     con la llave del servidor. Desde 2026-09-28 (decisión del dueño), si
+ *     NIM falla o está apagado, formuladorMga.consolidarMGA cae a la cascada
+ *     de llmProveedor (OpenRouter con tope USD del usuario → pool Gemini →
+ *     BYOK). aiLimiter (20/h por usuario) sigue acotando el gasto.
+ *   - Candado en memoria por (usuario, proyecto) → 409 MGA_EN_CURSO: el POST
+ *     puede durar hasta ~170 s (NIM + cascada); un segundo POST (otra pestaña,
+ *     doble clic) nunca dispara una segunda consulta cobrada. Una sola
+ *     instancia en Render (render.yaml), por eso basta un Set en memoria.
  */
 import { withTenantRow, withTenantRows } from '../config/database.config.js';
 import { captureError } from '../config/sentry.config.js';
@@ -45,6 +51,8 @@ async function contexto(proyectoId, userId) {
   return { proyecto, deps };
 }
 
+const MGA_EN_CURSO = new Set();
+
 export function registerFormuladorMgaRoutes(app, { authenticateToken, requireAccess, aiLimiter }) {
   app.post('/api/proyectos/:id/formulador-mga', authenticateToken, requireAccess('formulador'), aiLimiter, wrap(async (req, res) => {
     const { proyecto, deps } = await contexto(req.params.id, req.userId);
@@ -54,7 +62,17 @@ export function registerFormuladorMgaRoutes(app, { authenticateToken, requireAcc
     const faltantes = faltantesFormulador(meta);
     if (faltantes.length) return res.status(422).json(respuesta422('el Formulador MGA', faltantes));
 
-    const r = await consolidarMGA(datos, { userId: req.userId });
+    const candado = `${req.userId}:${req.params.id}`;
+    if (MGA_EN_CURSO.has(candado)) {
+      return res.status(409).set('X-RF-No-Retry', '1').json({ success: false, code: 'MGA_EN_CURSO', message: 'Ya hay una consolidación MGA en curso para este proyecto. Espera a que termine.' });
+    }
+    MGA_EN_CURSO.add(candado);
+    let r;
+    try {
+      r = await consolidarMGA(datos, { userId: req.userId });
+    } finally {
+      MGA_EN_CURSO.delete(candado);
+    }
     const fila = await withTenantRow(req.userId,
       `INSERT INTO project_formulador_mga (project_id, org_id, estado, motivo, bloques, descartados, huella_fuentes, modelo, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,

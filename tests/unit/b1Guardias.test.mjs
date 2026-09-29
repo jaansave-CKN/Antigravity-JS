@@ -37,7 +37,7 @@ test('solo openRouterCliente.js llama al endpoint de chat de OpenRouter', () => 
 });
 
 test('REGLA DE ORO: los servicios de IA del Formulador no fabrican un resultado de respaldo', () => {
-  for (const rel of ['backend/services/viabilidadAgent.js', 'backend/services/CopilotoService.js', 'backend/services/mirofishComite.js', 'backend/services/EntradaIAService.js', 'backend/agents/arbolObjetivosAgent.js']) {
+  for (const rel of ['backend/services/viabilidadAgent.js', 'backend/services/CopilotoService.js', 'backend/services/mirofishComite.js', 'backend/services/EntradaIAService.js', 'backend/agents/arbolObjetivosAgent.js', 'backend/services/formuladorMga.js']) {
     const src = codigo(leer(rel));
     assert.doesNotMatch(src, /fuente:\s*'heuristica'/, `${rel}: resultado heurístico etiquetado`);
     assert.doesNotMatch(src, /calcularViabilidadHeuristica|respuestaRespaldo\(/, `${rel}: función de respaldo`);
