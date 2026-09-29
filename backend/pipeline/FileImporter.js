@@ -38,11 +38,14 @@ async function importCsvParse() {
 // ── Sanitización de fila completa ─────────────────────────────────────────────
 // Decodificar ANTES de sanitizar (textoHtml.js): un "&lt;script&gt;" decodificado
 // es "<script>" y sanitizeInput lo elimina. Números y fechas quedan intactos.
+// sanitizeInput borra todo ';' — se convierte antes en ',' para no fundir
+// valores ("Agua; Saneamiento" quedaba "Agua Saneamiento", verificado en
+// producción 2026-09-29).
 function sanitizeRow(row) {
   const clean = {};
   for (const [k, v] of Object.entries(row)) {
     const key = sanitizeInput(String(k)).toLowerCase().replace(/\s+/g, '_');
-    clean[key] = typeof v === 'string' ? sanitizeInput(decodificarEntidades(v)) : (v ?? '');
+    clean[key] = typeof v === 'string' ? sanitizeInput(decodificarEntidades(v).replace(/;/g, ',')) : (v ?? '');
   }
   return clean;
 }
