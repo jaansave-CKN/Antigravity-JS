@@ -44,6 +44,13 @@ interface Exito { proyecto_id: string; nombre: string; redirect_to: string }
 
 const PASOS = ['Validando acceso', 'Creando proyecto', 'Abriendo Check-List'];
 
+const boton = (primario: boolean): React.CSSProperties => ({
+  height: 40, padding: '0 18px', borderRadius: 8, fontSize: 14, fontWeight: 700, fontFamily: UI, cursor: 'pointer',
+  background: primario ? C.primario : C.blanco, color: primario ? C.blanco : C.texto,
+  border: primario ? 'none' : `1px solid ${C.borde}`,
+});
+
+
 function Stepper({ estados }: { estados: EstadoPaso[] }) {
   return (
     <ol aria-label="Progreso de la formulación" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', gap: 8 }}>
@@ -131,12 +138,6 @@ export default function PuenteFormularModal({ conv, onCerrar }: Props) {
     : fase === 'exito' ? ['hecho', 'hecho', 'en_curso']
     : fase === 'error' ? (status === 403 ? ['fallido', 'pendiente', 'pendiente'] : status === 404 ? ['hecho', 'fallido', 'pendiente'] : ['fallido', 'fallido', 'pendiente'])
     : ['pendiente', 'pendiente', 'pendiente'];
-
-  const boton = (primario: boolean): React.CSSProperties => ({
-    height: 40, padding: '0 18px', borderRadius: 8, fontSize: 14, fontWeight: 700, fontFamily: UI, cursor: 'pointer',
-    background: primario ? C.primario : C.blanco, color: primario ? C.blanco : C.texto,
-    border: primario ? 'none' : `1px solid ${C.borde}`,
-  });
 
   return createPortal(
     <div

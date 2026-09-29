@@ -62,8 +62,11 @@ function Ilustracion() {
   );
 }
 
+const barra = (w: string, h = 12) => <span style={{ display: 'block', width: w, height: h, borderRadius: 4, background: C.bloque }} />;
+
+const etiqueta: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: C.secundario, display: 'flex', flexDirection: 'column', gap: 6 };
+
 function Skeleton() {
-  const barra = (w: string, h = 12) => <span style={{ display: 'block', width: w, height: h, borderRadius: 4, background: C.bloque }} />;
   return (
     <div aria-hidden="true" style={{ background: C.blanco, border: `1px solid ${C.bordeSuave}`, borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>{barra('60%', 16)}{barra('56px', 22)}</div>
@@ -145,8 +148,6 @@ export default function BusquedaSemanticaPage() {
       setBuscando(false);
     }
   }, [limite, afinidad]);
-
-  const etiqueta: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: C.secundario, display: 'flex', flexDirection: 'column', gap: 6 };
 
   return (
     <div style={{ minHeight: 'calc(100vh - 48px)', background: C.fondo, color: C.texto, fontFamily: UI, padding: '32px 24px' }}>
