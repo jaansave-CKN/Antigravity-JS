@@ -159,7 +159,8 @@ export async function ingestConvocatorias() {
 
       for (const item of items) {
         try {
-          const titulo = sanitizeInput(item.titulo || '').slice(0, 255);
+          // ';' → ',' antes de sanitizeInput (que borra todo ';'); igual que EntityScraper.
+          const titulo = sanitizeInput(String(item.titulo || '').replace(/;/g, ',')).slice(0, 255);
           if (!titulo || titulo.length < 12) continue;
           // Basura curada (backend/utils/tituloBasura.js): galerías, logins…
           if (esTituloBasura(titulo)) { fuenteReport.skipped++; continue; }
@@ -246,7 +247,7 @@ export async function ingestConvocatorias() {
               source.nombre,
               directEntidadId,
               'RASTREO_WEB_EXTERNO',
-              sanitizeInput(item.descripcion || '').slice(0, 800),
+              sanitizeInput(String(item.descripcion || '').replace(/;/g, ',')).slice(0, 800),
               0, montoMax,
               moneda,
               JSON.stringify([source.pais]),
