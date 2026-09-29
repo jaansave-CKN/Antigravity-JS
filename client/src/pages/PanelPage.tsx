@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContextNew';
 import { http } from '../lib/apiClient';
+import BunkerApisPanel from '../components/panel/BunkerApisPanel';
 
 // ── Stitch scr_panel_control_360 — Dark-mode token map (source: index.css :root)
 // Light token → CSS var → resolved hex
@@ -624,6 +625,9 @@ export default function PanelPage() {
                 : 'Desactivado — el barrido autónomo no invocará Gemini.'}
             </p>
           </div>
+
+          {/* ── Proveedores de IA — solo admin (null para el resto) ── */}
+          <BunkerApisPanel />
 
           {/* ── Matriz de Palabras Clave — Barrido Gemini ── */}
           <div style={{

@@ -18,6 +18,7 @@
  * consume tokens), respuesta cortada (finish_reason 'length') = error explícito.
  */
 import { fetchGeminiConReintento } from './geminiReintento.js';
+import { leerFlagsIA } from './iaFlags.js';
 
 export const NIM_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 export const MAX_TOKENS_NIM = 8192;
@@ -39,12 +40,15 @@ export function limpiarRazonamiento(texto) {
 
 /**
  * @returns {Promise<{ texto: string, usage: object, modelo: string }>}
- * @throws {NimError} motivos: sin_llave_nvidia | llave_rechazada | cuota_nvidia |
+ * @throws {NimError} motivos: sin_llave_nvidia | deshabilitado_por_admin | llave_rechazada | cuota_nvidia |
  *   modelo_saturado | error_http | respuesta_truncada | respuesta_vacia
  */
 export async function llamarNim({ model, messages, max_tokens = MAX_TOKENS_NIM, temperature = 0.2, top_p = 0.9, timeoutMs = 90_000, origen = 'nim' }) {
   const llave = (process.env.NVIDIA_API_KEY || '').trim();
   if (!llave) throw new NimError('sin_llave_nvidia', 'NVIDIA_API_KEY no configurada en el servidor');
+  // Interruptor del admin (Búnker de Conexiones, 2026-09-28) — después de la
+  // llave a propósito: sin llave el motivo sigue siendo sin_llave_nvidia.
+  if (!(await leerFlagsIA()).nvidia) throw new NimError('deshabilitado_por_admin', 'NVIDIA NIM deshabilitado por el administrador');
   const res = await fetchGeminiConReintento(NIM_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${llave}`, 'Content-Type': 'application/json', Accept: 'application/json' },

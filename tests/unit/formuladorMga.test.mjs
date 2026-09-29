@@ -273,3 +273,17 @@ test('cascada con tope USD agotado → no_disponible tope_agotado (motivo legibl
 test('guardia: el tope de tokens de NIM no baja de 8192 (el razonamiento consume tokens)', () => {
   assert.ok(MAX_TOKENS_NIM >= 8192);
 });
+
+test('Búnker: NVIDIA apagado por el admin → 0 llamadas a NIM y el MGA cae a la cascada (integración #38×#41)', async () => {
+  process.env.NVIDIA_API_KEY = 'nvapi-prueba';
+  const { configurarFlagsIA, _reiniciarFlagsIA } = await import('../../backend/services/iaFlags.js');
+  configurarFlagsIA({ getRow: async (sql, [clave]) => (clave === 'ia_flag_nvidia' ? { value: 'false' } : null), runSql: async () => ({}) });
+  try {
+    let llamadas = 0;
+    globalThis.fetch = async () => { llamadas++; return respuestaNim('{}'); };
+    cascada.llamadas.length = 0;
+    cascada.impl = async (op) => ({ valor: op.validar(jsonMga), modelo: 'gemini-3.6-flash' });
+    const r = await F.consolidarMGA(DATOS, { userId: 'u1' });
+    assert.deepEqual([r.estado, r.modelo, llamadas, cascada.llamadas.length], ['ok', 'gemini-3.6-flash', 0, 1]);
+  } finally { _reiniciarFlagsIA(); }
+});
