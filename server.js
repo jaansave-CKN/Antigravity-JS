@@ -25,7 +25,7 @@ import {
   patchProyectoSchema,
   arbolGenerarSchema, arbolNodoPatchSchema, indicadorSchema,
   fichaTecnicaMergeSchema,
-  modulo8AgenteStatusSchema, restoreImportarTipoSchema,
+  restoreImportarTipoSchema,
 } from './backend/validators/zodSchemas.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
 import { startScheduler, runManualIngest, pauseScheduler, resumeScheduler } from './backend/pipeline/CronScheduler.js';
@@ -684,16 +684,6 @@ async function initDb() {
     pipeline_version TEXT NOT NULL DEFAULT 'v1',
     calculado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(proyecto_id, convocatoria_id)
-  )`);
-  await runSql(`CREATE TABLE IF NOT EXISTS agentes_registro (
-    id TEXT PRIMARY KEY,
-    nombre TEXT UNIQUE NOT NULL,
-    version TEXT NOT NULL DEFAULT 'v1',
-    modulo TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','INACTIVE','DEPRECATED')),
-    configuracion TEXT DEFAULT '{}',
-    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
   // Tabla de predios (seedPredios la necesita al arranque)
   await runSql(`CREATE TABLE IF NOT EXISTS predios (
@@ -4883,29 +4873,6 @@ Reglas:
     );
 
     res.json({ success: true, data: resultado });
-  }));
-
-  // F4-05: Módulo 8 - Modularidad y Registro
-  app.get('/api/modulo8/agentes', authenticateToken, tryCatch(async (req, res) => {
-    if (req.userRole !== 'admin') return res.status(401).json({ success: false });
-    const agentes = await getRows('SELECT * FROM agentes_registro');
-    res.json({ success: true, data: agentes });
-  }));
-  app.put('/api/modulo8/agentes/:nombre/status', authenticateToken, tryCatch(async (req, res) => {
-    if (req.userRole !== 'admin') return res.status(401).json({ success: false });
-    const validacionAgenteStatus = validarBody(modulo8AgenteStatusSchema, req.body);
-    if (!validacionAgenteStatus.ok) return res.status(400).json({ success: false, message: validacionAgenteStatus.message });
-    const { status } = validacionAgenteStatus.data;
-    const IMMUTABLE_AGENTS = ['validacion-estructural-v1', 'materials-filter-v1', 'crosscheck-validator-v1'];
-    if (IMMUTABLE_AGENTS.includes(req.params.nombre) && status !== 'ACTIVE') {
-      return res.status(403).json({
-        success: false,
-        code: 'AGENT_IMMUTABLE',
-        message: 'Este agente implementa una regla de negocio inmutable y no puede desactivarse.',
-      });
-    }
-    await runSql('UPDATE agentes_registro SET status = ?, actualizado_en = CURRENT_TIMESTAMP WHERE nombre = ?', [status, req.params.nombre]);
-    res.json({ success: true });
   }));
 
   // V8.0 — Suscripciones y Puente M2

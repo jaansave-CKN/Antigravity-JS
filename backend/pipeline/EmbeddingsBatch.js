@@ -25,8 +25,8 @@
  * directa a Postgres: el modo REST degradado no soporta ON CONFLICT.
  *
  * Disparadores: CLI (scripts/embeddings-batch.mjs), POST admin
- * /api/radar/embeddings/batch, y cron 03:45 COT SOLO si
- * EMBEDDINGS_BATCH_ENABLED=true (apagado por defecto).
+ * /api/radar/embeddings/batch, y cron 03:45 COT (encendido por defecto desde
+ * 2026-09-28; se apaga solo con EMBEDDINGS_BATCH_ENABLED=false).
  * Costo del SISTEMA: no descuenta del tope de IA por usuario (iaPresupuesto).
  */
 import { getRow, getRows, runSql, dbStatus } from '../config/database.config.js';

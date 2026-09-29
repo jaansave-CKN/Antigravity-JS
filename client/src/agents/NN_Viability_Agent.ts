@@ -10,13 +10,15 @@
  *    experto de dominio antes de usarse en decisiones de negocio reales.
  *
  * 2. `runViabilidadIA(proyectoId)` — dictamen de viabilidad del PROYECTO
- *    (no de su estilo comunicacional), respaldado por Gemini real vía
- *    `POST /api/proyectos/:id/viabilidad-ia`. La API key de Google nunca
- *    sale del backend — este archivo solo hace fetch al proxy, igual que
- *    el resto de servicios de IA de la app. El backend consulta
- *    ficha_tecnica/presupuesto/anexos reales del proyecto y persiste el
- *    resultado; si Gemini no está disponible, el backend degrada a un
- *    cálculo heurístico determinista (nunca falla, nunca inventa datos).
+ *    (no de su estilo comunicacional), vía
+ *    `POST /api/proyectos/:id/viabilidad-ia`. Las llaves de IA nunca salen
+ *    del backend — este archivo solo hace fetch al proxy. El backend consulta
+ *    ficha_tecnica/presupuesto/anexos reales del proyecto y usa la cascada de
+ *    backend/services/llmProveedor.js (OpenRouter con tope por usuario → pool
+ *    Gemini del servidor → llave propia del usuario). Si ningún proveedor
+ *    responde, el backend devuelve un error (503 IA_NO_DISPONIBLE o 429
+ *    IA_TOPE_AGOTADO) — NO hay respaldo heurístico: se eliminó en B1
+ *    (2026-09-28) para no presentar un dictamen inventado como si fuera real.
  *
  * Patrón estructural de la rúbrica adaptado de mirofish-guide (evaluation
  * rubric + staged pipeline). Importado y usado activamente por
@@ -268,7 +270,7 @@ export function runNN_ViabilityAgent(cfg: ConfigViabilidad): ResultadoAgente {
   return { scoreTotal, banda: interpretarBanda(scoreTotal), dimensiones, pipeline, alertas, acciones, metadatos: cfg.metadatos };
 }
 
-// ── Motor de Viabilidad del PROYECTO respaldado por Gemini real ──────────────
+// ── Motor de Viabilidad del PROYECTO (IA real vía llmProveedor, sin heurística) ─
 // Distinto de runNN_ViabilityAgent (rúbrica comunicacional, sin IA, arriba).
 
 export interface ViabilidadIAResultado {
@@ -277,15 +279,16 @@ export interface ViabilidadIAResultado {
   analisis_escala_poblacion: { proporcion_logica: boolean; veredicto_escala: string; alerta: string };
   cruce_anexos: { respaldo_financiero_detectado: boolean; marco_normativo_validado: boolean; brechas_detectadas: string[] };
   teoria_del_cambio_generada: { supuestos: string[]; resultados_esperados: string[] };
-  fuente: string;        // 'gemini-2.0-flash' | 'heuristica'
+  fuente: string;        // modelo real que respondió (p. ej. 'anthropic/claude-sonnet-5' o 'gemini-3.6-flash')
   calculadoEn: string;
 }
 
 /**
  * Llama a POST /api/proyectos/:id/viabilidad-ia — el backend carga ficha
- * técnica, presupuesto y anexos reales del proyecto, calcula el dictamen
- * con Gemini (o heurística si no hay cuota/API key) y persiste el resultado.
- * Nunca envía ni maneja una API key de Gemini en el cliente.
+ * técnica, presupuesto y anexos reales del proyecto, calcula el dictamen con
+ * la cascada de IA del servidor y persiste el resultado. Si la IA no está
+ * disponible, lanza el error del servidor (sin dictamen de respaldo).
+ * Nunca envía ni maneja una llave de IA en el cliente.
  */
 export async function runViabilidadIA(proyectoId: string): Promise<ViabilidadIAResultado> {
   const res = await fetch(`/api/proyectos/${proyectoId}/viabilidad-ia`, {
