@@ -86,14 +86,15 @@ interface Props {
   textoReintentar?: string;
 }
 
+const boton: React.CSSProperties = {
+  height: 32, padding: '0 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+  fontFamily: "'Hanken Grotesk', sans-serif", textDecoration: 'none', display: 'inline-flex', alignItems: 'center',
+};
+
 export default function AvisoApiError({ error, onReintentar, textoReintentar = 'Reintentar' }: Props) {
   if (!error) return null;
   const a = avisoDe(error);
   const t = TONOS[a.tono];
-  const boton: React.CSSProperties = {
-    height: 32, padding: '0 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-    fontFamily: "'Hanken Grotesk', sans-serif", textDecoration: 'none', display: 'inline-flex', alignItems: 'center',
-  };
   return (
     <div
       role={a.tono === 'info' ? 'status' : 'alert'}
