@@ -135,11 +135,16 @@ export const aiLimiter = rateLimit({
   keyGenerator: (req) => req.userId ? ipKeyGenerator(req.userId) : getRateLimitKey(req),
   standardHeaders: true,
   legacyHeaders: false,
-  handler: (_req, res) => {
+  // retryAt (2026-09-29): hora REAL en que se libera la ventana (la conoce
+  // express-rate-limit en req.rateLimit.resetTime) — el banner del cliente la
+  // muestra en vez de un "intenta más tarde" sin dato. Campo aditivo.
+  handler: (req, res) => {
+    const reset = req.rateLimit?.resetTime;
     res.status(429).json({
       success: false,
       code: 'AI_RATE_LIMITED',
       message: 'Límite de consultas de IA alcanzado.',
+      retryAt: reset instanceof Date ? reset.toISOString() : null,
     });
   },
 });

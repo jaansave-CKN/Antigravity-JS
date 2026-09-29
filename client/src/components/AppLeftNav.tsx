@@ -10,10 +10,11 @@ const HIDDEN_ON = new Set(['/']);
 // requieren plan Radar (Radar/Panel/Directorio son públicos ahí y en main.tsx).
 // PILAR B completo requiere plan Formulador — las 10 rutas están detrás de
 // PlanGate require="formulador" en main.tsx.
-const PLAN_REQUERIDO_A = new Set(['/favoritos', '/calendario']);
+const PLAN_REQUERIDO_A = new Set(['/favoritos', '/calendario', '/busqueda-semantica']);
 
 const PILAR_A = [
   { to: '/radar',      label: 'Radar',           icon: 'radar'          },
+  { to: '/busqueda-semantica', label: 'Búsqueda semántica', icon: 'travel_explore' },
   { to: '/panel',      label: 'Panel',            icon: 'dashboard'      },
   { to: '/directorio', label: 'Directorio',       icon: 'contacts'       },
   { to: '/favoritos',  label: 'Favoritos',        icon: 'favorite'       },

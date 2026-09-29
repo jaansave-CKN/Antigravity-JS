@@ -16,6 +16,11 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: 'html',
+  // Timeouts ajustables SOLO por entorno local (máquinas lentas / IA real):
+  // E2E_TIMEOUT_MS y E2E_EXPECT_TIMEOUT_MS. Sin variables → los valores por
+  // defecto de Playwright (30s / 5s), idénticos a los que usa el CI.
+  timeout: Number(process.env.E2E_TIMEOUT_MS) || 30_000,
+  expect: { timeout: Number(process.env.E2E_EXPECT_TIMEOUT_MS) || 5_000 },
   use: {
     // El NAVEGADOR usa el mismo origen que VITE_API_URL (client/.env):
     // el frontend arma URLs absolutas con esa variable, y con otro origen la

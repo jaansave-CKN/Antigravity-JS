@@ -153,10 +153,15 @@ export const convocatoriaEstadoSchema = z.object({
 // IA / radar (búsqueda semántica, proxies Gemini)
 // ────────────────────────────────────────────────────────────────────────────
 
+// 2026-09-29 (pantalla de producción): se ACOTA en vez de rechazar (decisión
+// explícita, dictamen architect C3) — la pantalla usa 10/25/50 y afinidad
+// 0,25-0,90; el Dashboard DEV sigue enviando limit 20 sin romperse.
+const acotar = (min, max, porDefecto) => z.coerce.number().optional()
+  .transform(v => (Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : porDefecto));
 export const busquedaSemanticaSchema = z.object({
   texto: z.string().trim().min(1, 'texto requerido').max(4000),
-  limit: z.coerce.number().optional(),
-  threshold: z.coerce.number().optional(),
+  limit: acotar(1, 50, 25).transform(Math.round),
+  threshold: acotar(0.25, 0.9, 0.25),
 });
 
 export const barridoMasivoSchema = z.object({

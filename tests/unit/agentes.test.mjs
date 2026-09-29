@@ -60,7 +60,8 @@ test('evidencia real del repo: rutas registradas, BYOK y llamadores correctos', 
   assert.equal(ev.mirofish.rutasEv[0].byok, false);
   assert.ok(ev.mirofish.rutasEv[0].pantallas.some(p => p.endsWith('ViabilidadPage.tsx')));
   assert.equal(ev.lookupEntidad.rutasEv[0].byok, false, 'la búsqueda de entidades no exige BYOK');
-  assert.deepEqual(ev.busquedaSemantica.rutasEv.flatMap(r => r.pantallas), [], 'la búsqueda semántica no tiene pantalla real');
+  // OMEGA-7 (2026-09-29): la búsqueda semántica ya tiene pantalla real.
+  assert.deepEqual(ev.busquedaSemantica.rutasEv.flatMap(r => r.pantallas), ['client/src/pages/BusquedaSemanticaPage.tsx'], 'la búsqueda semántica tiene exactamente su pantalla real');
   assert.ok(ev.sectorClassifier.invocadores.some(i => i.ok));
 });
 

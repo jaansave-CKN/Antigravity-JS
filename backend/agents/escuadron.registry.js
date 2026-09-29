@@ -105,7 +105,7 @@ export const ESCUADRON = {
     },
     {
       nombre: 'busquedaSemantica (embeddingsService)',
-      descripcion: 'Embeddings vector(768) para búsqueda semántica (GET /api/radar/buscar, POST /api/radar/buscar-masivo). Estado 2026-09-28: 0 de 1866 convocatorias con embedding — devuelve vacío; generación por lotes suspendida hasta diseño de architect.',
+      descripcion: 'Embeddings vector(768) para búsqueda semántica. Pantalla de producción /busqueda-semantica (2026-09-29) → POST /api/radar/buscar-masivo vía el coordinador A (buscarPorTexto); el catálogo abierto lo vectoriza el lote nocturno EmbeddingsBatch (03:45 COT, encendido por defecto).',
       llamaLLM: true,
       invocadoDesde: ['server.js', 'backend/routes/anexos.routes.js'],
       exporta: { textToEmbedding },

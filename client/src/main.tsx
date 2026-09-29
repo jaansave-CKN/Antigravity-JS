@@ -47,6 +47,7 @@ const LogisticaPage          = lazy(() => import('./pages/LogisticaPage'));
 // este diseño y no gustó — RadarCalcoPage (LayoutPadre) vuelve a ser /radar.
 const RadarCalcoPage         = lazy(() => import('./pages/RadarCalcoPage'));
 const CalendarioPage         = lazy(() => import('./pages/CalendarioPage'));
+const BusquedaSemanticaPage  = lazy(() => import('./pages/BusquedaSemanticaPage'));
 const EntradaPage            = lazy(() => import('./pages/EntradaPage'));
 const DialecticaPage         = lazy(() => import('./pages/DialecticaPage'));
 const ViabilidadPage         = lazy(() => import('./pages/ViabilidadPage'));
@@ -320,6 +321,12 @@ function AppRoutes() {
         } />
         <Route path="/calendario" element={
           <PlanGate require="radar"><CalendarioPage /></PlanGate>
+        } />
+        {/* Búsqueda semántica de producción (2026-09-29, OMEGA-7). Sin el
+            prefijo /radar a propósito: el NavLink de /radar no tiene `end` y
+            se resaltarían los dos ítems (dictamen architect C14). */}
+        <Route path="/busqueda-semantica" element={
+          <PlanGate require="radar"><BusquedaSemanticaPage /></PlanGate>
         } />
         <Route path="/admin/usuarios-pendientes" element={<AdminUsuariosPendientesPage />} />
         <Route path="/admin/permisos" element={<AdminPermisosPage />} />

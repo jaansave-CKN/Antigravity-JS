@@ -4,6 +4,7 @@ import path from 'path';
 import pg from 'pg';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
+import { subirApuPorApi } from './helpers/apuFixture';
 
 /**
  * lote5-config-logistica.spec.ts — Lote 5 T1 (2026-09-24): endpoint AISLADO
@@ -67,8 +68,18 @@ test.describe.serial('Lote 5 — config_logistica (endpoint aislado)', () => {
     const db = new pg.Client({ connectionString: process.env.DATABASE_URL });
     await db.connect();
     await db.query('UPDATE usuarios SET byok_exento = true WHERE id = $1', [e.userId]);
+    const { rows: [lineas] } = await db.query('SELECT count(*)::int AS n FROM project_apu_lineas WHERE project_id = $1', [e.proyectoId]);
     await db.end();
     const api = await pwRequest.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5173', extraHTTPHeaders: { Authorization: `Bearer ${e.token}` } });
+    // Autosuficiente (2026-09-29): no depende del test anterior ni de
+    // formulador-financiero. Siembra por las APIs reales la ubicación/plazo
+    // (PATCH idempotente) y, si faltan, las líneas de presupuesto (APU).
+    const cfg = await api.patch(`/api/proyectos/${e.proyectoId}/config-logistica`, { data: { departamento: 'Cauca', municipio: 'Argelia', duracion_meses: 6 } });
+    expect(cfg.status(), await cfg.text()).toBe(200);
+    if (lineas.n === 0) {
+      const subida = await subirApuPorApi(api, e.proyectoId);
+      expect(subida.ok(), await subida.text()).toBeTruthy();
+    }
     const r = await api.post(`/api/proyectos/${e.proyectoId}/mirofish`, { data: {} });
     expect(r.status(), await r.text()).toBe(201);
     const ev = (await r.json()).data;
