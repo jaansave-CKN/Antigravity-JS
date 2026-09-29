@@ -221,7 +221,7 @@ export default function BusquedaSemanticaPage() {
             <p style={{ margin: 0, fontSize: 14, color: C.secundario, maxWidth: 520 }}>Escribe el problema, la población y el territorio de tu proyecto. Buscaremos por significado, no solo por palabras exactas.</p>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
               {EJEMPLOS.map(ej => (
-                <button key={ej} type="button" onClick={() => { setTexto(ej); buscar(ej); }} style={{ fontSize: 13, color: C.primario, background: C.blanco, border: `1px solid ${C.borde}`, borderRadius: 9999, padding: '6px 12px', cursor: 'pointer', fontFamily: UI }}>
+                <button key={ej} type="button" onClick={() => { setTexto(ej); buscar(ej); }} style={{ fontSize: 13, color: C.primario, background: C.blanco, border: `1px solid ${C.borde}`, borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontFamily: UI }}>
                   {ej}
                 </button>
               ))}

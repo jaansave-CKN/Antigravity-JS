@@ -14,6 +14,8 @@ import { sanitizeInput } from '../middlewares/SecurityMiddleware.js';
 import { invalidateRadarCache } from '../middlewares/radarCache.js';
 import { classifySectors } from '../services/sectorClassifier.js';
 import { getApexDomain } from '../utils/domainUtils.js';
+import { decodificarEntidades } from '../utils/textoHtml.js';
+import { extraerMonto, resolverMoneda, montoParaGuardar } from '../utils/montos.js';
 import { isPdfOrDoc, convertUrlToMarkdown, extractConvocatoriaFields } from '../services/markitdownService.js';
 
 // ── Scrapers especiales para entidades SPA o portales paginados ──────────────
@@ -31,10 +33,8 @@ async function fetchApcPortalItems() {
     'Accept-Language': 'es-CO,es;q=0.9',
   };
 
-  const decode = (s = '') => s
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
-    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  // Mismo decodificador que el resto de la ingesta (backend/utils/textoHtml.js).
+  const decode = (s = '') => decodificarEntidades(s.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 
   for (let page = 1; page <= APC_MAX_PAGES; page++) {
     const pageUrl = page === 1 ? APC_PORTAL_BASE : `${APC_PORTAL_BASE}?page=${page}`;
@@ -417,30 +417,13 @@ function isNoisyTitle(title) {
   return false;
 }
 
-// ── Extractor de monto por regex (sin Gemini) ────────────────────────────────
-// Busca patrones como "$50,000", "USD 1M", "€500K", "hasta 200.000 EUR",
-// "up to 100,000", "prize of $30K", "máximo 500.000 COP", "5 million USD", etc.
-const MONTO_RE = /(?:up\s+to|hasta|máximo|maximum|prize(?:\s+of)?|award(?:\s+of)?|fund(?:ing)?\s+of|total\s+de?|value\s+of|por\s+valor\s+de|subsidio\s+de|grant\s+of|monto\s+máximo|monto\s+de)\s*:?\s*(?:USD|EUR|COP|GBP|CAD|\$|€|£)\s*([\d,. ]+)\s*(M(?:illion)?|B(?:illion)?|K)?|(?:USD|EUR|COP|GBP|CAD|\$|€|£)\s*([\d,. ]+)\s*(M(?:illion)?|B(?:illion)?|K)?(?:\s*(?:USD|EUR|COP|GBP))?\b|([\d,. ]+)\s*(M(?:illion)?|B(?:illion)?|K)?\s+(?:USD|EUR|COP|GBP|CAD|dólares?|dollars?|euros?|pesos?)/i;
-
-const CURRENCY_MAP = { '$': 'USD', '€': 'EUR', '£': 'GBP' };
+// ── Extractor de monto (sin Gemini) ─────────────────────────────────────────
+// Parser único en backend/utils/montos.js. Aquí solo se extrae: la moneda de
+// un "$" suelto y la plausibilidad se resuelven en el INSERT, donde se conoce
+// el país de la entidad (dictamen architect B).
 function extractMontoFromText(text) {
-  if (!text || text.length < 3) return null;
-  const m = text.match(MONTO_RE);
-  if (!m) return null;
-  // Determinar moneda
-  let currency = 'USD';
-  const sym = m[0].match(/EUR|COP|GBP|CAD|USD|€|£|\$/i)?.[0] || '';
-  if (/EUR|€/.test(sym)) currency = 'EUR';
-  else if (/GBP|£/.test(sym)) currency = 'GBP';
-  else if (/COP/.test(sym)) currency = 'COP';
-  else if (/CAD/.test(sym)) currency = 'CAD';
-  // Determinar número
-  const numRaw = (m[1] || m[3] || m[5] || '').replace(/\s/g, '').replace(/,/g, '');
-  const num = parseFloat(numRaw);
-  if (!num || isNaN(num) || num <= 0) return null;
-  const suffix = (m[2] || m[4] || m[6] || '').toUpperCase();
-  const mult = suffix.startsWith('B') ? 1e9 : suffix.startsWith('M') ? 1e6 : suffix.startsWith('K') ? 1e3 : 1;
-  return { value: Math.round(num * mult), currency };
+  const info = extraerMonto(text);
+  return info ? { value: info.valor, currency: info.moneda, ambigua: info.ambigua } : null;
 }
 
 // Retorna true si itemUrl es la misma página de listado que sourceUrl,
@@ -461,8 +444,10 @@ export function isSameOrParentUrl(itemUrl, sourceUrl) {
 }
 
 // ── Helpers HTML ──────────────────────────────────────────────────────────────
+// Quita etiquetas y decodifica entidades (con o sin ';'): los filtros de
+// título/palabras clave y el INSERT reciben texto legible, no "&#039".
 function stripTags(s = '') {
-  return s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return decodificarEntidades(s.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
 function extractHref(html, baseUrl) {
   const m = html.match(/href=["']([^"']+)['"]/i);
@@ -503,7 +488,7 @@ function extractTableRows(html, baseUrl, skipFundingKw = false) {
     const url = extractHref(cells[0] + cells[1], baseUrl);
     const montoInfo = extractMontoFromText(allText);
     results.push({ titulo, url, descripcion: stripTags(cells[2] || ''),
-                   monto_max: montoInfo?.value || 0, moneda: montoInfo?.currency || '' });
+                   monto_max: montoInfo?.value || 0, moneda: montoInfo?.currency || '', monedaAmbigua: !!montoInfo?.ambigua });
   }
   return results;
 }
@@ -530,7 +515,7 @@ function extractCards(html, baseUrl, skipFundingKw = false) {
     const blockText = stripTags(block);
     const montoInfo = extractMontoFromText(blockText);
     results.push({ titulo, url, descripcion: descText.slice(0, 300),
-                   monto_max: montoInfo?.value || 0, moneda: montoInfo?.currency || '' });
+                   monto_max: montoInfo?.value || 0, moneda: montoInfo?.currency || '', monedaAmbigua: !!montoInfo?.ambigua });
   }
 
   // Divs con clases de tarjeta (div.card, div.item, div.entry, etc.)
@@ -548,7 +533,7 @@ function extractCards(html, baseUrl, skipFundingKw = false) {
     const blockText = stripTags(block);
     const montoInfo = extractMontoFromText(blockText);
     results.push({ titulo, url, descripcion: descText.slice(0, 300),
-                   monto_max: montoInfo?.value || 0, moneda: montoInfo?.currency || '' });
+                   monto_max: montoInfo?.value || 0, moneda: montoInfo?.currency || '', monedaAmbigua: !!montoInfo?.ambigua });
   }
 
   return results;
@@ -625,8 +610,11 @@ async function enrichPdfItems(items) {
         if (fields.titulo  && fields.titulo.length >= MIN_TITLE_LEN)  item.titulo       = fields.titulo;
         if (fields.descripcion)  item.descripcion  = fields.descripcion;
         if (fields.fecha_limite) item.fecha_limite = fields.fecha_limite;
-        if (fields.monto_max)    item.monto_max    = fields.monto_max;
-        if (fields.moneda)       item.moneda       = fields.moneda;
+        // El monto de Gemini pasa por la misma plausibilidad que el del regex.
+        if (fields.monto_max && montoParaGuardar(fields.monto_max, fields.moneda || item.moneda)) {
+          item.monto_max = fields.monto_max;
+          if (fields.moneda) { item.moneda = fields.moneda; item.monedaAmbigua = false; }
+        }
       }
       enriched++;
     } catch (e) {
@@ -863,9 +851,12 @@ export async function ingestDirectorioConvocatorias({ soloEntidadId } = {}) {
             const sectoresClasificados = await classifySectors(titulo, item.descripcion || '', entity.nombre || entity.sigla || '');
             // root_domain: usar el de la entidad (ya normalizado) o extraer de la URL
             const convRootDomain = entity.root_domain || getApexDomain(urlConvToStore) || getApexDomain(entity.sitio_web) || null;
-            const montoMax = Number(item.monto_max ?? 0) || 0;
             const monedaBase = entity.pais === 'Colombia' ? 'COP' : 'USD';
-            const moneda    = item.moneda || monedaBase;
+            const moneda    = item.moneda
+              ? resolverMoneda({ moneda: item.moneda, ambigua: !!item.monedaAmbigua }, entity.pais)
+              : monedaBase;
+            // Montos imposibles (bajo el piso de su moneda, años sueltos) → 0 = "no especificado".
+            const montoMax = montoParaGuardar(item.monto_max, moneda);
             await runSql(
               `INSERT INTO convocatorias
                  (id, externo_id, titulo, donante, entidad_id, fuente, descripcion,

@@ -264,6 +264,17 @@ export function esExencionSlowDownDeCI(env = process.env) {
   return env.E2E_DESACTIVAR_SLOWDOWN === '1' && entornoDePrueba;
 }
 
+// Tope del limitador global /api (server.js). Higiene 2026-09-29: la suite
+// E2E consume 227 de 300 peticiones por ventana — sin margen para crecer. En
+// el MISMO entorno de prueba sellado (misma bandera y misma triple condición,
+// sin leer ninguna variable nueva) el tope sube a 1000; en producción, 300
+// siempre, aunque la bandera estuviera puesta por error.
+export const TOPE_GLOBAL_API = 300;
+export const TOPE_GLOBAL_API_PRUEBAS = 1000;
+export function topeLimiteGlobalApi(env = process.env) {
+  return esExencionSlowDownDeCI(env) ? TOPE_GLOBAL_API_PRUEBAS : TOPE_GLOBAL_API;
+}
+
 export function slowDown(req, res, next) {
   // Health check exento (2026-09-23): el sondeo de Render (cada pocos
   // segundos, misma IP) pasaba las 100 peticiones libres en ~8 min, cada
@@ -277,9 +288,10 @@ export function slowDown(req, res, next) {
   // NUNCA en producción, aunque la bandera estuviera puesta por error.
   // Lote 6 T3 (sellado hermético): exige las TRES condiciones — bandera
   // explícita, entorno de prueba declarado (NODE_ENV=test o CI=true) y que
-  // NO sea producción (NODE_ENV=production gana aunque CI=true). Es la ÚNICA
-  // exención por entorno de todos los limitadores (los 6 de este archivo y el
-  // global /api de server.js no leen ninguna variable de entorno).
+  // NO sea producción (NODE_ENV=production gana aunque CI=true). Es el ÚNICO
+  // predicado de entorno de todos los limitadores: los 6 de este archivo no
+  // leen ninguna variable, y el global /api de server.js solo lo consulta a
+  // través de topeLimiteGlobalApi() (tope 1000 en ese entorno, 300 en el resto).
   if (esExencionSlowDownDeCI()) return next();
   // FIX (auditoría SRE 2026-08-08): mismo bypass de XFF que getRateLimitKey — ver arriba.
   const ip  = req.ip || 'unknown';
