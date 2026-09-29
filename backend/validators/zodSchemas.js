@@ -217,10 +217,6 @@ export const fichaTecnicaMergeSchema = z.object({
   value: z.any(),
 });
 
-export const modulo8AgenteStatusSchema = z.object({
-  status: z.string().trim().min(1, 'status requerido').max(30),
-});
-
 export const deleteProyectoSchema = z.object({
   password: z.string().min(1, 'password requerido'),
 });

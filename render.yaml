@@ -100,6 +100,11 @@ services:
       - key: NVIDIA_API_KEY
         sync: false
 
+      # ── Embeddings por lotes del catálogo (cron 03:45 COT) ────────────────────
+      # Encendido por defecto (2026-09-28); solo "false" lo apaga.
+      - key: EMBEDDINGS_BATCH_ENABLED
+        value: "true"
+
       # ── Google OAuth2 (login social — opcional) ──────────────────────────────
       # Crear en: console.cloud.google.com → APIs & Services → Credentials
       - key: GOOGLE_CLIENT_ID

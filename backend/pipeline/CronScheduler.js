@@ -155,9 +155,12 @@ export function startScheduler() {
 
   // Fase 4 (2026-09-28): embeddings por lotes — 03:45 COT, DESPUÉS de los
   // rastreos (Rastreo 1 empieza 02:30 con timeout de 60 min), para vectorizar
-  // lo recién ingerido. APAGADO por defecto: solo si EMBEDDINGS_BATCH_ENABLED=true.
+  // lo recién ingerido. ENCENDIDO por defecto desde 2026-09-28 (decisión del
+  // dueño): solo se apaga con EMBEDDINGS_BATCH_ENABLED=false explícito. El
+  // gasto sigue acotado por EmbeddingsBatch (lotes de 25, pausa 20 s, tope de
+  // filas y de tokens por corrida, 429 → se detiene).
   // En scheduledTasks → /api/radar/stop también lo pausa.
-  const embeddingsActivo = process.env.EMBEDDINGS_BATCH_ENABLED === 'true';
+  const embeddingsActivo = process.env.EMBEDDINGS_BATCH_ENABLED !== 'false';
   if (embeddingsActivo) {
     scheduledTasks.push(cron.schedule('45 3 * * *', async () => {
       console.log('[Cron] ▶ Embeddings por lotes del catálogo...');
