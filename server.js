@@ -42,6 +42,7 @@ import { pool, getRow, getRows, getCount, runSql, runTransaction } from './backe
 import { dbStatus, esperarPgInicial, withTenant, withTenantRow, withTenantRun, withTenantRows, withTenantTransaction } from './backend/config/database.config.js';
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
 import { extraerMonto, resolverMoneda, montoParaGuardar } from './backend/utils/montos.js';
+import { esEnlaceDeNavegacion, esTituloBasura } from './backend/utils/tituloBasura.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { geminiCB, loadPersistedKeyState } from './backend/services/geminiCircuitBreaker.js';
 import { reenviarPendientesSystemLogs } from './backend/services/logService.js';
@@ -1114,12 +1115,15 @@ async function repararFuenteConvocatorias() {
 }
 
 // ── Clasificación masiva de sectores en background ────────────────────────────
-// Frases de navegación/UI que indican que el registro no es una convocatoria real
-const GARBAGE_TITLE_RE = /^(saltar al|ir al|pasar al|menú|volver a|retour à|retour a|télécharger|telecharger|consulter le|aller au|acceder al|accéder au|skip to|go to main|learn more|read more|see more|sign in|log in|register|subscribe|click here|apply now|find out more)/i;
+// Títulos que no vale la pena clasificar con IA (listas en backend/utils/
+// tituloBasura.js, fuente única). Reparación 2026-09-29: SOLO evita gastar
+// Gemini — ya NO borra. El criterio viejo (largo < 18 → soft-delete sin
+// respaldo) habría eliminado convocatorias reales como "BECA GKS 2024",
+// "ERASMUS+ 2026" o "Synergy Grant"; la purga de basura va por
+// backend/scripts/purgarBasuraCatalogo.mjs, con respaldo.
 function isGarbageTitle(title) {
   if (!title || title.length < 5) return true;
-  if (title.length < 18) return true; // titulos muy cortos no son convocatorias
-  return GARBAGE_TITLE_RE.test(title.trim());
+  return esEnlaceDeNavegacion(title) || esTituloBasura(title);
 }
 
 // ── Enriquecedor de montos (regex sin Gemini) ────────────────────────────────
@@ -1186,7 +1190,7 @@ async function clasificarSectoresEnBatch(limit = 200) {
   }
   _clasificandoSectores = true;
   console.log(`[Sectores] Iniciando clasificación masiva — hasta ${limit} convocatorias sin sector...`);
-  let procesadas = 0, actualizadas = 0, eliminadas = 0, errores = 0;
+  let procesadas = 0, actualizadas = 0, omitidas = 0, errores = 0;
   try {
     const rows = await getRows(
       `SELECT id, titulo, descripcion, donante FROM convocatorias
@@ -1194,12 +1198,11 @@ async function clasificarSectoresEnBatch(limit = 200) {
        LIMIT ${Math.min(limit, 1000)}`
     );
     console.log(`[Sectores] ${rows.length} convocatorias sin sector encontradas.`);
-    const now = new Date().toISOString();
     for (const row of rows) {
       try {
+        // Sin IA para títulos basura; nunca se borra aquí (ver isGarbageTitle).
         if (isGarbageTitle(row.titulo)) {
-          await runSql('UPDATE convocatorias SET deleted_at = $1 WHERE id = $2', [now, row.id]);
-          eliminadas++;
+          omitidas++;
           procesadas++;
           continue;
         }
@@ -1210,7 +1213,7 @@ async function clasificarSectoresEnBatch(limit = 200) {
         }
         procesadas++;
         if (procesadas % 10 === 0) {
-          console.log(`[Sectores] ${procesadas}/${rows.length} procesadas — ${actualizadas} clasificadas, ${eliminadas} garbage eliminadas...`);
+          console.log(`[Sectores] ${procesadas}/${rows.length} procesadas — ${actualizadas} clasificadas, ${omitidas} basura omitidas...`);
           await new Promise(r => setTimeout(r, 500));
         }
       } catch (e) {
@@ -1218,7 +1221,7 @@ async function clasificarSectoresEnBatch(limit = 200) {
         if (errores <= 3) console.warn('[Sectores] Error en convocatoria', row.id, e.message?.slice(0, 80));
       }
     }
-    console.log(`[Sectores] Completado — ${actualizadas} clasificadas, ${eliminadas} garbage eliminadas, ${errores} errores de ${procesadas} procesadas.`);
+    console.log(`[Sectores] Completado — ${actualizadas} clasificadas, ${omitidas} basura omitidas (sin IA, sin borrar), ${errores} errores de ${procesadas} procesadas.`);
   } finally {
     _clasificandoSectores = false;
   }
@@ -3947,7 +3950,10 @@ Reglas:
     },
   });
 
-  app.post('/api/importar', authenticateToken, upload.single('file'), tryCatch(async (req, res) => {
+  // Solo admin (reparación 2026-09-29): escribe en catálogos GLOBALES
+  // (convocatorias, directorio_entidades). requireAdmin va antes de
+  // upload.single para no procesar el archivo de quien no es admin.
+  app.post('/api/importar', authenticateToken, requireAdmin, upload.single('file'), tryCatch(async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'Archivo requerido' });
 
     // Validación de seguridad profunda
@@ -3970,9 +3976,19 @@ Reglas:
       }
       throw e;
     }
-    const report = tipo === 'directorio'
-      ? await importToDirectorio(rows)
-      : await importToConvocatorias(rows);
+    let report;
+    try {
+      report = tipo === 'directorio'
+        ? await importToDirectorio(rows)
+        : await importToConvocatorias(rows);
+    } catch (e) {
+      // Errores del lote completo (demasiadas filas, columna obligatoria faltante):
+      // 422 legible, nunca un 500. Los errores de UNA fila van en el reporte.
+      if (e.code === 'IMPORT_DEMASIADAS_FILAS' || e.code === 'IMPORT_COLUMNA_FALTANTE') {
+        return res.status(422).json({ success: false, code: e.code, message: e.message });
+      }
+      throw e;
+    }
     res.json({ success: true, message: `${report.inserted} registros importados`, report });
   }));
 
@@ -4096,14 +4112,17 @@ Reglas:
   // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): hasta 1000 llamadas
   // reales a Gemini por invocación — el mutex _clasificandoSectores solo
   // impide ejecuciones concurrentes, no relanzamientos frecuentes.
-  app.post('/api/radar/clasificar-sectores', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
+  // Solo admin (2026-09-29): proceso masivo sobre el catálogo global.
+  app.post('/api/radar/clasificar-sectores', authenticateToken, requireAdmin, aiLimiter, tryCatch(async (req, res) => {
     const batchLimit = Math.min(parseInt(req.query.limit || '200'), 1000);
     clasificarSectoresEnBatch(batchLimit).catch(e => console.error('[Sectores/batch]', e.message));
     res.json({ success: true, message: `Clasificación de sectores iniciada — hasta ${batchLimit} convocatorias procesadas en background.` });
   }));
 
   // POST /api/radar/enrich-montos — Enriquecimiento de montos con fetch+regex (sin Gemini)
-  app.post('/api/radar/enrich-montos', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
+  // Solo admin (2026-09-29): descarga URLs externas en masa y escribe montos
+  // en el catálogo global. Antes lo disparaba cualquier usuario con plan.
+  app.post('/api/radar/enrich-montos', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const batchLimit = Math.min(parseInt(req.query.limit || '300'), 1000);
     enriquecerMontosBatch(batchLimit).catch(e => console.error('[Montos/batch]', e.message));
     res.json({ success: true, message: `Enriquecimiento de montos iniciado — hasta ${batchLimit} convocatorias procesadas en background.` });

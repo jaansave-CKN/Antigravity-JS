@@ -17,16 +17,11 @@ import { fetchEntityConvocatorias, isSameOrParentUrl } from './EntityScraper.js'
 import { classifySectors } from '../services/sectorClassifier.js';
 import { getApexDomain } from '../utils/domainUtils.js';
 import { resolverMoneda, montoParaGuardar } from '../utils/montos.js';
+import { esTituloBasura } from '../utils/tituloBasura.js';
+import { calcEstado } from '../utils/fechasConvocatoria.js';
 import { sweepEndsWith } from '../services/sweepService.js';
 
 const FETCH_TIMEOUT_MS = 15000;
-
-function calcEstadoR2(fechaLimite) {
-  if (!fechaLimite) return 'abierta';
-  const norm = fechaLimite.trim().replace(/-/g, '/').slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
-  return norm < today ? 'cerrada' : 'abierta';
-}
 
 // ── Portales R2 — fuentes externas; seedDirectorio() las integra al Directorio ──
 // Estas 6 fundaciones son conocidas y rastreadas activamente.
@@ -166,6 +161,8 @@ export async function ingestConvocatorias() {
         try {
           const titulo = sanitizeInput(item.titulo || '').slice(0, 255);
           if (!titulo || titulo.length < 12) continue;
+          // Basura curada (backend/utils/tituloBasura.js): galerías, logins…
+          if (esTituloBasura(titulo)) { fuenteReport.skipped++; continue; }
 
           // Filtrar por keywords del Panel (si hay alguna activa)
           if (activeTerms.length > 0) {
@@ -189,7 +186,7 @@ export async function ingestConvocatorias() {
             .slice(0, 64);
 
           const fechaLimite = sanitizeInput(item.fecha_limite || '').slice(0, 20);
-          const estado = calcEstadoR2(fechaLimite);
+          const estado = calcEstado(fechaLimite);
 
           const existing = await getRow(
             'SELECT id, fecha_limite FROM convocatorias WHERE externo_id = ? LIMIT 1',
