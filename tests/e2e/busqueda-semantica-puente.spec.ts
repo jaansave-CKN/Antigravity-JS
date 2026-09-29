@@ -188,8 +188,18 @@ test.describe.serial('Búsqueda semántica y Puente Radar → Formulador', () =>
     await page.goto('/radar');
     const tarjeta = page.locator('.radx__card');
     await expect(tarjeta).toHaveCount(1, { timeout: 20_000 });
-    await tarjeta.getByRole('button', { name: 'Formular esta convocatoria' }).click();
+    const disparador = tarjeta.getByRole('button', { name: 'Formular esta convocatoria' });
+    await disparador.click();
     await expect(page.getByRole('dialog')).toContainText(RESULTADO.titulo);
+    // Trampa de foco: Tab / Shift+Tab nunca salen del modal; Escape devuelve el foco al disparador.
+    for (const tecla of ['Tab', 'Tab', 'Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
+      await page.keyboard.press(tecla);
+      expect(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]')), `foco dentro del modal tras ${tecla}`).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(disparador).toBeFocused();
+    await disparador.click();
     await page.getByRole('dialog').getByRole('button', { name: 'Cancelar' }).click();
     await page.unrouteAll({ behavior: 'wait' });
 
