@@ -25,7 +25,7 @@ import {
   patchProyectoSchema,
   arbolGenerarSchema, arbolNodoPatchSchema, indicadorSchema,
   fichaTecnicaMergeSchema,
-  restoreImportarTipoSchema,
+  restoreImportarTipoSchema, apisFlagsSchema,
 } from './backend/validators/zodSchemas.js';
 import { seedDirectorio } from './backend/pipeline/DataIngestor.js';
 import { startScheduler, runManualIngest, pauseScheduler, resumeScheduler } from './backend/pipeline/CronScheduler.js';
@@ -49,6 +49,8 @@ import { faltantesViabilidad, respuesta422 } from './backend/services/datosMinim
 import { resolverLlavesUsuario } from './backend/services/byokService.js';
 import { estadoOpenRouter, generarConIA, buscarConGroundingServidor } from './backend/services/llmProveedor.js';
 import { configurarTopeSistema, topeSistemaDia } from './backend/services/iaTopeSistema.js';
+import { configurarFlagsIA, leerFlagsIA, fijarFlagIA } from './backend/services/iaFlags.js';
+import { estadoApis } from './backend/services/apisEstado.js';
 import { estadoPresupuesto } from './backend/services/iaPresupuesto.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
 import { wompiWebhookHandler } from './backend/routes/wompi.webhook.js';
@@ -1239,6 +1241,10 @@ async function start() {
   configurarTopeSistema({ getRow, dbStatus });
   try { console.info(`[IA] Tope diario del sistema: ${topeSistemaDia()} tokens (LLM_TOPE_TOKENS_SISTEMA_DIA)`); }
   catch (e) { console.error(`[IA] ${e.message} — las llamadas de IA del sistema quedan bloqueadas (falla cerrado)`); }
+  // Interruptores de IA del Búnker (iaFlags.js): se hidratan antes de servir
+  // tráfico para que la primera llamada ya respete lo que dejó el admin.
+  configurarFlagsIA({ getRow, runSql });
+  await leerFlagsIA();
   try {
     await initDb();
   } catch (err) {
@@ -1536,6 +1542,37 @@ async function start() {
     ejecutarBatchEmbeddings({ max, log: logger })
       .catch(err => logger.error('[EmbeddingsBatch] Corrida manual falló', { err: err.message }));
     res.status(202).json({ success: true, message: 'Corrida de embeddings iniciada en segundo plano.', data: await estadoBatch() });
+  }));
+  // ── Búnker de Conexiones (Panel, 2026-09-28) — SOLO admin ─────────────────
+  // Estados y banderas, nunca llaves. Gemini no está aquí: QuotaTelemetry ya
+  // usa /api/admin/quota-status. La cobertura de embeddings se compone aquí
+  // (apisEstado.js es NEUTRAL y no puede importar el Radar). En modo REST el
+  // conteo daría 0/0 falso (restCount) → no_verificable.
+  app.get('/api/admin/apis-estado', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
+    const base = await estadoApis();
+    const llaveEmbeddings = !!(process.env.GEMINI_EMBEDDINGS_API_KEY || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
+    let embeddings;
+    if (!llaveEmbeddings) embeddings = { configurada: false, estado: 'faltante' };
+    else if (!dbStatus().pgReady) embeddings = { configurada: true, estado: 'no_verificable_bd_degradada' };
+    else {
+      const b = await estadoBatch();
+      embeddings = { configurada: true, estado: b.con_vector > 0 ? 'activo' : 'sin_vectores', cobertura: { con: b.con_vector, total: b.abiertas } };
+    }
+    res.json({ success: true, data: { ...base, embeddings } });
+  }));
+  app.put('/api/admin/apis-flags', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
+    const v = validarBody(apisFlagsSchema, req.body);
+    if (!v.ok) return res.status(400).json({ success: false, message: v.message });
+    const { proveedor, habilitado } = v.data;
+    let persistido;
+    try {
+      persistido = await fijarFlagIA(proveedor, habilitado);
+    } catch (err) {
+      logger.error('[Bunker] No se pudo persistir el interruptor de IA', { proveedor, err: err.message });
+      return res.status(503).json({ success: false, code: 'FLAG_NO_PERSISTIDO', message: 'No se pudo guardar el interruptor; no se cambió nada.' });
+    }
+    await registrarAuditoriaAdmin(req, 'ia_flag', { id: `ia_flag_${proveedor}`, detalle: JSON.stringify({ proveedor, habilitado: persistido }) });
+    res.json({ success: true, data: { proveedor, habilitado: persistido } });
   }));
   app.get('/api/radar/embeddings/estado', authenticateToken, tryCatch(async (req, res) => {
     if (req.userRole !== 'admin') return res.status(403).json({ success: false, message: 'Requiere rol admin' });

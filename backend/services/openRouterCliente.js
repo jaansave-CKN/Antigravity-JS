@@ -99,3 +99,30 @@ export async function llamarOpenRouter({ messages, maxTokens = 8192, responseFor
   if (!texto) throw new OpenRouterError('respuesta_vacia', 'el modelo no devolvió contenido', { cobrable: true, usage, costoUsd });
   return { texto, usage, modelo: data?.model || modelo, costoUsd, truncada };
 }
+
+export const OPENROUTER_CREDITS_URL = 'https://openrouter.ai/api/v1/credits';
+
+/**
+ * Saldo de la cuenta (Búnker de Conexiones, 2026-09-28) — GET sin costo, no
+ * gasta tokens. Verificado en vivo el 2026-09-28 con la llave normal (no de
+ * administración): HTTP 200 → data { total_credits, total_usage }; ese día
+ * total_credits 0 y total_usage 0,1588 → saldo negativo = "sin saldo".
+ * Solo devuelve el número redondeado; nunca reenvía el payload crudo.
+ * @returns {Promise<{ saldoUsd: number }>}
+ * @throws {OpenRouterError} motivos: sin_llave | llave_rechazada | error_http | respuesta_invalida
+ */
+export async function consultarSaldoOpenRouter({ timeoutMs = 5_000 } = {}) {
+  const llave = (process.env.OPENROUTER_API_KEY || '').trim();
+  if (!llave) throw new OpenRouterError('sin_llave');
+  const res = await fetch(OPENROUTER_CREDITS_URL, {
+    headers: { Authorization: `Bearer ${llave}` },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (res.status === 401 || res.status === 403) throw new OpenRouterError('llave_rechazada', `HTTP ${res.status}`);
+  if (!res.ok) throw new OpenRouterError('error_http', `HTTP ${res.status}`);
+  const data = (await res.json().catch(() => null))?.data;
+  const creditos = Number(data?.total_credits);
+  const uso = Number(data?.total_usage);
+  if (!Number.isFinite(creditos) || !Number.isFinite(uso)) throw new OpenRouterError('respuesta_invalida', 'sin total_credits/total_usage');
+  return { saldoUsd: Math.round((creditos - uso) * 100) / 100 };
+}

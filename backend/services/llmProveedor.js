@@ -44,6 +44,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { reservarTopeSistema, liquidarTopeSistema, estimarTokensLlamada, IaTopeSistemaError } from './iaTopeSistema.js';
 import { logTokenUsage } from './aiTokenLogger.js';
 import { logger } from '../utils/logger.js';
+import { flagsIACacheados, leerFlagsIA } from './iaFlags.js';
 
 export { IaTopeAgotadoError, IaTopeSistemaError };
 
@@ -79,9 +80,15 @@ class SalidaInvalidaError extends Error {
 let _openRouterPausaHasta = 0;
 let _ultimoAvisoSinLlave = 0;
 
-/** Si OpenRouter puede intentarse ahora (no mira el tope, que es por usuario). */
-export function estadoOpenRouter(env = process.env, ahora = Date.now()) {
+/**
+ * Si OpenRouter puede intentarse ahora (no mira el tope, que es por usuario).
+ * Síncrona: lee el interruptor del admin desde la caché de iaFlags.js (Búnker
+ * de Conexiones, 2026-09-28) para que /api/ia/estado-cuota no se contradiga
+ * con la cascada real.
+ */
+export function estadoOpenRouter(env = process.env, ahora = Date.now(), flags = flagsIACacheados()) {
   if (!(env.OPENROUTER_API_KEY || '').trim()) return { activo: false, motivo: 'sin_llave' };
+  if (flags.openrouter === false) return { activo: false, motivo: 'deshabilitado_por_admin' };
   if (ahora < _openRouterPausaHasta) return { activo: false, motivo: 'pausado_por_configuracion' };
   const cfg = configPresupuesto(env);
   if (!cfg.ok) return { activo: false, motivo: 'sin_tope_configurado', faltante: cfg.faltante };
@@ -186,7 +193,11 @@ async function generarConIAInterno({
   let retryAtGemini = null;
 
   // ── 1. OpenRouter ──────────────────────────────────────────────────────────
-  const or = soloServidor ? { activo: false, motivo: 'omitido_solo_servidor' } : estadoOpenRouter();
+  // soloServidor (tráfico de fondo del Radar) se decide ANTES de mirar los
+  // interruptores del Búnker: nunca los lee ni puede activar un proveedor de
+  // pago por ellos — se queda en el pool Gemini sin excepciones (directiva de
+  // integración 2026-09-29). Solo las llamadas de usuario consultan iaFlags.
+  const or = soloServidor ? { activo: false, motivo: 'omitido_solo_servidor' } : estadoOpenRouter(process.env, Date.now(), await leerFlagsIA());
   if (!or.activo) {
     intentos.push({ proveedor: 'openrouter', motivo: or.motivo });
     if (!['pausado_por_configuracion', 'omitido_solo_servidor'].includes(or.motivo) && Date.now() - _ultimoAvisoSinLlave > PAUSA_CONFIG_MS) {

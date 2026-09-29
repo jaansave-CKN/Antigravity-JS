@@ -442,6 +442,13 @@ export const crearProyectoSchema = z.object({
   presupuesto: z.record(z.string(), z.any()).optional(),
 }).loose(); // otros campos legacy del body no se tocan ni se pierden
 
+// Búnker de Conexiones (2026-09-28): interruptor de proveedor de IA (solo
+// admin). Estricto: una clave desconocida es 400.
+export const apisFlagsSchema = z.strictObject({
+  proveedor: z.enum(['openrouter', 'nvidia']),
+  habilitado: z.boolean(),
+});
+
 export const credencialGeminiSchema = z.object({
   key_slot: z.coerce.number().int().refine(n => [1, 2, 3].includes(n), 'key_slot debe ser 1, 2 o 3'),
   key: z.string().trim().min(10, 'key inválida — demasiado corta').max(500),

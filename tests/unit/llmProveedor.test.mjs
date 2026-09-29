@@ -324,3 +324,31 @@ test('tope del sistema: el contador en memoria suma las reservas en vuelo (dos l
   assert.ok(await TS.reservarTopeSistema('sector-classifier', 3_000), 'liberada la reserva, cabe otra');
   TS._reiniciarTopeSistema();
 });
+
+test('Búnker: interruptor del admin apagado → OpenRouter sale de la cascada (sin fetch) y estado-cuota lo refleja', async () => {
+  preparar();
+  red();
+  const { configurarFlagsIA, _reiniciarFlagsIA } = await import('../../backend/services/iaFlags.js');
+  configurarFlagsIA({ getRow: async (sql, [clave]) => (clave === 'ia_flag_openrouter' ? { value: 'false' } : null), runSql: async () => ({}) });
+  try {
+    const r = await generarConIA({ userId: 'u1', agente: 'x', messages: MSGS });
+    assert.equal(r.proveedor, 'gemini_servidor');
+    assert.equal(llamadas.some(l => l.destino === 'openrouter'), false);
+    assert.equal(estadoOpenRouter().motivo, 'deshabilitado_por_admin');
+  } finally { _reiniciarFlagsIA(); }
+});
+
+test('INTEGRACIÓN #38×#41: soloServidor IGNORA los interruptores del Búnker — no los lee y nunca activa OpenRouter aunque esté encendido', async () => {
+  preparar();
+  red();
+  topeFalso();
+  const { configurarFlagsIA, _reiniciarFlagsIA } = await import('../../backend/services/iaFlags.js');
+  let lecturasFlags = 0;
+  configurarFlagsIA({ getRow: async () => { lecturasFlags++; return { value: 'true' }; }, runSql: async () => ({}) });
+  try {
+    const r = await generarConIA({ userId: 'sistema-radar-batch', agente: 'sector-classifier', soloServidor: true, maxTokens: 2048, messages: MSGS });
+    assert.equal(r.proveedor, 'gemini_servidor');
+    assert.equal(llamadas.some(l => l.destino === 'openrouter'), false, 'OpenRouter encendido en el Búnker no aplica al tráfico de fondo');
+    assert.equal(lecturasFlags, 0, 'el tráfico de fondo ni siquiera consulta los interruptores');
+  } finally { _reiniciarFlagsIA(); TS._reiniciarTopeSistema(); }
+});

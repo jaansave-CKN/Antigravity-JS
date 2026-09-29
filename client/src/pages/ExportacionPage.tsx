@@ -83,6 +83,7 @@ const BLOQUES_MGA: Array<[string, string]> = [
 ];
 const MOTIVOS_NO_DISPONIBLE: Record<string, string> = {
   sin_llave_nvidia: 'el servidor no tiene configurada la llave de NVIDIA (NVIDIA_API_KEY)',
+  deshabilitado_por_admin: 'el administrador desactivó NVIDIA NIM desde el Panel de Control',
   llave_rechazada: 'NVIDIA rechazó la llave del servidor',
   cuota_nvidia: 'se agotó la cuota de NVIDIA',
   modelo_saturado: 'el modelo está saturado; intenta en unos minutos',
