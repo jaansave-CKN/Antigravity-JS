@@ -95,8 +95,9 @@ services:
         sync: false
 
       # ── NVIDIA NIM (Formulador MGA — Fase 3, backend/services/nimCliente.js) ──
-      # Sin la llave, el consolidador MGA responde estado no_disponible (motivo
-      # sin_llave_nvidia) y el resto de la app sigue funcionando.
+      # Sin la llave (o si NIM falla), el consolidador MGA cae a la cascada de
+      # llmProveedor (OpenRouter con tope → pool Gemini → BYOK) con la misma
+      # validación anti-alucinación; solo si nadie responde queda no_disponible.
       - key: NVIDIA_API_KEY
         sync: false
 
