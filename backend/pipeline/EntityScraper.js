@@ -16,6 +16,8 @@ import { classifySectors } from '../services/sectorClassifier.js';
 import { getApexDomain } from '../utils/domainUtils.js';
 import { decodificarEntidades } from '../utils/textoHtml.js';
 import { extraerMonto, resolverMoneda, montoParaGuardar } from '../utils/montos.js';
+import { esRuidoDeNavegacion, esTituloBasura } from '../utils/tituloBasura.js';
+import { calcEstado } from '../utils/fechasConvocatoria.js';
 import { isPdfOrDoc, convertUrlToMarkdown, extractConvocatoriaFields } from '../services/markitdownService.js';
 
 // ── Scrapers especiales para entidades SPA o portales paginados ──────────────
@@ -97,15 +99,6 @@ async function fetchApcPortalItems() {
 // jurídicas puedan aplicar — el propósito central de este Radar. Por diseño
 // esa fuente NUNCA produce el tipo de contenido correcto; no es un problema
 // de filtrado fino, toda la fuente está fuera de alcance.
-
-// Calcula estado según fecha_limite (formato YYYY/MM/DD o YYYY-MM-DD)
-function calcEstado(fechaLimite) {
-  if (!fechaLimite) return 'abierta';
-  // Normalizar separadores para comparación lexicográfica YYYY/MM/DD
-  const norm = fechaLimite.trim().replace(/-/g, '/').slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
-  return norm < today ? 'cerrada' : 'abierta';
-}
 
 // ── WePropel: curador de oportunidades para América Latina ────────────────────
 const WP_OPORTUNIDADES_URL = 'https://www.wepropel.org/oportunidades';
@@ -323,98 +316,11 @@ function hasFundingKeyword(text) {
   return FUNDING_KEYWORDS.some(k => t.includes(k));
 }
 
-// Títulos que son ruido de navegación/footer o documentos institucionales
-const NOISE_TITLES = [
-  // Navegación / footer
-  'información de contacto','informacion de contacto',
-  'política de privacidad','politica de privacidad',
-  'aviso legal','términos y condiciones','terminos y condiciones',
-  'términos de uso','terminos de uso',
-  'cookie','newsletter','suscr',
-  'inicio','home','about us','acerca de',
-  'mapa del sitio','sitemap','accesibilidad',
-  'redes sociales','síguenos','siguenos',
-  'contáctenos','contactenos','contáctanos','contactanos',
-  'footer','enlaces rápidos','enlaces rapidos',
-  'líneas de atención','lineas de atencion',
-  'líneas de crédito','lineas de credito',
-  'línea de atención','linea de atencion',
-  // Navegación — español (no presentes en la lista inglesa)
-  'saltar al contenido','ir al contenido','pasar al contenido',
-  'menú principal','menu principal','menú de navegación','menu de navegacion',
-  'tabla de contenidos','volver a','regresar a','volver al inicio',
-  'más información','mas informacion','ver más','ver mas',
-  'leer más','leer mas','haga clic','descargue el','descargue los',
-  'nuestros criterios','nuestros proyectos','nuestra misión','nuestra vision',
-  // Navegación — francés
-  'télécharger ','telecharger ','consulter le','consulter nos','accéder au',
-  'aller au contenu','retour à','retour a','lire la suite','nos critères',
-  'notre sélection','notre selection','notre mission','nos projets',
-  'formulaire de contact','formulaire de candidature',
-  // Portales UE — nav/breadcrumb/idioma
-  'skip to main content','have your say','funding and tenders',
-  'before you apply','eligibility: who can','eu open data',
-  'financial instruments: equity','funding by management',
-  'find calls for funding','eu funding programmes',
-  'seal of excellence','in budget and funding',
-  ' Nederlands',' português',' slovenčina',' slovenščina',
-  ' español',' français',' italiano',' deutsch',
-  ' română',' polski',' česky',' magyar',
-  // Documentos / reportes institucionales — no son convocatorias abiertas
-  'resolución no','resolucion no','decreto no','circular no',
-  'informe de gestión','informe de actividades','informe anual','informe final',
-  'nota de prensa','comunicado de prensa','boletín informativo','boletin informativo',
-  'guía de uso','manual de usuario','manual de operaciones',
-  'plan de acción','plan de trabajo','marco de referencia','documento de trabajo',
-  'política pública','politica publica','reglamento de',
-  // Ayuda y preguntas genéricas
-  'the application process','what is the difference','for beginners',
-  'eligibility: who','how to apply','frequently asked','faq',
-  // Páginas institucionales genéricas de donantes (falsos positivos frecuentes)
-  'funding faq','grants faq','grants data','grants database',
-  'funding portfolio','funding opportunities overview',
-  'about the iaf','about the foundation','about the program','about the grant',
-  'our funding portfolio','our grants data','our global presence',
-  'our focus areas','our project stories','our results in',
-  'descarga ','download our','brochure',
-  'learn more','read more','see more','view more','explore more',
-  'sign in','log in','register','subscribe',
-  'press release','media release','news release',
-  // Portales gob.co colombianos — navegación estándar por ley de transparencia
-  // (Ley 1712/2014), presente en prácticamente todas las entidades públicas.
-  // Confirmado en vivo: FENOGE y Fondo Emprender devolvían esto como si fueran
-  // convocatorias — no eran casos aislados, es el patrón de cualquier .gov.co.
-  'transparencia','rendición de cuentas','rendicion de cuentas',
-  'trámites y servicios','tramites y servicios',
-  'quiénes somos','quienes somos','nuestra organización','nuestra organizacion',
-  'sistema integrado de gestión','sistema integrado de gestion',
-  'preguntas frecuentes','notificaciones anónimas','notificaciones anonimas',
-  'conflicto de intereses','manuales y otros actos administrativos',
-  'histórico de procesos de contratación','historico de procesos de contratacion',
-  'plan anual de necesidades','actas de comité directivo','actas de comite directivo',
-  'gestión del conocimiento','gestion del conocimiento',
-  'urna de cristal','proyectos ejecutados',
-  'observaciones acreditación','observaciones acreditacion',
-  'observaciones evaluación','observaciones evaluacion',
-  // Enlaces cruzados a otras entidades de gobierno (footer/menú compartido) —
-  // formato abreviado de portal ("MinEducación"), no el nombre completo que
-  // usaría un título real de convocatoria ("Ministerio de Educación")
-  'minrelaciones','mineducación','mineducacion','mintransporte','minagricultura',
-  'mincomercio','minsalud','mintrabajo','minambiente','mindefensa','minjusticia',
-  'minhacienda','mintic','minvivienda','mincultura','mindeporte',
-  'vicepresidencia',
-];
-
-// Patrón de frases institucionales que NO son convocatorias
-const NOISE_TITLE_RE = /^(our|their|its|the)\s\w|^about\s(us|the\s|our\s)|^(who|what)\s(we|is)\s/i;
-
+// Ruido de navegación/footer: las listas viven en backend/utils/tituloBasura.js
+// (fuente única, movidas sin cambios). Además descarta la basura curada del
+// catálogo (galerías, logins, páginas institucionales…).
 function isNoisyTitle(title) {
-  const t = title.toLowerCase().trim();
-  if (NOISE_TITLES.some(n => t.includes(n))) return true;
-  if (t.endsWith(':') && t.length < 40) return true;
-  // "Our X", "Their X", "The X" frases institucionales de nav
-  if (NOISE_TITLE_RE.test(title.trim())) return true;
-  return false;
+  return esRuidoDeNavegacion(title) || esTituloBasura(title);
 }
 
 // ── Extractor de monto (sin Gemini) ─────────────────────────────────────────
@@ -808,6 +714,13 @@ export async function ingestDirectorioConvocatorias({ soloEntidadId } = {}) {
               .slice(0, 64);
 
             foundExternoIds.add(externoId);
+
+            // Basura curada (galerías, logins, páginas institucionales…): se
+            // descarta aquí y no antes, para que un título dudoso nunca haga que
+            // la detección de desaparición cierre una convocatoria ya guardada.
+            // Cubre también APC, WePropel y los títulos reescritos desde PDF,
+            // que no pasan por isNoisyTitle.
+            if (esTituloBasura(titulo)) { entitySkipped++; continue; }
 
             const fechaLimite = sanitizeInput(item.fecha_limite || '').slice(0, 20);
             const estado = calcEstado(fechaLimite);

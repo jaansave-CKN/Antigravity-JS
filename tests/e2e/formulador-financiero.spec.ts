@@ -129,6 +129,12 @@ test.describe('Formulador — flujo financiero (COP)', () => {
   // escenarios) caen por ON DELETE CASCADE al borrar el proyecto en
   // global-teardown; el hallazgo CRITICO lo borra el teardown explícitamente.
   test('evaluación financiera: Montecarlo VAN/TIR en COP, SROI y estrés sobre el APU real', async ({}) => {
+    // Presupuesto propio (medido 2026-09-29, mismo criterio que lote3): son 13
+    // llamadas en serie y cada una hace varias consultas a la BD; contra la BD
+    // remota desde local (~145 ms por ida y vuelta) el test tarda 40-53 s y
+    // superaba los 30 s por defecto de forma intermitente. En CI (BD local) tarda
+    // una fracción. No es una espera: solo el tope máximo antes de fallar.
+    test.setTimeout(120_000);
     const estado = leerEstadoE2E();
     const api = await pwRequest.newContext({
       baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5173',
@@ -192,8 +198,11 @@ test.describe('Formulador — flujo financiero (COP)', () => {
   });
 
   // UI real de /evaluacion-financiera y de la tarjeta Montecarlo de
-  // /viabilidad — usa los datos que dejó la prueba anterior (mismo proyecto).
-  test('UI: /evaluacion-financiera muestra VAN/TIR, SROI y estrés reales; /viabilidad ya no dibuja una curva fija', async ({ page }) => {
+  // /viabilidad — usan los datos que dejó la prueba anterior (mismo proyecto).
+  // Dos pruebas separadas (2026-09-29): juntas hacían 2 cargas y 5 capturas
+  // en un solo presupuesto de 30 s y la captura final de /viabilidad lo
+  // agotaba bajo la carga de la suite completa.
+  async function entrarConProyecto(page: import('@playwright/test').Page) {
     const estado = leerEstadoE2E();
     await page.goto('/login');
     await page.getByPlaceholder('operador@institucion.gov').fill(estado.email);
@@ -201,7 +210,10 @@ test.describe('Formulador — flujo financiero (COP)', () => {
     await page.getByRole('button', { name: /^iniciar sesión$/i }).click();
     await expect(page).toHaveURL(/\/checklist/, { timeout: 15_000 });
     await page.evaluate(({ key, id }) => localStorage.setItem(key, id), { key: ACTIVE_PROJECT_KEY, id: estado.proyectoId });
+  }
 
+  test('UI: /evaluacion-financiera muestra VAN/TIR, SROI y estrés reales', async ({ page }) => {
+    await entrarConProyecto(page);
     await page.goto('/evaluacion-financiera');
     await expect(page.getByRole('heading', { name: 'Evaluación Financiera' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('VAN mediano (P50)')).toBeVisible({ timeout: 15_000 });
@@ -215,11 +227,18 @@ test.describe('Formulador — flujo financiero (COP)', () => {
     await page.screenshot({ path: 'test-results/evaluacion-financiera-resultado.png' });
     await page.getByText('E2E alza SMMLV · +20 %').scrollIntoViewIfNeeded();
     await page.screenshot({ path: 'test-results/evaluacion-financiera-sroi-estres.png' });
+  });
 
+  test('UI: /viabilidad muestra la distribución Montecarlo real (no una curva fija)', async ({ page }) => {
+    await entrarConProyecto(page);
     await page.goto('/viabilidad');
     await expect(page.getByText('Distribución Montecarlo')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('P(VAN>0)')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('IC 68%')).toHaveCount(0);
-    await page.screenshot({ path: 'test-results/viabilidad-montecarlo.png', fullPage: true });
+    // Ancla determinista: las barras REALES del histograma ya dibujadas (no
+    // una espera rígida). La captura desactiva animaciones de recharts/CSS.
+    await page.locator('.recharts-bar-rectangle').first().waitFor({ state: 'visible', timeout: 15_000 });
+    expect(await page.locator('.recharts-bar-rectangle').count()).toBeGreaterThan(0);
+    await page.screenshot({ path: 'test-results/viabilidad-montecarlo.png', fullPage: true, animations: 'disabled' });
   });
 });

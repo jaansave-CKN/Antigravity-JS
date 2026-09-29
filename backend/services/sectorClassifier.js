@@ -96,7 +96,9 @@ const KW_MAP = [
   { sector: 'Desarrollo Internacional', kw: /\b(cooperaci[oó]n internacional|international cooperation|multilateral|bilateral|ODA\b|USAID|GIZ\b|UE\b|uni[oó]n europea|banco mundial|world bank|IDRC|IAF\b|MacArthur|Ford Foundation|Ford Global|Open Society|UNFCCC|GEF\b|UNDP|UNICEF|UNESCO|WHO\b|FAO\b|IDB\b|IADB|JICA|AECID|AFD\b|KfW|Enabel|DFID|FCDO|Norad|Sida\b|Danida|SDC\b|DGIS|EuropeAid|Devco|grant|funding program|global fellowship|international fellowship|global program|call for project|call for proposal|appel [aà] projet|appel [aà] candidatures|open call|open application|financing.*project|project.*financing|solidarity.*project|projet solidaire|projets solidaires|fonds de d[eé]veloppement|development fund|global fund|international fund|subvenci[oó]n|subvention|subvencionar|financiamiento de proyecto|projet de d[eé]veloppement|international grant|global grant|overseas development|aid program|ayuda al desarrollo|fondo internacional|global initiative|international initiative|solidarity fund|fondo de solidaridad|projet d'appui|support project|apoyo internacional|international support)/i },
 ];
 
-function classifyByKeywords(titulo, descripcion, donante) {
+// Exportada (2026-09-29) para la importación de archivos: clasifica por
+// palabras clave sin gastar la cuota de Gemini en cada fila.
+export function classifyByKeywords(titulo, descripcion, donante) {
   const text = `${titulo || ''} ${descripcion || ''} ${donante || ''}`;
   const found = [];
   for (const { sector, kw } of KW_MAP) {
