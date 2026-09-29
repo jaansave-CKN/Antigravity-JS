@@ -699,7 +699,9 @@ export async function ingestDirectorioConvocatorias({ soloEntidadId } = {}) {
 
         for (const item of items) {
           try {
-            const titulo = sanitizeInput(item.titulo || '').slice(0, 255);
+            // ';' → ',' antes de sanitizeInput (que borra todo ';' y fundía
+            // "a; b" en "a b"); mismo criterio que FileImporter.
+            const titulo = sanitizeInput(String(item.titulo || '').replace(/;/g, ',')).slice(0, 255);
             if (!titulo || titulo.length < MIN_TITLE_LEN) continue;
 
             const urlConv = item.url || '';
@@ -786,7 +788,7 @@ export async function ingestDirectorioConvocatorias({ soloEntidadId } = {}) {
                 entity.sigla || entity.nombre,
                 entity.id,
                 'RASTREO_DIRECTORIO',
-                sanitizeInput(item.descripcion || '').slice(0, 800),
+                sanitizeInput(String(item.descripcion || '').replace(/;/g, ',')).slice(0, 800),
                 0, montoMax,
                 moneda,
                 JSON.stringify([entity.pais || 'Colombia']),

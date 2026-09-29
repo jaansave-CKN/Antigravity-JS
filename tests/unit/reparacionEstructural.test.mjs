@@ -95,6 +95,16 @@ test('F2: camino REAL desde el CSV — ";" separa sectores (sanitizeInput ya no 
   assert.equal(p.datos.descripcion, 'Fase 1, fase 2');
 });
 
+test('Ingesta: ninguna vía pasa texto con ";" a sanitizeInput (lo borraría y fundiría valores)', () => {
+  const scr = fs.readFileSync(new URL('../../backend/pipeline/EntityScraper.js', import.meta.url), 'utf8');
+  const ing = fs.readFileSync(new URL('../../backend/pipeline/DataIngestor.js', import.meta.url), 'utf8');
+  for (const [nombre, src] of [['EntityScraper', scr], ['DataIngestor', ing]]) {
+    for (const campo of ['titulo', 'descripcion']) {
+      assert.match(src, new RegExp(`sanitizeInput\\(String\\(item\\.${campo} \\|\\| ''\\)\\.replace\\(/;/g, ','\\)\\)`), `${nombre}: ${campo}`);
+    }
+  }
+});
+
 test('F2: filas inválidas se rechazan con motivo claro y la basura se omite', () => {
   assert.match(prepararFilaConvocatoria({ titulo: 'abc', url: 'https://x.org/y' }, COLS).motivo, /título/);
   const sinUrl = prepararFilaConvocatoria({ titulo: 'Convocatoria sin enlace verificable', url: 'no-es-url' }, COLS);
