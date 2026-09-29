@@ -56,6 +56,13 @@ export function decodificarEntidades(texto) {
     // sigue siendo una sola pasada idempotente. Las demás ("&amplt") quedan igual.
     const prefijo = /^(quot|apos)(?=[A-Za-z0-9])/.exec(cuerpo);
     if (prefijo && !completa.endsWith(';')) return NOMBRADAS[prefijo[1]] + cuerpo.slice(prefijo[1].length);
+    // "R&ampD", "IP&ampLCs": &amp pegado a una MAYÚSCULA. Solo si el resto no
+    // forma otra entidad decodificable ("&ampAacute" queda igual): así una
+    // segunda pasada no cambia nada. "&amplt" (minúscula) sigue intacto.
+    if (/^amp[A-Z]/.test(cuerpo) && !completa.endsWith(';')) {
+      const resto = `&${cuerpo.slice(3)}`;
+      if (decodificarEntidades(resto) === resto) return resto;
+    }
     return completa;
   });
 }
