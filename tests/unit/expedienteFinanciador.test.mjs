@@ -312,3 +312,23 @@ test('directiva cirujano: el creador no se autoevalúa (dictamen = MIROFISH), pe
   assert.match(system.content, /NUNCA declares que el proyecto es viable, elegible, aprobado u otorgado/);
   assert.match(system.content, /Comité MIROFISH/);
 });
+
+test('regresión en vivo (gpt-oss-120b 2026-09-30): fuente citada sin tilde se lleva a su id real; si es ambigua, se descarta', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, ANEXOS);
+  const fila = (fuentes) => ({ resumen: 'Proteger la captación', indicador: 'Captación protegida al cierre del proyecto', medio_verificacion: 'Acta', supuesto: 'ND', fuentes });
+  const r = X.validarSeccion('marco_logico', { actividades: [fila(['anexo:Diagnostico.DOCX']), fila(['anexo:Inventado.pdf'])] }, datos, anexosIds);
+  assert.deepEqual(r.grupos.actividades.map(a => a.fuentes), [['anexo:Diagnóstico.docx']]);
+  assert.deepEqual(r.descartados.map(d => [d.motivo, d.detalle]), [['fuente_inexistente', 'anexo:Inventado.pdf']]);
+
+  const ambiguo = X.construirFuentes(ENTRADA, [{ nombre: 'Guía.pdf', texto: 'a' }, { nombre: 'Guia.pdf', texto: 'b' }]);
+  const a = X.validarSeccion('marco_logico', { actividades: [fila(['anexo:GUIA.pdf'])] }, ambiguo.datos, ambiguo.anexosIds);
+  assert.deepEqual(a.descartados.map(d => d.motivo), ['fuente_inexistente'], 'dos anexos que normalizan igual: no se adivina cuál');
+});
+
+test('regresión en vivo: el prompt del Marco Lógico no deja la matriz vacía por falta de metas (indicador sin número; objetivo = problema en positivo)', () => {
+  const { datos } = X.construirFuentes(ENTRADA, ANEXOS);
+  const [system] = X.construirPrompt('marco_logico', resolverDirectivas(ENTRADA), datos);
+  assert.match(system.content, /la fila NO se omite por falta de meta/);
+  assert.match(system.content, /El objetivo general es el problema central expresado en positivo/);
+  assert.match(system.content, /meta numérica SOLO si la cifra está en las fuentes/);
+});

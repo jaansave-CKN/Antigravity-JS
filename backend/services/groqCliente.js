@@ -49,7 +49,7 @@ export function retryAfterMs(valor) {
  *   rate_limit (con retryAfterMs) | saturado | parametro_no_soportado | timeout |
  *   error_red | error_http | respuesta_truncada | respuesta_vacia
  */
-export async function llamarGroq({ messages, maxTokens, temperature = 0.2, responseFormat = null, timeoutMs = 20_000 }) {
+export async function llamarGroq({ messages, maxTokens, temperature = 0.2, responseFormat = null, timeoutMs = 20_000, reasoningEffort = 'low' }) {
   const llave = (process.env.GROQ_API_KEY || '').trim();
   if (!llave) throw new GroqError('sin_llave', 'GROQ_API_KEY no configurada en el servidor');
   const modelo = modeloGroq();
@@ -59,7 +59,7 @@ export async function llamarGroq({ messages, maxTokens, temperature = 0.2, respo
     temperature,
     // gpt-oss RAZONA: esos tokens salen del mismo presupuesto de salida.
     max_completion_tokens: maxTokens,
-    reasoning_effort: 'low',
+    reasoning_effort: ['low', 'medium', 'high'].includes(reasoningEffort) ? reasoningEffort : 'low',
     include_reasoning: false,
   };
   if (responseFormat) cuerpo.response_format = responseFormat;

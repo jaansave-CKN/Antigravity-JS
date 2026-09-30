@@ -85,7 +85,7 @@ export const SECCIONES = Object.freeze({
       actividades: { campos: FILA_MML },
       alineacion: { campos: { instrumento: `enum:${INSTRUMENTOS.join(',')}`, texto: 'texto' } },
     },
-    instrucciones: 'Estructura el árbol de problemas (problema central, causas directas e indirectas, efectos directos e indirectos) y su espejo positivo (objetivo general), y la matriz de Marco Lógico 4×4: fin, propósito, componentes y actividades, cada fila con indicador SMART (específico, medible, alcanzable, relevante y con plazo), medio de verificación y supuesto; el indicador de una actividad mide su avance físico (p. ej. obra ejecutada, estudio entregado), NUNCA su costo. El problema central es una condición negativa MEDIBLE de la población, NUNCA "falta de…", "ausencia de…" ni "no existe" la obra o el servicio. Las actividades NO llevan costos (el presupuesto está en el documento del usuario). Si hay fuentes "arbol.*" (árbol de objetivos ya registrado en el proyecto) o "indicador[n]", el objetivo general, el propósito, los componentes y las actividades DEBEN ser coherentes con ellas — no inventes una jerarquía distinta. En "alineacion" relaciona el proyecto con el Plan Nacional/Departamental/Municipal de Desarrollo, los ODS o la estrategia del financiador SOLO si las fuentes lo mencionan.',
+    instrucciones: 'Estructura el árbol de problemas (problema central, causas directas e indirectas, efectos directos e indirectos) y su espejo positivo (objetivo general), y la matriz de Marco Lógico 4×4: fin, propósito, componentes y actividades, cada fila con indicador SMART (específico, medible, alcanzable, relevante y con plazo), medio de verificación y supuesto. Redacta el indicador como la VARIABLE medible con su unidad y su plazo (p. ej. "Porcentaje de viviendas con agua apta al cierre del proyecto", "Planta compacta construida y recibida por la interventoría"); pon una meta numérica SOLO si la cifra está en las fuentes — sin cifra, el indicador va sin número, pero la fila NO se omite por falta de meta. El indicador de una actividad mide su avance físico (obra ejecutada, estudio entregado), NUNCA su costo. El objetivo general es el problema central expresado en positivo (cita la misma fuente del problema); los componentes se derivan de la solución elegida y las actividades de la solución elegida y de los anexos técnicos. El problema central es una condición negativa MEDIBLE de la población, NUNCA "falta de…", "ausencia de…" ni "no existe" la obra o el servicio. Las actividades NO llevan costos (el presupuesto está en el documento del usuario). Si hay fuentes "arbol.*" (árbol de objetivos ya registrado en el proyecto) o "indicador[n]", el objetivo general, el propósito, los componentes y las actividades DEBEN ser coherentes con ellas — no inventes una jerarquía distinta. En "alineacion" relaciona el proyecto con el Plan Nacional/Departamental/Municipal de Desarrollo, los ODS o la estrategia del financiador SOLO si las fuentes lo mencionan.',
   },
   teoria_cambio: {
     titulo: 'Teoría del Cambio — ruta causal',
@@ -329,6 +329,15 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
   // Búsquedas por ítem en O(1): nombre normalizado → nombre real del anexo,
   // y el texto de cada fuente normalizado UNA sola vez por sección (hasta 60K caracteres).
   const nombresAnexo = new Map(Object.values(anexosIds).map(n => [normalizarEje(n), n]));
+  // Verificado en vivo (gpt-oss-120b, 2026-09-30): el modelo cita "anexo:Diagnóstico tecnico.docx" sin la
+  // tilde. Un id que solo difiere en tildes/mayúsculas/espacios se lleva a su id real; si dos ids reales
+  // normalizan igual, es ambiguo y no se corrige (el ítem se descarta como fuente_inexistente).
+  const idsCanonicos = new Map();
+  for (const id of Object.keys(datos)) {
+    const n = normalizarEje(id);
+    idsCanonicos.set(n, idsCanonicos.has(n) ? null : id);
+  }
+  const canonico = (id) => (id in datos ? id : idsCanonicos.get(normalizarEje(id)) || id);
   const fuentesNormalizadas = new Map();
   const textoNormalizado = (id) => {
     if (!fuentesNormalizadas.has(id)) fuentesNormalizadas.set(id, normalizarEje(datos[id]));
@@ -343,7 +352,7 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
     const campoResumen = camposTexto[0];
     for (const it of crudos) {
       const resumen = texto(campoResumen ? it?.[campoResumen] : '').slice(0, 120);
-      const fuentes = Array.isArray(it?.fuentes) ? [...new Set(it.fuentes.flatMap(f => texto(f) || []))] : [];
+      const fuentes = Array.isArray(it?.fuentes) ? [...new Set(it.fuentes.flatMap(f => (texto(f) ? canonico(texto(f)) : [])))] : [];
       if (!fuentes.length) { descartados.push({ grupo: g, item: resumen, motivo: 'sin_fuente' }); continue; }
       const inexistentes = fuentes.filter(id => !(id in datos));
       if (inexistentes.length) { descartados.push({ grupo: g, item: resumen, motivo: 'fuente_inexistente', detalle: inexistentes.join(', ') }); continue; }
