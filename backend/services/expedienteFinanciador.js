@@ -173,7 +173,7 @@ export function seccionCumple(seccionId, generacion) {
 
 export function construirPrompt(seccionId, directivas, datos) {
   const s = SECCIONES[seccionId];
-  const forma = Object.fromEntries(Object.entries(s.grupos).map(([g, def]) => [g, [{ ...Object.fromEntries(Object.entries(def.campos).map(([c, tipo]) => [c, tipo.startsWith('enum:') ? tipo.slice(5).split(',').join('|') : tipo === 'ordinal' ? 'entero 1-5' : tipo === 'bool' ? 'true|false' : 'string'])), fuentes: ['<id exacto del diccionario>'] }]]));
+  const forma = Object.fromEntries(Object.entries(s.grupos).map(([g, def]) => [g, [{ ...Object.fromEntries(Object.entries(def.campos).map(([c, tipo]) => [c, tipo.startsWith('enum:') ? tipo.slice(5).split(',').join('|') : tipo === 'ordinal' ? 3 : tipo === 'bool' ? true : 'string'])), fuentes: ['<id exacto del diccionario>'] }]]));
   const system = `Eres el agente "Expediente del Financiador" de RadFor-360. Sección: ${s.titulo}.
 ${s.instrucciones}
 
@@ -192,7 +192,15 @@ ${JSON.stringify(datos, null, 1)}`;
 
 function validarCampo(tipo, valor) {
   if (tipo === 'texto') return { ok: true, valor: texto(valor).slice(0, MAX_TEXTO) };
-  if (tipo === 'bool') return { ok: typeof valor === 'boolean', valor };
+  if (tipo === 'bool') {
+    // Verificado en vivo (gemini-3.6-flash, 2026-09-30): el modelo puede
+    // devolver "true"/"false" como texto. Solo se aceptan formas inequívocas.
+    if (typeof valor === 'boolean') return { ok: true, valor };
+    const t = normalizarEje(valor);
+    if (['true', 'si', 'yes'].includes(t)) return { ok: true, valor: true };
+    if (['false', 'no'].includes(t)) return { ok: true, valor: false };
+    return { ok: false };
+  }
   if (tipo === 'ordinal') { const n = Number(valor); return { ok: Number.isInteger(n) && n >= 1 && n <= 5, valor: n }; }
   const opciones = tipo.slice(5).split(',');
   const hallado = opciones.find(o => normalizarEje(o) === normalizarEje(valor));

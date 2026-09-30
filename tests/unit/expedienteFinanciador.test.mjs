@@ -97,6 +97,16 @@ test('checklist jurídico: la IA NUNCA da un documento por soportado (decisión 
   assert.deepEqual(r.descartados.map(d => [d.motivo, d.detalle ?? null]), [['cifra_no_trazable', '1076, 2015'], ['sin_fuente_documental', null]]);
 });
 
+test('regresión (verificado en vivo con gemini-3.6-flash): "obligatorio" como texto "true"/"sí" se acepta; un valor ambiguo se descarta; la plantilla pide booleano', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, ANEXOS);
+  const doc = (obligatorio) => ({ documento: 'Declaración de no duplicidad de fondos', obligatorio, referencia: '', anexo: '', fuentes: ['anexo:TDR Convocatoria BID.pdf'] });
+  const r = X.validarSeccion('checklist_juridico', { documentos: [doc('true'), doc('Sí'), doc('no'), doc('quizás')] }, datos, anexosIds);
+  assert.deepEqual(r.grupos.documentos.map(d => d.obligatorio), [true, true, false]);
+  assert.deepEqual(r.descartados.map(d => d.detalle), ['obligatorio']);
+  const [sys] = X.construirPrompt('checklist_juridico', resolverDirectivas(ENTRADA), datos);
+  assert.match(sys.content, /"obligatorio":true/);
+});
+
 test('seccionCumple: una sección cuenta como soporte de las reglas V solo con sus grupos mínimos', () => {
   const tocMinima = { estado: 'ok', contenido: { grupos: { impacto_largo_plazo: [], resultados_intermedios: [], intervenciones: [], supuestos_criticos: [{ texto: 'x' }] } } };
   assert.equal(X.seccionCumple('teoria_cambio', tocMinima), false, 'un solo supuesto no es una ruta causal');
