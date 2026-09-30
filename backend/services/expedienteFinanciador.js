@@ -217,12 +217,20 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
   const grupos = {};
   const descartados = [];
   let itemsValidos = 0;
-  const nombresAnexo = Object.values(anexosIds).map(n => [normalizarEje(n), n]);
+  // Búsquedas por ítem en O(1): nombre normalizado → nombre real del anexo,
+  // y el texto de cada fuente normalizado UNA sola vez por sección (hasta 60K caracteres).
+  const nombresAnexo = new Map(Object.values(anexosIds).map(n => [normalizarEje(n), n]));
+  const fuentesNormalizadas = new Map();
+  const textoNormalizado = (id) => {
+    if (!fuentesNormalizadas.has(id)) fuentesNormalizadas.set(id, normalizarEje(datos[id]));
+    return fuentesNormalizadas.get(id);
+  };
   for (const [g, def] of Object.entries(s.grupos)) {
     const crudos = Array.isArray(salida?.[g]) ? salida[g].slice(0, def.max ?? MAX_ITEMS) : [];
     const validos = [];
+    const campoResumen = Object.keys(def.campos).find(c => def.campos[c] === 'texto');
     for (const it of crudos) {
-      const resumen = texto(Object.values(def.campos).includes('texto') ? it?.[Object.keys(def.campos).find(c => def.campos[c] === 'texto')] : '').slice(0, 120);
+      const resumen = texto(campoResumen ? it?.[campoResumen] : '').slice(0, 120);
       const fuentes = Array.isArray(it?.fuentes) ? [...new Set(it.fuentes.map(texto).filter(Boolean))] : [];
       if (!fuentes.length) { descartados.push({ grupo: g, item: resumen, motivo: 'sin_fuente' }); continue; }
       const inexistentes = fuentes.filter(id => !(id in datos));
@@ -247,14 +255,15 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
         // Un requisito debe venir de un documento (TdR/guía), no solo de Entrada.
         if (!fuentes.some(id => id.startsWith('anexo:'))) { descartados.push({ grupo: g, item: resumen, motivo: 'sin_fuente_documental' }); continue; }
         // La norma citada debe aparecer LITERAL en sus fuentes; si no, se borra (no se inventan normas).
-        if (item.referencia && !fuentes.some(id => normalizarEje(datos[id]).includes(normalizarEje(item.referencia)))) item.referencia = '';
+        const referencia = normalizarEje(item.referencia);
+        if (referencia && !fuentes.some(id => textoNormalizado(id).includes(referencia))) item.referencia = '';
         // El estado lo decide el sistema, nunca la IA (decisión del dueño): un
         // anexo real que la IA propone como soporte queda "propuesto — verificar";
         // el anexo que EXIGE el documento (una de sus fuentes) no lo prueba.
         const citado = normalizarEje(item.anexo);
-        const real = citado ? nombresAnexo.find(([n]) => n === citado) : null;
-        const esFuenteDelRequisito = real && fuentes.some(id => anexosIds[id] === real[1]);
-        item.anexo = real && !esFuenteDelRequisito ? real[1] : '';
+        const real = citado ? nombresAnexo.get(citado) : undefined;
+        const esFuenteDelRequisito = real && fuentes.some(id => anexosIds[id] === real);
+        item.anexo = real && !esFuenteDelRequisito ? real : '';
         item.estado = item.anexo ? 'anexo_propuesto_verificar' : 'no_detectado';
       }
       validos.push({ ...item, fuentes });
