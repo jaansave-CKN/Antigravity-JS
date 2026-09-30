@@ -90,18 +90,66 @@ const MARCA_CHECKLIST: Record<string, { marca: string; color: string }> = {
   no_detectado: { marca: '✗ ', color: COLOR_ERROR },
 };
 
+function CabeceraSeccion({ titulo, g, color }: { titulo: string; g: Generacion | null; color: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 10.5, fontWeight: 800, color: '#fff', background: color, padding: '2px 8px', borderRadius: 6 }}>{etiquetaEstado(g)}</span>
+      <strong style={{ fontSize: 12.5, color: COLOR_TEXTO }}>{titulo}</strong>
+      {g && <span style={{ fontSize: 10.5, color: COLOR_MUTED }}>{g.modelo || 'IA'} · {new Date(g.created_at).toLocaleString('es-CO', { hour12: false })}</span>}
+      {g?.desactualizada && <span style={{ fontSize: 10.5, color: COLOR_ALERTA, fontWeight: 700 }}>Las fuentes cambiaron · regenerar</span>}
+    </div>
+  );
+}
+
+function ItemGrupo({ seccionId, grupo, it }: { seccionId: SeccionId; grupo: string; it: Item }) {
+  const marca = seccionId === 'checklist_juridico' ? (MARCA_CHECKLIST[s(it.estado)] ?? MARCA_CHECKLIST.no_detectado) : null;
+  return (
+    <li style={marca ? { color: marca.color } : undefined}>
+      {marca?.marca}{textoItem(seccionId, grupo, it)}
+      {it.fuentes && it.fuentes.length > 0 && (
+        <div style={{ fontSize: 11, color: COLOR_MUTED }}>Fuentes: {it.fuentes.join(' · ')}</div>
+      )}
+    </li>
+  );
+}
+
+function GrupoSeccion({ seccionId, grupo, items }: { seccionId: SeccionId; grupo: string; items: Item[] }) {
+  // Clave estable por contenido (los ítems no traen id; dos idénticos se muestran una vez).
+  const unicos = [...new Map(items.map(it => [JSON.stringify(it), it])).entries()];
+  return (
+    <div>
+      <p style={{ margin: '0 0 6px', fontSize: 10.5, fontWeight: 700, color: COLOR_PRIMARIO, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{GRUPO_TITULO[grupo] || grupo}</p>
+      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: COLOR_TEXTO }}>
+        {unicos.map(([clave, it]) => <ItemGrupo key={clave} seccionId={seccionId} grupo={grupo} it={it} />)}
+      </ul>
+    </div>
+  );
+}
+
+function NotasSeccion({ g }: { g: Generacion }) {
+  return (
+    <>
+      {g.descartados.length > 0 && (
+        <div style={{ fontSize: 11, color: COLOR_MUTED }} title={g.descartados.map(d => `${d.item || d.grupo}: ${MOTIVO_DESCARTE[d.motivo] || d.motivo}${d.detalle ? ` (${d.detalle})` : ''}`).join('\n')}>
+          {g.descartados.length} ítem(s) de la IA descartados por no poder sustentarse en las fuentes del proyecto.
+        </div>
+      )}
+      {g.contenido.fuentes_omitidas && g.contenido.fuentes_omitidas.length > 0 && (
+        <div style={{ fontSize: 11, color: COLOR_MUTED }}>
+          No cupieron en el análisis (límite de tamaño): {g.contenido.fuentes_omitidas.join(', ')}.
+        </div>
+      )}
+    </>
+  );
+}
+
 function SeccionBloque({ seccion, cargando, bloqueado, error, onGenerar }: { seccion: Seccion; cargando: boolean; bloqueado: boolean; error: string | null; onGenerar: () => void }) {
   const g = seccion.ultima;
   const color = colorEstado(g);
-  const grupos = g ? Object.entries(g.contenido.grupos || {}) : [];
+  const grupos = g ? Object.entries(g.contenido.grupos || {}).filter(([, items]) => items.length > 0) : [];
   return (
     <div data-testid={`expediente-${seccion.id}`} style={{ padding: '8px 12px', borderRadius: 8, borderLeft: `3px solid ${color}`, background: 'rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 10.5, fontWeight: 800, color: '#fff', background: color, padding: '2px 8px', borderRadius: 6 }}>{etiquetaEstado(g)}</span>
-        <strong style={{ fontSize: 12.5, color: COLOR_TEXTO }}>{seccion.titulo}</strong>
-        {g && <span style={{ fontSize: 10.5, color: COLOR_MUTED }}>{g.modelo || 'IA'} · {new Date(g.created_at).toLocaleString('es-CO', { hour12: false })}</span>}
-        {g?.desactualizada && <span style={{ fontSize: 10.5, color: COLOR_ALERTA, fontWeight: 700 }}>Las fuentes cambiaron · regenerar</span>}
-      </div>
+      <CabeceraSeccion titulo={seccion.titulo} g={g} color={color} />
       <button
         onClick={onGenerar}
         disabled={bloqueado}
@@ -119,31 +167,8 @@ function SeccionBloque({ seccion, cargando, bloqueado, error, onGenerar }: { sec
           Las fuentes del proyecto no alcanzan para sustentar esta sección. Adjunta en Anexos los documentos del financiador (términos de referencia, estudios) y vuelve a generar.
         </div>
       )}
-      {grupos.filter(([, items]) => items.length > 0).map(([grupo, items]) => (
-        <div key={grupo}>
-          <p style={{ margin: '0 0 6px', fontSize: 10.5, fontWeight: 700, color: COLOR_PRIMARIO, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{GRUPO_TITULO[grupo] || grupo}</p>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: COLOR_TEXTO }}>
-            {items.map((it, i) => (
-              <li key={`${grupo}-${i}`} style={seccion.id === 'checklist_juridico' ? { color: (MARCA_CHECKLIST[s(it.estado)] ?? MARCA_CHECKLIST.no_detectado).color } : undefined}>
-                {seccion.id === 'checklist_juridico' ? (MARCA_CHECKLIST[s(it.estado)] ?? MARCA_CHECKLIST.no_detectado).marca : ''}{textoItem(seccion.id, grupo, it)}
-                {it.fuentes && it.fuentes.length > 0 && (
-                  <div style={{ fontSize: 11, color: COLOR_MUTED }}>Fuentes: {it.fuentes.join(' · ')}</div>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-      {g && g.descartados.length > 0 && (
-        <div style={{ fontSize: 11, color: COLOR_MUTED }} title={g.descartados.map(d => `${d.item || d.grupo}: ${MOTIVO_DESCARTE[d.motivo] || d.motivo}${d.detalle ? ` (${d.detalle})` : ''}`).join('\n')}>
-          {g.descartados.length} ítem(s) de la IA descartados por no poder sustentarse en las fuentes del proyecto.
-        </div>
-      )}
-      {g?.contenido.fuentes_omitidas && g.contenido.fuentes_omitidas.length > 0 && (
-        <div style={{ fontSize: 11, color: COLOR_MUTED }}>
-          No cupieron en el análisis (límite de tamaño): {g.contenido.fuentes_omitidas.join(', ')}.
-        </div>
-      )}
+      {grupos.map(([grupo, items]) => <GrupoSeccion key={grupo} seccionId={seccion.id} grupo={grupo} items={items} />)}
+      {g && <NotasSeccion g={g} />}
     </div>
   );
 }

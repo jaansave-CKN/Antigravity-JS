@@ -89,8 +89,10 @@ export function registerExpedienteRoutes(app, { authenticateToken, requireAccess
       getRows: (sql, params) => withTenantRows(req.userId, sql, params),
       runSql: (sql, params) => withTenantRun(req.userId, sql, params),
     };
-    const anexosMeta = await withTenantRows(req.userId, SQL_ANEXOS_META, [req.params.id]);
-    const anexos = await compilarAnexosProyecto(req.params.id, scoped);
+    const [anexosMeta, anexos] = await Promise.all([
+      withTenantRows(req.userId, SQL_ANEXOS_META, [req.params.id]),
+      compilarAnexosProyecto(req.params.id, scoped),
+    ]);
     const { datos, anexosIds, omitidos } = construirFuentes(entrada, anexos);
 
     // Sin gastar cuota de IA si no hay material (mismo contrato 422 que LOTE 10).
