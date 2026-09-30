@@ -33,10 +33,12 @@ export const SQL_SOFT_DELETE_CON_RESPALDO =
 /** Ids (de la lista dada) referenciados por favoritos o por proyectos (origen_radar). */
 export async function idsReferenciados(db, ids) {
   if (!ids.length) return new Set();
-  const fav = await db.getRows('SELECT grant_id AS id FROM user_favorites WHERE grant_id = ANY(?::text[])', [ids]);
-  const proy = await db.getRows(
-    `SELECT ficha_tecnica->'origen_radar'->>'convocatoria_id' AS id FROM proyectos
-      WHERE ficha_tecnica->'origen_radar'->>'convocatoria_id' = ANY(?::text[])`, [ids]);
+  const [fav, proy] = await Promise.all([
+    db.getRows('SELECT grant_id AS id FROM user_favorites WHERE grant_id = ANY(?::text[])', [ids]),
+    db.getRows(
+      `SELECT ficha_tecnica->'origen_radar'->>'convocatoria_id' AS id FROM proyectos
+        WHERE ficha_tecnica->'origen_radar'->>'convocatoria_id' = ANY(?::text[])`, [ids]),
+  ]);
   return new Set([...fav, ...proy].map(r => r.id));
 }
 
