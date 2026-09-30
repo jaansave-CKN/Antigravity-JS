@@ -332,3 +332,24 @@ test('regresión en vivo: el prompt del Marco Lógico no deja la matriz vacía p
   assert.match(system.content, /El objetivo general es el problema central expresado en positivo/);
   assert.match(system.content, /meta numérica SOLO si la cifra está en las fuentes/);
 });
+
+test('regresión en vivo (gpt-oss-120b 2026-09-30): riesgos con probabilidad "ND" se descartan (no se inventa la calificación); escala verbal se traduce; el prompt exige entero 1–5', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, ANEXOS);
+  const riesgo = (probabilidad, impacto) => ({ evento: 'Crecientes de abril a junio', categoria: 'Climático', probabilidad, impacto, respuesta: 'Ajustar el cronograma de obra', reserva: 'ND', fuentes: ['anexo:Diagnóstico.docx'] });
+  const r = X.validarSeccion('riesgos_pmi', { riesgos: [
+    riesgo(4, 3), riesgo('3', '5'), riesgo('Alta', 'muy alto'), riesgo('Media', 'Baja'),
+    riesgo('ND', 'ND'), riesgo('Crítico', 4), riesgo(3.5, 2), riesgo(0, 6),
+  ] }, datos, anexosIds);
+  assert.deepEqual(r.grupos.riesgos.map(x => [x.probabilidad, x.impacto]), [[4, 3], [3, 5], [4, 5], [3, 2]]);
+  assert.deepEqual(r.descartados.map(d => [d.motivo, d.detalle]), Array(4).fill(['valor_invalido', 'probabilidad']));
+  const [system] = X.construirPrompt('riesgos_pmi', resolverDirectivas(ENTRADA), datos);
+  assert.match(system.content, /SIEMPRE como número entero de 1 a 5/);
+  assert.match(system.content, /nunca "ND", nunca texto/);
+  assert.match(system.content, /"probabilidad":3,"impacto":3/, 'la plantilla muestra enteros');
+});
+
+test('campo vacío informa QUÉ campo faltó (diagnóstico de descartes en vivo)', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, ANEXOS);
+  const r = X.validarSeccion('cadena_valor', { eslabones: [{ objetivo_o_componente: 'Agua apta', producto_o_entregable: '', actividad: 'Construir la red', etapa: 'Inversión', fuente_aporte: 'ND', fuentes: ['entrada.solucion_elegida'] }] }, datos, anexosIds);
+  assert.deepEqual(r.descartados.map(d => [d.motivo, d.detalle]), [['campo_vacio', 'producto_o_entregable']]);
+});

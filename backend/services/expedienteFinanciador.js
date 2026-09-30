@@ -63,6 +63,11 @@ const AUTOEVALUACION = /\b(es|son|resulta|resultan|sera|seran|se considera|se co
 // Grupos donde no puede aparecer un monto (el presupuesto está en el documento externo del usuario); null = toda la sección.
 const SIN_MONTOS = { cadena_valor: null, marco_logico: new Set(['actividades']), sostenibilidad_oym: null };
 
+const ESCALA_ORDINAL = new Map([
+  ['muy baja', 1], ['muy bajo', 1], ['baja', 2], ['bajo', 2], ['media', 3], ['medio', 3], ['moderada', 3], ['moderado', 3],
+  ['alta', 4], ['alto', 4], ['muy alta', 5], ['muy alto', 5],
+]);
+
 const texto = (v) => (v === null || v === undefined ? '' : String(v).trim());
 
 /**
@@ -140,7 +145,7 @@ export const SECCIONES = Object.freeze({
     grupos: {
       riesgos: { campos: { evento: 'texto', categoria: `enum:${CATEGORIAS_RIESGO.join(',')}`, probabilidad: 'ordinal', impacto: 'ordinal', respuesta: 'texto', reserva: 'texto' } },
     },
-    instrucciones: 'Construye el registro de riesgos: evento de riesgo sustentado en las fuentes, categoría, probabilidad e impacto (calificación entera de 1 a 5), estrategia de respuesta y reserva de contingencia. La reserva SOLO si el monto está en las fuentes; si no, "ND".',
+    instrucciones: 'Construye el registro de riesgos: evento de riesgo sustentado en las fuentes, categoría, probabilidad e impacto, estrategia de respuesta y reserva de contingencia. La reserva SOLO si el monto está en las fuentes; si no, "ND". "probabilidad" e "impacto" NO son datos de las fuentes: son TU calificación experta del evento y van SIEMPRE como número entero de 1 a 5 (1 = muy baja, 2 = baja, 3 = media, 4 = alta, 5 = muy alta) — nunca "ND", nunca texto. "ND" solo es válido en "reserva".',
   },
   sostenibilidad_oym: {
     titulo: 'Sostenibilidad — operación y mantenimiento',
@@ -310,7 +315,12 @@ function validarCampo(tipo, valor) {
     if (['false', 'no'].includes(t)) return { ok: true, valor: false };
     return { ok: false };
   }
-  if (tipo === 'ordinal') { const n = Number(valor); return { ok: Number.isInteger(n) && n >= 1 && n <= 5, valor: n }; }
+  if (tipo === 'ordinal') {
+    // Calificación 1–5. Una escala verbal inequívoca se traduce ("alta" → 4); "ND" o texto libre
+    // se descartan: convertir "no disponible" en un número sería inventar la calificación.
+    const n = typeof valor === 'string' && ESCALA_ORDINAL.has(normalizarEje(valor)) ? ESCALA_ORDINAL.get(normalizarEje(valor)) : Number(valor);
+    return { ok: Number.isInteger(n) && n >= 1 && n <= 5, valor: n };
+  }
   const opciones = tipo.slice(5).split(',');
   const hallado = opciones.find(o => normalizarEje(o) === normalizarEje(valor));
   return { ok: !!hallado, valor: hallado };
@@ -364,9 +374,8 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
         item[c] = r.valor;
       }
       if (invalido) { descartados.push({ grupo: g, item: resumen, motivo: 'valor_invalido', detalle: invalido }); continue; }
-      if (Object.entries(def.campos).some(([c, tipo]) => tipo === 'texto' && !ADMITE_ND.has(c) && c !== 'anexo' && c !== 'referencia' && !item[c])) {
-        descartados.push({ grupo: g, item: resumen, motivo: 'campo_vacio' }); continue;
-      }
+      const vacio = camposTexto.find(c => !ADMITE_ND.has(c) && c !== 'anexo' && c !== 'referencia' && !item[c]);
+      if (vacio) { descartados.push({ grupo: g, item: resumen, motivo: 'campo_vacio', detalle: vacio }); continue; }
       for (const c of ADMITE_ND) if (c in item && !item[c]) item[c] = 'ND';
       // Res. 1063 de 2016 DEROGADA por la Res. 0661 de 2019 (verificado 2026-09-30): nunca se cita, aunque la
       // traiga una fuente vieja. En el checklist solo se vacía la referencia (el requisito puede ser real).
