@@ -164,13 +164,14 @@ test('marco_logico: árbol + matriz 4×4 validados; el problema central como "fa
     fin: [{ resumen: 'Mejorar la salud', indicador: 'Casos de EDA', medio_verificacion: '', supuesto: '', fuentes: f }],
     proposito: [{ resumen: 'Agua apta', indicador: '% viviendas con agua apta', medio_verificacion: 'Encuesta', supuesto: 'Operación comunitaria', fuentes: f }],
     componentes: [{ resumen: 'Sistema de acueducto', indicador: 'Sistema operando', medio_verificacion: 'Acta de entrega', supuesto: 'ND', fuentes: ['entrada.solucion_elegida'] }],
-    actividades: [{ resumen: 'Construir la planta', medio_verificacion: 'Bitácora', supuesto: 'Clima', fuentes: ['entrada.solucion_elegida'] }],
+    actividades: [{ resumen: 'Construir la planta', indicador: 'Planta construida y recibida', medio_verificacion: 'Bitácora', supuesto: 'Clima', fuentes: ['entrada.solucion_elegida'] }],
     alineacion: [{ instrumento: 'ODS', texto: 'ODS 6', fuentes: f }],
   }, datos, anexosIds);
   assert.equal(r.grupos.problema_central.length, 1);
   assert.deepEqual(r.grupos.causas.map(c => c.nivel), ['directa'], 'el catálogo se normaliza; "raíz" no existe');
   assert.deepEqual([r.grupos.fin[0].medio_verificacion, r.grupos.fin[0].supuesto], ['ND', 'ND']);
   assert.equal('costo' in r.grupos.actividades[0], false);
+  assert.equal(r.grupos.actividades[0].indicador, 'Planta construida y recibida', 'la actividad es fila 4×4 completa: lleva indicador');
   assert.deepEqual(r.descartados.map(d => [d.grupo, d.motivo]), [['causas', 'valor_invalido'], ['alineacion', 'cifra_no_trazable']], '"ODS 6" no está en las fuentes');
   assert.equal(X.seccionCumple('marco_logico', { estado: 'ok', contenido: { grupos: r.grupos } }), true);
 
@@ -248,7 +249,7 @@ test('montos: "millones de litros" y "pesos de carga" NO son montos; "$", "millo
   assert.equal(r.grupos.eslabones.length, 2);
   assert.deepEqual(r.descartados.map(d => d.motivo), ['monto_no_permitido', 'monto_no_permitido', 'monto_no_permitido']);
 
-  const ml = X.validarSeccion('marco_logico', { actividades: [{ resumen: 'Construir la planta por 120.000.000', medio_verificacion: 'Acta', supuesto: 'ND', fuentes: ['anexo:Estudio.pdf'] }] }, datos, anexosIds);
+  const ml = X.validarSeccion('marco_logico', { actividades: [{ resumen: 'Construir la planta por 120.000.000', indicador: 'Planta construida', medio_verificacion: 'Acta', supuesto: 'ND', fuentes: ['anexo:Estudio.pdf'] }] }, datos, anexosIds);
   assert.deepEqual(ml.descartados.map(d => d.motivo), ['monto_no_permitido']);
   const om = X.validarSeccion('sostenibilidad_oym', { fuentes_recursos: [{ fuente_recurso: 'Tarifa', mecanismo: 'Cobro de 120.000.000 anual', fuentes: ['anexo:Estudio.pdf'] }] }, datos, anexosIds);
   assert.deepEqual(om.descartados.map(d => d.motivo), ['monto_no_permitido']);
@@ -265,4 +266,49 @@ test('norma derogada anclada a la RESOLUCIÓN: "1063 viviendas en 2016" pasa; en
     { documento: 'Concepto técnico', obligatorio: true, referencia: 'Resolución 1063 de 2016', anexo: '', fuentes: ['anexo:Censo.pdf'] },
   ] }, datos, anexosIds);
   assert.deepEqual(c.grupos.documentos.map(d => [d.documento, d.referencia]), [['Concepto técnico', '']]);
+});
+
+test('directiva cirujano: actividades del Marco Lógico con indicador obligatorio y sin monto; indicadores SMART en el prompt', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, ANEXOS);
+  const f = ['entrada.solucion_elegida'];
+  const r = X.validarSeccion('marco_logico', { actividades: [
+    { resumen: 'Construir el tanque', indicador: 'Tanque construido y recibido por la interventoría', medio_verificacion: 'Acta de recibo', supuesto: 'ND', fuentes: f },
+    { resumen: 'Instalar la red', indicador: '', medio_verificacion: 'Acta', supuesto: 'ND', fuentes: f },
+    { resumen: 'Construir la planta', indicador: 'Inversión de $ 300 ejecutada', medio_verificacion: 'Acta', supuesto: 'ND', fuentes: f },
+  ] }, datos, anexosIds);
+  assert.deepEqual(r.grupos.actividades.map(a => a.indicador), ['Tanque construido y recibido por la interventoría']);
+  assert.deepEqual(r.descartados.map(d => d.motivo), ['campo_vacio', 'monto_no_permitido'], 'sin indicador no hay fila 4×4; un costo como indicador es un monto');
+  const [system] = X.construirPrompt('marco_logico', resolverDirectivas(ENTRADA), datos);
+  assert.match(system.content, /indicador SMART/);
+  assert.match(system.content, /NUNCA su costo/);
+  assert.match(system.content, /"actividades":\[\{"resumen":"string","indicador":"string"/, 'la plantilla pide el indicador de la actividad');
+});
+
+test('directiva cirujano: el creador no se autoevalúa (dictamen = MIROFISH), pero los documentos de viabilidad/elegibilidad del checklist se conservan', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, ANEXOS);
+  const f = ['entrada.solucion_elegida'];
+  const toc = (texto) => ({ texto, fuentes: f });
+  const r = X.validarSeccion('teoria_cambio', { intervenciones: [
+    toc('Construcción del acueducto veredal'),
+    toc('El proyecto es técnicamente viable'),
+    toc('La alternativa resulta elegible para el BID'),
+    toc('La propuesta ya fue aprobada por el financiador'),
+    toc('Viabilidad garantizada por el diseño'),
+    toc('Score de auditoría alto'),
+  ] }, datos, anexosIds);
+  assert.deepEqual(r.grupos.intervenciones.map(i => i.texto), ['Construcción del acueducto veredal']);
+  assert.deepEqual(r.descartados.map(d => d.motivo), Array(5).fill('autoevaluacion'));
+
+  const t = 'anexo:TDR Convocatoria BID.pdf';
+  const c = X.validarSeccion('checklist_juridico', { documentos: [
+    { documento: 'Concepto de viabilidad técnica', obligatorio: true, referencia: '', anexo: '', fuentes: [t] },
+    { documento: 'Certificado de elegibilidad', obligatorio: true, referencia: '', anexo: '', fuentes: [t] },
+    { documento: 'Acto administrativo aprobado por el concejo', obligatorio: false, referencia: '', anexo: '', fuentes: [t] },
+  ] }, datos, anexosIds);
+  assert.equal(c.grupos.documentos.length, 3, 'nombres de documentos no son un dictamen');
+  assert.deepEqual(c.grupos.documentos.map(d => d.estado), ['no_detectado', 'no_detectado', 'no_detectado']);
+
+  const [system] = X.construirPrompt('cadena_valor', resolverDirectivas(ENTRADA), datos);
+  assert.match(system.content, /NUNCA declares que el proyecto es viable, elegible, aprobado u otorgado/);
+  assert.match(system.content, /Comité MIROFISH/);
 });

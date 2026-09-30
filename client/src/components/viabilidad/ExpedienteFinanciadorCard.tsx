@@ -60,6 +60,7 @@ const MOTIVO_DESCARTE: Record<string, string> = {
   valor_invalido: 'valor fuera de catálogo', campo_vacio: 'campo vacío',
   sin_fuente_documental: 'requisito sin documento fuente', norma_derogada: 'cita una norma derogada',
   problema_como_ausencia: 'problema redactado como "falta de"', monto_no_permitido: 'incluía montos (van en el presupuesto del documento)',
+  autoevaluacion: 'se autoevaluaba (el dictamen es del Comité MIROFISH)',
 };
 const COLOR_OK = '#15803d', COLOR_ALERTA = '#b45309', COLOR_ERROR = '#ba1a1a', COLOR_MUTED = '#76777d', COLOR_TEXTO = '#191c1e', COLOR_PRIMARIO = '#0041a3';
 

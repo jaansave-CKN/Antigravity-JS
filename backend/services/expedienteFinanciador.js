@@ -56,6 +56,10 @@ const NORMA_DEROGADA = /\bres(olucion)?\.?\s*(n[o°º]\.?\s*)?1063\b/;
 // Montos: símbolo o código de moneda, "millones de pesos/dólares/euros", "N pesos" o cifras
 // largas con separador de miles (120.000.000). "2 millones de litros" o "pesos de carga" NO son montos.
 const MONTO = /\$\s?\d|\b(COP|USD|EUR)\b|\bmill[oó]n(es)?\s+de\s+(pesos|d[oó]lares|euros)\b|\b\d+\s*(pesos|d[oó]lares|euros)\b|\b\d{1,3}(\.\d{3}){2,}\b/i;
+// Autoevaluación (directiva del dueño 2026-09-30): el creador redacta, MIROFISH fiscaliza. Se descartan
+// AFIRMACIONES de dictamen, no palabras sueltas: "Concepto de viabilidad técnica" o "certificado de
+// elegibilidad" son documentos reales del checklist. Se evalúa sobre texto normalizado (sin tildes).
+const AUTOEVALUACION = /\b(es|son|resulta|resultan|sera|seran|se considera|se consideran|se declara|se declaran)\s+(\w+mente\s+)?(viables?|elegibles?)\b|\b(el proyecto|la propuesta|la iniciativa|la solicitud|la postulacion|la financiacion|los recursos)\s+(\w+\s+){0,2}?(es|fue|sera|esta|queda|resulta|se considera)\s+(\w+mente\s+)?(aprobad[oa]s?|otorgad[oa]s?|favorables?)\b|\bviabilidad\s+(aprobada|otorgada|favorable|garantizada)\b|\bscore\b|\bpuntaje\s+de\s+(auditoria|evaluacion)\b/;
 // Grupos donde no puede aparecer un monto (el presupuesto está en el documento externo del usuario); null = toda la sección.
 const SIN_MONTOS = { cadena_valor: null, marco_logico: new Set(['actividades']), sostenibilidad_oym: null };
 
@@ -78,10 +82,10 @@ export const SECCIONES = Object.freeze({
       fin: { max: 1, campos: FILA_MML },
       proposito: { max: 1, campos: FILA_MML },
       componentes: { campos: FILA_MML },
-      actividades: { campos: { resumen: 'texto', medio_verificacion: 'texto', supuesto: 'texto' } },
+      actividades: { campos: FILA_MML },
       alineacion: { campos: { instrumento: `enum:${INSTRUMENTOS.join(',')}`, texto: 'texto' } },
     },
-    instrucciones: 'Estructura el árbol de problemas (problema central, causas directas e indirectas, efectos directos e indirectos) y su espejo positivo (objetivo general), y la matriz de Marco Lógico 4×4: fin, propósito, componentes y actividades, cada fila con indicador, medio de verificación y supuesto. El problema central es una condición negativa MEDIBLE de la población, NUNCA "falta de…", "ausencia de…" ni "no existe" la obra o el servicio. Las actividades NO llevan costos (el presupuesto está en el documento del usuario). Si hay fuentes "arbol.*" (árbol de objetivos ya registrado en el proyecto) o "indicador[n]", el objetivo general, el propósito, los componentes y las actividades DEBEN ser coherentes con ellas — no inventes una jerarquía distinta. En "alineacion" relaciona el proyecto con el Plan Nacional/Departamental/Municipal de Desarrollo, los ODS o la estrategia del financiador SOLO si las fuentes lo mencionan.',
+    instrucciones: 'Estructura el árbol de problemas (problema central, causas directas e indirectas, efectos directos e indirectos) y su espejo positivo (objetivo general), y la matriz de Marco Lógico 4×4: fin, propósito, componentes y actividades, cada fila con indicador SMART (específico, medible, alcanzable, relevante y con plazo), medio de verificación y supuesto; el indicador de una actividad mide su avance físico (p. ej. obra ejecutada, estudio entregado), NUNCA su costo. El problema central es una condición negativa MEDIBLE de la población, NUNCA "falta de…", "ausencia de…" ni "no existe" la obra o el servicio. Las actividades NO llevan costos (el presupuesto está en el documento del usuario). Si hay fuentes "arbol.*" (árbol de objetivos ya registrado en el proyecto) o "indicador[n]", el objetivo general, el propósito, los componentes y las actividades DEBEN ser coherentes con ellas — no inventes una jerarquía distinta. En "alineacion" relaciona el proyecto con el Plan Nacional/Departamental/Municipal de Desarrollo, los ODS o la estrategia del financiador SOLO si las fuentes lo mencionan.',
   },
   teoria_cambio: {
     titulo: 'Teoría del Cambio — ruta causal',
@@ -285,7 +289,8 @@ REGLAS INQUEBRANTABLES:
 1. Usa EXCLUSIVAMENTE el DICCIONARIO DE FUENTES (id → texto). Cada ítem DEBE citar en "fuentes" los ids EXACTOS en que se apoya. Un ítem sin fuente válida se descarta.
 2. NUNCA inventes cifras, montos, fechas, porcentajes, normas, entidades ni documentos: toda cifra de un ítem debe aparecer en sus fuentes. Si el dato no está, usa "ND" (o cadena vacía donde se indique).
 3. Si las fuentes no alcanzan para un grupo, devuélvelo como lista vacía. Es preferible poco contenido verificable que contenido inventado.
-4. Máximo ${MAX_ITEMS} ítems por grupo. Responde SOLO un objeto JSON con esta forma exacta:
+4. Tu rol es REDACTAR, no evaluar: NUNCA declares que el proyecto es viable, elegible, aprobado u otorgado, ni asignes un score o puntaje. La fiscalización la hace el Comité MIROFISH con un modelo independiente.
+5. Máximo ${MAX_ITEMS} ítems por grupo. Responde SOLO un objeto JSON con esta forma exacta, sin texto antes ni después:
 ${JSON.stringify(forma)}`;
   const user = `${bloqueVectores(directivas)}
 
@@ -356,6 +361,7 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
       if (item.referencia && NORMA_DEROGADA.test(normalizarEje(item.referencia))) item.referencia = '';
       const textoItem = Object.entries(def.campos).filter(([, tipo]) => tipo === 'texto').map(([c]) => item[c]).join(' \n ');
       if (NORMA_DEROGADA.test(normalizarEje(textoItem))) { descartados.push({ grupo: g, item: resumen, motivo: 'norma_derogada', detalle: 'Res. 1063 de 2016 (derogada por la Res. 0661 de 2019)' }); continue; }
+      if (AUTOEVALUACION.test(normalizarEje(textoItem))) { descartados.push({ grupo: g, item: resumen, motivo: 'autoevaluacion' }); continue; }
       if (seccionId === 'marco_logico' && g === 'problema_central' && PROBLEMA_COMO_AUSENCIA.test(normalizarEje(item.texto).toUpperCase())) {
         descartados.push({ grupo: g, item: resumen, motivo: 'problema_como_ausencia' }); continue;
       }
