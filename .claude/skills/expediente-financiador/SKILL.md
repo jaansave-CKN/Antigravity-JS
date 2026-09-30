@@ -23,7 +23,8 @@ description: Opera, audita o extiende el Expediente del Financiador de RadFor-36
 4. **Regla monetaria**: régimen nacional o sin definir = texto COP de siempre, byte a byte. Solo el régimen internacional la cambia.
 5. **Generación modular**: cada sección es una llamada independiente — nunca un JSON único con todo (límites por minuto de Groq/Gemini; si una sección falla, no se pierde el resto).
 6. **Cadena de valor sin montos**: se descarta cualquier ítem con montos; los costos por actividad están en el presupuesto del documento externo (la sección lista los anexos Financiero).
-7. **Nada pre-aprobado**: ninguna plantilla trae estados de aprobación (elegible, otorgado, VIABLE, score 100); la auditoría la hacen las reglas V y el Comité MIROFISH con otro modelo.
+7. **Nada pre-aprobado**: ninguna plantilla trae estados de aprobación (elegible, otorgado, VIABLE, score 100); la auditoría la hacen las reglas V y el Comité MIROFISH con otro modelo. Además el validador descarta las AFIRMACIONES de dictamen ("es viable", "resulta elegible", "la propuesta fue aprobada", "viabilidad garantizada", "score") con el motivo `autoevaluacion`; los NOMBRES de documentos ("Concepto de viabilidad técnica", "Certificado de elegibilidad") se conservan.
+9. **Marco Lógico 4×4 completo**: fin, propósito, componentes y actividades llevan indicador SMART, medio de verificación y supuesto; el indicador de una actividad mide avance físico, nunca costo (monto → `monto_no_permitido`; sin indicador → `campo_vacio`).
 8. **Normas verificadas**: Ley 1551/2012 art. 48 (modificado por la Ley 2140/2021); Res. 0661/2019 MinVivienda para agua y saneamiento (ítem base determinista del checklist en régimen nacional). La Res. 1063/2016 está DEROGADA: cualquier ítem que la cite se descarta (`norma_derogada`).
 
 ## Cómo verificar (siempre con evidencia)
