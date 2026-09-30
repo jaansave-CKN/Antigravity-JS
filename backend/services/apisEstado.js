@@ -11,11 +11,14 @@
  * - NVIDIA NIM: solo presencia de la llave. /v1/models de NIM es público y no
  *   valida la llave, y un fetch literal a NIM fuera de nimCliente rompería la
  *   guardia de tests/unit/lote9Reintento.test.mjs.
+ * - Groq (rol creador, 2026-09-30): solo presencia de la llave y la pausa de
+ *   estadoGroq() (tras 429/401) — no se gasta una petición de su cuota
+ *   gratuita para diagnosticar.
  * - Gemini NO está aquí: QuotaTelemetry ya consulta /api/admin/quota-status.
  * - Embeddings y su cobertura se componen en server.js (este módulo es
  *   NEUTRAL y no puede importar el Radar).
  */
-import { estadoOpenRouter } from './llmProveedor.js';
+import { estadoOpenRouter, estadoGroq } from './llmProveedor.js';
 import { consultarSaldoOpenRouter } from './openRouterCliente.js';
 import { leerFlagsIA } from './iaFlags.js';
 
@@ -54,12 +57,22 @@ async function diagnosticoOpenRouter(env, flags, ahora) {
   return { ...base, ...conSaldo, estado };
 }
 
-/** @returns {Promise<{ openrouter: object, nvidia: object, tavily: object }>} */
+function diagnosticoGroq(env, flags, ahora) {
+  const configurada = !!(env.GROQ_API_KEY || '').trim();
+  const base = { configurada, habilitada: flags.groq, flagDisponible: true };
+  if (!configurada) return { ...base, estado: 'faltante' };
+  // Interruptor forzado a encendido para informar el estado subyacente (igual que OpenRouter).
+  const g = estadoGroq(env, ahora, { ...flags, groq: true });
+  return { ...base, estado: g.activo ? 'configurada_no_verificada' : 'pausado' };
+}
+
+/** @returns {Promise<{ openrouter: object, groq: object, nvidia: object, tavily: object }>} */
 export async function estadoApis({ env = process.env, ahora = Date.now() } = {}) {
   const flags = await leerFlagsIA();
   const nvidiaConfigurada = !!(env.NVIDIA_API_KEY || '').trim();
   return {
     openrouter: await diagnosticoOpenRouter(env, flags, ahora),
+    groq: diagnosticoGroq(env, flags, ahora),
     nvidia: {
       configurada: nvidiaConfigurada, habilitada: flags.nvidia, flagDisponible: true,
       estado: nvidiaConfigurada ? 'configurada_no_verificada' : 'faltante',

@@ -16,6 +16,13 @@
  * se retiró el gate BYOK — los 67 usuarios usan la IA sin llave propia.
  *
  * Cascada:
+ *   0. Groq (openai/gpt-oss-120b, $0, llave del servidor) — SOLO para el rol
+ *      CREADOR (AGENTES_CREADORES) y nunca en soloServidor. Arquitectura
+ *      híbrida Cero-Sesgo (dueño 2026-09-30, dictamen architect APROBADO CON
+ *      CAMBIOS): quien redacta (Groq) no es la misma familia de modelo que
+ *      quien audita (Viabilidad, MIROFISH y Sectores siguen en Gemini). Si el
+ *      contexto estimado no cabe en el límite por minuto (8K TPM del plan
+ *      gratuito) se salta sin petición; 413/429/503 → cae al paso siguiente.
  *   1. OpenRouter (anthropic/claude-sonnet-5, llave del servidor), SOLO si
  *      hay OPENROUTER_API_KEY y el tope de gasto por usuario es verificable
  *      (iaPresupuesto.js, persistido en Postgres). Sin eso se salta.
@@ -32,6 +39,7 @@
  * proveedor no la pasa, se prueba el siguiente en vez de entregarla.
  */
 import { llamarOpenRouter, OpenRouterError, modeloOpenRouter } from './openRouterCliente.js';
+import { llamarGroq, GroqError, modeloGroq } from './groqCliente.js';
 import {
   configPresupuesto, estimarReservaUsd, costoRealUsd, reservar, liquidar, liberar,
   IaTopeAgotadoError, PresupuestoNoVerificableError,
@@ -56,6 +64,28 @@ const OPENROUTER_MAX_MS = 38_000;
 const GEMINI_MAX_MS = 45_000;
 const PAUSA_CONFIG_MS = 10 * 60_000; // tras 401/402/403 (llave o saldo del dueño)
 
+/**
+ * Rol CREADOR (nombres FinOps reales de los llamadores): EntradaIAService.js,
+ * arbolObjetivosAgent.js y el respaldo de formuladorMga.js (que ya prueba
+ * NVIDIA NIM primero). 'copiloto' queda fuera a propósito: responde texto
+ * libre con permitirTruncado, incompatible con la salida solo-JSON.
+ */
+export const AGENTES_CREADORES = ['entrada-ia', 'arbol_objetivos', 'formulador_mga'];
+const GROQ_MAX_MS = 20_000;
+const GROQ_LIMITE_TPM_DEFECTO = 8_000;  // plan gratuito de gpt-oss-120b (verificado 2026-09-30)
+const GROQ_SALIDA_MIN = 2_048;          // con menos presupuesto de salida no vale la pena intentar
+const GROQ_PAUSA_429_DEFECTO_MS = 60_000;
+// Riesgo aceptado (dictamen architect, condición 10): el límite por minuto es
+// de la LLAVE, no del usuario — dos creadores a la vez se provocan 429 entre
+// sí y la pausa por retry-after lo absorbe. Con 200K tokens/día y ~7K por
+// llamada, Groq cubre ~28 llamadas diarias; el resto va a Gemini. Con 2048 de
+// salida mínima, el prompt máximo es ~5.150 tokens (~15K caracteres): Entrada
+// IA con material grande irá casi siempre directo a Gemini.
+// Se antepone al PRIMER mensaje system del llamador (no un segundo system).
+// Los datos ausentes respetan la convención del llamador (p. ej. Entrada IA
+// exige "ND (No Disponible en la investigación)", nunca vacío).
+export const GUARDA_CERO_INVENCION = 'REGLA CERO-INVENCIÓN (obligatoria, por encima de todo lo demás): no inventes cifras, montos, fechas, porcentajes, nombres de entidades ni fuentes; usa solo datos presentes en el material entregado. Si un dato no está, aplica la convención para datos ausentes que indiquen las instrucciones de abajo; si no indican ninguna, usa null. Responde ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después.';
+
 export class IaNoDisponibleError extends Error {
   constructor(intentos = [], retryAt = null) {
     super('Servicio de IA no disponible en este momento. Ningún proveedor respondió — no se generó ni se guardó nada. Intenta de nuevo más tarde.');
@@ -79,6 +109,8 @@ class SalidaInvalidaError extends Error {
 
 let _openRouterPausaHasta = 0;
 let _ultimoAvisoSinLlave = 0;
+let _groqPausaHasta = 0;
+let _ultimoAvisoGroqSinLlave = 0;
 
 /**
  * Si OpenRouter puede intentarse ahora (no mira el tope, que es por usuario).
@@ -95,8 +127,32 @@ export function estadoOpenRouter(env = process.env, ahora = Date.now(), flags = 
   return { activo: true, modelo: modeloOpenRouter() };
 }
 
+/**
+ * Si Groq puede intentarse ahora (misma semántica que estadoOpenRouter: solo
+ * el interruptor en false lo deshabilita). No mira el tamaño del contexto,
+ * que es por llamada.
+ */
+export function estadoGroq(env = process.env, ahora = Date.now(), flags = flagsIACacheados()) {
+  if (!(env.GROQ_API_KEY || '').trim()) return { activo: false, motivo: 'sin_llave' };
+  if (flags.groq === false) return { activo: false, motivo: 'deshabilitado_por_admin' };
+  if (ahora < _groqPausaHasta) return { activo: false, motivo: 'pausado' };
+  return { activo: true, modelo: modeloGroq() };
+}
+
+function limiteTpmGroq(env = process.env) {
+  const n = Number(env.GROQ_LIMITE_TPM);
+  return Number.isFinite(n) && n > 0 ? n : GROQ_LIMITE_TPM_DEFECTO;
+}
+
+/** Antepone la guarda al primer mensaje system (o la agrega si no hay ninguno). */
+export function conGuardaCeroInvencion(messages) {
+  const i = messages.findIndex(m => m?.role === 'system');
+  if (i === -1) return [{ role: 'system', content: GUARDA_CERO_INVENCION }, ...messages];
+  return messages.map((m, j) => (j === i ? { ...m, content: `${GUARDA_CERO_INVENCION}\n\n${m.content}` } : m));
+}
+
 /** Solo para pruebas. */
-export function _reiniciarEstadoProveedor() { _openRouterPausaHasta = 0; _ultimoAvisoSinLlave = 0; }
+export function _reiniciarEstadoProveedor() { _openRouterPausaHasta = 0; _ultimoAvisoSinLlave = 0; _groqPausaHasta = 0; _ultimoAvisoGroqSinLlave = 0; }
 
 function aplicarValidar(validar, texto) {
   if (!validar) return undefined;
@@ -164,7 +220,7 @@ function motivoDe(err) {
  * @param {string} p.agente — nombre FinOps (ai_token_logs.agent_name)
  * @param {Array<{role:string, content:string}>} p.messages — formato OpenAI (system/user/assistant)
  * @param {boolean} [p.soloServidor] — llamada de SISTEMA: solo pool Gemini, bajo el tope diario de iaTopeSistema.js
- * @returns {Promise<{ texto: string, valor: any, proveedor: 'openrouter'|'gemini_servidor'|'byok', modelo: string, usage: object, truncada: boolean }>}
+ * @returns {Promise<{ texto: string, valor: any, proveedor: 'groq'|'openrouter'|'gemini_servidor'|'byok', modelo: string, usage: object, truncada: boolean }>}
  * @throws {IaNoDisponibleError|IaTopeAgotadoError|IaTopeSistemaError|LlmLoopGuardError}
  */
 export async function generarConIA(opciones) {
@@ -192,12 +248,20 @@ async function generarConIAInterno({
   let topeAgotado = null;
   let retryAtGemini = null;
 
-  // ── 1. OpenRouter ──────────────────────────────────────────────────────────
   // soloServidor (tráfico de fondo del Radar) se decide ANTES de mirar los
-  // interruptores del Búnker: nunca los lee ni puede activar un proveedor de
-  // pago por ellos — se queda en el pool Gemini sin excepciones (directiva de
-  // integración 2026-09-29). Solo las llamadas de usuario consultan iaFlags.
-  const or = soloServidor ? { activo: false, motivo: 'omitido_solo_servidor' } : estadoOpenRouter(process.env, Date.now(), await leerFlagsIA());
+  // interruptores del Búnker: nunca los lee ni puede activar un proveedor
+  // externo por ellos — se queda en el pool Gemini sin excepciones (directiva
+  // de integración 2026-09-29). Solo las llamadas de usuario consultan iaFlags.
+  const flags = soloServidor ? null : await leerFlagsIA();
+
+  // ── 0. Groq (solo rol CREADOR) ─────────────────────────────────────────────
+  if (!soloServidor && AGENTES_CREADORES.includes(agente)) {
+    const r = await intentoGroq({ userId, agente, messages, temperature, maxTokens, responseFormat, validar, flags, restante, intentos });
+    if (r) return r;
+  }
+
+  // ── 1. OpenRouter ──────────────────────────────────────────────────────────
+  const or = soloServidor ? { activo: false, motivo: 'omitido_solo_servidor' } : estadoOpenRouter(process.env, Date.now(), flags);
   if (!or.activo) {
     intentos.push({ proveedor: 'openrouter', motivo: or.motivo });
     if (!['pausado_por_configuracion', 'omitido_solo_servidor'].includes(or.motivo) && Date.now() - _ultimoAvisoSinLlave > PAUSA_CONFIG_MS) {
@@ -298,6 +362,68 @@ async function generarConIAInterno({
   logger.error('[llmProveedor] Ningún proveedor de IA respondió', { agente, userId, intentos });
   if (topeAgotado) throw topeAgotado;
   throw new IaNoDisponibleError(intentos, retryAtGemini);
+}
+
+/**
+ * Paso 0 de la cascada (rol CREADOR). Devuelve el resultado o null si hay que
+ * seguir con el siguiente proveedor (el motivo queda en `intentos`). Solo
+ * relanza LlmLoopGuardError (corta toda la cascada, igual que OpenRouter).
+ */
+async function intentoGroq({ userId, agente, messages, temperature, maxTokens, responseFormat, validar, flags, restante, intentos }) {
+  const g = estadoGroq(process.env, Date.now(), flags);
+  if (!g.activo) {
+    intentos.push({ proveedor: 'groq', motivo: g.motivo });
+    if (g.motivo === 'sin_llave' && Date.now() - _ultimoAvisoGroqSinLlave > PAUSA_CONFIG_MS) {
+      _ultimoAvisoGroqSinLlave = Date.now();
+      logger.warn('[llmProveedor] Groq no se intenta (sin GROQ_API_KEY) — el rol creador salta al paso siguiente', { agente });
+    }
+    return null;
+  }
+  const mensajes = conGuardaCeroInvencion(messages);
+  // Conservador: se asume que el límite por minuto cuenta también la salida
+  // pedida (Groq no lo documenta) — prompt estimado + salida ≤ 90 % del límite.
+  const salida = Math.min(maxTokens, Math.floor(limiteTpmGroq() * 0.9) - estimarTokensLlamada(mensajes, 0));
+  if (salida < GROQ_SALIDA_MIN) {
+    intentos.push({ proveedor: 'groq', motivo: 'contexto_excede_limite' });
+    return null;
+  }
+  // Groq nunca se come el tiempo del respaldo: debe quedar un paso completo para Gemini.
+  const tiempoGroq = Math.min(GROQ_MAX_MS, restante() - TIEMPO_MIN_PASO_MS);
+  if (tiempoGroq < TIEMPO_MIN_PASO_MS) {
+    intentos.push({ proveedor: 'groq', motivo: 'sin_tiempo' });
+    return null;
+  }
+  registrarLlamadaLLM(`groq:${agente}`); // LlmLoopGuardError corta toda la cascada
+  let r;
+  try {
+    r = await llamarGroq({ messages: mensajes, maxTokens: salida, temperature, responseFormat: responseFormat ?? { type: 'json_object' }, timeoutMs: tiempoGroq });
+  } catch (err) {
+    const e = err instanceof GroqError ? err : new GroqError('error', err?.message);
+    if ([413, 429, 503].includes(e.status)) {
+      logger.warn('[WARN] Groq límite excedido, cayendo a Gemini...', { agente, status: e.status, motivo: e.motivo });
+      if (e.status === 429) _groqPausaHasta = Date.now() + Math.min(e.retryAfterMs ?? GROQ_PAUSA_429_DEFECTO_MS, PAUSA_CONFIG_MS);
+    } else if (e.motivo === 'llave_rechazada') {
+      _groqPausaHasta = Date.now() + PAUSA_CONFIG_MS;
+      logger.error('[llmProveedor] Groq rechazó la llave — pausado 10 min (acción del dueño)', { status: e.status });
+    } else {
+      logger[e.motivo === 'parametro_no_soportado' ? 'error' : 'warn']('[llmProveedor] Groq falló — se prueba el siguiente proveedor', { agente, motivo: e.motivo, detalle: e.detalle || e.message });
+    }
+    // Respuesta cortada/vacía: la cuota gratuita ya se consumió → queda en FinOps.
+    if (e.usage && Object.keys(e.usage).length) {
+      logTokenUsage({ userId, agentName: agente, tokensInput: e.usage.prompt_tokens ?? 0, tokensOutput: salidaFacturada(e.usage), costoUsdReal: 0 }).catch(() => {});
+    }
+    intentos.push({ proveedor: 'groq', motivo: e.motivo });
+    return null;
+  }
+  logTokenUsage({ userId, agentName: agente, tokensInput: r.usage.prompt_tokens ?? 0, tokensOutput: salidaFacturada(r.usage), costoUsdReal: 0 }).catch(() => {});
+  try {
+    const valor = aplicarValidar(validar, r.texto);
+    return { texto: r.texto, valor, proveedor: 'groq', modelo: r.modelo, usage: r.usage, truncada: false };
+  } catch (err) {
+    logger.warn('[llmProveedor] Salida de Groq rechazada por la validación — se prueba el siguiente proveedor', { agente, detalle: err.message });
+    intentos.push({ proveedor: 'groq', motivo: 'salida_invalida' });
+    return null;
+  }
 }
 
 /**

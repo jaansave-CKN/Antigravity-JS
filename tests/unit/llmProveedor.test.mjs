@@ -58,24 +58,29 @@ mock.module(u('utils/logger.js'), { namedExports: { logger: {
   error: (m, extra) => estado.logs.push({ nivel: 'error', m, ...extra }),
 } } });
 
-const { generarConIA, IaNoDisponibleError, estadoOpenRouter, _reiniciarEstadoProveedor } = await import('../../backend/services/llmProveedor.js');
+const { generarConIA, IaNoDisponibleError, estadoOpenRouter, estadoGroq, GUARDA_CERO_INVENCION, AGENTES_CREADORES, _reiniciarEstadoProveedor } = await import('../../backend/services/llmProveedor.js');
 
 const MSGS = [{ role: 'system', content: 'sistema' }, { role: 'user', content: 'pregunta' }];
-const respuesta = ({ status = 200, finish = 'stop', content = '{"ok":true}', usage = { prompt_tokens: 100, completion_tokens: 50, total_tokens: 1150 }, model } = {}) => ({
+const respuesta = ({ status = 200, finish = 'stop', content = '{"ok":true}', usage = { prompt_tokens: 100, completion_tokens: 50, total_tokens: 1150 }, model, headers = {} } = {}) => ({
   status, ok: status >= 200 && status < 300,
+  headers: { get: (k) => headers[String(k).toLowerCase()] ?? null },
   text: async () => 'detalle',
   json: async () => ({ model, choices: [{ finish_reason: finish, message: { content } }], usage }),
 });
 
-/** Simula la red: `openrouter` y `gemini` son funciones (cuerpo) → respuesta o lanzan. */
+/** Simula la red: `groq`, `openrouter` y `gemini` son funciones (cuerpo) → respuesta o lanzan. */
 let llamadas = [];
-function red({ openrouter = () => respuesta({ model: 'anthropic/claude-sonnet-5', usage: { prompt_tokens: 100, completion_tokens: 50, cost: 0.0007 } }), gemini = () => respuesta() } = {}) {
+function red({
+  openrouter = () => respuesta({ model: 'anthropic/claude-sonnet-5', usage: { prompt_tokens: 100, completion_tokens: 50, cost: 0.0007 } }),
+  gemini = () => respuesta(),
+  groq = () => respuesta({ model: 'openai/gpt-oss-120b', usage: { prompt_tokens: 120, completion_tokens: 60, total_tokens: 400 } }),
+} = {}) {
   llamadas = [];
   globalThis.fetch = async (url, init) => {
     const cuerpo = JSON.parse(init.body);
-    const destino = String(url).includes('openrouter.ai') ? 'openrouter' : 'gemini';
+    const destino = String(url).includes('openrouter.ai') ? 'openrouter' : String(url).includes('api.groq.com') ? 'groq' : 'gemini';
     llamadas.push({ destino, cuerpo, headers: init.headers });
-    return destino === 'openrouter' ? openrouter(cuerpo) : gemini(cuerpo);
+    return destino === 'openrouter' ? openrouter(cuerpo) : destino === 'groq' ? groq(cuerpo) : gemini(cuerpo);
   };
 }
 
@@ -87,6 +92,9 @@ function preparar({ openrouter = true, tope = true } = {}) {
   if (tope) { process.env.LLM_TOPE_USD_DIA = '1'; process.env.LLM_TOPE_USD_MES = '10'; }
   else { delete process.env.LLM_TOPE_USD_DIA; delete process.env.LLM_TOPE_USD_MES; }
   delete process.env.OPENROUTER_MODEL;
+  // Aislado del entorno real: una GROQ_API_KEY presente no puede alterar los
+  // tests de 'entrada-ia'/'arbol_objetivos' (dictamen architect, condición 5).
+  delete process.env.GROQ_API_KEY; delete process.env.GROQ_MODEL; delete process.env.GROQ_LIMITE_TPM;
 }
 
 test('OpenRouter responde: modelo claude-sonnet-5, sin temperature, response_format, sin retención de datos; se reserva y liquida el costo real', async () => {
@@ -351,4 +359,158 @@ test('INTEGRACIÓN #38×#41: soloServidor IGNORA los interruptores del Búnker �
     assert.equal(llamadas.some(l => l.destino === 'openrouter'), false, 'OpenRouter encendido en el Búnker no aplica al tráfico de fondo');
     assert.equal(lecturasFlags, 0, 'el tráfico de fondo ni siquiera consulta los interruptores');
   } finally { _reiniciarFlagsIA(); TS._reiniciarTopeSistema(); }
+});
+
+// ── Arquitectura híbrida Cero-Sesgo: Groq para el rol CREADOR (2026-09-30) ──
+const AVISO_GROQ = '[WARN] Groq límite excedido, cayendo a Gemini...';
+const MSGS_CREADOR = [{ role: 'system', content: 'Instrucciones del Árbol. Si falta un dato usa "ND".' }, { role: 'user', content: 'Genera el JSON' }];
+function prepararGroq(opciones = {}) {
+  preparar(opciones);
+  process.env.GROQ_API_KEY = 'gsk_prueba';
+}
+
+test('Groq: creador con llave → gpt-oss-120b, $0 en FinOps, sin tocar OpenRouter; guarda anti-invención en el PRIMER system y JSON por defecto', async () => {
+  prepararGroq();
+  red();
+  const r = await generarConIA({ userId: 'u1', agente: 'arbol_objetivos', messages: MSGS_CREADOR, temperature: 0.3, validar: (t) => JSON.parse(t) });
+  assert.deepEqual([r.proveedor, r.modelo], ['groq', 'openai/gpt-oss-120b']);
+  assert.deepEqual(r.valor, { ok: true });
+  assert.deepEqual(llamadas.map(l => l.destino), ['groq'], 'OpenRouter (de pago) ni se intenta si Groq responde');
+  const c = llamadas[0].cuerpo;
+  assert.equal(c.model, 'openai/gpt-oss-120b');
+  assert.equal(c.reasoning_effort, 'low');
+  assert.equal(c.include_reasoning, false);
+  assert.equal('reasoning_format' in c, false, 'gpt-oss no admite reasoning_format (400)');
+  assert.deepEqual(c.response_format, { type: 'json_object' });
+  assert.equal(c.temperature, 0.3);
+  assert.ok(c.max_completion_tokens >= 2048 && c.max_completion_tokens <= 7200, `salida dentro del límite por minuto (${c.max_completion_tokens})`);
+  assert.equal(c.messages.filter(m => m.role === 'system').length, 1, 'no se agrega un segundo system');
+  assert.ok(c.messages[0].content.startsWith(GUARDA_CERO_INVENCION));
+  assert.match(c.messages[0].content, /Si falta un dato usa "ND"/, 'se conserva la convención del llamador');
+  assert.match(GUARDA_CERO_INVENCION, /convención para datos ausentes que indiquen las instrucciones/);
+  assert.equal(llamadas[0].headers.Authorization, 'Bearer gsk_prueba');
+  assert.deepEqual([estado.tokens[0].agentName, estado.tokens[0].costoUsdReal, estado.tokens[0].tokensOutput], ['arbol_objetivos', 0, 280]);
+  assert.equal(estado.liquidadas.length + estado.liberadas.length, 0, 'Groq no toca el presupuesto en USD');
+});
+
+test('Groq: el response_format del llamador (json_schema) se respeta; sin system propio se agrega uno con la guarda', async () => {
+  prepararGroq({ openrouter: false });
+  red();
+  const esquema = { type: 'json_schema', json_schema: { name: 'x', schema: { type: 'object' } } };
+  await generarConIA({ userId: 'u1', agente: 'entrada-ia', messages: [{ role: 'user', content: 'JSON por favor' }], responseFormat: esquema });
+  assert.deepEqual(llamadas[0].cuerpo.response_format, esquema);
+  assert.deepEqual(llamadas[0].cuerpo.messages[0], { role: 'system', content: GUARDA_CERO_INVENCION });
+});
+
+for (const [status, headers] of [[413, {}], [429, { 'retry-after': '30' }], [503, {}]]) {
+  test(`Groq ${status} → aviso literal y cae a Gemini con la petición original (sin la guarda)`, async () => {
+    prepararGroq({ openrouter: false });
+    red({ groq: () => respuesta({ status, headers }) });
+    const r = await generarConIA({ userId: 'u1', agente: 'entrada-ia', messages: MSGS_CREADOR, validar: (t) => JSON.parse(t) });
+    assert.equal(r.proveedor, 'gemini_servidor');
+    assert.deepEqual(llamadas.map(l => l.destino), ['groq', 'gemini']);
+    assert.equal(llamadas[1].cuerpo.messages[0].content, MSGS_CREADOR[0].content, 'Gemini recibe el prompt tal cual (comportamiento ya probado)');
+    assert.equal('response_format' in llamadas[1].cuerpo, false);
+    const aviso = estado.logs.filter(l => l.m === AVISO_GROQ);
+    assert.equal(aviso.length, 1);
+    assert.deepEqual([aviso[0].nivel, aviso[0].status], ['warn', status]);
+  });
+}
+
+test('Groq 429: pausa según retry-after (sin volver a llamarlo) y como máximo 10 min', async () => {
+  prepararGroq({ openrouter: false });
+  red({ groq: () => respuesta({ status: 429, headers: { 'retry-after': '30' } }) });
+  await generarConIA({ userId: 'u1', agente: 'arbol_objetivos', messages: MSGS_CREADOR });
+  assert.equal(estadoGroq().motivo, 'pausado');
+  assert.equal(estadoGroq(process.env, Date.now() + 31_000).activo, true, 'la pausa dura lo que dijo retry-after');
+  llamadas = [];
+  await generarConIA({ userId: 'u1', agente: 'arbol_objetivos', messages: MSGS_CREADOR });
+  assert.deepEqual(llamadas.map(l => l.destino), ['gemini'], 'durante la pausa no se reintenta Groq');
+
+  prepararGroq({ openrouter: false });
+  red({ groq: () => respuesta({ status: 429, headers: { 'retry-after': '99999' } }) });
+  await generarConIA({ userId: 'u1', agente: 'arbol_objetivos', messages: MSGS_CREADOR });
+  assert.equal(estadoGroq(process.env, Date.now() + 10 * 60_000 + 1_000).activo, true, 'tope de 10 min');
+  prepararGroq({ openrouter: false });
+  red({ groq: () => respuesta({ status: 429 }) });
+  await generarConIA({ userId: 'u1', agente: 'arbol_objetivos', messages: MSGS_CREADOR });
+  assert.equal(estadoGroq(process.env, Date.now() + 30_000).motivo, 'pausado', 'sin retry-after: pausa por defecto de 60 s');
+  assert.equal(estadoGroq(process.env, Date.now() + 61_000).activo, true);
+});
+
+test('Groq 401: pausa 10 min con error (acción del dueño); salida inválida → siguiente proveedor', async () => {
+  prepararGroq({ openrouter: false });
+  red({ groq: () => respuesta({ status: 401 }) });
+  assert.equal((await generarConIA({ userId: 'u1', agente: 'arbol_objetivos', messages: MSGS_CREADOR })).proveedor, 'gemini_servidor');
+  assert.equal(estadoGroq().motivo, 'pausado');
+  assert.ok(estado.logs.some(l => l.nivel === 'error' && /Groq rechazó la llave/.test(l.m)));
+  assert.equal(estado.logs.some(l => l.m === AVISO_GROQ), false, '401 no es un límite excedido');
+
+  prepararGroq({ openrouter: false });
+  red({ groq: () => respuesta({ content: 'esto no es json' }), gemini: () => respuesta({ content: '{"nodos":[1]}' }) });
+  const r = await generarConIA({ userId: 'u1', agente: 'arbol_objetivos', messages: MSGS_CREADOR, validar: (t) => JSON.parse(t) });
+  assert.deepEqual([r.proveedor, r.valor], ['gemini_servidor', { nodos: [1] }]);
+  assert.equal(estado.tokens[0].costoUsdReal, 0, 'lo que Groq consumió igual queda en FinOps');
+});
+
+test('Groq: contexto que no cabe en el límite por minuto → bypass a Gemini SIN petición (evita el 413)', async () => {
+  prepararGroq({ openrouter: false });
+  red();
+  const grande = [{ role: 'system', content: 'x'.repeat(30_000) }, { role: 'user', content: 'JSON' }];
+  const r = await generarConIA({ userId: 'u1', agente: 'entrada-ia', messages: grande });
+  assert.equal(r.proveedor, 'gemini_servidor');
+  assert.deepEqual(llamadas.map(l => l.destino), ['gemini']);
+  process.env.GROQ_LIMITE_TPM = '60000';
+  red();
+  await generarConIA({ userId: 'u1', agente: 'entrada-ia', messages: grande });
+  assert.equal(llamadas[0].destino, 'groq', 'con un límite mayor configurado (plan de pago) sí cabe');
+});
+
+test('Groq: auditores, copiloto y tráfico soloServidor NUNCA van a Groq aunque haya llave', async () => {
+  prepararGroq({ openrouter: false });
+  topeFalso();
+  for (const [agente, extra] of [['viabilidad', {}], ['mirofish_comite', {}], ['copiloto', {}], ['sector-classifier', { soloServidor: true, maxTokens: 2048 }]]) {
+    red();
+    await generarConIA({ userId: 'u1', agente, messages: MSGS, ...extra });
+    assert.equal(llamadas.some(l => l.destino === 'groq'), false, agente);
+  }
+  assert.deepEqual(AGENTES_CREADORES, ['entrada-ia', 'arbol_objetivos', 'formulador_mga']);
+  TS._reiniciarTopeSistema();
+});
+
+test('Groq: interruptor del Búnker apagado → sin petición; sin llave → la REGLA DE ORO lista el motivo de Groq', async () => {
+  prepararGroq({ openrouter: false });
+  red();
+  const { configurarFlagsIA, _reiniciarFlagsIA } = await import('../../backend/services/iaFlags.js');
+  configurarFlagsIA({ getRow: async (sql, [clave]) => (clave === 'ia_flag_groq' ? { value: 'false' } : null), runSql: async () => ({}) });
+  try {
+    const r = await generarConIA({ userId: 'u1', agente: 'arbol_objetivos', messages: MSGS_CREADOR });
+    assert.equal(r.proveedor, 'gemini_servidor');
+    assert.equal(llamadas.some(l => l.destino === 'groq'), false);
+    assert.equal(estadoGroq().motivo, 'deshabilitado_por_admin');
+  } finally { _reiniciarFlagsIA(); }
+
+  preparar({ openrouter: false });
+  estado.rotacion = async () => { throw new GeminiPoolExhaustedError('pool agotado'); };
+  red();
+  await assert.rejects(generarConIA({ userId: 'u1', agente: 'arbol_objetivos', messages: MSGS_CREADOR }), (e) => {
+    assert.ok(e instanceof IaNoDisponibleError);
+    assert.deepEqual(e.intentos.map(i => i.proveedor), ['groq', 'openrouter', 'gemini_servidor', 'byok']);
+    assert.equal(e.intentos[0].motivo, 'sin_llave');
+    return true;
+  });
+  assert.equal(llamadas.some(l => l.destino === 'groq'), false);
+});
+
+test('groqCliente: retry-after en segundos (entero o decimal) → ms; ausente o basura → null', async () => {
+  const { retryAfterMs } = await import('../../backend/services/groqCliente.js');
+  assert.deepEqual([retryAfterMs('30'), retryAfterMs('2.5'), retryAfterMs(null), retryAfterMs('abc'), retryAfterMs('0')], [30_000, 2_500, null, null, null]);
+});
+
+test('Groq: si Groq y el resto fallan → 503 honesto con el motivo de Groq primero (nunca texto inventado)', async () => {
+  prepararGroq();
+  estado.rotacion = async () => { throw new GeminiPoolExhaustedError('pool agotado'); };
+  red({ groq: () => respuesta({ status: 503 }), openrouter: () => respuesta({ status: 503 }) });
+  await assert.rejects(generarConIA({ userId: 'u1', agente: 'formulador_mga', messages: MSGS_CREADOR }), (e) =>
+    e instanceof IaNoDisponibleError && e.intentos[0].proveedor === 'groq' && e.intentos[0].motivo === 'saturado');
 });

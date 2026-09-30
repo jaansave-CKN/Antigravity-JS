@@ -8,6 +8,8 @@
  *                                  cascada (la IA cae al pool Gemini).
  *   ia_flag_nvidia     = 'false' → nimCliente responde deshabilitado_por_admin
  *                                  (Formulador MGA "no disponible", sin respaldo).
+ *   ia_flag_groq       = 'false' → llmProveedor saca a Groq del rol creador
+ *                                  (Entrada IA/Árbol/MGA caen al paso siguiente).
  *
  * Reglas:
  * - Sin import estático de la BD: server.js inyecta { getRow, runSql } con
@@ -24,13 +26,13 @@
  */
 import { logger } from '../utils/logger.js';
 
-const CLAVES = { openrouter: 'ia_flag_openrouter', nvidia: 'ia_flag_nvidia' };
+const CLAVES = { openrouter: 'ia_flag_openrouter', nvidia: 'ia_flag_nvidia', groq: 'ia_flag_groq' };
 export const PROVEEDORES_CON_FLAG = Object.keys(CLAVES);
 const TTL_MS = 15_000;
 const LOG_ERROR_CADA_MS = 60_000;
 
 let _deps = null;
-let _cache = { openrouter: true, nvidia: true };
+let _cache = { openrouter: true, nvidia: true, groq: true };
 let _leidoEn = 0;
 let _enVuelo = null;
 let _ultimoLogError = 0;
@@ -95,7 +97,7 @@ export async function fijarFlagIA(proveedor, habilitado) {
 /** Solo para pruebas. */
 export function _reiniciarFlagsIA() {
   _deps = null;
-  _cache = { openrouter: true, nvidia: true };
+  _cache = { openrouter: true, nvidia: true, groq: true };
   _leidoEn = 0;
   _enVuelo = null;
   _ultimoLogError = 0;

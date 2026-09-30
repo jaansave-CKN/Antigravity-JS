@@ -25,12 +25,12 @@ export default function PrivacidadPage() {
         <li>Prestar los servicios de formulación, evaluación de viabilidad y postulación de proyectos.</li>
         <li>Procesar pagos de suscripción a través de nuestro proveedor de pagos (Stripe).</li>
         <li>Enviar notificaciones transaccionales (bienvenida, recuperación de contraseña, alertas de convocatorias) y, solo si el usuario lo autoriza expresamente, comunicaciones comerciales.</li>
-        <li>Generar análisis automatizados de viabilidad mediante modelos de inteligencia artificial de terceros (Google Gemini) — el contenido narrativo de sus proyectos puede ser enviado a ese proveedor para su procesamiento, bajo los términos de privacidad de Google.</li>
+        <li>Generar análisis automatizados de viabilidad y borradores de formulación mediante modelos de inteligencia artificial de terceros (Google Gemini y, cuando está habilitado, Groq) — el contenido narrativo de sus proyectos puede ser enviado a esos proveedores para su procesamiento, bajo sus respectivos términos de privacidad.</li>
         <li>Cumplir obligaciones legales y atender requerimientos de autoridades competentes.</li>
       </ul>
 
       <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 24 }}>4. Encargados y transferencia de datos</h2>
-      <p>Sus datos son almacenados y procesados por: Supabase Inc. (base de datos y almacenamiento de archivos, con servidores que pueden estar ubicados fuera de Colombia), Stripe Inc. (procesamiento de pagos) y Google LLC (procesamiento de lenguaje natural para las funciones de inteligencia artificial). Estas transferencias internacionales se realizan bajo los estándares de protección exigidos por la Superintendencia de Industria y Comercio (SIC) para este tipo de encargados.</p>
+      <p>Sus datos son almacenados y procesados por: Supabase Inc. (base de datos y almacenamiento de archivos, con servidores que pueden estar ubicados fuera de Colombia), Stripe Inc. (procesamiento de pagos), Google LLC (procesamiento de lenguaje natural para las funciones de inteligencia artificial) y Groq, Inc. (procesamiento de lenguaje natural para la redacción asistida de borradores, cuando está habilitado; Estados Unidos). Estas transferencias internacionales se realizan bajo los estándares de protección exigidos por la Superintendencia de Industria y Comercio (SIC) para este tipo de encargados.</p>
 
       <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 24 }}>5. Derechos del titular de los datos</h2>
       <p>Como titular de sus datos personales, usted tiene derecho a:</p>

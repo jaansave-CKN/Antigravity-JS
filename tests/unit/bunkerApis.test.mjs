@@ -8,8 +8,8 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 const u = (p) => new URL(`../../backend/${p}`, import.meta.url).href;
-const sim = { or: { activo: true }, saldo: async () => ({ saldoUsd: 5 }), saldoLlamadas: 0 };
-mock.module(u('services/llmProveedor.js'), { namedExports: { estadoOpenRouter: (env, ahora, flags) => sim.or } });
+const sim = { or: { activo: true }, groq: { activo: true }, saldo: async () => ({ saldoUsd: 5 }), saldoLlamadas: 0 };
+mock.module(u('services/llmProveedor.js'), { namedExports: { estadoOpenRouter: (env, ahora, flags) => sim.or, estadoGroq: (env, ahora, flags) => sim.groq } });
 mock.module(u('services/openRouterCliente.js'), { namedExports: {
   consultarSaldoOpenRouter: async () => { sim.saldoLlamadas++; return sim.saldo(); },
 } });
@@ -31,14 +31,14 @@ function bdFalsa(valores = {}) {
 
 test('sin configurar (tests/scripts): todo habilitado y cero E/S', async () => {
   F._reiniciarFlagsIA();
-  assert.deepEqual(await F.leerFlagsIA(), { openrouter: true, nvidia: true });
+  assert.deepEqual(await F.leerFlagsIA(), { openrouter: true, nvidia: true, groq: true });
   await assert.rejects(F.fijarFlagIA('openrouter', false), /sin configurar/);
 });
 
 test("solo el texto exacto 'false' deshabilita; ausente u otro valor = habilitado", async () => {
   F._reiniciarFlagsIA();
   F.configurarFlagsIA(bdFalsa({ ia_flag_openrouter: 'false', ia_flag_nvidia: 'FALSE' }));
-  assert.deepEqual(await F.leerFlagsIA(), { openrouter: false, nvidia: true });
+  assert.deepEqual(await F.leerFlagsIA(), { openrouter: false, nvidia: true, groq: true });
 });
 
 test('caché de 15 s y una sola lectura en vuelo ante llamadas concurrentes', async () => {
@@ -46,11 +46,11 @@ test('caché de 15 s y una sola lectura en vuelo ante llamadas concurrentes', as
   const bd = bdFalsa();
   F.configurarFlagsIA(bd);
   await Promise.all([F.leerFlagsIA(), F.leerFlagsIA(), F.leerFlagsIA()]);
-  assert.equal(bd.lecturas, 2, 'una pasada (2 claves) aunque hubo 3 llamadas');
+  assert.equal(bd.lecturas, 3, 'una pasada (3 claves) aunque hubo 3 llamadas');
   await F.leerFlagsIA();
-  assert.equal(bd.lecturas, 2, 'dentro del TTL no vuelve a leer');
+  assert.equal(bd.lecturas, 3, 'dentro del TTL no vuelve a leer');
   await F.leerFlagsIA(Date.now() + 16_000);
-  assert.equal(bd.lecturas, 4, 'vencido el TTL, relee');
+  assert.equal(bd.lecturas, 6, 'vencido el TTL, relee');
 });
 
 test('BD caída al leer: conserva el ÚLTIMO valor conocido (no vuelve al defecto)', async () => {
@@ -83,6 +83,7 @@ test('apisEstado: saldo negativo → sin_saldo (con el número redondeado); sin 
   assert.deepEqual(r.openrouter, { configurada: true, habilitada: true, flagDisponible: true, saldoUsd: -0.16, estado: 'sin_saldo' });
   assert.deepEqual(r.nvidia, { configurada: false, habilitada: true, flagDisponible: true, estado: 'faltante' });
   assert.deepEqual(r.tavily, { integrado: false, estado: 'no_integrado' });
+  assert.deepEqual(r.groq, { configurada: false, habilitada: true, flagDisponible: true, estado: 'faltante' });
   const sinLlave = await estadoApis({ env: {} });
   assert.equal(sinLlave.openrouter.estado, 'faltante');
 });
@@ -109,5 +110,22 @@ test('apisEstado: con saldo, el resto lo decide estadoOpenRouter (sin tope → s
   const r = await estadoApis({ env: { OPENROUTER_API_KEY: 'k' } });
   assert.deepEqual([r.openrouter.estado, r.openrouter.habilitada, r.openrouter.saldoUsd], ['sin_tope', false, 12.5]);
   sim.or = { activo: true };
+  F._reiniciarFlagsIA();
+});
+
+test('Groq (2026-09-30): interruptor propio persistido; diagnóstico sin gastar cuota (configurada / pausado) y sin exponer la llave', async () => {
+  F._reiniciarFlagsIA(); _reiniciarApisEstado();
+  const bd = bdFalsa();
+  F.configurarFlagsIA(bd);
+  assert.equal(await F.fijarFlagIA('groq', false), false);
+  assert.equal(bd.valores.ia_flag_groq, 'false');
+  sim.saldoLlamadas = 0;
+  const r = await estadoApis({ env: { GROQ_API_KEY: 'gsk_SECRETO' } });
+  assert.deepEqual(r.groq, { configurada: true, habilitada: false, flagDisponible: true, estado: 'configurada_no_verificada' });
+  assert.doesNotMatch(JSON.stringify(r), /SECRETO|gsk_/);
+  assert.equal(sim.saldoLlamadas, 0, 'Groq no consulta nada externo para diagnosticar');
+  sim.groq = { activo: false, motivo: 'pausado' };
+  assert.equal((await estadoApis({ env: { GROQ_API_KEY: 'gsk_x' } })).groq.estado, 'pausado');
+  sim.groq = { activo: true };
   F._reiniciarFlagsIA();
 });

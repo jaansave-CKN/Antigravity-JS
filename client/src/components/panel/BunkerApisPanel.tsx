@@ -8,8 +8,8 @@
  *   respuesta distinta de 200 → no se renderiza nada: cero cambio visual para
  *   el resto de usuarios.
  * - Nunca recibe ni muestra llaves: solo estados.
- * - Toggles SOLO con bandera real de servidor (flagDisponible): OpenRouter
- *   (sale de la cascada de llmProveedor.js) y NVIDIA (nimCliente.js). Sin
+ * - Toggles SOLO con bandera real de servidor (flagDisponible): OpenRouter y
+ *   Groq (salen de la cascada de llmProveedor.js) y NVIDIA (nimCliente.js). Sin
  *   actualización optimista: el interruptor refleja lo que el servidor confirmó.
  * - Estilos: toggle copiado del "Motor Gemini" de PanelPage; cada bloque usa
  *   los valores del nodo Stitch status_indicator_box (padding 12px, radius
@@ -37,16 +37,19 @@ const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: 11, fontWeight: 600, color: T.textMuted, marginBottom: 6, letterSpacing: '0.02em',
 };
 
-type ProveedorFlag = 'openrouter' | 'nvidia';
+type ProveedorFlag = 'openrouter' | 'groq' | 'nvidia';
+const PROVEEDORES_FLAG: readonly string[] = ['openrouter', 'groq', 'nvidia'];
 interface EstadoProveedor {
   configurada?: boolean; habilitada?: boolean; flagDisponible?: boolean; integrado?: boolean;
   estado: string; saldoUsd?: number; cobertura?: { con: number; total: number };
 }
-type ApisEstado = Record<'openrouter' | 'tavily' | 'nvidia' | 'embeddings', EstadoProveedor>;
+type ApisEstado = Record<'openrouter' | 'groq' | 'tavily' | 'nvidia' | 'embeddings', EstadoProveedor>;
 
 const BLOQUES: { id: keyof ApisEstado; nombre: string; uso: string; funcion: string; alApagar?: string }[] = [
   { id: 'openrouter', nombre: 'OpenRouter (Claude Sonnet 5 / Principal)', uso: 'Módulo B — Formulador, Copiloto, Viabilidad, Árbol de Objetivos',
     funcion: 'Motor principal de razonamiento jurídico y estructuración MGA.', alApagar: 'Apagado: la IA del Formulador usa el pool Gemini del servidor.' },
+  { id: 'groq', nombre: 'Groq (GPT-OSS 120B / Rol Creador, $0)', uso: 'Módulo B — Entrada IA, Árbol de Objetivos, respaldo del Formulador MGA',
+    funcion: 'Redacción de borradores; la auditoría (Viabilidad, MIROFISH, Sectores) queda en Gemini.', alApagar: 'Apagado: el rol creador usa el pool Gemini del servidor.' },
   { id: 'tavily', nombre: 'Tavily Search (Rastreo)', uso: 'Módulo A — Agente M1, Scraper de Convocatorias',
     funcion: 'Búsqueda y extracción en tiempo real en portales .gov.co.' },
   { id: 'nvidia', nombre: 'NVIDIA NIM (DeepSeek Flash)', uso: 'Módulo B — Agente Estructurador MGA',
@@ -127,7 +130,7 @@ export default function BunkerApisPanel() {
         const { texto, ok } = textoEstado(p);
         const color = ok === true ? T.tertiary : ok === false ? NARANJA : T.textDim;
         const fondo = ok === true ? FONDO_OK : ok === false ? FONDO_ALERTA : T.surfaceHigh;
-        const conFlag = !!p.flagDisponible && (b.id === 'openrouter' || b.id === 'nvidia');
+        const conFlag = !!p.flagDisponible && PROVEEDORES_FLAG.includes(b.id);
         const activo = p.habilitada !== false;
         const idToggle = `panel-toggle-${b.id}`;
         return (
