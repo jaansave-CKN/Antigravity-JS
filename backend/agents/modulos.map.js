@@ -42,6 +42,8 @@ export const MODULOS = {
     'backend/services/viabilidadAgent.js',
     'backend/services/mirofishComite.js',
     'backend/services/mirofishReglas.js',
+    'backend/services/directivasFormulacion.js',
+    'backend/services/auditoriaVectores.js',
     'backend/services/formuladorMga.js',
     'backend/services/datosMinimosIA.js',
     'backend/services/scoringDinamico.js',
