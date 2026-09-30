@@ -5,7 +5,11 @@
  * Agente CREADOR (llmProveedor: Groq → OpenRouter → Gemini → BYOK) que arma,
  * sección por sección y SOLO las que exigen los ejes elegidos en Entrada
  * (directivasFormulacion.js):
+ *   marco_logico        árbol de problemas + matriz 4×4 (Fase E; problema "falta de…" se descarta)
  *   teoria_cambio       ruta causal (impacto → resultados → precondiciones → intervenciones, supuestos)
+ *   cadena_valor        objetivo/componente → producto/entregable → actividad, SIN montos (Fase E)
+ *   hseq                controles ISO 9001 / 14001 / 45001 en obra física, sin afirmar certificación (Fase E)
+ *   sostenibilidad_oym  operación y mantenimiento: responsable, recursos recurrentes, actividades (Fase E)
  *   salvaguardas        categoría de riesgo A/B/C + estándares ESS1–ESS10 con medida
  *   mel                 indicadores con línea base, meta, método, frecuencia, responsable
  *   riesgos_pmi         registro de riesgos (probabilidad/impacto 1–5, respuesta, reserva)
@@ -27,6 +31,8 @@ import { generarConIA, IaNoDisponibleError, IaTopeAgotadoError } from './llmProv
 import { LlmLoopGuardError } from './geminiCircuitBreaker.js';
 import { cifrasNoTrazables, extraerJson } from './formuladorMga.js';
 import { bloqueVectores, normalizarEje } from './directivasFormulacion.js';
+import { PROBLEMA_COMO_AUSENCIA } from './auditoriaVectores.js';
+import { logger } from '../utils/logger.js';
 
 export const AGENTE_EXPEDIENTE = 'expediente_financiador';
 const MAX_ITEMS = 12;
@@ -37,7 +43,21 @@ const MAX_CHARS_FUENTES = 60_000;
 const ESTANDARES_ESS = ['ESS1', 'ESS2', 'ESS3', 'ESS4', 'ESS5', 'ESS6', 'ESS7', 'ESS8', 'ESS9', 'ESS10'];
 const CATEGORIAS_RIESGO = ['Técnico', 'Financiero', 'Social', 'Ambiental', 'Climático', 'Legal', 'Orden público', 'Institucional'];
 // Campos que admiten "ND" cuando la fuente no trae el dato (nunca un número inventado).
-const ADMITE_ND = new Set(['linea_base', 'meta', 'reserva', 'responsable', 'frecuencia']);
+const ADMITE_ND = new Set(['linea_base', 'meta', 'reserva', 'responsable', 'frecuencia', 'medio_verificacion', 'supuesto']);
+// Fase E: eslabones de la cadena de valor SIN montos (el presupuesto vive en el documento externo del usuario).
+const ETAPAS = ['Preinversión', 'Inversión', 'Operación'];
+const APORTES = ['Solicitado al financiador', 'Contrapartida', 'ND'];
+const NIVELES_CAUSA = ['directa', 'indirecta'];
+const NIVELES_EFECTO = ['directo', 'indirecto'];
+const INSTRUMENTOS = ['PND', 'PDD', 'PDM', 'ODS', 'Plan sectorial', 'Estrategia del financiador'];
+const FILA_MML = { resumen: 'texto', indicador: 'texto', medio_verificacion: 'texto', supuesto: 'texto' };
+// Anclado a la RESOLUCIÓN (architect): "1063 viviendas en 2016" no es la norma.
+const NORMA_DEROGADA = /\bres(olucion)?\.?\s*(n[o°º]\.?\s*)?1063\b/;
+// Montos: símbolo o código de moneda, "millones de pesos/dólares/euros", "N pesos" o cifras
+// largas con separador de miles (120.000.000). "2 millones de litros" o "pesos de carga" NO son montos.
+const MONTO = /\$\s?\d|\b(COP|USD|EUR)\b|\bmill[oó]n(es)?\s+de\s+(pesos|d[oó]lares|euros)\b|\b\d+\s*(pesos|d[oó]lares|euros)\b|\b\d{1,3}(\.\d{3}){2,}\b/i;
+// Grupos donde no puede aparecer un monto (el presupuesto está en el documento externo del usuario); null = toda la sección.
+const SIN_MONTOS = { cadena_valor: null, marco_logico: new Set(['actividades']), sostenibilidad_oym: null };
 
 const texto = (v) => (v === null || v === undefined ? '' : String(v).trim());
 
@@ -47,6 +67,22 @@ const texto = (v) => (v === null || v === undefined ? '' : String(v).trim());
  * 'ordinal' (entero 1–5, es una calificación, no un dato), 'bool'.
  */
 export const SECCIONES = Object.freeze({
+  marco_logico: {
+    titulo: 'Marco Lógico — árbol de problemas y matriz 4×4',
+    aplica: (d) => d.exige.marcoLogico,
+    grupos: {
+      problema_central: { max: 1, campos: { texto: 'texto' } },
+      causas: { campos: { nivel: `enum:${NIVELES_CAUSA.join(',')}`, texto: 'texto' } },
+      efectos: { campos: { nivel: `enum:${NIVELES_EFECTO.join(',')}`, texto: 'texto' } },
+      objetivo_general: { max: 1, campos: { texto: 'texto' } },
+      fin: { max: 1, campos: FILA_MML },
+      proposito: { max: 1, campos: FILA_MML },
+      componentes: { campos: FILA_MML },
+      actividades: { campos: { resumen: 'texto', medio_verificacion: 'texto', supuesto: 'texto' } },
+      alineacion: { campos: { instrumento: `enum:${INSTRUMENTOS.join(',')}`, texto: 'texto' } },
+    },
+    instrucciones: 'Estructura el árbol de problemas (problema central, causas directas e indirectas, efectos directos e indirectos) y su espejo positivo (objetivo general), y la matriz de Marco Lógico 4×4: fin, propósito, componentes y actividades, cada fila con indicador, medio de verificación y supuesto. El problema central es una condición negativa MEDIBLE de la población, NUNCA "falta de…", "ausencia de…" ni "no existe" la obra o el servicio. Las actividades NO llevan costos (el presupuesto está en el documento del usuario). Si hay fuentes "arbol.*" (árbol de objetivos ya registrado en el proyecto) o "indicador[n]", el objetivo general, el propósito, los componentes y las actividades DEBEN ser coherentes con ellas — no inventes una jerarquía distinta. En "alineacion" relaciona el proyecto con el Plan Nacional/Departamental/Municipal de Desarrollo, los ODS o la estrategia del financiador SOLO si las fuentes lo mencionan.',
+  },
   teoria_cambio: {
     titulo: 'Teoría del Cambio — ruta causal',
     aplica: (d) => d.exige.teoriaCambio,
@@ -59,6 +95,14 @@ export const SECCIONES = Object.freeze({
     },
     instrucciones: 'Construye la ruta causal inversa (backwards mapping): el impacto de largo plazo, los resultados intermedios (outcomes) que lo producen, las precondiciones que deben cumplirse y las intervenciones del proyecto, más los supuestos críticos externos. Todo debe desprenderse de las fuentes (problema, línea base, meta, solución elegida y anexos).',
   },
+  cadena_valor: {
+    titulo: 'Cadena de valor / EDT (sin montos)',
+    aplica: () => true,
+    grupos: {
+      eslabones: { campos: { objetivo_o_componente: 'texto', producto_o_entregable: 'texto', actividad: 'texto', etapa: `enum:${ETAPAS.join(',')}`, fuente_aporte: `enum:${APORTES.join(',')}` } },
+    },
+    instrucciones: 'Estructura la cadena de valor: si hay fuentes "arbol.*", respeta su jerarquía (específico → resultado → actividad); régimen nacional (MGA/OXI) → objetivo específico → producto (código del catálogo MGA SOLO si aparece en las fuentes) → actividad; régimen internacional → componente → entregable/paquete de trabajo (EDT/WBS) → actividad. PROHIBIDO escribir montos, costos, valores o porcentajes: el costo de cada actividad está en el presupuesto del documento externo del usuario. "fuente_aporte" es "Solicitado al financiador" o "Contrapartida" SOLO si las fuentes lo dicen; si no, "ND".',
+  },
   salvaguardas: {
     titulo: 'Salvaguardas ambientales y sociales',
     aplica: (d) => d.exige.salvaguardas,
@@ -67,6 +111,16 @@ export const SECCIONES = Object.freeze({
       estandares: { campos: { estandar: `enum:${ESTANDARES_ESS.join(',')}`, impacto: 'texto', medida: 'texto' } },
     },
     instrucciones: 'Categoriza el riesgo ambiental y social del proyecto (A = alto, B = medio, C = bajo) con su justificación, e identifica SOLO los estándares ESS1–ESS10 del Marco Ambiental y Social que las fuentes permitan sustentar (p. ej. ESS5 uso de tierras/reasentamiento, ESS7 pueblos indígenas, ESS6 biodiversidad, ESS4 salud y seguridad comunitaria), con el impacto concreto y la medida de mitigación.',
+  },
+  hseq: {
+    titulo: 'Matriz HSEQ — calidad, ambiente y SST',
+    aplica: (d) => d.exige.hseq,
+    grupos: {
+      iso_9001: { campos: { aspecto: 'texto', control: 'texto' } },
+      iso_14001: { campos: { aspecto: 'texto', control: 'texto' } },
+      iso_45001: { campos: { aspecto: 'texto', control: 'texto' } },
+    },
+    instrucciones: 'Para la obra física del proyecto, identifica los aspectos de calidad (ISO 9001: ensayos, interventoría de calidad, control de materiales), ambientales (ISO 14001: residuos, vertimientos, permisos) y de seguridad y salud en el trabajo (ISO 45001: trabajo en alturas, excavaciones, EPP) que las fuentes permitan sustentar, con el control concreto. NUNCA afirmes que el proyecto o el contratista está certificado ni que cumple: son controles a implementar.',
   },
   mel: {
     titulo: 'Plan MEL — Monitoreo, Evaluación y Aprendizaje',
@@ -83,6 +137,16 @@ export const SECCIONES = Object.freeze({
       riesgos: { campos: { evento: 'texto', categoria: `enum:${CATEGORIAS_RIESGO.join(',')}`, probabilidad: 'ordinal', impacto: 'ordinal', respuesta: 'texto', reserva: 'texto' } },
     },
     instrucciones: 'Construye el registro de riesgos: evento de riesgo sustentado en las fuentes, categoría, probabilidad e impacto (calificación entera de 1 a 5), estrategia de respuesta y reserva de contingencia. La reserva SOLO si el monto está en las fuentes; si no, "ND".',
+  },
+  sostenibilidad_oym: {
+    titulo: 'Sostenibilidad — operación y mantenimiento',
+    aplica: (d) => d.exige.sostenibilidadOym,
+    grupos: {
+      responsable: { max: 1, campos: { entidad: 'texto', rol: 'texto' } },
+      fuentes_recursos: { campos: { fuente_recurso: 'texto', mecanismo: 'texto' } },
+      actividades_om: { campos: { actividad: 'texto', frecuencia: 'texto', responsable: 'texto' } },
+    },
+    instrucciones: 'Define el esquema de operación y mantenimiento para el horizonte de vida útil (referencia de 10 años): entidad u organismo responsable (p. ej. junta de acción comunal, empresa de servicios, municipio) y su rol, fuentes de recursos recurrentes (SGP, tarifas, cuotas, presupuesto institucional) con su mecanismo, y actividades de operación y mantenimiento con frecuencia y responsable. SOLO lo que las fuentes sustenten; sin montos.',
   },
   checklist_juridico: {
     titulo: 'Checklist jurídico y de radicación',
@@ -107,9 +171,20 @@ export function seccionesAplicables(directivas) {
  * @param {Array<{nombre: string, texto: string}>} anexos de compilarAnexosProyecto()
  * @returns {{ datos: Record<string,string>, anexosIds: Record<string,string>, omitidos: string[] }}
  */
-export function construirFuentes(entrada = {}, anexos = []) {
+export function construirFuentes(entrada = {}, anexos = [], arbol = { nodos: [], indicadores: [] }) {
   const datos = {};
   const poner = (k, v) => { const t = texto(v); if (t) datos[k] = t; };
+  // Árbol de objetivos e indicadores YA registrados en el proyecto (objetivos_arbol /
+  // project_indicators): el Marco Lógico y la cadena de valor deben ser coherentes con ellos.
+  const contadores = {};
+  for (const n of arbol?.nodos || []) {
+    const tipo = String(n.tipo || '').toLowerCase();
+    contadores[tipo] = (contadores[tipo] || 0) + 1;
+    poner(`arbol.${tipo}[${contadores[tipo]}]`, n.texto);
+    if (texto(n.supuestos)) poner(`arbol.${tipo}[${contadores[tipo]}].supuestos`, n.supuestos);
+  }
+  (arbol?.indicadores || []).forEach((ind, i) => poner(`indicador[${i + 1}]`,
+    [ind.nombre, ind.tipo && `tipo ${ind.tipo}`, ind.linea_base != null && `línea base ${ind.linea_base}`, ind.meta_total != null && `meta ${ind.meta_total}`, ind.unidad_medida, ind.fuente_verificacion && `verificación: ${ind.fuente_verificacion}`].filter(Boolean).join(' · ')));
   poner('entrada.pitch', entrada.pitch);
   poner('entrada.problema_seleccionado', entrada.contextoMeta?.problemaSeleccionado);
   for (const [k, v] of Object.entries(entrada.contexto || {})) poner(`entrada.contexto.${k}`, v);
@@ -143,15 +218,40 @@ export function construirFuentes(entrada = {}, anexos = []) {
  * (estable) y NO archivo_cache_de: la primera extracción lo actualiza y la
  * sección quedaba "desactualizada" justo después de generarse (architect).
  */
-export const SQL_ANEXOS_META = "SELECT id, nombre_archivo, descripcion, ruta_storage, link, texto, categoria, tipo_vigencia, to_char(fecha_documento, 'YYYY-MM-DD') AS fecha_documento FROM project_anexos WHERE project_id = ?";
+export const SQL_ARBOL = 'SELECT tipo, nivel, texto, supuestos FROM objetivos_arbol WHERE proyecto_id = ? ORDER BY nivel ASC, created_at ASC, id ASC';
+export const SQL_INDICADORES = 'SELECT nombre, tipo, linea_base, meta_total, unidad_medida, fuente_verificacion FROM project_indicators WHERE project_id = ? ORDER BY created_at ASC';
+
+/**
+ * Árbol de objetivos + indicadores del proyecto. try/catch: si la tabla no
+ * existe o falla, el expediente sigue sin esas fuentes (con aviso en el log).
+ * @param {(sql: string, params: any[]) => Promise<any[]>} getRows escopado por tenant
+ */
+export async function cargarArbol(getRows, proyectoId) {
+  try {
+    const [nodos, indicadores] = await Promise.all([getRows(SQL_ARBOL, [proyectoId]), getRows(SQL_INDICADORES, [proyectoId])]);
+    return { nodos, indicadores };
+  } catch (err) {
+    logger.warn('[expediente] Árbol de objetivos/indicadores no disponibles — se continúa sin esas fuentes', { proyectoId, err: err.message });
+    return { nodos: [], indicadores: [] };
+  }
+}
+
+/** true si el proyecto ya tiene árbol de objetivos (objetivo central + al menos un específico). */
+export function arbolObjetivosRegistrado(nodos = []) {
+  return nodos.some(n => n.tipo === 'CENTRAL') && nodos.some(n => n.tipo === 'ESPECIFICO');
+}
+
+export const SQL_ANEXOS_META ="SELECT id, nombre_archivo, descripcion, ruta_storage, link, texto, categoria, tipo_vigencia, to_char(fecha_documento, 'YYYY-MM-DD') AS fecha_documento FROM project_anexos WHERE project_id = ?";
 
 const hashTexto = (t) => (t ? crypto.createHash('sha256').update(String(t)).digest('hex').slice(0, 16) : '');
 
 /** Huella barata de las fuentes (metadatos, sin descargar archivos): si cambia, la sección está desactualizada. */
-export function huellaMetadatos(entrada, anexosMeta) {
+export function huellaMetadatos(entrada, anexosMeta, arbol = null) {
   const meta = (anexosMeta || []).map(a => [a.id, a.nombre_archivo, hashTexto(a.descripcion), a.ruta_storage, a.link, hashTexto(a.texto), a.categoria, a.tipo_vigencia, a.fecha_documento])
     .sort((x, y) => String(x[0]).localeCompare(String(y[0])));
-  return crypto.createHash('sha256').update(JSON.stringify([entrada || {}, meta])).digest('hex');
+  // Fase E: el árbol de objetivos y los indicadores también son fuentes (Marco Lógico, cadena de valor).
+  const arbolMeta = arbol ? hashTexto(JSON.stringify([arbol.nodos || [], arbol.indicadores || []])) : '';
+  return crypto.createHash('sha256').update(JSON.stringify([entrada || {}, meta, arbolMeta])).digest('hex');
 }
 
 // Grupos mínimos para que una sección cuente como soporte en las reglas V
@@ -162,6 +262,10 @@ const GRUPOS_MINIMOS = {
   mel: ['indicadores'],
   riesgos_pmi: ['riesgos'],
   checklist_juridico: ['documentos'],
+  marco_logico: ['problema_central', 'objetivo_general', 'proposito', 'componentes'],
+  cadena_valor: ['eslabones'],
+  hseq: ['iso_9001', 'iso_14001', 'iso_45001'],
+  sostenibilidad_oym: ['responsable', 'fuentes_recursos'],
 };
 
 /** true si la generación tiene contenido verificable en todos los grupos mínimos de la sección. */
@@ -247,6 +351,16 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
         descartados.push({ grupo: g, item: resumen, motivo: 'campo_vacio' }); continue;
       }
       for (const c of ADMITE_ND) if (c in item && !item[c]) item[c] = 'ND';
+      // Res. 1063 de 2016 DEROGADA por la Res. 0661 de 2019 (verificado 2026-09-30): nunca se cita, aunque la
+      // traiga una fuente vieja. En el checklist solo se vacía la referencia (el requisito puede ser real).
+      if (item.referencia && NORMA_DEROGADA.test(normalizarEje(item.referencia))) item.referencia = '';
+      const textoItem = Object.entries(def.campos).filter(([, tipo]) => tipo === 'texto').map(([c]) => item[c]).join(' \n ');
+      if (NORMA_DEROGADA.test(normalizarEje(textoItem))) { descartados.push({ grupo: g, item: resumen, motivo: 'norma_derogada', detalle: 'Res. 1063 de 2016 (derogada por la Res. 0661 de 2019)' }); continue; }
+      if (seccionId === 'marco_logico' && g === 'problema_central' && PROBLEMA_COMO_AUSENCIA.test(normalizarEje(item.texto).toUpperCase())) {
+        descartados.push({ grupo: g, item: resumen, motivo: 'problema_como_ausencia' }); continue;
+      }
+      // Cadena de valor sin montos: el costo por actividad vive en el presupuesto del documento externo.
+      if (seccionId in SIN_MONTOS && (SIN_MONTOS[seccionId] === null || SIN_MONTOS[seccionId].has(g)) && MONTO.test(textoItem)) { descartados.push({ grupo: g, item: resumen, motivo: 'monto_no_permitido' }); continue; }
       // Cifras: solo en campos de texto (las calificaciones 1–5 no son datos).
       const textos = Object.entries(def.campos).filter(([c, tipo]) => tipo === 'texto' && c !== 'anexo').map(([c]) => item[c]).join(' \n ');
       const malas = cifrasNoTrazables(textos, fuentes, datos);

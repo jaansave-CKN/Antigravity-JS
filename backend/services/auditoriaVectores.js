@@ -28,7 +28,7 @@ const sinTildesMayus = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/
 // Moneda extranjera (sobre texto sin tildes y en mayúsculas, conservando símbolos).
 const MONEDA_EXTRANJERA = /(US\$|U\$S|€)|\b(USD|EUR|EUROS?|DOLAR(ES)?)\b/;
 // Problema redactado como ausencia de la solución (regla MGA/DNP).
-const PROBLEMA_COMO_AUSENCIA = /\b(FALTA DE|AUSENCIA DE|CARENCIA DE|INEXISTENCIA DE|NO EXISTE|NO EXISTEN|NO HAY|NO CUENTA CON|NO CUENTAN CON)\b/;
+export const PROBLEMA_COMO_AUSENCIA = /\b(FALTA DE|AUSENCIA DE|CARENCIA DE|INEXISTENCIA DE|NO EXISTE|NO EXISTEN|NO HAY|NO CUENTA CON|NO CUENTAN CON)\b/;
 
 const ANEXO_TOC = /\b(TEORIA DEL CAMBIO|THEORY OF CHANGE)\b/;
 const ANEXO_MEL = /\b(MEL|MONITOREO|SEGUIMIENTO Y EVALUACION|MONITORING)\b/;
@@ -37,6 +37,10 @@ const ANEXO_SALVAGUARDAS = /\b(SALVAGUARDAS?|SAFEGUARDS?|AMBIENTAL Y SOCIAL|PGAS
 // ESS con límite de palabra y SIN insensibilidad a mayúsculas: "process",
 // "access" o "business" no cuentan (architect, cond. 7).
 const ANEXO_ESS = /\bESS ?(?:10|[1-9])?\b/;
+// Fase E (2026-09-30).
+const ANEXO_HSEQ = /\b(HSEQ|ISO ?9001|ISO ?14001|ISO ?45001|SST|SG SST|PLAN DE MANEJO AMBIENTAL|PMA|PLAN DE CALIDAD)\b/;
+const ANEXO_MARCO_LOGICO = /\b(MARCO LOGICO|MATRIZ DE MARCO|MML|ARBOL DE PROBLEMAS)\b/;
+const ANEXO_OYM = /\b(OPERACION Y MANTENIMIENTO|O M|SOSTENIBILIDAD|PLAN DE MANTENIMIENTO)\b/;
 const ANEXO_PREDIAL = /\b(LIBERTAD Y TRADICION|SANA POSESION|POSESION|ESCRITURA|COMODATO)\b/;
 
 const textoAnexo = (a) => `${a?.nombre_archivo ?? ''} ${a?.descripcion ?? ''}`;
@@ -67,11 +71,12 @@ const anexoCumple = (anexos, re) => anexos.some(a => re.test(normalizar(textoAne
  * @param {Array<{campo: string, valor: string}>} p.textosMoneda textos donde buscar moneda extranjera
  * @param {Array<{nombre_archivo?: string, descripcion?: string, categoria?: string, tipo_vigencia?: string, fecha_documento?: string}>} p.anexos
  * @param {boolean|null} p.teoriaCambioRegistrada true/false, o null si no se pudo verificar
- * @param {Record<string, boolean>} [p.expediente] secciones del Expediente del Financiador con contenido verificable (teoria_cambio, mel, riesgos_pmi, salvaguardas)
+ * @param {boolean} [p.arbolObjetivos] true si objetivos_arbol tiene objetivo central + específicos (V7 baja a MEDIA)
+ * @param {Record<string, boolean>} [p.expediente]secciones del Expediente del Financiador con contenido verificable (teoria_cambio, mel, riesgos_pmi, salvaguardas)
  * @param {string} p.hoy 'YYYY-MM-DD' (hora Colombia)
  * @returns {Array<object>} hallazgos con el formato de mirofishReglas.js
  */
-export function evaluarVectores({ directivas, problemas = [], textosMoneda = [], anexos = [], teoriaCambioRegistrada = null, expediente = {}, hoy }) {
+export function evaluarVectores({ directivas, problemas = [], textosMoneda = [], anexos = [], teoriaCambioRegistrada = null, expediente = {}, arbolObjetivos = false, hoy }) {
   const d = directivas;
   if (!d) return [];
   const v = d.vectores;
@@ -187,6 +192,42 @@ export function evaluarVectores({ directivas, problemas = [], textosMoneda = [],
         recomendacion: `Solicita un certificado actualizado antes de radicar (${normas}).`,
       });
     }
+  }
+
+  // ── Fase E (2026-09-30) ──────────────────────────────────────────────────
+  const evTipoProyecto = v.tipoProyecto ? [{ campo: 'entrada.tipo_proyecto', valor: v.tipoProyecto }] : [];
+  // V7 — Marco Lógico marcado sin matriz (árbol de problemas + 4×4). Si el árbol de
+  // objetivos YA está registrado (objetivos_arbol), solo falta la matriz → MEDIA (architect, cond. 1).
+  if (d.exige.marcoLogico && !expediente.marco_logico && !anexoCumple(anexos, ANEXO_MARCO_LOGICO)) {
+    hallazgos.push(arbolObjetivos ? {
+      regla: 'V7', severidad: 'MEDIA', titulo: 'Marco Lógico: falta la matriz 4×4',
+      detalle: 'El árbol de objetivos está registrado, pero no se detectó el árbol de problemas ni la matriz 4×4 (fin, propósito, componentes y actividades con indicadores, medios de verificación y supuestos) en el expediente ni en el nombre/descripción de los anexos.',
+      evidencia: [...evMetodologias, { campo: 'arbol_objetivos', valor: 'registrado' }, evAnexos],
+      recomendacion: 'Genera la matriz en Viabilidad → Expediente del Financiador (usa el árbol de objetivos registrado como fuente), o adjunta en Anexos la matriz de Marco Lógico.',
+    } : {
+      regla: 'V7', severidad: 'ALTA', titulo: 'Marco Lógico sin matriz',
+      detalle: 'Se marcó Marco Lógico y no se detectó el árbol de objetivos, el árbol de problemas ni la matriz 4×4 (fin, propósito, componentes, actividades con indicadores, medios de verificación y supuestos) en el proyecto ni en el nombre/descripción de los anexos.',
+      evidencia: [...evMetodologias, evAnexos],
+      recomendacion: 'Genera el Árbol de Objetivos y luego la matriz en Viabilidad → Expediente del Financiador, o adjunta en Anexos la matriz de Marco Lógico.',
+    });
+  }
+  // V8 — obra física sin controles HSEQ.
+  if (d.exige.hseq && !expediente.hseq && !anexoCumple(anexos, ANEXO_HSEQ)) {
+    hallazgos.push({
+      regla: 'V8', severidad: 'MEDIA', titulo: 'Obra física sin controles HSEQ',
+      detalle: 'Proyecto de infraestructura: no se detectaron controles de calidad (ISO 9001), ambiente (ISO 14001) ni seguridad y salud en el trabajo (ISO 45001) en el proyecto ni en el nombre/descripción de los anexos.',
+      evidencia: [...evTipoProyecto, evAnexos],
+      recomendacion: 'Genera la matriz HSEQ en Viabilidad → Expediente del Financiador, o adjunta en Anexos el plan de calidad, el plan de manejo ambiental y el SG-SST.',
+    });
+  }
+  // V9 — obra física sin esquema de operación y mantenimiento.
+  if (d.exige.sostenibilidadOym && !expediente.sostenibilidad_oym && !anexoCumple(anexos, ANEXO_OYM)) {
+    hallazgos.push({
+      regla: 'V9', severidad: 'MEDIA', titulo: 'Infraestructura sin esquema de operación y mantenimiento',
+      detalle: 'No se detectó quién opera y mantiene la obra ni con qué recursos recurrentes (tarifas, cuotas, SGP, presupuesto institucional) en el proyecto ni en el nombre/descripción de los anexos.',
+      evidencia: [...evTipoProyecto, evAnexos],
+      recomendacion: 'Genera la sección de sostenibilidad en Viabilidad → Expediente del Financiador, o adjunta en Anexos el plan de operación y mantenimiento.',
+    });
   }
 
   return hallazgos;

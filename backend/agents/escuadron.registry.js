@@ -137,7 +137,7 @@ export const ESCUADRON = {
     },
     {
       nombre: 'expedienteFinanciador',
-      descripcion: 'Expediente del Financiador (Viabilidad, 2026-09-30) — rol CREADOR: arma por sección, solo si los ejes de Entrada lo exigen, la ruta causal de Teoría del Cambio, las salvaguardas ESS, el plan MEL, el registro de riesgos PMI y el checklist jurídico; cada ítem validado contra sus fuentes (mismo contrato que formuladorMga) y el checklist nunca da por soportado un documento sin anexo real.',
+      descripcion: 'Expediente del Financiador (Viabilidad, 2026-09-30) — rol CREADOR: arma por secciones independientes, solo si los ejes de Entrada lo exigen, Marco Lógico (árbol + matriz 4×4), Teoría del Cambio, cadena de valor sin montos, salvaguardas ESS, matriz HSEQ, plan MEL, registro de riesgos PMI, operación y mantenimiento y checklist jurídico; cada ítem validado contra sus fuentes (mismo contrato que formuladorMga) y el checklist nunca da por soportado un documento sin anexo real.',
       llamaLLM: true,
       invocadoDesde: 'backend/routes/expediente.routes.js',
       exporta: { generarSeccion },

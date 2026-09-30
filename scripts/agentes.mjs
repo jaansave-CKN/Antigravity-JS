@@ -57,7 +57,7 @@ export const CATALOGO = [
     rutas: [['post', '/api/formulacion/integral/:proyectoId']] },
   { id: 'formuladorMga', dominio: 'Formulador', nombre: 'Formulador MGA (consolidador, NVIDIA NIM → cascada llmProveedor)', archivo: 'backend/services/formuladorMga.js', llamaLLM: true, log: 'formulador_mga',
     rutas: [['post', '/api/proyectos/:id/formulador-mga']] },
-  { id: 'expedienteFinanciador', dominio: 'Formulador', nombre: 'Expediente del Financiador (ToC, salvaguardas, MEL, riesgos PMI, checklist jurídico)', archivo: 'backend/services/expedienteFinanciador.js', llamaLLM: true, log: 'expediente_financiador',
+  { id: 'expedienteFinanciador', dominio: 'Formulador', nombre: 'Expediente del Financiador (Marco Lógico, ToC, cadena de valor, salvaguardas, HSEQ, MEL, riesgos PMI, O&M, checklist jurídico)', archivo: 'backend/services/expedienteFinanciador.js', llamaLLM: true, log: 'expediente_financiador',
     rutas: [['post', '/api/proyectos/:id/expediente/:seccion']] },
   { id: 'normativo', dominio: 'Formulador', nombre: 'Marco normativo (M8, tabla de normas)', archivo: 'backend/agents/normativoAgent.js', llamaLLM: false,
     rutas: [['post', '/api/m8/normas/:proyectoId']] },

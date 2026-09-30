@@ -21,11 +21,11 @@ import { http } from '../../lib/apiClient';
 
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
 
-type SeccionId = 'teoria_cambio' | 'salvaguardas' | 'mel' | 'riesgos_pmi' | 'checklist_juridico';
+type SeccionId = 'marco_logico' | 'teoria_cambio' | 'cadena_valor' | 'salvaguardas' | 'hseq' | 'mel' | 'riesgos_pmi' | 'sostenibilidad_oym' | 'checklist_juridico';
 type Item = Record<string, string | number | boolean | string[] | undefined> & { fuentes?: string[] };
 interface Generacion {
   estado: 'ok' | 'sin_contenido_verificable';
-  contenido: { grupos: Record<string, Item[]>; fuentes_omitidas?: string[] };
+  contenido: { grupos: Record<string, Item[]>; fuentes_omitidas?: string[]; presupuesto_referencia?: string[] };
   descartados: Array<{ grupo: string; item: string; motivo: string; detalle?: string }>;
   modelo: string | null;
   created_at: string;
@@ -49,18 +49,41 @@ const GRUPO_TITULO: Record<string, string> = {
   precondiciones: 'Precondiciones', intervenciones: 'Intervenciones', supuestos_criticos: 'Supuestos críticos',
   categoria: 'Categoría de riesgo', estandares: 'Estándares ESS activados', indicadores: 'Indicadores MEL',
   riesgos: 'Registro de riesgos', documentos: 'Documentos de radicación',
+  problema_central: 'Problema central', causas: 'Causas', efectos: 'Efectos', objetivo_general: 'Objetivo general',
+  fin: 'Fin', proposito: 'Propósito', componentes: 'Componentes', actividades: 'Actividades', alineacion: 'Alineación estratégica',
+  eslabones: 'Cadena de valor (objetivo → producto → actividad)',
+  iso_9001: 'Calidad (ISO 9001)', iso_14001: 'Ambiente (ISO 14001)', iso_45001: 'Seguridad y salud en el trabajo (ISO 45001)',
+  responsable: 'Responsable de la operación', fuentes_recursos: 'Fuentes de recursos recurrentes', actividades_om: 'Actividades de operación y mantenimiento',
 };
 const MOTIVO_DESCARTE: Record<string, string> = {
   sin_fuente: 'sin fuente', fuente_inexistente: 'fuente inexistente', cifra_no_trazable: 'cifra que no está en sus fuentes',
   valor_invalido: 'valor fuera de catálogo', campo_vacio: 'campo vacío',
+  sin_fuente_documental: 'requisito sin documento fuente', norma_derogada: 'cita una norma derogada',
+  problema_como_ausencia: 'problema redactado como "falta de"', monto_no_permitido: 'incluía montos (van en el presupuesto del documento)',
 };
 const COLOR_OK = '#15803d', COLOR_ALERTA = '#b45309', COLOR_ERROR = '#ba1a1a', COLOR_MUTED = '#76777d', COLOR_TEXTO = '#191c1e', COLOR_PRIMARIO = '#0041a3';
 
 const s = (v: unknown) => (v === undefined || v === null ? '' : String(v));
 
 /** Texto de un ítem según su sección (sin cálculo salvo P×I, que es aritmética de calificaciones). */
+const GRUPOS_MML = new Set(['fin', 'proposito', 'componentes', 'actividades']);
+const filaMml = (it: Item) => `${s(it.resumen)}${it.indicador ? ` · Indicador: ${s(it.indicador)}` : ''} · Verificación: ${s(it.medio_verificacion)} · Supuesto: ${s(it.supuesto)}`;
+
 function textoItem(seccion: SeccionId, grupo: string, it: Item): string {
   if (seccion === 'teoria_cambio') return s(it.texto);
+  if (seccion === 'marco_logico') {
+    if (grupo === 'causas' || grupo === 'efectos') return `(${s(it.nivel)}) ${s(it.texto)}`;
+    if (grupo === 'alineacion') return `${s(it.instrumento)}: ${s(it.texto)}`;
+    if (GRUPOS_MML.has(grupo)) return filaMml(it);
+    return s(it.texto);
+  }
+  if (seccion === 'cadena_valor') return `${s(it.objetivo_o_componente)} → ${s(it.producto_o_entregable)} → ${s(it.actividad)} · Etapa: ${s(it.etapa)} · Aporte: ${s(it.fuente_aporte)}`;
+  if (seccion === 'hseq') return `${s(it.aspecto)} → ${s(it.control)}`;
+  if (seccion === 'sostenibilidad_oym') {
+    if (grupo === 'responsable') return `${s(it.entidad)} — ${s(it.rol)}`;
+    if (grupo === 'fuentes_recursos') return `${s(it.fuente_recurso)} — ${s(it.mecanismo)}`;
+    return `${s(it.actividad)} · ${s(it.frecuencia)} · Responsable: ${s(it.responsable)}`;
+  }
   if (seccion === 'salvaguardas' && grupo === 'categoria') return `Categoría ${s(it.categoria)} — ${s(it.justificacion)}`;
   if (seccion === 'salvaguardas') return `${s(it.estandar)}: ${s(it.impacto)} → ${s(it.medida)}`;
   if (seccion === 'mel') return `${s(it.indicador)} · Línea base: ${s(it.linea_base)} · Meta: ${s(it.meta)} · ${s(it.metodo)} · ${s(it.frecuencia)} · Responsable: ${s(it.responsable)}`;
@@ -132,6 +155,11 @@ function NotasSeccion({ g }: { g: Generacion }) {
       {g.descartados.length > 0 && (
         <div style={{ fontSize: 11, color: COLOR_MUTED }} title={g.descartados.map(d => `${d.item || d.grupo}: ${MOTIVO_DESCARTE[d.motivo] || d.motivo}${d.detalle ? ` (${d.detalle})` : ''}`).join('\n')}>
           {g.descartados.length} ítem(s) de la IA descartados por no poder sustentarse en las fuentes del proyecto.
+        </div>
+      )}
+      {g.contenido.presupuesto_referencia && (
+        <div style={{ fontSize: 11, color: COLOR_MUTED }}>
+          Montos por actividad: ver el presupuesto del documento externo{g.contenido.presupuesto_referencia.length ? ` (${g.contenido.presupuesto_referencia.join(', ')})` : ' — aún no hay anexo en la categoría Financiero'}.
         </div>
       )}
       {g.contenido.fuentes_omitidas && g.contenido.fuentes_omitidas.length > 0 && (

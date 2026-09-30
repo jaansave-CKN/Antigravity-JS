@@ -36,8 +36,9 @@ const ENTRADA = {
 const ANEXOS = [{ nombre: 'TDR Convocatoria BID.pdf', texto: 'Documentos exigidos: certificado de existencia y representación legal; declaración de no duplicidad de fondos (numeral 4.2).' }, { nombre: 'Diagnóstico.docx', texto: 'Riesgo de crecientes en temporada de lluvias de abril a junio.' }];
 
 test('secciones aplicables según los ejes (el checklist aplica siempre)', () => {
-  assert.deepEqual(X.seccionesAplicables(resolverDirectivas(ENTRADA)), ['teoria_cambio', 'salvaguardas', 'mel', 'riesgos_pmi', 'checklist_juridico']);
-  assert.deepEqual(X.seccionesAplicables(resolverDirectivas({ tipoConvocatoria: 'MGA / SGR', metodologias: ['Marco Lógico'] })), ['checklist_juridico']);
+  assert.deepEqual(X.seccionesAplicables(resolverDirectivas(ENTRADA)), ['marco_logico', 'teoria_cambio', 'cadena_valor', 'salvaguardas', 'hseq', 'mel', 'riesgos_pmi', 'sostenibilidad_oym', 'checklist_juridico']);
+  assert.deepEqual(X.seccionesAplicables(resolverDirectivas({ tipoConvocatoria: 'MGA / SGR', metodologias: ['Marco Lógico'] })), ['marco_logico', 'cadena_valor', 'checklist_juridico']);
+  assert.deepEqual(X.seccionesAplicables(resolverDirectivas({})), ['cadena_valor', 'checklist_juridico']);
 });
 
 test('fuentes: campos de Entrada + texto de cada anexo con id "anexo:<nombre>"; nombres repetidos se distinguen; el tope omite y lo informa', () => {
@@ -149,4 +150,119 @@ test('huella de metadatos: estable ante el orden y ante la caché de extracción
   assert.notEqual(h, X.huellaMetadatos({ x: 1 }, [a[0], { ...a[1], tipo_vigencia: 'libertad_tradicion' }]));
   assert.notEqual(h, X.huellaMetadatos({ x: 1 }, [...a, { id: '3' }]));
   assert.notEqual(h, X.huellaMetadatos({ x: 2 }, a));
+});
+
+// ── Fase E (2026-09-30): marco_logico, cadena_valor, hseq, sostenibilidad_oym ──
+test('marco_logico: árbol + matriz 4×4 validados; el problema central como "falta de" se descarta; las actividades no llevan costo', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, ANEXOS);
+  const f = ['entrada.problema_seleccionado'];
+  const r = X.validarSeccion('marco_logico', {
+    problema_central: [{ texto: 'El 80% de las viviendas consume agua no apta', fuentes: f }],
+    causas: [{ nivel: 'Directa', texto: 'Captación de una quebrada sin tratamiento', fuentes: ['anexo:Diagnóstico.docx'] }, { nivel: 'raíz', texto: 'x', fuentes: f }],
+    efectos: [{ nivel: 'directo', texto: 'Enfermedad diarreica en menores', fuentes: f }],
+    objetivo_general: [{ texto: 'Viviendas con agua apta para consumo humano', fuentes: f }],
+    fin: [{ resumen: 'Mejorar la salud', indicador: 'Casos de EDA', medio_verificacion: '', supuesto: '', fuentes: f }],
+    proposito: [{ resumen: 'Agua apta', indicador: '% viviendas con agua apta', medio_verificacion: 'Encuesta', supuesto: 'Operación comunitaria', fuentes: f }],
+    componentes: [{ resumen: 'Sistema de acueducto', indicador: 'Sistema operando', medio_verificacion: 'Acta de entrega', supuesto: 'ND', fuentes: ['entrada.solucion_elegida'] }],
+    actividades: [{ resumen: 'Construir la planta', medio_verificacion: 'Bitácora', supuesto: 'Clima', fuentes: ['entrada.solucion_elegida'] }],
+    alineacion: [{ instrumento: 'ODS', texto: 'ODS 6', fuentes: f }],
+  }, datos, anexosIds);
+  assert.equal(r.grupos.problema_central.length, 1);
+  assert.deepEqual(r.grupos.causas.map(c => c.nivel), ['directa'], 'el catálogo se normaliza; "raíz" no existe');
+  assert.deepEqual([r.grupos.fin[0].medio_verificacion, r.grupos.fin[0].supuesto], ['ND', 'ND']);
+  assert.equal('costo' in r.grupos.actividades[0], false);
+  assert.deepEqual(r.descartados.map(d => [d.grupo, d.motivo]), [['causas', 'valor_invalido'], ['alineacion', 'cifra_no_trazable']], '"ODS 6" no está en las fuentes');
+  assert.equal(X.seccionCumple('marco_logico', { estado: 'ok', contenido: { grupos: r.grupos } }), true);
+
+  const malo = X.validarSeccion('marco_logico', { problema_central: [{ texto: 'Falta de acueducto en la vereda', fuentes: f }] }, datos, anexosIds);
+  assert.deepEqual(malo.descartados.map(d => d.motivo), ['problema_como_ausencia']);
+});
+
+test('cadena_valor: sin montos (se descarta cualquier costo); aporte "ND" si la fuente no lo dice; códigos inventados no pasan', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, ANEXOS);
+  const e = (extra) => ({ objetivo_o_componente: 'Suministrar agua apta', producto_o_entregable: 'Acueducto construido', actividad: 'Construir la planta compacta', etapa: 'Inversión', fuente_aporte: 'ND', fuentes: ['entrada.solucion_elegida'], ...extra });
+  const r = X.validarSeccion('cadena_valor', { eslabones: [
+    e(),
+    e({ actividad: 'Construir la planta por $ 1.200 millones' }),
+    e({ actividad: 'Obra civil — 450 millones de pesos' }),
+    e({ producto_o_entregable: 'Producto MGA 4003031' }),
+    e({ fuente_aporte: 'Regalías' }),
+  ] }, datos, anexosIds);
+  assert.equal(r.grupos.eslabones.length, 1);
+  assert.deepEqual(r.descartados.map(d => d.motivo), ['monto_no_permitido', 'monto_no_permitido', 'cifra_no_trazable', 'valor_invalido']);
+  const [sys] = X.construirPrompt('cadena_valor', resolverDirectivas(ENTRADA), datos);
+  assert.match(sys.content, /PROHIBIDO escribir montos/);
+  assert.doesNotMatch(sys.content, /"costo/);
+});
+
+test('hseq y sostenibilidad_oym: controles por norma ISO y esquema O&M; la Res. 1063 de 2016 (derogada) se descarta en cualquier sección', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, ANEXOS);
+  const d = ['anexo:Diagnóstico.docx'];
+  const h = X.validarSeccion('hseq', {
+    iso_9001: [{ aspecto: 'Calidad del concreto', control: 'Ensayos de resistencia', fuentes: d }],
+    iso_14001: [{ aspecto: 'Crecientes de la quebrada', control: 'Programar obras fuera de temporada de lluvias', fuentes: d }],
+    iso_45001: [{ aspecto: 'Excavaciones', control: 'Entibado y permisos de trabajo', fuentes: d }, { aspecto: 'Norma', control: 'Aplicar la Res. 1063 de 2016', fuentes: d }],
+  }, datos, anexosIds);
+  assert.equal(X.seccionCumple('hseq', { estado: 'ok', contenido: { grupos: h.grupos } }), true);
+  assert.deepEqual(h.descartados.map(x => [x.motivo, x.detalle]), [['norma_derogada', 'Res. 1063 de 2016 (derogada por la Res. 0661 de 2019)']]);
+  const [sysH] = X.construirPrompt('hseq', resolverDirectivas(ENTRADA), datos);
+  assert.match(sysH.content, /NUNCA afirmes que el proyecto o el contratista está certificado/);
+
+  const o = X.validarSeccion('sostenibilidad_oym', {
+    responsable: [{ entidad: 'Junta de acción comunal', rol: 'Opera el sistema', fuentes: d }],
+    fuentes_recursos: [{ fuente_recurso: 'Cuota familiar', mecanismo: 'Recaudo mensual', fuentes: d }],
+    actividades_om: [{ actividad: 'Limpieza de la captación', frecuencia: '', responsable: '', fuentes: d }],
+  }, datos, anexosIds);
+  assert.equal(X.seccionCumple('sostenibilidad_oym', { estado: 'ok', contenido: { grupos: o.grupos } }), true);
+  assert.deepEqual([o.grupos.actividades_om[0].frecuencia, o.grupos.actividades_om[0].responsable], ['ND', 'ND']);
+});
+
+// ── Fase E — condiciones del architect ─────────────────────────────────────────
+test('árbol de objetivos e indicadores registrados entran como fuentes arbol.*/indicador[n] (Marco Lógico y cadena de valor)', () => {
+  const arbol = {
+    nodos: [
+      { tipo: 'CENTRAL', nivel: 0, texto: 'Garantizar agua apta en la vereda', supuestos: '' },
+      { tipo: 'ESPECIFICO', nivel: 1, texto: 'Construir el acueducto', supuestos: 'La comunidad aporta mano de obra' },
+    ],
+    indicadores: [{ nombre: 'Viviendas con agua apta', tipo: 'resultado', linea_base: 20, meta_total: 100, unidad_medida: '%', fuente_verificacion: 'Encuesta' }],
+  };
+  const { datos } = X.construirFuentes(ENTRADA, ANEXOS, arbol);
+  assert.equal(datos['arbol.central[1]'], 'Garantizar agua apta en la vereda');
+  assert.equal(datos['arbol.especifico[1].supuestos'], 'La comunidad aporta mano de obra');
+  assert.match(datos['indicador[1]'], /línea base 20 · meta 100 · %/);
+  assert.equal(X.arbolObjetivosRegistrado(arbol.nodos), true);
+  assert.equal(X.arbolObjetivosRegistrado([{ tipo: 'CENTRAL' }]), false, 'sin específicos no hay árbol');
+  // El árbol cambia la huella (una sección generada antes queda desactualizada).
+  assert.notEqual(X.huellaMetadatos({}, [], arbol), X.huellaMetadatos({}, [], { nodos: [], indicadores: [] }));
+  const [sys] = X.construirPrompt('marco_logico', resolverDirectivas(ENTRADA), datos);
+  assert.match(sys.content, /DEBEN ser coherentes con ellas/);
+});
+
+test('montos: "millones de litros" y "pesos de carga" NO son montos; "$", "millones de pesos" y 120.000.000 sí — también en actividades del Marco Lógico y en O&M', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, [...ANEXOS, { nombre: 'Estudio.pdf', texto: 'Caudal de 2 millones de litros al mes; control de pesos de carga en el puente. Costo 120.000.000.' }]);
+  const e = (actividad) => ({ objetivo_o_componente: 'Agua apta', producto_o_entregable: 'Acueducto', actividad, etapa: 'Inversión', fuente_aporte: 'ND', fuentes: ['anexo:Estudio.pdf'] });
+  const r = X.validarSeccion('cadena_valor', { eslabones: [
+    e('Tratar 2 millones de litros al mes'), e('Control de pesos de carga en el puente'),
+    e('Obra por 120.000.000'), e('Obra de 450 millones de pesos'), e('Compra por $ 5'),
+  ] }, datos, anexosIds);
+  assert.equal(r.grupos.eslabones.length, 2);
+  assert.deepEqual(r.descartados.map(d => d.motivo), ['monto_no_permitido', 'monto_no_permitido', 'monto_no_permitido']);
+
+  const ml = X.validarSeccion('marco_logico', { actividades: [{ resumen: 'Construir la planta por 120.000.000', medio_verificacion: 'Acta', supuesto: 'ND', fuentes: ['anexo:Estudio.pdf'] }] }, datos, anexosIds);
+  assert.deepEqual(ml.descartados.map(d => d.motivo), ['monto_no_permitido']);
+  const om = X.validarSeccion('sostenibilidad_oym', { fuentes_recursos: [{ fuente_recurso: 'Tarifa', mecanismo: 'Cobro de 120.000.000 anual', fuentes: ['anexo:Estudio.pdf'] }] }, datos, anexosIds);
+  assert.deepEqual(om.descartados.map(d => d.motivo), ['monto_no_permitido']);
+});
+
+test('norma derogada anclada a la RESOLUCIÓN: "1063 viviendas en 2016" pasa; en el checklist solo se vacía la referencia derogada', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, [...ANEXOS, { nombre: 'Censo.pdf', texto: 'Se censaron 1063 viviendas en 2016. Requisito: concepto técnico según Resolución 1063 de 2016.' }]);
+  const h = X.validarSeccion('hseq', {
+    iso_9001: [{ aspecto: 'Base censal de 1063 viviendas en 2016', control: 'Verificar el censo', fuentes: ['anexo:Censo.pdf'] }],
+    iso_14001: [], iso_45001: [],
+  }, datos, anexosIds);
+  assert.equal(h.grupos.iso_9001.length, 1);
+  const c = X.validarSeccion('checklist_juridico', { documentos: [
+    { documento: 'Concepto técnico', obligatorio: true, referencia: 'Resolución 1063 de 2016', anexo: '', fuentes: ['anexo:Censo.pdf'] },
+  ] }, datos, anexosIds);
+  assert.deepEqual(c.grupos.documentos.map(d => [d.documento, d.referencia]), [['Concepto técnico', '']]);
 });

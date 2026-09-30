@@ -46,10 +46,10 @@ test.describe.serial('Expediente del Financiador (Viabilidad)', () => {
     proyectoTemporal = cuerpo.id ?? cuerpo.proyectoId;
     const url = `/api/proyectos/${proyectoTemporal}/expediente`;
 
-    // Sin ejes: solo el checklist jurídico aplica; régimen sin definir.
+    // Sin ejes: solo la cadena de valor y el checklist jurídico aplican; régimen sin definir.
     let g = (await (await api.get(url)).json()).data;
     expect(g.directivas.esquema).toBe('sin_definir');
-    expect(g.secciones.filter((s: { aplica: boolean }) => s.aplica).map((s: { id: string }) => s.id)).toEqual(['checklist_juridico']);
+    expect(g.secciones.filter((s: { aplica: boolean }) => s.aplica).map((s: { id: string }) => s.id)).toEqual(['cadena_valor', 'checklist_juridico']);
     let r = await api.post(`${url}/teoria_cambio`, { data: {} });
     expect(r.status(), await r.text()).toBe(409);
     expect((await r.json()).code).toBe('SECCION_NO_APLICA');
@@ -60,7 +60,7 @@ test.describe.serial('Expediente del Financiador (Viabilidad)', () => {
     g = (await (await api.get(url)).json()).data;
     expect(g.directivas.esquema).toBe('internacional');
     expect(g.directivas.conflictos).toEqual([]);
-    expect(g.secciones.filter((s: { aplica: boolean }) => s.aplica).map((s: { id: string }) => s.id)).toEqual(['teoria_cambio', 'salvaguardas', 'checklist_juridico']);
+    expect(g.secciones.filter((s: { aplica: boolean }) => s.aplica).map((s: { id: string }) => s.id)).toEqual(['marco_logico', 'teoria_cambio', 'cadena_valor', 'salvaguardas', 'checklist_juridico']);
     expect(g.secciones.every((s: { ultima: unknown }) => s.ultima === null)).toBe(true);
 
     // Sin anexos con texto: 422 con la lista exacta, sin llamar a la IA.
