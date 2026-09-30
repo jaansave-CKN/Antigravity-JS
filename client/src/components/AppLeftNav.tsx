@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useSubscription } from '../contexts/SubscriptionContext';
+import { planesAplicados } from '../lib/planes';
 
 // ── Tokens idénticos a entr__sidebar / entr__sidebar-link ─────────────────────
 // Fuente: EntradaPage.css — tolerancia cero a desviaciones
@@ -45,7 +46,8 @@ export default function AppLeftNav() {
   // demo-mode-token resuelve hasRadar/hasFormulador en false siempre
   // (SubscriptionContext.tsx) — sin este bypass, cualquier sesión de
   // desarrollo local quedaría con el nav lateral completo bloqueado.
-  const devBypass = import.meta.env.DEV;
+  // En CI (VITE_TEST_PLAN_ENFORCEMENT) el control se aplica también en dev.
+  const devBypass = !planesAplicados;
 
   return (
     <aside style={{

@@ -37,7 +37,7 @@ export async function obtenerConvocatoria(idOExterno) {
 export async function estadoEmbeddings() {
   const fila = await getRow(
     `SELECT count(*)::int AS total, count(*) FILTER (WHERE embedding_vec IS NOT NULL)::int AS con
-       FROM convocatorias WHERE deleted_at IS NULL AND estado != 'cerrada'`,
+       FROM convocatorias WHERE deleted_at IS NULL AND estado NOT IN ('cerrada', 'fondo_continuo')`,
     []
   );
   return { total: Number(fila?.total) || 0, con: Number(fila?.con) || 0 };
@@ -55,7 +55,7 @@ export async function buscarConvocatoriasPorVector(vec, { limit = 50, threshold 
       `SELECT id, titulo, donante, descripcion, monto_min, monto_max, moneda, fecha_limite, estado, url_convocatoria,
               round((1 - (embedding_vec <=> $1::vector))::numeric, 4) AS similitud
          FROM convocatorias
-        WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL AND estado != 'cerrada'
+        WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL AND estado NOT IN ('cerrada', 'fondo_continuo')
           AND (1 - (embedding_vec <=> $1::vector)) >= $2
         ORDER BY embedding_vec <=> $1::vector
         LIMIT $3`,
@@ -63,7 +63,7 @@ export async function buscarConvocatoriasPorVector(vec, { limit = 50, threshold 
     );
     return { resultados, motor: 'pgvector·HNSW' };
   }
-  const convs = await getRows("SELECT id, titulo, donante, descripcion, monto_min, monto_max, moneda, fecha_limite, estado, url_convocatoria, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL AND estado != 'cerrada'", []);
+  const convs = await getRows("SELECT id, titulo, donante, descripcion, monto_min, monto_max, moneda, fecha_limite, estado, url_convocatoria, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL AND estado NOT IN ('cerrada', 'fondo_continuo')", []);
   const resultados = [];
   for (const c of convs) {
     const similitud = Math.round(cosineSimilarity(vec, deserializeEmbedding(c.embedding)) * 10000) / 10000;

@@ -652,7 +652,26 @@ export async function fetchEntityConvocatorias(entity) {
 }
 
 // ── Ingesta masiva desde el Directorio (Rastreo 1) ───────────────────────────
+// Cerrojo del rastreo COMPLETO del Directorio (2026-09-29): el cron diario y el
+// botón de admin podían lanzarlo a la vez, con inserciones duplicadas y carga
+// doble. El rastreo de UNA entidad (al agregarla al Directorio) no se bloquea.
+let _rastreoCompletoEnCurso = false;
+
 export async function ingestDirectorioConvocatorias({ soloEntidadId } = {}) {
+  if (soloEntidadId) return ingestDirectorioSinCerrojo({ soloEntidadId });
+  if (_rastreoCompletoEnCurso) {
+    console.warn('[Rastreo1] Ya hay un rastreo completo en curso — se omite este.');
+    return { entidades_procesadas: 0, entidades_con_error: 0, inserted: 0, skipped: 0, errors: [], timestamp: new Date().toISOString(), omitido: 'en_curso' };
+  }
+  _rastreoCompletoEnCurso = true;
+  try {
+    return await ingestDirectorioSinCerrojo({});
+  } finally {
+    _rastreoCompletoEnCurso = false;
+  }
+}
+
+async function ingestDirectorioSinCerrojo({ soloEntidadId } = {}) {
   const report = {
     entidades_procesadas: 0,
     entidades_con_error: 0,
@@ -728,16 +747,20 @@ export async function ingestDirectorioConvocatorias({ soloEntidadId } = {}) {
             const estado = calcEstado(fechaLimite);
 
             const existing = await getRow(
-              'SELECT id, fecha_limite FROM convocatorias WHERE externo_id = ? LIMIT 1',
+              'SELECT id, fecha_limite, estado FROM convocatorias WHERE externo_id = ? LIMIT 1',
               [externoId]
             );
 
             if (existing) {
-              // Actualizar fecha_limite y estado si el scraper trajo un valor nuevo
+              // Actualizar fecha_limite y estado si el scraper trajo un valor nuevo.
+              // Un 'fondo_continuo' (curaduría del dueño) conserva su estado:
+              // calcEstado solo conoce abierta/cerrada y lo revertiría.
               if (fechaLimite && fechaLimite !== (existing.fecha_limite || '')) {
                 await runSql(
-                  'UPDATE convocatorias SET fecha_limite = ?, estado = ? WHERE id = ?',
-                  [fechaLimite, estado, existing.id]
+                  existing.estado === 'fondo_continuo'
+                    ? 'UPDATE convocatorias SET fecha_limite = ? WHERE id = ?'
+                    : 'UPDATE convocatorias SET fecha_limite = ?, estado = ? WHERE id = ?',
+                  existing.estado === 'fondo_continuo' ? [fechaLimite, existing.id] : [fechaLimite, estado, existing.id]
                 );
                 entityUpdated++;
               } else {

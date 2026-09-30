@@ -140,8 +140,9 @@ export default function FavoritosView() {
                 onClick={() => setExpandedId(isExpanded ? null : convId)}
               >
                 <div className="favorito-card__left">
-                  <span className={`favorito-card__estado favorito-card__estado--${estado}`}>
-                    {estado === 'abierta' ? 'Abierta' : estado === 'nueva' ? 'Nueva' : estado === 'proxima' ? 'Próxima' : 'Cerrada'}
+                  {/* Fondo continuo (curaduría 2026-09-29): reutiliza el estilo de "abierta", sin CSS nuevo. */}
+                  <span className={`favorito-card__estado favorito-card__estado--${estado === 'fondo_continuo' ? 'abierta' : estado}`}>
+                    {estado === 'abierta' ? 'Abierta' : estado === 'nueva' ? 'Nueva' : estado === 'proxima' ? 'Próxima' : estado === 'fondo_continuo' ? 'Fondo continuo' : 'Cerrada'}
                   </span>
                   <h3 className="favorito-card__title">{titulo}</h3>
                   <div className="favorito-card__meta">

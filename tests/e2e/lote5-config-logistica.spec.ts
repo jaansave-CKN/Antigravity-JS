@@ -19,6 +19,10 @@ const leerEstado = () => JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8')) as { u
 
 test.describe.serial('Lote 5 — config_logistica (endpoint aislado)', () => {
   test('presencia, NULL en ausentes, validaciones y aislamiento', async () => {
+    // Presupuesto propio (2026-09-29, mismo criterio que formulador-financiero):
+    // ~15 llamadas de API en serie; contra la BD remota desde local rozaba los
+    // 30 s por defecto. En CI (BD local) tarda una fracción. Solo es el tope.
+    test.setTimeout(90_000);
     const e = leerEstado();
     const api = await pwRequest.newContext({ baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5173', extraHTTPHeaders: { Authorization: `Bearer ${e.token}` } });
     const url = `/api/proyectos/${e.proyectoId}/config-logistica`;

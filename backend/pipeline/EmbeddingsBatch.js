@@ -91,7 +91,7 @@ async function soltarLease(deps) {
 export async function estadoBatch(deps = DEPS_REALES) {
   const f = await deps.getRow(
     `SELECT count(*)::int AS abiertas, count(*) FILTER (WHERE embedding_vec IS NOT NULL)::int AS con_vector
-       FROM convocatorias WHERE deleted_at IS NULL AND estado != 'cerrada'`, []);
+       FROM convocatorias WHERE deleted_at IS NULL AND estado NOT IN ('cerrada', 'fondo_continuo')`, []);
   return { abiertas: Number(f?.abiertas) || 0, con_vector: Number(f?.con_vector) || 0, en_curso: _enCurso, modelo: EMBEDDING_MODEL };
 }
 
@@ -115,7 +115,7 @@ export async function ejecutarBatchEmbeddings({ max, dryRun = false, cfg = confi
     const filas = await deps.getRows(
       `SELECT id, titulo, donante, sectores, paises_elegibles, descripcion
          FROM convocatorias
-        WHERE deleted_at IS NULL AND estado != 'cerrada' AND embedding_vec IS NULL
+        WHERE deleted_at IS NULL AND estado NOT IN ('cerrada', 'fondo_continuo') AND embedding_vec IS NULL
         ORDER BY created_at DESC
         LIMIT ?`, [limite]);
     const candidatas = [];
@@ -169,7 +169,7 @@ export async function ejecutarBatchEmbeddings({ max, dryRun = false, cfg = confi
       deps.logTokenUsage({ userId: 'sistema-radar-batch', agentName: 'embeddings-batch', tokensInput: tokensLote, tokensOutput: 0 }).catch?.(() => {});
       i += lote.length;
     }
-    const fila = await deps.getRow(`SELECT count(*)::int AS n FROM convocatorias WHERE deleted_at IS NULL AND estado != 'cerrada' AND embedding_vec IS NULL`, []);
+    const fila = await deps.getRow(`SELECT count(*)::int AS n FROM convocatorias WHERE deleted_at IS NULL AND estado NOT IN ('cerrada', 'fondo_continuo') AND embedding_vec IS NULL`, []);
     resumen.restantes = Number(fila?.n) || 0;
     if (!resumen.detenidoPor) resumen.detenidoPor = resumen.restantes ? 'tope_por_corrida' : 'completado';
     log.info?.('[EmbeddingsBatch] Corrida terminada', resumen);

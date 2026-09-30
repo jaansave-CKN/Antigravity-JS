@@ -147,7 +147,10 @@ function inferSectores(titulo: string, desc: string, donante = ''): string[] {
   if (tags.length === 0 && /cooperaci[oó]n|international|multilateral|bilateral|grant|funding|call for project|call for proposal|appel [aà] projet|subvenci|solidarity|open call|development fund|global fund|internationale/.test(t)) tags.push('Desarrollo Internacional');
   return tags.slice(0, 3);
 }
-function estadoBadge(conv: Pick<Convocatoria, 'estado' | 'created_at'>): 'abierta' | 'nueva' {
+function estadoBadge(conv: Pick<Convocatoria, 'estado' | 'created_at'>): 'abierta' | 'nueva' | 'fondo_continuo' {
+  // Programa de financiación continua (curaduría 2026-09-29): no es "nueva" ni
+  // tiene fecha de cierre, aunque se haya rastreado hace poco.
+  if (conv.estado === 'fondo_continuo') return 'fondo_continuo';
   if (conv.created_at) {
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     if (new Date(conv.created_at).getTime() >= sevenDaysAgo) return 'nueva';
@@ -516,6 +519,7 @@ const RadarHeader = React.memo(function RadarHeader({
             <option value="todos">Todos</option>
             <option value="abierta">Abierta</option>
             <option value="nueva">Nueva</option>
+            <option value="fondo_continuo">Fondos continuos</option>
           </select>
         </div>
 
@@ -668,11 +672,12 @@ const ConvocatoriasList = React.memo(function ConvocatoriasList({
               <div className="radx__meta">
                 {/* Celda 1 — Badge estado */}
                 <div className="radx__meta-badge">
-                  <span className={`radx__badge radx__badge--${badge}`}>
+                  {/* Fondo continuo reutiliza el estilo aprobado de "abierta" (sin CSS nuevo). */}
+                  <span className={`radx__badge radx__badge--${badge === 'fondo_continuo' ? 'abierta' : badge}`}>
                     <svg width="8" height="8" fill="currentColor" viewBox="0 0 8 8">
                       <circle cx="4" cy="4" r="4" />
                     </svg>
-                    {badge.toUpperCase()}
+                    {badge === 'fondo_continuo' ? 'FONDO CONTINUO' : badge.toUpperCase()}
                   </span>
                 </div>
                 {/* Celda 2 — Fecha límite o (Permanente) */}
@@ -782,7 +787,7 @@ const ConvocatoriasList = React.memo(function ConvocatoriasList({
 
 // ── LayoutPadre — componente raíz con todo el estado ─────────────────────────
 export default function LayoutPadre() {
-  const { token } = useAuth();
+  const { token, isAdmin } = useAuth();
   const tokenRef = useRef<string | null>(token);
   useEffect(() => { tokenRef.current = token; }, [token]);
 
@@ -937,6 +942,9 @@ export default function LayoutPadre() {
     switchRastreo('1');
     setRastreo1Msg('');
     fetchConvocatorias({ rastreo: '1' });
+    // Solo un admin dispara el rastreo REAL del Directorio (proceso global;
+    // el cron diario ya lo corre para todos). Para el resto el botón filtra.
+    if (!isAdmin) return;
     setScanning1(true);
     try {
       const authHeader: Record<string, string> = tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}`, ...obtenerCsrfHeaders() } : {};
@@ -950,7 +958,7 @@ export default function LayoutPadre() {
     } finally {
       setTimeout(() => setScanning1(false), 8000);
     }
-  }, [fetchConvocatorias, switchRastreo]); // rastreoRef siempre apunta al valor actual — sin dep de estado
+  }, [fetchConvocatorias, switchRastreo, isAdmin]); // rastreoRef siempre apunta al valor actual; isAdmin solo cambia al cambiar de sesión
 
   const onToggleAplicaColombia = useCallback(() => {
     setFiltroAplicaColombia(prev => !prev);

@@ -7,11 +7,11 @@
 import { OAuth2Client } from 'google-auth-library';
 import crypto from 'crypto';
 import { withTenantRow, withTenantRun } from '../config/database.config.js';
+import { urlPublica } from '../utils/urlPublica.js';
 
 const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_REDIRECT_URI  = process.env.GOOGLE_REDIRECT_URI  || 'http://localhost:3000/api/auth/google/callback';
-const FRONTEND_URL         = process.env.FRONTEND_URL         || 'http://localhost:5173';
 
 export const GOOGLE_OAUTH_SCOPES = [
   'openid',
@@ -138,16 +138,16 @@ export function registerGoogleAuthRoutes(app, { authenticateToken, encryptKey, J
 
     if (error) {
       return res.redirect(
-        `${FRONTEND_URL}/apis?status=error&reason=${encodeURIComponent(String(error))}`
+        `${urlPublica()}/apis?status=error&reason=${encodeURIComponent(String(error))}`
       );
     }
     if (!code || !state) {
-      return res.redirect(`${FRONTEND_URL}/apis?status=error&reason=invalid_request`);
+      return res.redirect(`${urlPublica()}/apis?status=error&reason=invalid_request`);
     }
 
     const userId = verificarState(state, JWT_SECRET);
     if (!userId) {
-      return res.redirect(`${FRONTEND_URL}/apis?status=error&reason=invalid_state`);
+      return res.redirect(`${urlPublica()}/apis?status=error&reason=invalid_state`);
     }
 
     try {
@@ -171,10 +171,10 @@ export function registerGoogleAuthRoutes(app, { authenticateToken, encryptKey, J
         [id, userId, encrypted, now, now]
       );
 
-      res.redirect(`${FRONTEND_URL}/apis?status=success`);
+      res.redirect(`${urlPublica()}/apis?status=success`);
     } catch (err) {
       console.error('[google-oauth callback]', err.message);
-      res.redirect(`${FRONTEND_URL}/apis?status=error&reason=server_error`);
+      res.redirect(`${urlPublica()}/apis?status=error&reason=server_error`);
     }
   });
 
