@@ -353,3 +353,11 @@ test('campo vacío informa QUÉ campo faltó (diagnóstico de descartes en vivo)
   const r = X.validarSeccion('cadena_valor', { eslabones: [{ objetivo_o_componente: 'Agua apta', producto_o_entregable: '', actividad: 'Construir la red', etapa: 'Inversión', fuente_aporte: 'ND', fuentes: ['entrada.solucion_elegida'] }] }, datos, anexosIds);
   assert.deepEqual(r.descartados.map(d => [d.motivo, d.detalle]), [['campo_vacio', 'producto_o_entregable']]);
 });
+
+test('regresión en vivo: fuente citada sin el prefijo "entrada." se lleva a su id real; un id sin prefijo que no existe se sigue descartando', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, ANEXOS);
+  const e = (fuentes) => ({ objetivo_o_componente: 'Agua apta', producto_o_entregable: 'Acueducto', actividad: 'Construir el tanque', etapa: 'Inversión', fuente_aporte: 'ND', fuentes });
+  const r = X.validarSeccion('cadena_valor', { eslabones: [e(['solucion_elegida']), e(['presupuesto_inventado'])] }, datos, anexosIds);
+  assert.deepEqual(r.grupos.eslabones.map(x => x.fuentes), [['entrada.solucion_elegida']]);
+  assert.deepEqual(r.descartados.map(d => [d.motivo, d.detalle]), [['fuente_inexistente', 'presupuesto_inventado']]);
+});

@@ -347,7 +347,13 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
     const n = normalizarEje(id);
     idsCanonicos.set(n, idsCanonicos.has(n) ? null : id);
   }
-  const canonico = (id) => (id in datos ? id : idsCanonicos.get(normalizarEje(id)) || id);
+  // También en vivo: "solucion_elegida" sin el prefijo "entrada." (solo si el id con prefijo existe).
+  const canonico = (id) => {
+    if (id in datos) return id;
+    const conPrefijo = /^[\w.]+$/.test(id) && !id.startsWith('entrada.') ? `entrada.${id}` : null;
+    if (conPrefijo && conPrefijo in datos) return conPrefijo;
+    return idsCanonicos.get(normalizarEje(id)) || id;
+  };
   const fuentesNormalizadas = new Map();
   const textoNormalizado = (id) => {
     if (!fuentesNormalizadas.has(id)) fuentesNormalizadas.set(id, normalizarEje(datos[id]));
