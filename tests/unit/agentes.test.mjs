@@ -72,10 +72,10 @@ test('script real modo SaaS (sin BD): GP con código real (Fase 4) y sin funcion
   assert.equal(contexto, 'saas');
   const d = Object.fromEntries(dominios.map(x => [x.id, x]));
   // Fase 4 (2026-09-28): el GP existe en código y gobierna los flujos A↔B;
-  // las 13 funciones siguen perteneciendo a Radar o Formulador, no al GP.
+  // las 14 funciones siguen perteneciendo a Radar o Formulador, no al GP.
   assert.match(d.GP.estado, /^código real \(backend\/agents\/gp\/gerenteProyecto\.js\)/);
   assert.equal(d.GP.miembros.length, 0);
-  assert.equal(d.Radar.miembros.length + d.Formulador.miembros.length, 13);
+  assert.equal(d.Radar.miembros.length + d.Formulador.miembros.length, 14);
   assert.ok(d.Radar.miembros.some(m => m.id === 'sectorClassifier'));
   assert.ok(d.Formulador.miembros.some(m => m.id === 'mirofish'));
   for (const m of [...d.Radar.miembros, ...d.Formulador.miembros]) assert.notEqual(m.estado, 'ACTIVO · en uso', 'sin BD nadie puede declararse "en uso"');

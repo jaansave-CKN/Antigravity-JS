@@ -40,6 +40,24 @@ const ANEXO_ESS = /\bESS ?(?:10|[1-9])?\b/;
 const ANEXO_PREDIAL = /\b(LIBERTAD Y TRADICION|SANA POSESION|POSESION|ESCRITURA|COMODATO)\b/;
 
 const textoAnexo = (a) => `${a?.nombre_archivo ?? ''} ${a?.descripcion ?? ''}`;
+
+/** Referencia normativa del soporte predial (verificada, ver cabecera). */
+export function referenciaPredial(sectorAgua) {
+  return `Ley 1551 de 2012, art. 48 (modificado por la Ley 2140 de 2021: basta acreditar la posesión y la destinación al uso público)${sectorAgua ? '; para agua y saneamiento, Res. 0661 de 2019 de MinVivienda' : ''}`;
+}
+
+/**
+ * Soporte predial entre los anexos: certificado de libertad y tradición
+ * (tipo_vigencia) o documento de posesión/escritura/comodato por nombre.
+ * @returns {{ anexo: string|null, vencido: boolean }} vencido = solo hay certificados de libertad y tradición vencidos
+ */
+export function soportePredial(anexos, hoy) {
+  const libertad = anexos.filter(a => a?.tipo_vigencia === 'libertad_tradicion');
+  const otros = anexos.filter(a => a?.tipo_vigencia !== 'libertad_tradicion' && ANEXO_PREDIAL.test(normalizar(textoAnexo(a))));
+  const vigente = libertad.find(a => calcularVigencia(a, hoy).estado !== 'vencido');
+  const elegido = otros[0] || vigente || libertad[0] || null;
+  return { anexo: elegido ? (elegido.nombre_archivo || elegido.descripcion || 'Documento sin título') : null, vencido: !otros.length && !!libertad.length && !vigente };
+}
 const anexoCumple = (anexos, re) => anexos.some(a => re.test(normalizar(textoAnexo(a))));
 
 /**
@@ -49,10 +67,11 @@ const anexoCumple = (anexos, re) => anexos.some(a => re.test(normalizar(textoAne
  * @param {Array<{campo: string, valor: string}>} p.textosMoneda textos donde buscar moneda extranjera
  * @param {Array<{nombre_archivo?: string, descripcion?: string, categoria?: string, tipo_vigencia?: string, fecha_documento?: string}>} p.anexos
  * @param {boolean|null} p.teoriaCambioRegistrada true/false, o null si no se pudo verificar
+ * @param {Record<string, boolean>} [p.expediente] secciones del Expediente del Financiador con contenido verificable (teoria_cambio, mel, riesgos_pmi, salvaguardas)
  * @param {string} p.hoy 'YYYY-MM-DD' (hora Colombia)
  * @returns {Array<object>} hallazgos con el formato de mirofishReglas.js
  */
-export function evaluarVectores({ directivas, problemas = [], textosMoneda = [], anexos = [], teoriaCambioRegistrada = null, hoy }) {
+export function evaluarVectores({ directivas, problemas = [], textosMoneda = [], anexos = [], teoriaCambioRegistrada = null, expediente = {}, hoy }) {
   const d = directivas;
   if (!d) return [];
   const v = d.vectores;
@@ -110,57 +129,57 @@ export function evaluarVectores({ directivas, problemas = [], textosMoneda = [],
   }
 
   // V3 — Teoría del Cambio exigida sin ruta causal.
-  if (d.exige.teoriaCambio && teoriaCambioRegistrada !== true && !anexoCumple(anexos, ANEXO_TOC)) {
+  if (d.exige.teoriaCambio && teoriaCambioRegistrada !== true && !expediente.teoria_cambio && !anexoCumple(anexos, ANEXO_TOC)) {
     hallazgos.push({
       regla: 'V3', severidad: 'ALTA', titulo: 'Teoría del Cambio seleccionada sin ruta causal',
       detalle: 'Se marcó Teoría del Cambio y no se detectó la ruta causal (impacto → resultados intermedios → precondiciones → intervenciones, con supuestos críticos) ni en el proyecto ni en el nombre/descripción de los anexos.',
       evidencia: [...evMetodologias, evAnexos],
-      recomendacion: 'Construye la ruta causal (impacto, resultados intermedios, precondiciones, supuestos) y adjunta el documento de Teoría del Cambio en Anexos.',
+      recomendacion: 'Genera la ruta causal en Viabilidad → Expediente del Financiador, o adjunta el documento de Teoría del Cambio en Anexos.',
     });
   }
 
   // V4 — MEL / PMI exigidos sin soporte.
-  if (d.exige.mel && !anexoCumple(anexos, ANEXO_MEL)) {
+  if (d.exige.mel && !expediente.mel && !anexoCumple(anexos, ANEXO_MEL)) {
     hallazgos.push({
       regla: 'V4', severidad: 'ALTA', titulo: 'MEL seleccionado sin plan de monitoreo',
       detalle: 'Se marcó MEL y no se detectó un plan de Monitoreo, Evaluación y Aprendizaje (indicadores con línea base, meta, método, frecuencia y responsable) en el nombre/descripción de los anexos.',
       evidencia: [...evMetodologias, evAnexos],
-      recomendacion: 'Adjunta en Anexos el plan MEL (indicadores con línea base, meta, método de recolección, frecuencia y responsable).',
+      recomendacion: 'Genera el plan MEL en Viabilidad → Expediente del Financiador, o adjúntalo en Anexos (indicadores con línea base, meta, método, frecuencia y responsable).',
     });
   }
-  if (d.exige.pmi && !anexoCumple(anexos, ANEXO_PMI)) {
+  if (d.exige.pmi && !expediente.riesgos_pmi && !anexoCumple(anexos, ANEXO_PMI)) {
     hallazgos.push({
       regla: 'V4b', severidad: 'MEDIA', titulo: 'PMI seleccionado sin registro de riesgos ni EDT',
       detalle: 'Se marcó PMI y no se detectó un registro de riesgos ni una EDT/WBS en el nombre/descripción de los anexos.',
       evidencia: [...evMetodologias, evAnexos],
-      recomendacion: 'Adjunta en Anexos la EDT/WBS y la matriz de riesgos (probabilidad, impacto, respuesta y reserva de contingencia).',
+      recomendacion: 'Genera el registro de riesgos en Viabilidad → Expediente del Financiador, o adjunta la EDT/WBS y la matriz de riesgos en Anexos.',
     });
   }
 
   // V5 — salvaguardas ambientales y sociales.
-  if (d.exige.salvaguardas && !anexoCumple(anexos, ANEXO_SALVAGUARDAS) && !anexos.some(a => ANEXO_ESS.test(textoAnexo(a)))) {
+  if (d.exige.salvaguardas && !expediente.salvaguardas && !anexoCumple(anexos, ANEXO_SALVAGUARDAS) && !anexos.some(a => ANEXO_ESS.test(textoAnexo(a)))) {
     hallazgos.push({
       regla: 'V5', severidad: 'ALTA', titulo: 'Salvaguardas ambientales y sociales sin soporte',
       detalle: `${d.esquema === 'internacional' ? 'El financiador internacional exige' : 'Se marcó Salvaguardas, que exige'} la categorización de riesgo ambiental y social (A/B/C) y las medidas por impacto; no se detectó ese análisis en el nombre/descripción de los anexos.`,
       evidencia: [...evFuente, ...evMetodologias, evAnexos],
-      recomendacion: 'Adjunta en Anexos el análisis ambiental y social con la categoría de riesgo (A/B/C) y las medidas por impacto.',
+      recomendacion: 'Genera las salvaguardas en Viabilidad → Expediente del Financiador, o adjunta en Anexos el análisis ambiental y social (categoría A/B/C y medidas por impacto).',
     });
   }
 
   // V6 — soporte predial en infraestructura de régimen nacional.
   if (d.exige.saneamientoPredial) {
     const libertad = anexos.filter(a => a?.tipo_vigencia === 'libertad_tradicion');
-    const otrosPrediales = anexos.filter(a => a?.tipo_vigencia !== 'libertad_tradicion' && ANEXO_PREDIAL.test(normalizar(textoAnexo(a))));
-    const normas = `Ley 1551 de 2012, art. 48 (modificado por la Ley 2140 de 2021: basta acreditar la posesión y la destinación al uso público)${d.sectorAgua ? '; para agua y saneamiento, Res. 0661 de 2019 de MinVivienda' : ''}`;
+    const soporte = soportePredial(anexos, hoy);
+    const normas = referenciaPredial(d.sectorAgua);
     const evTipo = { campo: 'entrada.tipo_proyecto', valor: v.tipoProyecto };
-    if (!libertad.length && !otrosPrediales.length) {
+    if (!soporte.anexo) {
       hallazgos.push({
         regla: 'V6', severidad: 'ALTA', titulo: 'Infraestructura sin soporte predial',
         detalle: 'Proyecto de infraestructura con financiación nacional: no se detectó certificado de libertad y tradición, acreditación de posesión, escritura ni comodato en los anexos.',
         evidencia: [evTipo, ...evFuente, evAnexos],
         recomendacion: `Adjunta el soporte predial del predio a intervenir (${normas}).`,
       });
-    } else if (libertad.length && !otrosPrediales.length && libertad.every(a => calcularVigencia(a, hoy).estado === 'vencido')) {
+    } else if (soporte.vencido) {
       hallazgos.push({
         regla: 'V6', severidad: 'MEDIA', titulo: 'Certificado de libertad y tradición vencido',
         detalle: `El soporte predial es un certificado de libertad y tradición con más de 30 días de expedido (${libertad.map(a => a.fecha_documento).join(', ')}).`,

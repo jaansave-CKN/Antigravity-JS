@@ -75,6 +75,7 @@ import { registerEstresFinancieroRoutes } from './backend/routes/estresFinancier
 import { registerValorExponencialRoutes } from './backend/routes/valorExponencial.routes.js';
 import { registerEvaluacionFinancieraRoutes } from './backend/routes/evaluacionFinanciera.routes.js';
 import { registerMirofishRoutes } from './backend/routes/mirofish.routes.js';
+import { registerExpedienteRoutes } from './backend/routes/expediente.routes.js';
 import { registerFormuladorMgaRoutes } from './backend/routes/formuladorMga.routes.js';
 import { registerPresupuestoRoutes } from './backend/routes/presupuesto.routes.js';
 import { registerAnexosRoutes } from './backend/routes/anexos.routes.js';
@@ -4859,6 +4860,8 @@ Reglas:
   // F-09 MIROFISH (2026-09-24): comité hostil — reglas PDET + IA (llmProveedor).
   // Misma cadena que POST /viabilidad-ia (aiLimiter; sin byokGate desde B1).
   registerMirofishRoutes(app, { authenticateToken, requireAccess, aiLimiter });
+  // Expediente del Financiador (Viabilidad, Fase C 2026-09-30) — mismos gates que MIROFISH.
+  registerExpedienteRoutes(app, { authenticateToken, requireAccess, aiLimiter });
   // Fase 3: Formulador MGA (NVIDIA NIM, llave del servidor).
   registerFormuladorMgaRoutes(app, { authenticateToken, requireAccess, aiLimiter });
 

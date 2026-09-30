@@ -474,7 +474,7 @@ test('Groq: auditores, copiloto y tráfico soloServidor NUNCA van a Groq aunque 
     await generarConIA({ userId: 'u1', agente, messages: MSGS, ...extra });
     assert.equal(llamadas.some(l => l.destino === 'groq'), false, agente);
   }
-  assert.deepEqual(AGENTES_CREADORES, ['entrada-ia', 'arbol_objetivos', 'formulador_mga']);
+  assert.deepEqual(AGENTES_CREADORES, ['entrada-ia', 'arbol_objetivos', 'formulador_mga', 'expediente_financiador']);
   TS._reiniciarTopeSistema();
 });
 

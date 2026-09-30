@@ -25,6 +25,7 @@ import { resolverDirectivas } from '../services/directivasFormulacion.js';
 import { evaluarVectores } from '../services/auditoriaVectores.js';
 import { hoyBogota } from '../services/vigenciaDocumental.js';
 import { logger } from '../utils/logger.js';
+import { SQL_ANEXOS_META, huellaMetadatos, seccionCumple } from '../services/expedienteFinanciador.js';
 
 const MAX_LINEAS = 40;
 
@@ -54,11 +55,12 @@ async function recolectar(proyecto, userId) {
     withTenantRows(userId, 'SELECT numero, origen, destino, medio, distancia_km, duracion, estado_via, calidad, tipo_transporte, orden_publico FROM logistica_tramos WHERE proyecto_id = ? ORDER BY numero ASC', [pid]),
     withTenantRows(userId, 'SELECT descripcion, valor_total_cop FROM project_apu_lineas WHERE project_id = ?', [pid]),
     withTenantRows(userId, 'SELECT capitulo, item, valor_total FROM project_budgets WHERE proyecto_id = ?', [pid]),
-    withTenantRows(userId, "SELECT nombre_archivo, descripcion, categoria, tipo_vigencia, to_char(fecha_documento, 'YYYY-MM-DD') AS fecha_documento FROM project_anexos WHERE project_id = ?", [pid]),
+    withTenantRows(userId, SQL_ANEXOS_META, [pid]),
     teoriaCambioDelProyecto(pid, userId),
   ]);
   const entrada = parseJson(proyecto.ficha_tecnica).entrada_completa || {};
   const directivas = resolverDirectivas(entrada);
+  const expediente = await seccionesExpedienteConContenido(pid, userId, huellaMetadatos(entrada, anexos));
 
   const datos = {};
   const poner = (k, v) => { const t = texto(v); if (t) datos[k] = t; };
@@ -107,9 +109,31 @@ async function recolectar(proyecto, userId) {
     { campo: 'entrada.pitch', valor: texto(entrada.pitch) },
     ...lineasPresupuesto,
   ].filter(t => t.valor);
-  const hallazgosVectores = evaluarVectores({ directivas, problemas, textosMoneda, anexos, teoriaCambioRegistrada, hoy: hoyBogota() });
+  const hallazgosVectores = evaluarVectores({ directivas, problemas, textosMoneda, anexos, teoriaCambioRegistrada, expediente, hoy: hoyBogota() });
 
   return { datos, lineasPresupuesto, ubicacion, hallazgosVectores, tramos: tramos.map(t => ({ numero: texto(t.numero), orden_publico: texto(t.orden_publico) })) };
+}
+
+/**
+ * Secciones del Expediente del Financiador cuya ÚLTIMA generación cuenta
+ * como soporte: contenido verificable en sus grupos mínimos (seccionCumple)
+ * y fuentes sin cambios desde que se generó (misma huella). try/catch: sin
+ * la migración 078 el comité sigue funcionando (solo no cuenta el expediente).
+ * @returns {Promise<Record<string, boolean>>}
+ */
+async function seccionesExpedienteConContenido(pid, userId, huellaActual) {
+  try {
+    const filas = await withTenantRows(userId, 'SELECT seccion, estado, contenido, huella FROM project_expediente_financiador WHERE project_id = ? ORDER BY created_at DESC LIMIT 100', [pid]);
+    const ultimas = {};
+    for (const f of filas) {
+      if (f.seccion in ultimas) continue;
+      ultimas[f.seccion] = f.huella === huellaActual && seccionCumple(f.seccion, { estado: f.estado, contenido: parseJson(f.contenido) });
+    }
+    return ultimas;
+  } catch (err) {
+    logger.warn('[mirofish] Expediente del Financiador no verificable — las reglas V solo miran anexos', { proyectoId: pid, err: err.message });
+    return {};
+  }
 }
 
 /**

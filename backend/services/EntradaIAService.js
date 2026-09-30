@@ -241,7 +241,33 @@ async function compilarContenidoCarpeta(carpetaId, projectId, { getRows, runSql 
   );
   if (!anexos.length) return { anexos: [], contenido: '' };
 
-  const bloques = [];
+  const bloques = (await extraerTextosAnexos(anexos, { runSql }))
+    .map(t => `### ${t.nombre}\n${t.texto.slice(0, MAX_CHARS_POR_ANEXO)}`);
+  const contenido = bloques.join('\n\n---\n\n').slice(0, MAX_CHARS_TOTAL);
+  return { anexos, contenido };
+}
+
+/**
+ * Texto legible de TODOS los anexos del proyecto (Expediente del
+ * Financiador, Fase C 2026-09-30), con la misma extracción y caché que la
+ * carpeta "Investigación". @returns {Promise<Array<{ nombre: string, texto: string }>>}
+ */
+export async function compilarAnexosProyecto(projectId, { getRows, runSql }) {
+  const anexos = await getRows(
+    `SELECT id, nombre_archivo, ruta_storage, descripcion, texto, link,
+            link_texto_cache, link_cache_de, archivo_texto_cache, archivo_cache_de
+     FROM project_anexos WHERE project_id = ? ORDER BY created_at ASC, id ASC`,
+    [projectId]
+  );
+  return extraerTextosAnexos(anexos, { runSql });
+}
+
+/**
+ * Extrae (con caché persistida) el texto de cada anexo: descripción, texto,
+ * link y archivo. Solo devuelve los anexos con algo legible.
+ */
+async function extraerTextosAnexos(anexos, { runSql }) {
+  const salida = [];
   for (const a of anexos) {
     const partes = [];
     if (a.descripcion?.trim()) partes.push(a.descripcion.trim());
@@ -311,12 +337,10 @@ async function compilarContenidoCarpeta(carpetaId, projectId, { getRows, runSql 
     }
 
     if (partes.length) {
-      bloques.push(`### ${a.nombre_archivo || a.descripcion || 'Documento sin título'}\n${partes.join('\n\n').slice(0, MAX_CHARS_POR_ANEXO)}`);
+      salida.push({ nombre: a.nombre_archivo || a.descripcion || 'Documento sin título', texto: partes.join('\n\n') });
     }
   }
-
-  const contenido = bloques.join('\n\n---\n\n').slice(0, MAX_CHARS_TOTAL);
-  return { anexos, contenido };
+  return salida;
 }
 
 // Acotado al módulo 11 "Contexto del Problema" (2026-08-17, pedido explícito
