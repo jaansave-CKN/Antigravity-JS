@@ -48,6 +48,7 @@ import { classifySectors } from '../services/sectorClassifier.js';
 import { extractConvocatoriaFields } from '../services/markitdownService.js';
 import { chatConCopiloto, obtenerHistorial as obtenerHistorialCopiloto } from '../services/CopilotoService.js';
 import { consolidarMGA } from '../services/formuladorMga.js';
+import { generarSeccion } from '../services/expedienteFinanciador.js';
 import { evaluarComiteIA } from '../services/mirofishComite.js';
 import { textToEmbedding } from '../services/embeddingsService.js';
 import { registerFormulacionIntegralRoutes } from '../routes/formulacionIntegral.routes.js';
@@ -133,6 +134,13 @@ export const ESCUADRON = {
       llamaLLM: true,
       invocadoDesde: 'backend/routes/formuladorMga.routes.js',
       exporta: { consolidarMGA },
+    },
+    {
+      nombre: 'expedienteFinanciador',
+      descripcion: 'Expediente del Financiador (Viabilidad, 2026-09-30) — rol CREADOR: arma por sección, solo si los ejes de Entrada lo exigen, la ruta causal de Teoría del Cambio, las salvaguardas ESS, el plan MEL, el registro de riesgos PMI y el checklist jurídico; cada ítem validado contra sus fuentes (mismo contrato que formuladorMga) y el checklist nunca da por soportado un documento sin anexo real.',
+      llamaLLM: true,
+      invocadoDesde: 'backend/routes/expediente.routes.js',
+      exporta: { generarSeccion },
     },
     {
       nombre: 'formulacionIntegral',

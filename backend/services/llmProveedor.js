@@ -66,11 +66,11 @@ const PAUSA_CONFIG_MS = 10 * 60_000; // tras 401/402/403 (llave o saldo del due�
 
 /**
  * Rol CREADOR (nombres FinOps reales de los llamadores): EntradaIAService.js,
- * arbolObjetivosAgent.js y el respaldo de formuladorMga.js (que ya prueba
- * NVIDIA NIM primero). 'copiloto' queda fuera a propósito: responde texto
+ * arbolObjetivosAgent.js, el respaldo de formuladorMga.js (que ya prueba
+ * NVIDIA NIM primero) y expedienteFinanciador.js (Viabilidad, 2026-09-30). 'copiloto' queda fuera a propósito: responde texto
  * libre con permitirTruncado, incompatible con la salida solo-JSON.
  */
-export const AGENTES_CREADORES = ['entrada-ia', 'arbol_objetivos', 'formulador_mga'];
+export const AGENTES_CREADORES = ['entrada-ia', 'arbol_objetivos', 'formulador_mga', 'expediente_financiador'];
 const GROQ_MAX_MS = 20_000;
 const GROQ_LIMITE_TPM_DEFECTO = 8_000;  // plan gratuito de gpt-oss-120b (verificado 2026-09-30)
 const GROQ_SALIDA_MIN = 2_048;          // con menos presupuesto de salida no vale la pena intentar

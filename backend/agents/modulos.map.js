@@ -5,7 +5,7 @@
  *   Nivel 1  GP (Gerente de Proyecto)  backend/agents/gp/
  *   Nivel 2  Coordinador A (Radar)      backend/agents/radar/
  *            Coordinador B (Formulador) backend/agents/formulador/
- *   Nivel 3  las 13 funciones reales (FUNCIONES, mismos ids que el
+ *   Nivel 3  las 14 funciones reales (FUNCIONES, mismos ids que el
  *            CATALOGO de scripts/agentes.mjs)
  *
  * DATOS PUROS, sin imports: lo leen scripts/aislamiento.mjs (test de
@@ -44,6 +44,8 @@ export const MODULOS = {
     'backend/services/mirofishReglas.js',
     'backend/services/directivasFormulacion.js',
     'backend/services/auditoriaVectores.js',
+    'backend/services/expedienteFinanciador.js',
+    'backend/routes/expediente.routes.js',
     'backend/services/formuladorMga.js',
     'backend/services/datosMinimosIA.js',
     'backend/services/scoringDinamico.js',
@@ -102,7 +104,7 @@ export const MODULOS = {
   ] },
 };
 
-/** Las 13 funciones reales (Nivel 3). ids = CATALOGO de scripts/agentes.mjs. */
+/** Las 14 funciones reales (Nivel 3). ids = CATALOGO de scripts/agentes.mjs. */
 export const FUNCIONES = [
   { id: 'sectorClassifier',    modulo: 'A_RADAR',      archivo: 'backend/services/sectorClassifier.js',            llamaLLM: true },
   { id: 'EntityScraper',       modulo: 'A_RADAR',      archivo: 'backend/pipeline/EntityScraper.js',               llamaLLM: false },
@@ -116,5 +118,6 @@ export const FUNCIONES = [
   { id: 'copiloto',            modulo: 'B_FORMULADOR', archivo: 'backend/services/CopilotoService.js',             llamaLLM: true },
   { id: 'formulacionIntegral', modulo: 'B_FORMULADOR', archivo: 'backend/routes/formulacionIntegral.routes.js',    llamaLLM: true },
   { id: 'formuladorMga',       modulo: 'B_FORMULADOR', archivo: 'backend/services/formuladorMga.js',               llamaLLM: true },
+  { id: 'expedienteFinanciador', modulo: 'B_FORMULADOR', archivo: 'backend/services/expedienteFinanciador.js',     llamaLLM: true },
   { id: 'normativo',           modulo: 'B_FORMULADOR', archivo: 'backend/agents/normativoAgent.js',                llamaLLM: false },
 ];

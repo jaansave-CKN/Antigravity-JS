@@ -101,10 +101,10 @@ test('extracción de imports: ignora comentarios y paquetes; glob con ** y *', (
   assert.equal(globARegex('backend/services/radar*.js').test('backend/services/sub/radarX.js'), false);
 });
 
-test('las 13 funciones del Nivel 3 son exactamente las del CATALOGO de agentes.mjs (5 Radar + 8 Formulador)', () => {
+test('las 14 funciones del Nivel 3 son exactamente las del CATALOGO de agentes.mjs (5 Radar + 9 Formulador; +expedienteFinanciador 2026-09-30)', () => {
   assert.deepEqual(FUNCIONES.map(f => f.id).sort(), CATALOGO.map(c => c.id).sort());
   assert.equal(FUNCIONES.filter(f => f.modulo === 'A_RADAR').length, 5);
-  assert.equal(FUNCIONES.filter(f => f.modulo === 'B_FORMULADOR').length, 8);
+  assert.equal(FUNCIONES.filter(f => f.modulo === 'B_FORMULADOR').length, 9);
 });
 
 test('regresión: el barrido ya no lee proyectos.embedding en línea (lo hace el GP vía el coordinador)', () => {

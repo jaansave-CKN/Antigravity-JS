@@ -6,6 +6,7 @@ import { http } from '../lib/apiClient';
 import { cop } from '../lib/currencyFormat';
 import { ejecutarFormulador, estadoVacio, type AnalisisViabilidad, type EstadoFormulador } from '../agents/000_formulador';
 import { runViabilidadIA, type ViabilidadIAResultado } from '../agents/NN_Viability_Agent';
+import ExpedienteFinanciadorCard from '../components/viabilidad/ExpedienteFinanciadorCard';
 
 const ACTIVE_PROJECT_KEY = 'rf360_proyecto_activo';
 
@@ -587,6 +588,9 @@ export default function ViabilidadPage() {
 
         {/* F-09 — Comité Hostil MIROFISH (reglas PDET + IA adversarial BYOK) */}
         <ComiteMirofishCard />
+
+        {/* Expediente del Financiador (Fase C 2026-09-30) — secciones según los ejes de Entrada */}
+        <ExpedienteFinanciadorCard />
 
         {/* Q1 — Montecarlo */}
         <div className="viab__card viab__card--q1">
