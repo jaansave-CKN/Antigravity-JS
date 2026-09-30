@@ -337,10 +337,13 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
   for (const [g, def] of Object.entries(s.grupos)) {
     const crudos = Array.isArray(salida?.[g]) ? salida[g].slice(0, def.max ?? MAX_ITEMS) : [];
     const validos = [];
-    const campoResumen = Object.keys(def.campos).find(c => def.campos[c] === 'texto');
+    // Campos de texto de la sección, calculados una vez por grupo (no por ítem).
+    const camposTexto = Object.keys(def.campos).filter(c => def.campos[c] === 'texto');
+    const camposCifras = camposTexto.filter(c => c !== 'anexo');
+    const campoResumen = camposTexto[0];
     for (const it of crudos) {
       const resumen = texto(campoResumen ? it?.[campoResumen] : '').slice(0, 120);
-      const fuentes = Array.isArray(it?.fuentes) ? [...new Set(it.fuentes.map(texto).filter(Boolean))] : [];
+      const fuentes = Array.isArray(it?.fuentes) ? [...new Set(it.fuentes.flatMap(f => texto(f) || []))] : [];
       if (!fuentes.length) { descartados.push({ grupo: g, item: resumen, motivo: 'sin_fuente' }); continue; }
       const inexistentes = fuentes.filter(id => !(id in datos));
       if (inexistentes.length) { descartados.push({ grupo: g, item: resumen, motivo: 'fuente_inexistente', detalle: inexistentes.join(', ') }); continue; }
@@ -359,7 +362,7 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
       // Res. 1063 de 2016 DEROGADA por la Res. 0661 de 2019 (verificado 2026-09-30): nunca se cita, aunque la
       // traiga una fuente vieja. En el checklist solo se vacía la referencia (el requisito puede ser real).
       if (item.referencia && NORMA_DEROGADA.test(normalizarEje(item.referencia))) item.referencia = '';
-      const textoItem = Object.entries(def.campos).filter(([, tipo]) => tipo === 'texto').map(([c]) => item[c]).join(' \n ');
+      const textoItem = camposTexto.map(c => item[c]).join(' \n ');
       if (NORMA_DEROGADA.test(normalizarEje(textoItem))) { descartados.push({ grupo: g, item: resumen, motivo: 'norma_derogada', detalle: 'Res. 1063 de 2016 (derogada por la Res. 0661 de 2019)' }); continue; }
       if (AUTOEVALUACION.test(normalizarEje(textoItem))) { descartados.push({ grupo: g, item: resumen, motivo: 'autoevaluacion' }); continue; }
       if (seccionId === 'marco_logico' && g === 'problema_central' && PROBLEMA_COMO_AUSENCIA.test(normalizarEje(item.texto).toUpperCase())) {
@@ -368,7 +371,7 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
       // Cadena de valor sin montos: el costo por actividad vive en el presupuesto del documento externo.
       if (seccionId in SIN_MONTOS && (SIN_MONTOS[seccionId] === null || SIN_MONTOS[seccionId].has(g)) && MONTO.test(textoItem)) { descartados.push({ grupo: g, item: resumen, motivo: 'monto_no_permitido' }); continue; }
       // Cifras: solo en campos de texto (las calificaciones 1–5 no son datos).
-      const textos = Object.entries(def.campos).filter(([c, tipo]) => tipo === 'texto' && c !== 'anexo').map(([c]) => item[c]).join(' \n ');
+      const textos = camposCifras.map(c => item[c]).join(' \n ');
       const malas = cifrasNoTrazables(textos, fuentes, datos);
       if (malas.length) { descartados.push({ grupo: g, item: resumen, motivo: 'cifra_no_trazable', detalle: malas.join(', ') }); continue; }
       if (seccionId === 'checklist_juridico') {
