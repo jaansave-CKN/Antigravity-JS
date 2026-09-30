@@ -672,12 +672,14 @@ const ConvocatoriasList = React.memo(function ConvocatoriasList({
               <div className="radx__meta">
                 {/* Celda 1 — Badge estado */}
                 <div className="radx__meta-badge">
-                  {/* Fondo continuo reutiliza el estilo aprobado de "abierta" (sin CSS nuevo). */}
+                  {/* Fondo continuo reutiliza el estilo aprobado de "abierta" (sin CSS nuevo).
+                      Etiqueta corta: "FONDO CONTINUO" no cabía en la columna fija del
+                      badge y se partía encima del título (visto en producción 2026-09-30). */}
                   <span className={`radx__badge radx__badge--${badge === 'fondo_continuo' ? 'abierta' : badge}`}>
                     <svg width="8" height="8" fill="currentColor" viewBox="0 0 8 8">
                       <circle cx="4" cy="4" r="4" />
                     </svg>
-                    {badge === 'fondo_continuo' ? 'FONDO CONTINUO' : badge.toUpperCase()}
+                    {badge === 'fondo_continuo' ? 'CONTINUO' : badge.toUpperCase()}
                   </span>
                 </div>
                 {/* Celda 2 — Fecha límite o (Permanente) */}
