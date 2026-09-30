@@ -25,7 +25,9 @@ import { resolverDirectivas } from '../services/directivasFormulacion.js';
 import { evaluarVectores } from '../services/auditoriaVectores.js';
 import { hoyBogota } from '../services/vigenciaDocumental.js';
 import { logger } from '../utils/logger.js';
-import { SQL_ANEXOS_META, huellaMetadatos, seccionCumple } from '../services/expedienteFinanciador.js';
+import { SQL_ANEXOS_META, huellaMetadatos, seccionCumple, cargarArbol, arbolObjetivosRegistrado } from '../services/expedienteFinanciador.js';
+
+const ORDEN_SEVERIDAD = { CRITICA: 0, ALTA: 1, MEDIA: 2, INFO: 3 };
 
 const MAX_LINEAS = 40;
 
@@ -50,17 +52,18 @@ const texto = (v) => (v === null || v === undefined ? '' : String(v).trim());
 /** Reúne los datos reales del proyecto como diccionario plano campo → valor. */
 async function recolectar(proyecto, userId) {
   const pid = proyecto.id;
-  const [logistica, tramos, apu, budgets, anexos, teoriaCambioRegistrada] = await Promise.all([
+  const [logistica, tramos, apu, budgets, anexos, teoriaCambioRegistrada, arbol] = await Promise.all([
     withTenantRow(userId, 'SELECT departamento, municipio, zona, fecha_inicio, duracion_meses FROM config_logistica WHERE proyecto_id = ? AND user_id = ?', [pid, userId]),
     withTenantRows(userId, 'SELECT numero, origen, destino, medio, distancia_km, duracion, estado_via, calidad, tipo_transporte, orden_publico FROM logistica_tramos WHERE proyecto_id = ? ORDER BY numero ASC', [pid]),
     withTenantRows(userId, 'SELECT descripcion, valor_total_cop FROM project_apu_lineas WHERE project_id = ?', [pid]),
     withTenantRows(userId, 'SELECT capitulo, item, valor_total FROM project_budgets WHERE proyecto_id = ?', [pid]),
     withTenantRows(userId, SQL_ANEXOS_META, [pid]),
     teoriaCambioDelProyecto(pid, userId),
+    cargarArbol((sql, params) => withTenantRows(userId, sql, params), pid),
   ]);
   const entrada = parseJson(proyecto.ficha_tecnica).entrada_completa || {};
   const directivas = resolverDirectivas(entrada);
-  const expediente = await seccionesExpedienteConContenido(pid, userId, huellaMetadatos(entrada, anexos));
+  const expediente = await seccionesExpedienteConContenido(pid, userId, huellaMetadatos(entrada, anexos, arbol));
 
   const datos = {};
   const poner = (k, v) => { const t = texto(v); if (t) datos[k] = t; };
@@ -109,7 +112,7 @@ async function recolectar(proyecto, userId) {
     { campo: 'entrada.pitch', valor: texto(entrada.pitch) },
     ...lineasPresupuesto,
   ].filter(t => t.valor);
-  const hallazgosVectores = evaluarVectores({ directivas, problemas, textosMoneda, anexos, teoriaCambioRegistrada, expediente, hoy: hoyBogota() });
+  const hallazgosVectores = evaluarVectores({ directivas, problemas, textosMoneda, anexos, teoriaCambioRegistrada, expediente, arbolObjetivos: arbolObjetivosRegistrado(arbol.nodos), hoy: hoyBogota() });
 
   return { datos, lineasPresupuesto, ubicacion, hallazgosVectores, tramos: tramos.map(t => ({ numero: texto(t.numero), orden_publico: texto(t.orden_publico) })) };
 }
@@ -175,7 +178,12 @@ export function registerMirofishRoutes(app, { authenticateToken, requireAccess, 
       datos['pdet.municipio'] = `${reglas.municipio_match.municipio.municipio} (${reglas.municipio_match.municipio.departamento}) — municipio PDET, subregión ${reglas.municipio_match.municipio.subregion}`;
     }
     // Reglas R (PDET) + V (ejes del financiador): la IA recibe ambas para no repetirlas.
-    const hallazgosReglas = [...reglas.hallazgos, ...hallazgosVectores];
+    // Ordenados por severidad (orden estable): el Formulador MGA toma los primeros 12 y
+    // un CRÍTICO/ALTO de las reglas V no puede quedar fuera por ir al final (architect, cond. 5).
+    const hallazgosReglas = [...reglas.hallazgos, ...hallazgosVectores]
+      .map((h, i) => ({ h, i }))
+      .sort((a, b) => (ORDEN_SEVERIDAD[a.h.severidad] ?? 9) - (ORDEN_SEVERIDAD[b.h.severidad] ?? 9) || a.i - b.i)
+      .map(({ h }) => h);
     const ia = await evaluarComiteIA({ datos, hallazgosReglas, userId: req.userId });
 
     const fila = await withTenantRow(req.userId,

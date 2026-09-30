@@ -37,7 +37,7 @@ const FORMATO_NACIONAL = 'mga web';
  *   vectores: { tipoProyecto: string, fuente: string, nivel: string, metodologias: string[], formato: string },
  *   esquema: 'nacional'|'internacional'|'sin_definir',
  *   conflictos: Array<{ tipo: string, detalle: string }>,
- *   exige: { teoriaCambio: boolean, mel: boolean, pmi: boolean, salvaguardas: boolean, saneamientoPredial: boolean },
+ *   exige: { teoriaCambio: boolean, mel: boolean, pmi: boolean, salvaguardas: boolean, saneamientoPredial: boolean, marcoLogico: boolean, hseq: boolean, sostenibilidadOym: boolean },
  *   sectorAgua: boolean,
  * }}
  */
@@ -76,12 +76,18 @@ export function resolverDirectivas(entrada = {}) {
   }
 
   const sectores = Array.isArray(e.sectores) ? e.sectores : [];
+  const infraestructura = normalizarEje(vectores.tipoProyecto) === 'infraestructura';
   const exige = {
     teoriaCambio: metodologias.has('teoria del cambio'),
     mel: metodologias.has('mel'),
     pmi: metodologias.has('pmi'),
     salvaguardas: metodologias.has('salvaguardas') || esquema === 'internacional',
-    saneamientoPredial: normalizarEje(vectores.tipoProyecto) === 'infraestructura' && esquema === 'nacional',
+    saneamientoPredial: infraestructura && esquema === 'nacional',
+    // Fase E (2026-09-30): matriz de Marco Lógico si se marcó (obligatoria en la UI);
+    // HSEQ y operación y mantenimiento en obra física.
+    marcoLogico: metodologias.has('marco logico'),
+    hseq: infraestructura,
+    sostenibilidadOym: infraestructura,
   };
   return { vectores, esquema, conflictos, exige, sectorAgua: sectores.some(s => SECTORES_AGUA.has(normalizarEje(s))) };
 }
@@ -124,6 +130,10 @@ export function bloqueVectores(d) {
   if (d.exige.pmi) exigencias.push('PMI: EDT/WBS y registro de riesgos con probabilidad, impacto, respuesta y reserva de contingencia.');
   if (d.exige.salvaguardas) exigencias.push('Salvaguardas ambientales y sociales: categoría de riesgo (A/B/C) y medidas por impacto.');
   if (d.exige.saneamientoPredial) exigencias.push('Infraestructura nacional: soporte predial (propiedad o posesión acreditada) del predio a intervenir.');
+  if (d.exige.marcoLogico) exigencias.push('Marco Lógico: árbol de problemas y matriz 4×4 (fin, propósito, componentes, actividades) con indicadores, medios de verificación y supuestos.');
+  if (d.exige.hseq) exigencias.push('Obra física: controles HSEQ de calidad (ISO 9001), ambiente (ISO 14001) y seguridad y salud en el trabajo (ISO 45001).');
+  if (d.exige.sostenibilidadOym) exigencias.push('Obra física: esquema de operación y mantenimiento con entidad responsable y fuente de recursos recurrentes.');
+  if (d.sectorAgua && d.esquema === 'nacional') exigencias.push('Agua y saneamiento: requisitos de presentación y viabilización de la Res. 0661 de 2019 de MinVivienda (la Res. 1063 de 2016 está derogada).');
   for (const c of d.conflictos) exigencias.push(`INCOHERENCIA DE EJES: ${c.detalle}`);
   return `VECTORES DEL FINANCIADOR (elegidos por el usuario en Entrada):
 Tipo de proyecto: ${v.tipoProyecto || '(sin definir)'}

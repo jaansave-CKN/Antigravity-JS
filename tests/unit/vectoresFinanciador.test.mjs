@@ -19,7 +19,10 @@ class StoreFalso { async increment() { return { totalHits: 1, resetTime: new Dat
 mock.module(u('middlewares/PostgresRateLimitStore.js'), { namedExports: { PostgresRateLimitStore: StoreFalso } });
 
 const { resolverDirectivas, reglaMonetaria, REGLA_COP, REGLA_PROBLEMA_MGA, bloqueVectores } = await import('../../backend/services/directivasFormulacion.js');
-const { evaluarVectores } = await import('../../backend/services/auditoriaVectores.js');
+const { evaluarVectores: evaluarTodas } = await import('../../backend/services/auditoriaVectores.js');
+// Los tests de la Fase B miran solo V0–V6; las reglas de la Fase E (V7–V9) tienen tests propios abajo.
+const FASE_E = new Set(['V7', 'V8', 'V9']);
+const evaluarVectores = (p) => evaluarTodas(p).filter(h => !FASE_E.has(h.regla));
 const EIA = await import('../../backend/services/EntradaIAService.js');
 const { buildUserPrompt } = await import('../../backend/services/viabilidadAgent.js');
 
@@ -51,7 +54,7 @@ test('conflictos de ejes y exigencias por metodología, tipo y sector', () => {
   assert.deepEqual(c2.conflictos.map(c => c.tipo), ['fuente_internacional_formato_nacional']);
 
   const d = resolverDirectivas(entrada({ enfoque: 'INFRAESTRUCTURA', tipoConvocatoria: 'MGA / SGR', metodologias: ['Marco Lógico', 'Teoría del Cambio', 'MEL', 'PMI'], sectores: ['Acueductos'] }));
-  assert.deepEqual(d.exige, { teoriaCambio: true, mel: true, pmi: true, salvaguardas: false, saneamientoPredial: true });
+  assert.deepEqual(d.exige, { teoriaCambio: true, mel: true, pmi: true, salvaguardas: false, saneamientoPredial: true, marcoLogico: true, hseq: true, sostenibilidadOym: true });
   assert.equal(d.sectorAgua, true);
   assert.equal(resolverDirectivas(entrada({ tipoConvocatoria: 'Banca multilateral' })).exige.salvaguardas, true, 'internacional exige salvaguardas aunque no se marquen');
   assert.equal(resolverDirectivas(entrada({ enfoque: 'INFRAESTRUCTURA', tipoConvocatoria: 'Banca multilateral' })).exige.saneamientoPredial, false);
@@ -168,4 +171,29 @@ test('V6: infraestructura nacional sin soporte predial (ALTA, cita Ley 1551 art.
 test('proyecto sin ejes definidos: el auditor V no emite nada (cero ruido para proyectos existentes)', () => {
   assert.deepEqual(evaluarVectores({ directivas: resolverDirectivas({}), hoy: HOY }), []);
   assert.deepEqual(evaluarVectores({ directivas: null, hoy: HOY }), []);
+});
+
+// ── Fase E (2026-09-30): V7 Marco Lógico, V8 HSEQ, V9 operación y mantenimiento ──
+test('V7/V8/V9: Marco Lógico sin matriz (ALTA), obra física sin HSEQ ni O&M (MEDIA); el expediente vigente o el anexo las satisfacen', () => {
+  const d = resolverDirectivas(entrada({ enfoque: 'INFRAESTRUCTURA', tipoConvocatoria: 'MGA / SGR', metodologias: ['Marco Lógico'] }));
+  const soloE = (h) => h.filter(x => FASE_E.has(x.regla)).map(x => [x.regla, x.severidad]);
+  assert.deepEqual(soloE(evaluarTodas({ directivas: d, hoy: HOY })), [['V7', 'ALTA'], ['V8', 'MEDIA'], ['V9', 'MEDIA']]);
+  assert.deepEqual(soloE(evaluarTodas({ directivas: d, hoy: HOY, expediente: { marco_logico: true, hseq: true, sostenibilidad_oym: true } })), []);
+  assert.deepEqual(soloE(evaluarTodas({ directivas: d, hoy: HOY, anexos: [
+    { nombre_archivo: 'Matriz de Marco Lógico.xlsx' }, { nombre_archivo: 'Plan de manejo ambiental y SG-SST.pdf' }, { nombre_archivo: 'Plan de operación y mantenimiento.docx' },
+  ] })), []);
+  // Proyecto social sin Marco Lógico marcado: ninguna regla de la Fase E aplica.
+  assert.deepEqual(soloE(evaluarTodas({ directivas: resolverDirectivas(entrada({ metodologias: [] })), hoy: HOY })), []);
+  const v7 = evaluarTodas({ directivas: d, hoy: HOY }).find(x => x.regla === 'V7');
+  assert.match(v7.detalle, /no se detect/);
+  // Con el árbol de objetivos ya registrado solo falta la matriz → MEDIA (no un ALTA falso).
+  const v7Arbol = evaluarTodas({ directivas: d, hoy: HOY, arbolObjetivos: true }).find(x => x.regla === 'V7');
+  assert.deepEqual([v7Arbol.severidad, v7Arbol.titulo], ['MEDIA', 'Marco Lógico: falta la matriz 4×4']);
+});
+
+test('bloque de vectores: agua y saneamiento nacional cita la Res. 0661 de 2019 y declara la 1063 de 2016 derogada', () => {
+  const b = bloqueVectores(resolverDirectivas(entrada({ enfoque: 'INFRAESTRUCTURA', tipoConvocatoria: 'MGA / SGR', sectores: ['Alcantarillado'] })));
+  assert.match(b, /Res\. 0661 de 2019 de MinVivienda \(la Res\. 1063 de 2016 está derogada\)/);
+  assert.match(b, /ISO 45001/);
+  assert.doesNotMatch(bloqueVectores(resolverDirectivas(entrada({ tipoConvocatoria: 'Banca multilateral', sectores: ['Alcantarillado'] }))), /0661/);
 });

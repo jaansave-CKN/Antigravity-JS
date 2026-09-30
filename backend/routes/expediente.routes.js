@@ -14,7 +14,7 @@ import { withTenantRow, withTenantRows, withTenantRun } from '../config/database
 import { captureError } from '../config/sentry.config.js';
 import { resolverDirectivas } from '../services/directivasFormulacion.js';
 import {
-  SECCIONES, SECCIONES_IDS, SQL_ANEXOS_META, seccionesAplicables, construirFuentes, huellaMetadatos, generarSeccion,
+  SECCIONES, SECCIONES_IDS, SQL_ANEXOS_META, seccionesAplicables, construirFuentes, huellaMetadatos, generarSeccion, cargarArbol,
   IaNoDisponibleError, IaTopeAgotadoError, LlmLoopGuardError,
 } from '../services/expedienteFinanciador.js';
 import { compilarAnexosProyecto } from '../services/EntradaIAService.js';
@@ -50,11 +50,12 @@ export function registerExpedienteRoutes(app, { authenticateToken, requireAccess
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     const entrada = parseJson(proyecto.ficha_tecnica).entrada_completa || {};
     const directivas = resolverDirectivas(entrada);
-    const [anexosMeta, filas] = await Promise.all([
+    const [anexosMeta, filas, arbol] = await Promise.all([
       withTenantRows(req.userId, SQL_ANEXOS_META, [req.params.id]),
       withTenantRows(req.userId, 'SELECT seccion, estado, contenido, descartados, huella, modelo, proveedor, created_at FROM project_expediente_financiador WHERE project_id = ? ORDER BY created_at DESC LIMIT 100', [req.params.id]),
+      cargarArbol((sql, params) => withTenantRows(req.userId, sql, params), req.params.id),
     ]);
-    const huella = huellaMetadatos(entrada, anexosMeta);
+    const huella = huellaMetadatos(entrada, anexosMeta, arbol);
     const ultimas = {};
     for (const f of filas) if (!ultimas[f.seccion]) ultimas[f.seccion] = f;
     const aplican = new Set(seccionesAplicables(directivas));
@@ -89,11 +90,14 @@ export function registerExpedienteRoutes(app, { authenticateToken, requireAccess
       getRows: (sql, params) => withTenantRows(req.userId, sql, params),
       runSql: (sql, params) => withTenantRun(req.userId, sql, params),
     };
-    const [anexosMeta, anexos] = await Promise.all([
+    const [anexosMeta, anexos, arbol] = await Promise.all([
       withTenantRows(req.userId, SQL_ANEXOS_META, [req.params.id]),
       compilarAnexosProyecto(req.params.id, scoped),
+      cargarArbol(scoped.getRows, req.params.id),
     ]);
-    const { datos, anexosIds, omitidos } = construirFuentes(entrada, anexos);
+    // El árbol de objetivos e indicadores registrados son fuentes del Marco Lógico y la cadena de valor (architect, cond. 1).
+    const usaArbol = seccion === 'marco_logico' || seccion === 'cadena_valor';
+    const { datos, anexosIds, omitidos } = construirFuentes(entrada, anexos, usaArbol ? arbol : undefined);
 
     // Sin gastar cuota de IA si no hay material (mismo contrato 422 que LOTE 10).
     const faltantes = [];
@@ -112,6 +116,20 @@ export function registerExpedienteRoutes(app, { authenticateToken, requireAccess
     }
 
     const contenido = { grupos: r.grupos, fuentes_omitidas: omitidos };
+    if (seccion === 'cadena_valor') {
+      // Cero montos en la cadena: remite al presupuesto del documento externo del usuario.
+      contenido.presupuesto_referencia = anexosMeta.filter(a => a.categoria === 'financiero').map(a => a.nombre_archivo || a.descripcion).filter(Boolean);
+    }
+    if (seccion === 'checklist_juridico' && directivas.sectorAgua && directivas.esquema === 'nacional') {
+      // Documento base determinista (Fase E): proyectos de agua y saneamiento con recursos
+      // de la Nación se presentan y viabilizan con la Res. 0661 de 2019 (la 1063 de 2016 está derogada).
+      const candidato = anexosMeta.find(a => /\b0661\b|viabilizaci[oó]n/i.test(`${a.nombre_archivo || ''} ${a.descripcion || ''}`));
+      contenido.grupos.documentos = [{
+        documento: 'Requisitos de presentación y viabilización de proyectos de agua potable y saneamiento básico', obligatorio: true,
+        referencia: 'Res. 0661 de 2019 de MinVivienda', anexo: candidato ? (candidato.nombre_archivo || candidato.descripcion) : '',
+        estado: candidato ? 'anexo_propuesto_verificar' : 'no_detectado', origen: 'regla_0661', fuentes: [],
+      }, ...(contenido.grupos.documentos || [])];
+    }
     if (seccion === 'checklist_juridico' && directivas.exige.saneamientoPredial) {
       // Documento base de la regla V6 (determinista, no de la IA).
       const soporte = soportePredial(anexosMeta, hoyBogota());
@@ -127,7 +145,7 @@ export function registerExpedienteRoutes(app, { authenticateToken, requireAccess
       `INSERT INTO project_expediente_financiador (project_id, org_id, seccion, estado, contenido, descartados, directivas, huella, modelo, proveedor, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING seccion, estado, contenido, descartados, modelo, proveedor, created_at`,
       [req.params.id, req.userId, seccion, r.estado, JSON.stringify(contenido), JSON.stringify(r.descartados),
-        JSON.stringify(resumenDirectivas(directivas)), huellaMetadatos(entrada, anexosMeta), r.modelo, r.proveedor, req.userId]);
+        JSON.stringify(resumenDirectivas(directivas)), huellaMetadatos(entrada, anexosMeta, arbol), r.modelo, r.proveedor, req.userId]);
     res.status(201).json({ success: true, data: { ...fila, contenido: parseJson(fila.contenido), descartados: parseJson(fila.descartados), desactualizada: false } });
   }));
 }
