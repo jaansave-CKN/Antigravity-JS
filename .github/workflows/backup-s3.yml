@@ -28,16 +28,47 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # 2026-09-29 (decisión del dueño): mientras las llaves de AWS estén bajo su
+      # custodia, el job NO se pone en rojo 4 veces al día — ese rojo permanente
+      # tapaba cualquier fallo real. ÁMBAR solo si faltan LAS TRES credenciales;
+      # con configuración parcial o si el respaldo real falla, sigue en ROJO.
+      - name: Verificar credenciales AWS (ámbar si faltan todas)
+        id: creds
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_S3_BUCKET:         ${{ secrets.AWS_S3_BUCKET }}
+        run: |
+          presentes=0
+          for v in "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" "$AWS_S3_BUCKET"; do
+            if [ -n "$v" ]; then presentes=$((presentes + 1)); fi
+          done
+          if [ "$presentes" -eq 0 ]; then
+            echo "::warning title=Respaldo S3 en espera::RESPALDO EN ESPERA DE CREDENCIALES — faltan AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY y AWS_S3_BUCKET. No se volcó ni se subió nada."
+            {
+              echo "## Backup S3"
+              echo "- Fecha: $(date -u '+%Y-%m-%d %H:%M UTC')"
+              echo "- ⚠️ **RESPALDO EN ESPERA DE CREDENCIALES**: no hay llaves de AWS configuradas; no se volcó nada."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "espera=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Credenciales AWS presentes: $presentes de 3 (con menos de 3, el respaldo fallará en rojo)."
+            echo "espera=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
+        if: steps.creds.outputs.espera != 'true'
       - uses: actions/setup-node@v4
+        if: steps.creds.outputs.espera != 'true'
         with:
           node-version: '22'  # undici 8.x exige Node >= 22.19 (ver playwright.yml)
           cache: 'npm'
       - name: Instalar dependencias
+        if: steps.creds.outputs.espera != 'true'
         run: npm ci
       # pg_dump debe ser >= versión del servidor (producción: PostgreSQL 17.6,
       # verificado). El del runner es menor y se niega a volcar.
       - name: Instalar pg_dump 17 (repositorio oficial PGDG)
+        if: steps.creds.outputs.espera != 'true'
         run: |
           sudo apt-get update -y
           sudo apt-get install -y postgresql-common
@@ -45,6 +76,7 @@ jobs:
           sudo apt-get install -y postgresql-client-17
           echo "PG_DUMP_BIN=/usr/lib/postgresql/17/bin/pg_dump" >> "$GITHUB_ENV"
       - name: Ejecutar backup S3 (falla si no respaldó de verdad)
+        if: steps.creds.outputs.espera != 'true'
         env:
           AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -53,7 +85,7 @@ jobs:
           DATABASE_URL:          ${{ secrets.DATABASE_URL }}
         run: node -e "import('./backend/scripts/s3backup.js').then(m => m.runS3Backup()).then(r => { console.log(JSON.stringify(r)); if (r.success !== true) process.exit(1); }).catch(e => { console.error(e.message); process.exit(1); })"
       - name: Resumen backup
-        if: always()
+        if: always() && steps.creds.outputs.espera != 'true'
         run: |
           echo "## Backup S3" >> $GITHUB_STEP_SUMMARY
           echo "- Fecha: $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY

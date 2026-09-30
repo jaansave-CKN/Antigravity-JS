@@ -3,6 +3,7 @@ import { PLANES } from '../config/planes.config.js';
 import { withTenantRow } from '../config/database.config.js';
 import { formularConvocatoria } from '../agents/gp/gerenteProyecto.js';
 import { validarBody, subscriptionActivateSchema, bridgeTransferSchema } from '../validators/zodSchemas.js';
+import { urlPublica } from '../utils/urlPublica.js';
 
 export { PLANES };
 
@@ -83,7 +84,7 @@ export function registerSubscriptionRoutes(app, { authenticateToken, tryCatch })
 
     const customerId = await paymentProvider.getOrCreateCustomer(user.email, user.nombre, req.userId, { withTenantRow, withTenantRun });
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = urlPublica();
     const session = await paymentProvider.createCheckoutSession({
       customerId,
       plan,

@@ -146,7 +146,7 @@ export const cerrarIdsSchema = z.object({
 });
 
 export const convocatoriaEstadoSchema = z.object({
-  estado: z.enum(['abierta', 'cerrada', 'nueva']),
+  estado: z.enum(['abierta', 'cerrada', 'nueva', 'fondo_continuo']),
 });
 
 // ────────────────────────────────────────────────────────────────────────────

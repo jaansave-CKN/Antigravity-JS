@@ -6,6 +6,35 @@ import {
   borradorEstaVacio, claveEntrada, leerEntradaStorage, type EntradaState,
 } from '../../components/entrada/entradaModelo';
 
+const igual = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Combina lo que llegó del servidor con lo que el usuario YA escribió mientras
+ * la hidratación estaba en vuelo (2026-09-29): antes `setSt(merged)` pisaba esas
+ * ediciones y se perdían sin aviso (ventana de 0,4–2 s tras cargar la página;
+ * lo destapó el e2e de autoguardado al activar PlanGate en CI). Un campo cuenta
+ * como editado si difiere del estado con que montó la página. Pura: apta como
+ * updater de setState.
+ */
+function conservarEdicionesDuranteCarga(inicial: EntradaState, servidor: EntradaState, actual: EntradaState): EntradaState {
+  const out: Record<string, unknown> = { ...servidor };
+  const ini = inicial as unknown as Record<string, unknown>;
+  const act = actual as unknown as Record<string, unknown>;
+  const srv = servidor as unknown as Record<string, unknown>;
+  for (const k of Object.keys(act)) {
+    if (k === 'contextoMeta' || k === 'soluciones') {
+      const anidado: Record<string, unknown> = { ...((srv[k] as Record<string, unknown>) || {}) };
+      const a = (act[k] as Record<string, unknown>) || {};
+      const i = (ini[k] as Record<string, unknown>) || {};
+      for (const kk of Object.keys(a)) if (!igual(a[kk], i[kk])) anidado[kk] = a[kk];
+      out[k] = anidado;
+    } else if (!igual(act[k], ini[k])) {
+      out[k] = act[k];
+    }
+  }
+  return out as unknown as EntradaState;
+}
+
 interface Deps {
   st: EntradaState;
   setSt: Dispatch<SetStateAction<EntradaState>>;
@@ -68,6 +97,7 @@ export function useEntradaPersistencia({
     if (draftEsReal) { hidratacionListaRef.current = true; return; } // ya hay draft local REAL de ESTE proyecto
     if (!proyectoId) { hidratacionListaRef.current = true; return; } // sin proyecto activo — nada que hidratar
     (async () => {
+      let estadoActualizado = false;
       try {
         const body = await fetch(`/api/proyectos/${proyectoId}`, { headers: { ...getAuthHeaders() }, credentials: 'include' })
           .then(r => r.json());
@@ -105,7 +135,10 @@ export function useEntradaPersistencia({
           // rojo (sinGuardar) apenas termina de cargar, sin que el usuario
           // haya tocado nada todavía.
           ultimoGuardadoRef.current = JSON.stringify(merged);
-          setSt(merged);
+          // Lo que el usuario escribió durante la carga gana sobre el servidor;
+          // como difiere de la línea base, el auto-save lo sube al desbloquearse.
+          setSt(actual => conservarEdicionesDuranteCarga(st, merged, actual));
+          estadoActualizado = true;
         }
       } catch { /* sin conexión — se queda con ESTADO_INICIAL */ }
       finally {
@@ -114,6 +147,12 @@ export function useEntradaPersistencia({
         // reproduce el bug real: el auto-save gana la carrera y escribe un
         // vacío que la próxima recarga confunde con un draft real.
         hidratacionListaRef.current = true;
+        // Sin setSt arriba (proyecto sin entrada en el servidor) no habría
+        // re-render, y useAutoSave lee `habilitado` en el render: lo escrito
+        // durante la carga no se subía hasta la siguiente tecla (2026-09-29).
+        // Una copia del estado re-evalúa el auto-save; si no hay cambios
+        // frente a la línea base, la cola no envía nada.
+        if (!estadoActualizado) setSt(actual => ({ ...actual }));
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

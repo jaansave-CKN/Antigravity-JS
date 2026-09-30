@@ -121,12 +121,20 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
+          # Vite dev (webServer) salta el control de planes en desarrollo; esta
+          # bandera lo fuerza en el CI para que tests/e2e/planes-bloqueo.spec.ts
+          # ejerza PlanGate de verdad (client/src/lib/planes.ts). El spec falla
+          # si en CI la bandera no está activa.
+          VITE_TEST_PLAN_ENFORCEMENT: 'true'
 
       - name: Comprobar que la suite no dejó residuos en la réplica
         if: always()
         run: |
           set -a; . ./supabase.env; set +a
-          psql "$DB_URL" -At -c "SELECT 'usuarios e2e restantes: ' || count(*) FROM usuarios WHERE email LIKE 'e2e%@example.com';" || true
+          # Falla (antes terminaba con "|| true") si queda algún usuario E2E.
+          restantes=$(psql "$DB_URL" -At -c "SELECT count(*) FROM usuarios WHERE email LIKE 'e2e%@example.com';")
+          echo "usuarios e2e restantes: $restantes"
+          test "$restantes" = "0"
 
       - name: Subir reporte de Playwright (si falló)
         if: failure()

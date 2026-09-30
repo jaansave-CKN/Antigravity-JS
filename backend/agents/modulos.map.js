@@ -25,6 +25,7 @@ export const MODULOS = {
     'backend/services/sectorClassifier.js',
     'backend/services/markitdownService.js',
     'backend/services/sweepService.js',
+    'backend/services/purgaCatalogo.js',
     'backend/pipeline/EntityScraper.js',
     'backend/pipeline/DataIngestor.js',
     'backend/pipeline/CronScheduler.js',

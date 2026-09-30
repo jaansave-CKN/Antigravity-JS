@@ -1,0 +1,1113 @@
+{
+  "generado": "2026-09-29",
+  "decision": "Dueño (directiva \"Sellado de puntos ciegos\", fase 2): purgar páginas institucionales/secciones sin fondo; etiquetar programas reales como estado fondo_continuo.",
+  "criterio_candidatos": "Secciones del portafolio de CGIAR, áreas de programa de IAF, y páginas de título corto sin fecha límite, sin monto y sin palabra de financiación.",
+  "fondos_continuos": [
+    {
+      "id": "ce8ae599-d395-4bd7-b2ef-2960996bc6e5",
+      "titulo": "Additional opportunities",
+      "url": "https://erc.europa.eu/apply-grant/additional-opportunities",
+      "motivo": "ERC: oportunidades de financiación adicionales"
+    },
+    {
+      "id": "c8a58c56-8c1b-4d1e-9795-f2306f5833ee",
+      "titulo": "Alternatives to Irregular Migration and Violence",
+      "url": "https://iaf.gov/what-we-do/program-areas/alternatives-to-migration/",
+      "motivo": "IAF acepta propuestas todo el año en sus áreas de programa"
+    },
+    {
+      "id": "5d525061-d7bb-4c02-bc49-6b31d1e44d85",
+      "titulo": "Aprender en Acción",
+      "url": "https://fondoaccion.org/aprender-en-accion/",
+      "motivo": "Fondo Acción: programa Aprender en Acción"
+    },
+    {
+      "id": "b8d23df7-42a0-466c-b12a-8777b61a3740",
+      "titulo": "Beneficios Tributarios",
+      "url": "https://plataformasigp.minciencias.gov.co:7003/FormularioEstimulos/",
+      "motivo": "Minciencias: beneficios tributarios por inversión en CTeI"
+    },
+    {
+      "id": "23db5398-20a5-44c9-af65-3b4cad8797a7",
+      "titulo": "Civic Engagement and Human Rights",
+      "url": "https://iaf.gov/what-we-do/program-areas/civic-engagement-human-rights/",
+      "motivo": "IAF acepta propuestas todo el año en sus áreas de programa"
+    },
+    {
+      "id": "0c3aa2d6-de40-45a8-a4ce-fd66d7a1c16c",
+      "titulo": "Climate Finance Ready",
+      "url": "https://www.adaptation-fund.org/readiness/climate-finance-ready/",
+      "motivo": "Adaptation Fund: programa de preparación (readiness)"
+    },
+    {
+      "id": "fe35497b-7a06-4b06-b77c-e15d2bcd83d3",
+      "titulo": "Créditos Condonables",
+      "url": "https://scienti.minciencias.gov.co/divrechum/becarios/index.jsp",
+      "motivo": "Minciencias: créditos educativos condonables"
+    },
+    {
+      "id": "d6ae92f1-82c5-4a82-94c0-9b6e679061df",
+      "titulo": "Enterprise Development and Job Skills",
+      "url": "https://iaf.gov/what-we-do/program-areas/enterprise-development-job-skills/",
+      "motivo": "IAF acepta propuestas todo el año en sus áreas de programa"
+    },
+    {
+      "id": "b9d3156c-d52e-4f07-ae27-2e5cafd4a08d",
+      "titulo": "Formación de Alto Nivel",
+      "url": "https://scienti.minciencias.gov.co/regiones/login.seam",
+      "motivo": "Minciencias: programa de becas de formación de alto nivel"
+    },
+    {
+      "id": "6ff1b8fa-7935-40d6-8637-5ef7cb39464b",
+      "titulo": "Innovation Proposals",
+      "url": "https://www.adaptation-fund.org/apply-funding/innovation-grants/proposals-under-review/",
+      "motivo": "Adaptation Fund: propuestas de innovación"
+    },
+    {
+      "id": "b773d925-226d-4ffe-aa2a-399d63f507d0",
+      "titulo": "Línia de Comarques",
+      "url": "https://cooperaciocatalana.gencat.cat/ca/qui-som/agencia_catalana_de_cooperacio_al_desenvolupament/ajuts-i-subvencions/convocatoria-2016/linia-de-comarques/",
+      "motivo": "ACCD: línea de subvenciones a comarcas"
+    },
+    {
+      "id": "e136b7f3-b4ac-4d85-a224-c0b52fa5d9b4",
+      "titulo": "Movilidad Internacional",
+      "url": "https://minciencias.gov.co/oferta_institucional/movilidada_internacional",
+      "motivo": "Minciencias: apoyo a movilidad internacional"
+    },
+    {
+      "id": "f97132cb-486b-4507-8530-d3e971634d4e",
+      "titulo": "Natural Resource Management",
+      "url": "https://iaf.gov/what-we-do/program-areas/natural-resource-management/",
+      "motivo": "IAF acepta propuestas todo el año en sus áreas de programa"
+    },
+    {
+      "id": "5c36b3d7-9518-41e0-80f5-60898496d0ef",
+      "titulo": "Proyectos Posibles",
+      "url": "https://fondoaccion.org/proyectos-2/",
+      "motivo": "Fondo Acción: programa Proyectos Posibles"
+    }
+  ],
+  "purgar": [
+    {
+      "id": "b76d5afb-2711-404c-93be-79e59801e337",
+      "titulo": "“Kiva [is] invaluable in this journey because they provide the guidance and support we need to keep moving forward.”",
+      "url": "https://youtu.be/Sslk9K67tZ0?si=r2Ls-JSzNp5pyKUl"
+    },
+    {
+      "id": "e73b1b3d-6cf1-4802-b0b4-a0481fd85f97",
+      "titulo": "2019 World Risk Poll",
+      "url": "https://www.lrfoundation.org.uk/wrp/themes-and-reports/2019-world-risk-poll"
+    },
+    {
+      "id": "185e7b9e-531e-4ab0-80b1-3f44e208c756",
+      "titulo": "2021 World Risk Poll",
+      "url": "https://www.lrfoundation.org.uk/wrp/themes-and-reports/2021-world-risk-poll"
+    },
+    {
+      "id": "46ef3131-14ff-47d5-84c4-1e63cfc3aec6",
+      "titulo": "2021: Resilience",
+      "url": "https://www.lrfoundation.org.uk/publications/a-resilient-world-understanding-vulnerability-in-a-changing-climate"
+    },
+    {
+      "id": "80abc2cf-a6c3-49f0-9580-f9a874e7ee17",
+      "titulo": "2021: Risk Perception",
+      "url": "https://www.lrfoundation.org.uk/publications/a-changed-world-perceptions-and-experiences-of-risk-in-the-covid-age"
+    },
+    {
+      "id": "7101b3e8-5021-421d-912e-ea663393c030",
+      "titulo": "2024 Activity Report",
+      "url": "https://fondation.michelin.com/wp-content/uploads/2025/07/MFP_FONDATION_2024_A4_GB_VF.pdf"
+    },
+    {
+      "id": "59cb11a8-35b2-41ad-aab3-8eda75143d27",
+      "titulo": "2024: Resilience",
+      "url": "https://www.lrfoundation.org.uk/publications/resilience-in-a-changing-world"
+    },
+    {
+      "id": "0b67a525-fbf7-46bb-9508-4f214f2c9834",
+      "titulo": "2024: Risk Perception",
+      "url": "https://www.lrfoundation.org.uk/publications/what-the-world-worries-about-global-perceptions-and-experiences-of-risk-and-harm"
+    },
+    {
+      "id": "baa2fbed-fe8e-43bf-81f5-1ea493a29abb",
+      "titulo": "2026: Risk Perception",
+      "url": "https://www.lrfoundation.org.uk/publications/the-quiet-hazards-how-everyday-risk-shapes-daily-life"
+    },
+    {
+      "id": "6c0d9f96-f554-4e2d-8b29-576b9c427b9f",
+      "titulo": "Accedeix a “ Què fem? ”",
+      "url": "https://cooperaciocatalana.gencat.cat/ca/que-fem/"
+    },
+    {
+      "id": "c13cdea5-d831-4042-93fe-8ec58976d603",
+      "titulo": "Acción humanitaria",
+      "url": "https://www.aecid.es/la-accion-humanitaria-espanola"
+    },
+    {
+      "id": "48b6d15f-7b01-4cca-80ac-e32f44ada3ba",
+      "titulo": "Accreditation Panel",
+      "url": "https://www.adaptation-fund.org/about/governance/accreditation-panel/"
+    },
+    {
+      "id": "14309b06-9587-4cc6-891c-4c943d696bce",
+      "titulo": "Active Pipeline Projects",
+      "url": "https://www.adaptation-fund.org/projects-programmes/active-pipeline/"
+    },
+    {
+      "id": "db282694-a1f4-4a71-957e-6521b0cf2456",
+      "titulo": "África y Oriente Medio",
+      "url": "https://www.aecid.es/africa-y-oriente-medio"
+    },
+    {
+      "id": "8be30797-eae8-44eb-a46e-617454f58667",
+      "titulo": "Ambassadors for the ERC",
+      "url": "https://erc.europa.eu/about-erc/ERC-Ambassadors"
+    },
+    {
+      "id": "cdd499fa-28ba-4dc8-886a-678a1ccaecb7",
+      "titulo": "Atención al ciudadano",
+      "url": "https://minciencias.gov.co/atencion-al-ciudadano"
+    },
+    {
+      "id": "574f271c-0dea-4ebd-baed-56a5a562d9a9",
+      "titulo": "Atención al ciudadano",
+      "url": "https://minciencias.gov.co/ciudadano/canal-pqrds"
+    },
+    {
+      "id": "a9b5c13c-46eb-4195-95d4-1814d91c342d",
+      "titulo": "Audiovisual portal",
+      "url": "https://audiovisual.ec.europa.eu/en/"
+    },
+    {
+      "id": "1110f8f3-505c-46df-88d1-0d096f688c64",
+      "titulo": "Ayuda a la ciudadanía",
+      "url": "https://minciencias.gov.co/atencion-al-ciudadano/ayuda-la-ciudadania"
+    },
+    {
+      "id": "50450139-56ba-46b5-94f0-2adbcdc1de38",
+      "titulo": "Beneficiary Capsules",
+      "url": "https://www.adaptation-fund.org/af-10-years/stories/beneficiary-capsules/"
+    },
+    {
+      "id": "ca05177d-8aa3-47b8-8957-b6f51843f39e",
+      "titulo": "Big Bets Community",
+      "url": "https://www.rockefellerfoundation.org/fellowships-convenings/join/"
+    },
+    {
+      "id": "f41cc9db-e37c-4044-ae23-c957b74b8dc4",
+      "titulo": "Board of Directors",
+      "url": "https://www.opensocietyfoundations.org/who-we-are/board-of-directors"
+    },
+    {
+      "id": "3a322f3c-e8ab-4e19-b44f-c56dc2e2d118",
+      "titulo": "Board of Governors",
+      "url": "https://www.idrc.ca/en/about-idrc/board-governors"
+    },
+    {
+      "id": "505ac977-376c-4539-a40e-b0b3f285a46a",
+      "titulo": "Breeding for Tomorrow Breeding for Tomorrow",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/breeding-tomorrow"
+    },
+    {
+      "id": "77421454-5d4f-4283-a196-bf892b2971e3",
+      "titulo": "Browse current tenders",
+      "url": "https://iaayou.fa.ocs.oraclecloud.com/fscmUI/faces/NegotiationAbstracts?prcBuId=300000003621906"
+    },
+    {
+      "id": "86d28437-d077-46ff-9f6a-418733313957",
+      "titulo": "Build the Shared Future",
+      "url": "https://www.rockefellerfoundation.org/build-the-shared-future/"
+    },
+    {
+      "id": "34b963b8-011e-4d0e-9d63-2681d174c763",
+      "titulo": "Canales de atención",
+      "url": "https://minciencias.gov.co/atencion-al-ciudadano/canales-atencion-al-ciudadano"
+    },
+    {
+      "id": "6650dc84-c4e5-4177-8022-c4e602b2088e",
+      "titulo": "Capacity Sharing Capacity Sharing",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/capacity-sharing"
+    },
+    {
+      "id": "0d96ff64-1dba-45b8-abc8-ae2304bb0bdf",
+      "titulo": "CFC digital reception",
+      "url": "https://www.common-fund.org/about-us/cfc-digital-reception"
+    },
+    {
+      "id": "c01451cb-033f-43ba-8b02-991913e61cf9",
+      "titulo": "CGIAR Board CGIAR Board",
+      "url": "https://www.cgiar.org/cgiar-board"
+    },
+    {
+      "id": "4cb3cb91-00ec-4c6d-9a5a-534e41cc806a",
+      "titulo": "Ciutadania crítica",
+      "url": "https://cooperaciocatalana.gencat.cat/ca/que-fem/ciutadania-critica/"
+    },
+    {
+      "id": "30bc7658-0273-4aaa-b9a3-680e4b9cca3e",
+      "titulo": "Climate Action Climate Action",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/climate-action"
+    },
+    {
+      "id": "2ab97810-24a7-4b48-b8af-a4197078dd64",
+      "titulo": "Código ético en la AECID",
+      "url": "https://www.aecid.es/codigo-etico-en-la-aecid"
+    },
+    {
+      "id": "20b18104-60e0-4def-ac92-4a257e9d2047",
+      "titulo": "Coherència de polítiques",
+      "url": "https://cooperaciocatalana.gencat.cat/ca/com-ho-fem/cooperacio-institucions/coherencia-politiques/"
+    },
+    {
+      "id": "44b79157-6c69-413c-b5cd-ef197376ebbb",
+      "titulo": "Collaboration",
+      "url": "https://www.ukri.org/what-we-do/supporting-collaboration/"
+    },
+    {
+      "id": "2e5530db-28eb-449e-afc7-d14dbc917c0c",
+      "titulo": "Comisión Nacional UNESCO",
+      "url": "https://www.aecid.es/comision-nacional-unesco"
+    },
+    {
+      "id": "ffa0f545-d372-4e13-a77e-95822520a0ed",
+      "titulo": "Communication Guidelines",
+      "url": "https://www.macfound.org/about/communication-guidelines"
+    },
+    {
+      "id": "460708fc-0dab-4717-9c6f-8095df318233",
+      "titulo": "Community of Practice",
+      "url": "https://www.adaptation-fund.org/readiness/community-of-practice/"
+    },
+    {
+      "id": "c14e7287-ce40-4a96-9dee-7dd7de40ff80",
+      "titulo": "Conoce más arrow-right",
+      "url": "https://www.bancolombia.com/negocios/productos/financiacion/respaldos"
+    },
+    {
+      "id": "7c874a88-f652-4a6e-b716-9cf0ad18f1c7",
+      "titulo": "Consultative Committee",
+      "url": "https://www.common-fund.org/about-us/consultative-committee"
+    },
+    {
+      "id": "07aad4b0-4fac-4ac9-8c35-9259374a96e9",
+      "titulo": "Contact the President",
+      "url": "https://commission.europa.eu/about/organisation/contact-president_en"
+    },
+    {
+      "id": "7fd11b18-2d0a-4a85-a81e-1cb900194a30",
+      "titulo": "Contract opportunities",
+      "url": "https://wellcome.org/about-us/work-with-us/contract-opportunities"
+    },
+    {
+      "id": "be49e40a-700a-46ac-a3d5-f08075455b3d",
+      "titulo": "Cooperación financiera",
+      "url": "https://www.aecid.es/cooperacion-financiera"
+    },
+    {
+      "id": "0c1f7096-9684-4a46-a0f5-cf43d02bb0dd",
+      "titulo": "Countries & regions",
+      "url": "https://www.greenclimate.fund/countries-and-regions"
+    },
+    {
+      "id": "988abdda-bb85-4bf0-ab6d-810680f99c59",
+      "titulo": "Cultura y ciencia",
+      "url": "https://www.aecid.es/cultura-y-ciencia"
+    },
+    {
+      "id": "c01e5566-b242-4cb6-9ef0-7fe8292ef5f5",
+      "titulo": "Culture & Engagement",
+      "url": "https://www.cgiar.org/culture-engagement"
+    },
+    {
+      "id": "e624d247-ceff-4db0-901d-74d0888bbef1",
+      "titulo": "Democracy and our values",
+      "url": "https://commission.europa.eu/priorities-2024-2029/democracy-and-our-values_en"
+    },
+    {
+      "id": "4727045d-a794-4460-aea2-fb4cb8dd7eaa",
+      "titulo": "Desembre 2021-Gener 2022",
+      "url": "https://cooperaciocatalana.gencat.cat/ca/actualitat/butlleti/desembre-2021/"
+    },
+    {
+      "id": "4028e60e-ee68-419a-a4e5-b88ed0a37c04",
+      "titulo": "Desembre 2022-Gener 2023",
+      "url": "https://cooperaciocatalana.gencat.cat/ca/actualitat/butlleti/desembre-2022-gener-2023/"
+    },
+    {
+      "id": "e8fecbe3-98bd-441b-a75e-52e6e2c64341",
+      "titulo": "Designated Authorities",
+      "url": "https://www.adaptation-fund.org/apply-funding/designated-authorities/"
+    },
+    {
+      "id": "82cb698c-6d19-4ac2-8da9-c88537f58b57",
+      "titulo": "Develop your application",
+      "url": "https://www.ukri.org/apply-for-funding/develop-your-application/"
+    },
+    {
+      "id": "25cfbe2e-2824-467e-97b2-a8074383c5fd",
+      "titulo": "Diplomacia científica",
+      "url": "https://www.aecid.es/diplomacia-cientifica"
+    },
+    {
+      "id": "f27ee2e5-1b55-40f4-a4da-f9d0bcf453dc",
+      "titulo": "Diplomacia humanitaria",
+      "url": "https://www.aecid.es/diplomacia-humanitaria"
+    },
+    {
+      "id": "082c9c64-fe51-4ee8-935d-e817c9830f0a",
+      "titulo": "Diplomacia Humanitaria",
+      "url": "https://listasgtuc.aecid.es/lists/?p=subscribe"
+    },
+    {
+      "id": "d84118af-0d10-4b72-83fc-5fc70aff9d39",
+      "titulo": "Dirección de Ciencia",
+      "url": "https://minciencias.gov.co/viceministerios/conocimiento/direccion_ciencia"
+    },
+    {
+      "id": "767cb4ac-947f-4c61-bd46-a3ff65dbc790",
+      "titulo": "Disaster Risk Reduction",
+      "url": "https://www.adaptation-fund.org/projects-programmes/project-sectors/disaster-risk-reduction/"
+    },
+    {
+      "id": "9bd548ee-f79e-4bb1-9d5f-0b0682e12311",
+      "titulo": "Diversity and inclusion",
+      "url": "https://www.lrfoundation.org.uk/about-us/diversity-and-inclusion"
+    },
+    {
+      "id": "b3fcbb29-4b14-4922-9351-786a973e3204",
+      "titulo": "Documents & Publications",
+      "url": "https://www.adaptation-fund.org/documents-publications/"
+    },
+    {
+      "id": "50b41fa8-c438-4890-9864-a2b79d72adf2",
+      "titulo": "Dominican Republic",
+      "url": "https://iaf.gov/country/dominican-republic/"
+    },
+    {
+      "id": "032196f9-f093-43f5-a233-a4e463e2e6ea",
+      "titulo": "East and Southern Africa",
+      "url": "https://www.cgiar.org/cgiar-regions/east-and-southern-africa"
+    },
+    {
+      "id": "7b324f48-4160-45dd-95ac-0943d6e1c5c6",
+      "titulo": "Education and science",
+      "url": "https://www.idrc.ca/en/program/education-and-science"
+    },
+    {
+      "id": "d1613cd8-57c2-4626-ba47-ac4284735187",
+      "titulo": "Empleo en la AECID",
+      "url": "https://www.aecid.es/elijo-trabajar-en-cooperacion"
+    },
+    {
+      "id": "c35f909c-d369-4965-b4d0-5613dc1284a7",
+      "titulo": "Enduring Commitments",
+      "url": "https://www.macfound.org/programs/enduring-commitments/"
+    },
+    {
+      "id": "2a14da97-17d3-4f6d-8dce-60d6a13eafd8",
+      "titulo": "Equality and inclusion",
+      "url": "https://commission.europa.eu/topics/equality-and-inclusion_en"
+    },
+    {
+      "id": "8b71e8d9-1daa-4bf0-b721-654d79d40e3c",
+      "titulo": "Equality Statement",
+      "url": "https://www.idrc.ca/en/about-idrc/policies-and-commitments/equality-statement"
+    },
+    {
+      "id": "73591bc7-cd7f-4067-aaa9-b46784268f64",
+      "titulo": "Equality Statement",
+      "url": "https://www.idrc.ca/en/about-idrc/equality-statement"
+    },
+    {
+      "id": "5167b065-8770-411a-a903-5899af049827",
+      "titulo": "ERC Executive Agency",
+      "url": "https://erc.europa.eu/about-erc/erc-executive-agency"
+    },
+    {
+      "id": "6e0c4ed0-afad-407c-8308-8ba6566e8e12",
+      "titulo": "Estados Financieros",
+      "url": "https://fondoaccion.org/estados-financieros/"
+    },
+    {
+      "id": "2acc10ff-149f-4ffc-b015-07eb76d69140",
+      "titulo": "EU trade in the world",
+      "url": "https://ec.europa.eu/stories/eu-trade/"
+    },
+    {
+      "id": "af1680ca-793a-4870-bda7-337de1c8c9fc",
+      "titulo": "Europe and Central Asia",
+      "url": "https://www.opensocietyfoundations.org/what-we-do/regions/europe-and-central-asia"
+    },
+    {
+      "id": "a8838862-299c-4d72-986a-dcab46dc24a1",
+      "titulo": "European social fairness",
+      "url": "https://commission.europa.eu/priorities-2024-2029/european-social-fairness_en"
+    },
+    {
+      "id": "0fc3c076-0507-4c5e-97fb-73ca6047e31e",
+      "titulo": "Evaluation Strategy",
+      "url": "https://www.macfound.org/learning/evaluation-strategy"
+    },
+    {
+      "id": "2ca2f6f8-ea6e-4d85-874f-07d5a944973d",
+      "titulo": "Ex-post evaluation",
+      "url": "https://iaf.gov/our-impact/ex-post-evaluation/"
+    },
+    {
+      "id": "389bd140-bfec-4e32-b73a-d192710c7856",
+      "titulo": "expertisefrance.fr",
+      "url": "https://www.expertisefrance.fr/"
+    },
+    {
+      "id": "d445bfe4-b9b7-47d6-8549-b53cf54ff09b",
+      "titulo": "Financial Documents",
+      "url": "https://www.rockefellerfoundation.org/governance-reports/"
+    },
+    {
+      "id": "9692228c-ee7d-44ad-b898-4d41eb81d061",
+      "titulo": "Financial services",
+      "url": "https://commission.europa.eu/topics/financial-services_en"
+    },
+    {
+      "id": "15c7d750-91a8-4d68-b4f8-1ba2e2f48212",
+      "titulo": "Food Frontiers and Security Food Frontiers and Security",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/food-frontiers-and-security"
+    },
+    {
+      "id": "b2124a00-fb88-46e8-a933-d51003b12739",
+      "titulo": "Food Security",
+      "url": "https://www.thegef.org/topics/food-security"
+    },
+    {
+      "id": "95e18d7c-704b-40af-a109-01e9a1f7d8cc",
+      "titulo": "Food Security",
+      "url": "https://www.adaptation-fund.org/projects-programmes/project-sectors/food-security/"
+    },
+    {
+      "id": "0f3e7d48-7c49-416b-8960-9e9cf1573c22",
+      "titulo": "Footer Enlaces rápidos",
+      "url": "https://www.bancoldex.com/preguntas-frecuentes"
+    },
+    {
+      "id": "badabeee-b35f-4340-86bc-b4b940c82f6f",
+      "titulo": "Freedom of information",
+      "url": "https://www.ukri.org/who-we-are/contact-us/freedom-of-information-request/"
+    },
+    {
+      "id": "c6b675d1-a1bd-4dad-a691-4379a5be28a6",
+      "titulo": "GCF Open Data Library",
+      "url": "https://data.greenclimate.fund/"
+    },
+    {
+      "id": "c5174e2b-68c9-41a0-891a-803e40e139ae",
+      "titulo": "GEF Geospatial Platform",
+      "url": "https://www.thegef.org/maps"
+    },
+    {
+      "id": "972a07e8-93d2-4f10-8f1c-bcef04c47729",
+      "titulo": "Gender Equality and Inclusion Gender Equality and Inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/gender-equality-and-inclusion"
+    },
+    {
+      "id": "34f3e572-3793-4767-b1d5-3b26b98b82ec",
+      "titulo": "Genebanks Genebanks",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/genebanks"
+    },
+    {
+      "id": "92fb0458-6f22-4f5d-8f95-2dbae329dd8e",
+      "titulo": "Global Leadership Team",
+      "url": "https://www.cgiar.org/global-leadership-team"
+    },
+    {
+      "id": "d91a9781-9028-41ad-8656-407b8e4fa99a",
+      "titulo": "Guía de Navegación",
+      "url": "https://www.aecid.es/guia-de-navegacion"
+    },
+    {
+      "id": "853a5e49-104a-44bd-8fd9-e79dccc731cb",
+      "titulo": "Guidelines and criteria",
+      "url": "https://www.amazonfund.gov.br/en/amazon-fund/guidelines-and-criteria/"
+    },
+    {
+      "id": "4835aeca-e84e-4f56-a643-6eb4fd0724cd",
+      "titulo": "Historia del Ministerio",
+      "url": "https://minciencias.gov.co/ministerio/historia-del-ministerio"
+    },
+    {
+      "id": "52462dcf-5845-4d66-9736-a57923133232",
+      "titulo": "How we make decisions",
+      "url": "https://www.ukri.org/apply-for-funding/how-we-make-decisions/"
+    },
+    {
+      "id": "f5ffd0b5-6c34-4c22-a2d8-cbb463f1d469",
+      "titulo": "How we’re governed",
+      "url": "https://www.ukri.org/who-we-are/how-we-are-governed/"
+    },
+    {
+      "id": "4312ef0a-540e-40f7-8e38-35802be5ec2c",
+      "titulo": "Human rights",
+      "url": "https://commission.europa.eu/topics/human-rights_en"
+    },
+    {
+      "id": "81f3c2c6-7a25-4c91-baa1-474bbdc9a27a",
+      "titulo": "IE Knowledge Products",
+      "url": "https://www.adaptation-fund.org/knowledge-learning/knowledge-products/ie-produced-knowledge-products/"
+    },
+    {
+      "id": "ced3582e-f063-43d9-9875-48b5d1ac73e5",
+      "titulo": "Illegal Wildlife Trade",
+      "url": "https://www.thegef.org/what-we-do/topics/illegal-wildlife-trade"
+    },
+    {
+      "id": "d95b862b-a9bd-4698-a0e8-7c7d174812a7",
+      "titulo": "In strategy and policy",
+      "url": "https://commission.europa.eu/strategy-and-policy_en"
+    },
+    {
+      "id": "b6f6455d-f255-4e70-8d52-3fb5e42de050",
+      "titulo": "Independent Evaluation",
+      "url": "https://www.adaptation-fund.org/about/evaluation/"
+    },
+    {
+      "id": "f20031b9-2afa-4899-aa44-76a3c0e4017c",
+      "titulo": "Independent evaluations",
+      "url": "https://www.amazonfund.gov.br/en/monitoring-evaluation/independent-evaluations/"
+    },
+    {
+      "id": "d23790e4-ac96-442b-874b-0361ab5c4b20",
+      "titulo": "Independent observers",
+      "url": "https://erc.europa.eu/apply-grant/independent-observers"
+    },
+    {
+      "id": "d50c32e9-6245-4337-9aa5-c25d2c076680",
+      "titulo": "Informes de gestión",
+      "url": "https://minciencias.gov.co/ciudadano/informe-ciudadania"
+    },
+    {
+      "id": "0d024b10-4820-4346-8568-e88170faf001",
+      "titulo": "Innovative Finance",
+      "url": "https://www.rockefellerfoundation.org/what-we-do/innovative-finance/"
+    },
+    {
+      "id": "6a542fed-9dfa-41ac-b81e-c43fab6ed140",
+      "titulo": "Integrated Programs",
+      "url": "https://www.thegef.org/what-we-do/topics/integrated-programs"
+    },
+    {
+      "id": "476413a2-825e-4850-9e54-6abaeb4fd255",
+      "titulo": "International Waters",
+      "url": "https://www.thegef.org/topics/international-waters"
+    },
+    {
+      "id": "050be67e-9c32-4212-9712-0083263293db",
+      "titulo": "Investing across the UK",
+      "url": "https://www.ukri.org/what-we-do/investing-across-the-uk/"
+    },
+    {
+      "id": "881c178d-4b69-422a-b459-5826ef8c3f0c",
+      "titulo": "Join our mailing list",
+      "url": "https://partnershipsforforests.com/newsletter/"
+    },
+    {
+      "id": "036344ca-1575-4387-abf8-77b3cac56604",
+      "titulo": "Knowledge & Learning",
+      "url": "https://www.thegef.org/what-we-do/topics/knowledge-learning"
+    },
+    {
+      "id": "9ed2601e-1474-443c-b3f3-fc37860035bd",
+      "titulo": "Knowledge & Learning",
+      "url": "https://www.thegef.org/topics/knowledge-learning"
+    },
+    {
+      "id": "a3944650-5d11-42ef-86ba-99a04d66fddb",
+      "titulo": "Knowledge & Learning",
+      "url": "https://www.adaptation-fund.org/knowledge-learning/"
+    },
+    {
+      "id": "85593476-973c-416e-9e65-58b1ef46ddb9",
+      "titulo": "Knowledge Products",
+      "url": "https://www.adaptation-fund.org/knowledge-learning/knowledge-products/"
+    },
+    {
+      "id": "3b087475-e13b-45cd-8e2e-18a5b1b8f16c",
+      "titulo": "Leadership and Board",
+      "url": "https://www.rockefellerfoundation.org/about-us/leadership-and-board/"
+    },
+    {
+      "id": "6991efc8-b40e-438d-a636-27b8783e1bd5",
+      "titulo": "Learning and Impact",
+      "url": "https://tinker.org/learning-and-impact/"
+    },
+    {
+      "id": "dc965b15-43a4-41e4-98fc-bb1737e95564",
+      "titulo": "LinkedIn ideas group",
+      "url": "https://www.linkedin.com/groups/8973146/"
+    },
+    {
+      "id": "bcacc3f3-66ce-45e7-abf6-4b437b8c7ae9",
+      "titulo": "Manage your project",
+      "url": "https://erc.europa.eu/manage-your-project"
+    },
+    {
+      "id": "677115c4-b0aa-4acb-b98d-00a8b5959b41",
+      "titulo": "Meetings and Documents",
+      "url": "https://www.cgiar.org/governance?f%5B0%5D=governance_type%3ACGIAR%20Council"
+    },
+    {
+      "id": "ec12d183-7e13-49b2-885c-7cde3483d7a1",
+      "titulo": "Members & Alternates",
+      "url": "https://www.thegef.org/who-we-are/gef-council/members-alternates"
+    },
+    {
+      "id": "d61a6226-b54d-4bff-ae55-586106e88bc2",
+      "titulo": "Migration and asylum",
+      "url": "https://commission.europa.eu/topics/migration-and-asylum_en"
+    },
+    {
+      "id": "648728d0-ddac-481f-865a-81d878de6d36",
+      "titulo": "Mission and Values",
+      "url": "https://www.macfound.org/about/mission-and-values"
+    },
+    {
+      "id": "8f6c083e-090b-4388-8678-990c2a5b4949",
+      "titulo": "Modern Slavery Policy",
+      "url": "https://www.lrfoundation.org.uk/modern-slavery-policy"
+    },
+    {
+      "id": "1c9ec909-0d0c-48de-8b8f-e1798bb03efe",
+      "titulo": "Monitoring & Evaluation",
+      "url": "https://www.amazonfund.gov.br/en/monitoring-evaluation/"
+    },
+    {
+      "id": "8e2c277a-4889-4645-8262-dcde5e7a77ce",
+      "titulo": "More about resources",
+      "url": "https://commission.europa.eu/resources_en"
+    },
+    {
+      "id": "747cda81-8ac5-48de-8d6b-ea60f33bdb41",
+      "titulo": "Multisector Projects",
+      "url": "https://www.adaptation-fund.org/projects-programmes/project-sectors/multisector-projects/"
+    },
+    {
+      "id": "ae8a2df4-c1e8-47b3-b17e-2783cd9d1bc1",
+      "titulo": "News and Announcements",
+      "url": "https://www.rockefellerfoundation.org/news/"
+    },
+    {
+      "id": "dcafb740-6fb0-4fb3-8486-14687b6c356b",
+      "titulo": "Novembre-Desembre 2023",
+      "url": "https://cooperaciocatalana.gencat.cat/ca/actualitat/butlleti/novembre-desembre-2023/"
+    },
+    {
+      "id": "16341634-e2c7-4b85-b3d6-149f8725d8f7",
+      "titulo": "Oferta institucional",
+      "url": "https://minciencias.gov.co/oferta_institucional"
+    },
+    {
+      "id": "b0fb56ac-3402-4f7a-9e9b-9e5dbf50d405",
+      "titulo": "Open access policy",
+      "url": "https://www.idrc.ca/en/about-idrc/policies-and-commitments/open-access-policy"
+    },
+    {
+      "id": "3d904a17-f1f1-4037-b2eb-dd0016a27ae6",
+      "titulo": "Open access policy",
+      "url": "https://www.idrc.ca/en/about-idrc/policies-and-commitments/open-access-policy-idrc-funded-project-outputs"
+    },
+    {
+      "id": "9e033ec8-6edb-4c80-9cb8-f32677c3434c",
+      "titulo": "Open Science",
+      "url": "https://erc.europa.eu/manage-your-project/open-science"
+    },
+    {
+      "id": "148319dd-1b41-4018-9a72-f62e551fb387",
+      "titulo": "Operational documents",
+      "url": "https://www.greenclimate.fund/resources/operational-documents"
+    },
+    {
+      "id": "7cf80eca-018b-4be8-9123-956c4ea6fe29",
+      "titulo": "Països i territoris",
+      "url": "https://cooperaciocatalana.gencat.cat/ca/que-fem/paisos_i_territoris/"
+    },
+    {
+      "id": "e3f4f53e-3b34-4518-854e-9729b175694a",
+      "titulo": "Participant Countries",
+      "url": "https://www.thegef.org/projects-operations/participant-countries"
+    },
+    {
+      "id": "3470e26c-2499-4959-ab30-9a217e55e5b4",
+      "titulo": "Partners and Alliances",
+      "url": "https://www.rockefellerfoundation.org/partners-and-alliances/"
+    },
+    {
+      "id": "7c9094b0-a3d6-4913-9722-fb139364846d",
+      "titulo": "Patentes e Invenciones",
+      "url": "https://plataformasigp.minciencias.gov.co:7003/Patentes/"
+    },
+    {
+      "id": "80e2b48a-362e-4854-b4b4-970e7984eaa8",
+      "titulo": "Personas cooperantes",
+      "url": "https://www.aecid.es/personas-cooperantes"
+    },
+    {
+      "id": "4b7a0976-132b-42c6-9008-3287c9212916",
+      "titulo": "Planificación y eficacia",
+      "url": "https://www.aecid.es/planificacion-y-eficacia"
+    },
+    {
+      "id": "bd97978b-13fd-4a6b-9593-cfaef59bd521",
+      "titulo": "Policies and commitments",
+      "url": "https://www.idrc.ca/en/policies-and-commitments"
+    },
+    {
+      "id": "9989baa8-6eaa-41b4-990e-a033f5ebedfe",
+      "titulo": "Policies and Guidelines",
+      "url": "https://www.thegef.org/projects-operations/policies-guidelines"
+    },
+    {
+      "id": "89328d2d-5915-422b-a749-60ebde608b45",
+      "titulo": "Policies and Notices",
+      "url": "https://www.opensocietyfoundations.org/policies"
+    },
+    {
+      "id": "10974b65-eb05-4a8f-9459-a8c5db96bf68",
+      "titulo": "Policies and strategies",
+      "url": "https://www.greenclimate.fund/about/governance/policies-and-strategies"
+    },
+    {
+      "id": "a0fd48cf-de6d-4207-b0f5-7c068fbe4766",
+      "titulo": "Policy Innovation Hubs",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/policy-innovations/policy-innovation-hubs"
+    },
+    {
+      "id": "d92ccfcc-0e86-4e33-84b4-e19efd77af10",
+      "titulo": "Policy Innovations Policy Innovations",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/policy-innovations"
+    },
+    {
+      "id": "6a152097-a757-42c0-93eb-720a4549e721",
+      "titulo": "Política de galetes",
+      "url": "https://tramits.gencat.cat/ca/ajuda/politica-de-galetes/"
+    },
+    {
+      "id": "68bbfaea-9882-45d4-993c-8e06b73fde7e",
+      "titulo": "Preguntas frecuentes",
+      "url": "https://ws050.juntadeandalucia.es/vea/vi/faq/Preguntas_Frecuentes.pdf"
+    },
+    {
+      "id": "d1b655d1-2f82-458c-b3e8-e78a1afe197e",
+      "titulo": "Preguntas frecuentes",
+      "url": "https://www.aecid.es/preguntas-frecuentes"
+    },
+    {
+      "id": "5a7eddf3-ab90-4b1f-9058-508ad37bdf6a",
+      "titulo": "Preguntas Frecuentes",
+      "url": "https://minciencias.gov.co/atencion-al-ciudadano/preguntas-frecuentes"
+    },
+    {
+      "id": "2ecc754b-c686-4df2-b74d-f1e8a5611568",
+      "titulo": "Program Evaluations",
+      "url": "https://www.macfound.org/learning/evaluations"
+    },
+    {
+      "id": "9196d98a-50af-4cbb-9019-f05286b1f1ec",
+      "titulo": "Project Information",
+      "url": "https://www.adaptation-fund.org/projects-programmes/project-information/"
+    },
+    {
+      "id": "d7c6d241-2396-42f1-9bfe-75af304229ce",
+      "titulo": "Project Performance",
+      "url": "https://www.adaptation-fund.org/projects-programmes/project-performance/"
+    },
+    {
+      "id": "18c03bfa-05d9-4b54-b9a6-1f5f838dc0e2",
+      "titulo": "Projects & statistics",
+      "url": "https://erc.europa.eu/projects-statistics"
+    },
+    {
+      "id": "5ef794ed-7fe9-4c0c-b850-c29624bf0a5d",
+      "titulo": "Projects Portfolio",
+      "url": "https://www.amazonfund.gov.br/en/carteira-de-projetos/"
+    },
+    {
+      "id": "f2f2d8ec-7de4-411c-95a3-a12bb58a5190",
+      "titulo": "Projects we support",
+      "url": "https://www.idrc.ca/en/what-we-do/projects-we-support"
+    },
+    {
+      "id": "56de03ff-c361-4ff2-9e6a-c52c3f434b13",
+      "titulo": "Promoción Cultural",
+      "url": "https://www.aecid.es/promocion-cultural"
+    },
+    {
+      "id": "7e32b190-36ad-475e-a272-bbf89d2a5d2b",
+      "titulo": "Protección de Datos",
+      "url": "https://protecciondedatos.aecid.es/"
+    },
+    {
+      "id": "5eae417a-77f7-4f7a-97ba-bea24024b247",
+      "titulo": "Protecting the ocean",
+      "url": "https://ec.europa.eu/stories/protecting-ocean/"
+    },
+    {
+      "id": "3cf6a7b0-0dea-4c5c-a7ba-fe0818249662",
+      "titulo": "Public opinion survey",
+      "url": "https://commission.europa.eu/resources/statistics/public-opinion-survey_en"
+    },
+    {
+      "id": "d274038f-3448-4690-b54e-9c8dd2ae0bd2",
+      "titulo": "Publish your findings",
+      "url": "https://www.ukri.org/manage-your-award/publishing-your-research-findings/"
+    },
+    {
+      "id": "685d95ed-4acc-4021-b7fe-66ac8416e13c",
+      "titulo": "Recipient Countries",
+      "url": "https://www.thegef.org/projects-operations/recipient-countries"
+    },
+    {
+      "id": "e094c66f-08c7-4156-af4b-0342341d0d86",
+      "titulo": "Registro Entidades",
+      "url": "https://plataformasigp.minciencias.gov.co:7003/Entidades/"
+    },
+    {
+      "id": "6c927bcc-db8d-41c3-9e9d-b2475f28b245",
+      "titulo": "Replenishment Documents",
+      "url": "https://www.thegef.org/who-we-are/gef-council/council-meetings#replenishments"
+    },
+    {
+      "id": "8c9f0d96-a4aa-431d-a757-69f591eee8ff",
+      "titulo": "Report your outcomes",
+      "url": "https://www.ukri.org/manage-your-award/reporting-your-projects-outcomes/"
+    },
+    {
+      "id": "445043cf-fe63-4343-9832-b605495d06e9",
+      "titulo": "Report your spending",
+      "url": "https://www.ukri.org/manage-your-award/reporting-your-projects-spending/"
+    },
+    {
+      "id": "a3172b21-2809-44d0-aa76-31324cd004e8",
+      "titulo": "Research in Action",
+      "url": "https://www.idrc.ca/en/research-action"
+    },
+    {
+      "id": "516328b8-8378-470c-a715-61ef794b08f7",
+      "titulo": "Resource Mobilization",
+      "url": "https://www.adaptation-fund.org/about/resource-mobilization/"
+    },
+    {
+      "id": "84a3f40c-b525-4f89-9cba-586746e52806",
+      "titulo": "Results and impacts",
+      "url": "https://www.amazonfund.gov.br/en/monitoring-evaluation/results-and-impacts/"
+    },
+    {
+      "id": "439aad29-45d1-45ce-9b9b-e91c966970ee",
+      "titulo": "Rural Development",
+      "url": "https://www.adaptation-fund.org/projects-programmes/project-sectors/rural-development/"
+    },
+    {
+      "id": "825fcbbd-85d1-4450-9327-c937e9118b5f",
+      "titulo": "Scaling for Impact Scaling for Impact",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/scaling-impact"
+    },
+    {
+      "id": "37947f53-980e-432f-8917-9b6e083175b6",
+      "titulo": "Sector empresarial",
+      "url": "https://www.aecid.es/sector-empresarial"
+    },
+    {
+      "id": "fd401308-6892-40a2-aba2-d132ddb33c1b",
+      "titulo": "Sectores de cooperación",
+      "url": "https://www.aecid.es/sectores-de-cooperacion"
+    },
+    {
+      "id": "6570debc-a314-4f52-82cb-c146da4ddbd9",
+      "titulo": "Security and defence",
+      "url": "https://commission.europa.eu/priorities-2024-2029/security-and-defence_en"
+    },
+    {
+      "id": "76394faf-a716-47d0-9e6f-b58dcee1a552",
+      "titulo": "Selector de idioma",
+      "url": "https://www.aecid.es/c/portal/update_language?redirect=%2Fconvocatorias&amp;groupId=20120&amp;privateLayout=false&amp;layoutId=1599&amp;languageId=fr_FR"
+    },
+    {
+      "id": "dbfdba13-6170-498f-9cf8-8839be4780f3",
+      "titulo": "Servicios de la Entidad",
+      "url": "https://www.sena.edu.co/es-co/ciudadano/Paginas/servicios_entidad.aspx"
+    },
+    {
+      "id": "35cc648e-c04e-41df-bf7d-f4a75bbd337d",
+      "titulo": "Setembre-Octubre 2023",
+      "url": "https://cooperaciocatalana.gencat.cat/ca/actualitat/butlleti/setembre-octubre-2023/"
+    },
+    {
+      "id": "8c565e90-1ab3-4edd-bbfb-a662fb348519",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/multifunctional-landscapes#Social+inclusion"
+    },
+    {
+      "id": "056c85f0-4631-4900-8582-1de238b8b200",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/scaling-impact#Social+inclusion"
+    },
+    {
+      "id": "2da02734-015b-49f0-99a2-c06017f39772",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/breeding-tomorrow#Social+inclusion"
+    },
+    {
+      "id": "a04dd28a-4807-4096-afa8-7ba38dcf30cd",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/genebanks#Social+inclusion"
+    },
+    {
+      "id": "49a846d4-2749-42c3-b45b-5f2f266cfc19",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/sustainable-farming#Social+inclusion"
+    },
+    {
+      "id": "2ce7eb17-c6aa-4add-b6ec-52653c9cc4b1",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/gender-equality-and-inclusion#Social+inclusion"
+    },
+    {
+      "id": "71c48ed3-92f3-49ce-be32-3f2c739ee194",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/food-frontiers-and-security#Social+inclusion"
+    },
+    {
+      "id": "79c86897-d33d-4a3d-b5d0-1611f3354510",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/better-diets-and-nutrition#Social+inclusion"
+    },
+    {
+      "id": "195963ea-6b1f-4a1c-ae2b-4210d5711632",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/digital-transformation#Social+inclusion"
+    },
+    {
+      "id": "4143d084-1a3f-4157-9015-02631a5df223",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/policy-innovations#Social+inclusion"
+    },
+    {
+      "id": "fe1f6b40-fe6d-4ceb-af7c-606509a7efe1",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/climate-action#Social+inclusion"
+    },
+    {
+      "id": "9ed16e01-587f-45ed-be04-f7de25bc597c",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/capacity-sharing#Social+inclusion"
+    },
+    {
+      "id": "a6a1c09d-addc-4edd-9a68-9bdbce2f6728",
+      "titulo": "Social inclusion",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/sustainable-animal-and-aquatic-foods#Social+inclusion"
+    },
+    {
+      "id": "f2f39d4a-1d0d-48f4-a2b5-0b72b99f143e",
+      "titulo": "Stakeholder Stories",
+      "url": "https://www.adaptation-fund.org/af-10-years/stories/stakeholder-stories/"
+    },
+    {
+      "id": "c4d308b1-75e2-4795-8452-c2aa558e4134",
+      "titulo": "Standing committees",
+      "url": "https://erc.europa.eu/about-erc/standing-committees"
+    },
+    {
+      "id": "332ae0e2-f745-4941-81ff-d8949738c801",
+      "titulo": "Standing Committees",
+      "url": "https://www.cgiar.org/cgiar-board#Standing+Committees"
+    },
+    {
+      "id": "2eb36e49-1f70-45ce-9b4f-40dc4062a1c6",
+      "titulo": "Standing Committees",
+      "url": "https://www.cgiar.org/cgiar-council#Standing+Committees"
+    },
+    {
+      "id": "ca523ec7-dabc-48a7-8b8e-ea181955617e",
+      "titulo": "Sustainable action",
+      "url": "https://www.giz.de/en/sustainability"
+    },
+    {
+      "id": "d6f4fffb-8c37-4eab-9c22-44527d32e7e5",
+      "titulo": "Sustainable Animal and Aquatic Foods Sustainable Animal and Aquatic Foods",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/sustainable-animal-and-aquatic-foods"
+    },
+    {
+      "id": "0a9bbd49-3158-43a7-b6ea-27f409ad4527",
+      "titulo": "Sustainable Farming Sustainable Farming",
+      "url": "https://www.cgiar.org/cgiar-research-portfolio-2025-2030/sustainable-farming"
+    },
+    {
+      "id": "2c4b0b96-6cdb-48ac-b8fc-38ac94ce6988",
+      "titulo": "System Organization",
+      "url": "https://www.cgiar.org/system-organization"
+    },
+    {
+      "id": "5fc83d81-1ecc-4c17-9788-dc27ffd8754b",
+      "titulo": "Teaching resources",
+      "url": "https://www.ukri.org/what-we-do/teaching-resources/"
+    },
+    {
+      "id": "d51eb179-9a99-4690-a32f-8bfe1cb32885",
+      "titulo": "Templates and guides",
+      "url": "https://www.amazonfund.gov.br/en/monitoring-evaluation/templates-and-guides/"
+    },
+    {
+      "id": "c74831ae-86cf-4011-a9c9-37f4b328d891",
+      "titulo": "Tender opportunities",
+      "url": "https://erc.europa.eu/about-erc/tender-opportunities"
+    },
+    {
+      "id": "2b3dd8f7-3afb-409a-80ac-f2fa65952ab4",
+      "titulo": "Thematic working groups",
+      "url": "https://erc.europa.eu/about-erc/thematic-working-groups"
+    },
+    {
+      "id": "f3f307c4-2339-4db5-83dd-e4da90de12bf",
+      "titulo": "Themes and Reports",
+      "url": "https://www.lrfoundation.org.uk/wrp/themes-and-reports"
+    },
+    {
+      "id": "deddb711-b219-4ff7-9e27-65100c0b7723",
+      "titulo": "Trámites y servicios",
+      "url": "https://minciencias.gov.co/ciudadano/tramites_list"
+    },
+    {
+      "id": "e8998c40-87df-404e-a4fa-9662710b5037",
+      "titulo": "Tràmits de Cooperació",
+      "url": "https://cooperaciocatalana.gencat.cat/ca/tramits/"
+    },
+    {
+      "id": "6427d03f-4ed9-4a30-b193-933c7fc17740",
+      "titulo": "Translation Disclaimer",
+      "url": "https://www.climateinvestmentfunds.org/translation-disclaimer"
+    },
+    {
+      "id": "90b12164-2b8d-48a2-978c-cb56a9f01342",
+      "titulo": "UKRI stories YouTube",
+      "url": "https://www.youtube.com/channel/UCkf0YxotdFTrxDKcfTV5tiA"
+    },
+    {
+      "id": "5bed473f-7977-4f94-9ac8-85f7bca68b42",
+      "titulo": "Valores Institucionales",
+      "url": "https://minciencias.gov.co/sites/default/files/upload/paginas/resolucion_1049_-_2020_codigo_de_integridad_y_buen_gobierno_1.pdf"
+    },
+    {
+      "id": "84de3151-0211-499f-be01-f4d68b149495",
+      "titulo": "Vision and Mission",
+      "url": "https://www.cgiar.org/cgiar-system#Vision+and+Mission"
+    },
+    {
+      "id": "7b9de28c-a592-4ba3-a6a1-6de224350fb3",
+      "titulo": "Water Management",
+      "url": "https://www.adaptation-fund.org/projects-programmes/project-sectors/water-management/"
+    },
+    {
+      "id": "1c8da693-f9ff-4218-90ca-7fca023ae36f",
+      "titulo": "Wellcome Global Monitor",
+      "url": "https://wellcome.org/engagement-and-advocacy/engaging-people/wellcome-global-monitor"
+    }
+  ]
+}

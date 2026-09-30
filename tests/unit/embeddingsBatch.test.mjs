@@ -51,7 +51,7 @@ test('procesa por lotes, pausa ENTRE llamadas, escribe solo filas sin vector y r
   assert.deepEqual(d.llamadas, [2, 2, 1]);
   assert.deepEqual(d.dormido, [20_000, 20_000], 'sin pausa antes de la primera llamada');
   assert.equal(d.escritas, 5);
-  assert.ok(d.sql.some(s => /embedding_vec IS NULL/.test(s) && /estado != 'cerrada'/.test(s)), 'idempotente: solo filas vivas, abiertas y sin vector');
+  assert.ok(d.sql.some(s => /embedding_vec IS NULL/.test(s) && /estado NOT IN \('cerrada', 'fondo_continuo'\)/.test(s)), 'idempotente: solo filas vivas, abiertas (sin fondos continuos) y sin vector');
   assert.ok(d.tokens.every(t => t.userId === 'sistema-radar-batch' && t.agentName === 'embeddings-batch'));
   assert.ok(d.sql.some(s => /UPDATE app_settings SET value/.test(s)), 'suelta el lease al terminar');
 });

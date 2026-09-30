@@ -43,6 +43,8 @@ import { dbStatus, esperarPgInicial, withTenant, withTenantRow, withTenantRun, w
 import { getApexDomain, extractRootDomain } from './backend/utils/domainUtils.js';
 import { extraerMonto, resolverMoneda, montoParaGuardar } from './backend/utils/montos.js';
 import { esEnlaceDeNavegacion, esTituloBasura } from './backend/utils/tituloBasura.js';
+import { purgarBasuraConRespaldo } from './backend/services/purgaCatalogo.js';
+import { urlPublica } from './backend/utils/urlPublica.js';
 import { fetchResiliente } from './backend/utils/resilientFetch.js';
 import { geminiCB, loadPersistedKeyState } from './backend/services/geminiCircuitBreaker.js';
 import { reenviarPendientesSystemLogs } from './backend/services/logService.js';
@@ -265,7 +267,10 @@ function validateProductionEnv() {
     }
     const frontendUrl = process.env.FRONTEND_URL || '';
     if (frontendUrl.includes('localhost') || frontendUrl.includes('127.0.0.1')) {
-      errors.push(`FRONTEND_URL apunta a localhost (${frontendUrl}). Configura la URL de Firebase en producción.`);
+      errors.push(`FRONTEND_URL apunta a localhost (${frontendUrl}). Configura la URL pública del servicio o del dominio propio.`);
+    }
+    if (!frontendUrl && !process.env.VITE_API_URL) {
+      warnings.push('FRONTEND_URL y VITE_API_URL vacías — los enlaces de correo, OAuth y Stripe apuntarían a localhost (backend/utils/urlPublica.js).');
     }
 
     // Advertencias (no abortan, pero se registran)
@@ -1438,7 +1443,7 @@ async function start() {
 
   // ── CORS estricto — solo orígenes autorizados ────────────────────────────
   const _allowedOrigins = [
-    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+    urlPublica(),
     'http://localhost:5173',
     'http://127.0.0.1:5173',
   ];
@@ -2103,7 +2108,7 @@ async function start() {
     await registrarAuditoriaAdmin(req, 'aprobar', { id: req.params.id, email: objetivo.email });
 
     const activationToken = jwt.sign({ sub: objetivo.id, purpose: 'account_activated' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '30d' });
-    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+    const frontendUrl = urlPublica();
     emailAdapter.sendAccountActivatedNotice(objetivo.email, {
       nombre: objetivo.nombre,
       validarUrl: `${frontendUrl}/validar?token=${activationToken}`,
@@ -2360,7 +2365,7 @@ async function start() {
     // — token de un solo uso, 30 días de validez (no todos revisan el correo
     // el mismo día que se aprueban).
     const activationToken = jwt.sign({ sub: objetivo.id, purpose: 'account_activated' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '30d' });
-    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+    const frontendUrl = urlPublica();
     emailAdapter.sendAccountActivatedNotice(objetivo.email, {
       nombre: objetivo.nombre,
       validarUrl: `${frontendUrl}/validar?token=${activationToken}`,
@@ -2564,7 +2569,7 @@ async function start() {
       if (!user) return;
       // Token de reset = JWT de 1 hora
       const resetToken = jwt.sign({ sub: user.id, purpose: 'password_reset' }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '15m' });
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const frontendUrl = urlPublica();
       const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
       await emailAdapter.sendPasswordReset(user.email, resetLink);
     } catch (e) {
@@ -2746,6 +2751,10 @@ async function start() {
       where += ` AND c.estado = 'abierta' AND c.created_at >= '${hace7dias}'`;
     } else if (estado === 'abierta') {
       where += ` AND c.estado = 'abierta' AND c.created_at < '${hace7dias}'`;
+    } else if (estado === 'fondo_continuo') {
+      // Programas de financiación continua (curaduría 2026-09-29): SOLO con este
+      // filtro explícito; el listado por defecto sigue mostrando solo 'abierta'.
+      where += ` AND c.estado = 'fondo_continuo'`;
     } else {
       where += ` AND c.estado = 'abierta'`;
     }
@@ -4064,7 +4073,8 @@ Reglas:
   // extractConvocatoriaFields vía Gemini por cada convocatoria nueva) tantas
   // veces como quisiera — el único freno era un mutex de memoria de proceso
   // que solo bloquea ejecuciones CONCURRENTES, no relanzamientos frecuentes.
-  app.post('/api/radar/trigger', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (_req, res) => {
+  // Solo admin (2026-09-29): Rastreo 2 global. Sin llamadores en el cliente.
+  app.post('/api/radar/trigger', authenticateToken, requireAdmin, aiLimiter, tryCatch(async (_req, res) => {
     runManualIngest().catch(e => console.error('[Radar/trigger]', e.message));
     res.json({ success: true, message: 'Rastreo 2 iniciado — portales web externos al Directorio. Los resultados aparecerán en segundos.' });
   }));
@@ -4103,7 +4113,10 @@ Reglas:
   // Rastreo 1: escaneo de convocatorias desde cada entidad del Directorio
   // FIX (auditoría PROTOCOLO 5x5 2026-08-22, Vector 4): mismo riesgo que
   // /api/radar/trigger — sin aiLimiter, relanzable sin freno de cuenta.
-  app.post('/api/radar/rastreo1', authenticateToken, requireAccess('radar'), aiLimiter, tryCatch(async (req, res) => {
+  // Solo admin (2026-09-29): rastrea TODAS las entidades del Directorio (proceso
+  // global; el cron diario ya lo corre). En el Radar, el botón "Rastreo 1" filtra
+  // para todos y solo el admin dispara el rastreo real.
+  app.post('/api/radar/rastreo1', authenticateToken, requireAdmin, aiLimiter, tryCatch(async (req, res) => {
     ingestDirectorioConvocatorias().catch(e => console.error('[Radar/rastreo1]', e.message));
     res.json({ success: true, message: 'Rastreo 1 iniciado — visitando entidades del Directorio. Los resultados aparecerán en segundos.' });
   }));
@@ -4148,7 +4161,8 @@ Reglas:
   }));
 
   // POST /api/radar/expirar — Marca como 'cerrada' convocatorias vencidas + soft-delete falsos positivos
-  app.post('/api/radar/expirar', authenticateToken, requireAccess('radar'), tryCatch(async (_req, res) => {
+  // Solo admin (2026-09-29): cierra y purga sobre el catálogo GLOBAL.
+  app.post('/api/radar/expirar', authenticateToken, requireAdmin, tryCatch(async (_req, res) => {
     const today = new Date().toISOString().slice(0, 10);
 
     // 1. Cerrar por fecha_limite vencida (explícita)
@@ -4177,120 +4191,25 @@ Reglas:
       cerradasAntiguas++;
     }
 
-    // 2. Soft-delete falsos positivos: títulos de navegación/institucionales
-    const NOISE_RE = new RegExp([
-      // Frases institucionales genéricas (nav/secciones)
-      '^(our|their|its)\\s\\w',
-      '^about\\s(us|the\\s|our\\s)',
-      '^(who|what)\\s(we|is)\\s',
-      '^(learn|read|see|view|explore)\\s(more|all)',
-      '^(sign|log)\\s(in|out)',
-      '^(get|be(come)?)\\s(involved|a\\s)',
-      '^(partner|connect)\\s(with|us)',
-      '^(join|follow)\\s(our|us)',
-      // Navegación de página (skip-links, breadcrumbs, menús)
-      'skip\\sto|to\\smain\\scontent|pasar\\sal\\scontenido|main\\scontent$',
-      '(main|mobile)\\s(nav|navigation|menu)',
-      'selector\\sde\\sidioma|visualiz.*men[uú]|ruta\\sde\\snaveg',
-      'activar\\sel\\smodo|publicador\\sde\\scontenidos',
-      'ruta\\sde\\snavegaci|contenido\\sprincip|additional\\slinks',
-      // Redes sociales y suscripciones
-      'opens\\sa\\snew\\swindow|^(facebook|instagram|twitter|linkedin|youtube|flickr)',
-      '^(sign|subscribe)\\s(up|to)\\s',
-      '\\bsocial\\smedia\\s(accounts|platform)',
-      // Páginas de info interna para beneficiarios (no convocatorias)
-      'grantee\\s(publications|stories|news|research)',
-      '^resources\\sfor\\s.*grantees?',
-      '^info\\sfor\\s(grant|grantee)',
-      '^managing\\s(your|funds|award)',
-      '^(results\\sand\\sevaluation|key\\smaterials|standard\\sdocuments)',
-      '^(open\\saccess\\spolicy|open\\sknowledge)',
-      '^(funding\\spolicies|funding\\sguidance|applying\\sfor\\sfunding)',
-      'funding\\sfaq|grants?\\sfaq|grants?\\sdata|grants?\\sdatabase',
-      '^(awarded\\sgrants|approved\\s.*grants|grant\\sopportunities$)',
-      '^(grantee\\spublications|info\\sfor\\sgrantseekers)',
-      // Contratación y políticas (no fondos de cooperación)
-      'public\\sprocurement|general\\stendering|award\\sprocedure',
-      'tenders?\\selectronic\\sdaily|quantum\\setendering',
-      '^(tender\\sopportunities|data\\sprotection\\sin)',
-      '^(contract\\sawards?|requests\\sfor\\sproposals$)',
-      // Páginas institucionales genéricas
-      '^(where\\s(we\\s)?work|case\\sstudies|impact\\sin\\snumbers)',
-      '^(project\\sportfolio|major\\sinitiatives|country\\sprograms?)',
-      '^(global\\sinvestment\\smap|portfolio\\sexplorer)',
-      '^(awards\\sand\\srecognition|press\\srelease|media\\srelease)',
-      '^(small\\sand\\smedium|sustainability$|development\\sfinance)',
-      '^(security\\sand\\sdefence|innovation,\\sdigital)',
-      '^(organisation$|^values?\\sinstituc)',
-      'valores\\sinstitucionales',
-      // Descargas y documentos de soporte
-      '^descarga\\s|^download\\s(our|the)\\s|brochure',
-      '^(map\\sof\\sjica|open\\slearning\\scampus)',
-      // Navegación en idiomas extranjeros y selectores de idioma
-      '^(zum\\shauptinhalt|förderung\\sfinden|formulaire\\sde\\sdemande)',
-      '^(форма\\sзаявки|pasar\\sal|activar\\sel)',
-      'selector\\sde\\sidioma|\\bнавигаци|\\bالميزانية|استمارة\\sالتقديم',
-      '^(es|en|fr|pt|de|it|nl|ru|ar|zh)\\s[-–]\\s',
-      // Títulos cortos de sección sin contexto de convocatoria
-      '^(convocatorias?$|all\\sabout|standard\\sdocuments)',
-      '^(flexi-grant|bcf-flexi|access\\sfunding$|receive\\sfunding$)',
-      '^(find\\sa\\sfunding\\sopportunity$|other\\sfunding\\smodalities)',
-      '^(apply\\sfor\\sgrant$|project\\sfunding$|small\\sgrants$)',
-      '^(medium\\sgrants$|large\\sinnovation|innovation\\sfunding$)',
-      '^(readiness\\sgrant|access\\sand\\squality$)',
-      '^(dashboards\\sand|results\\sand\\sevaluati|open\\sdata)',
-      '^(commissioning\\sus|become\\sa\\scontractor|career)',
-      '^(social\\ssustainab|sustainable\\senergy\\sand|sustainable\\scities)',
-      '^(climate\\sand\\senvironmental|innovation,\\sdigital)',
-      '^(health\\s&|development\\sfinance|solidarity\\swith)',
-      '^(turning\\sinnovation|why\\sagri-input|advancing\\sscience)',
-      // Páginas de categoría/nav adicionales frecuentes
-      '^grants\\sand\\sfellowships$',
-      '^research\\sfunding\\soverview',
-      '^fellows\\ssearch$',
-      '^(discover|explore)\\sour\\s',
-      '^green\\sclimate\\sfund$',
-      '^please\\sgive',
-      '^lla\\s(proposals|regional|single)',
-      '^(build\\sprogram$|international\\sfellowships\\sprogram$)',
-      '^(proposals\\sunder\\sreview$|img\\scall\\s\\d{4}$|isg\\scall\\s\\d{4}$)',
-      '^(approved\\slla|nil\\ssmall\\sgrants)',
-      // Testimoniales (citas entre comillas ascii y tipográficas)
-      '^[""“”]',
-      // Líneas de crédito / préstamos (no son subvenciones)
-      '^l[ií]nea\\sde\\scr[eé]dito',
-      // Años pasados de grantees de IAF (son proyectos financiados, no convocatorias abiertas)
-      '^20\\d{2}\\s[&#\\-–]',
-      // Secciones y categorías genéricas de financiadores
-      '^(empowering|where\\scgiar|restoring\\slandscapes)',
-      '^(a\\slow-carbon|gender\\sand\\syouth|it\'?s\\sabout\\sbig)',
-      '^(why\\sagri|advancing\\sscience|gggi\\son\\ssocial)',
-      '^(management\\sboard|\\u200b)',
-      'bilan\\set\\scompte|balance\\sy\\scuenta|\\bоценк',
-      '^(equity|development|capacity|innovation|sustainability|resilience|empowerment)\\s*$',
-    ].join('|'), 'i');
-    const allOpen = await getRows(
-      `SELECT id, titulo FROM convocatorias WHERE deleted_at IS NULL AND estado != 'cerrada'`,
-      []
-    );
-    let eliminados = 0;
-    for (const row of allOpen) {
-      if (NOISE_RE.test((row.titulo || '').trim())) {
-        await runSql('UPDATE convocatorias SET deleted_at = ? WHERE id = ?', [new Date().toISOString(), row.id]);
-        eliminados++;
-      }
-    }
+    // 2. Basura (páginas que no son convocatorias): servicio único con respaldo
+    // (backend/services/purgaCatalogo.js). Antes: lista propia NOISE_RE —
+    // con entradas que nombraban fondos reales ("green climate fund",
+    // "readiness grant", "small grants$") — y borrado SIN respaldo.
+    const purga = await purgarBasuraConRespaldo({ getRows, runSql, dbStatus }, { lote: `expirar_${new Date().toISOString()}` });
+    const eliminados = purga.eliminados;
 
     res.json({
       success: true,
       cerradas_por_fecha: cerradasFecha,
       eliminados_ruido: eliminados,
-      message: `${cerradasFecha} cerradas por fecha vencida, ${cerradasAntiguas} cerradas por antigüedad (+180 días sin fecha_limite), ${eliminados} falsos positivos eliminados`,
+      message: `${cerradasFecha} cerradas por fecha vencida, ${cerradasAntiguas} cerradas por antigüedad (+180 días sin fecha_limite), ${eliminados} páginas basura purgadas con respaldo${purga.accion === 'omitida' ? ` (purga omitida: ${purga.motivo})` : ''}`,
+      purga,
     });
   }));
 
   // POST /api/radar/cerrar-ids — Cierra manualmente convocatorias por array de IDs
-  app.post('/api/radar/cerrar-ids', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
+  // Solo admin (2026-09-29): cierra convocatorias del catálogo GLOBAL. Sin llamadores en el cliente.
+  app.post('/api/radar/cerrar-ids', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const validacionIds = validarBody(cerrarIdsSchema, req.body);
     if (!validacionIds.ok) return res.status(400).json({ success: false, message: validacionIds.message });
     const { ids } = validacionIds.data;
@@ -4353,13 +4272,13 @@ Reglas:
         `SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado,
                 round((1 - (embedding_vec <=> $1::vector))::numeric, 4) AS similitud
          FROM convocatorias
-         WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL AND estado != 'cerrada'
+         WHERE embedding_vec IS NOT NULL AND deleted_at IS NULL AND estado NOT IN ('cerrada', 'fondo_continuo')
            AND (1 - (embedding_vec <=> $1::vector)) >= 0.25
          ORDER BY embedding_vec <=> $1::vector LIMIT 20`,
         [vecStr]
       );
     } else {
-      const convs = await getRows("SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL AND estado != 'cerrada'", []);
+      const convs = await getRows("SELECT id, titulo, donante, monto_min, monto_max, fecha_limite, estado, embedding FROM convocatorias WHERE deleted_at IS NULL AND embedding IS NOT NULL AND estado NOT IN ('cerrada', 'fondo_continuo')", []);
       resultados = convs
         .map(c => ({ ...c, embedding: undefined, similitud: Math.round(cosineSimilarity(qVec, deserializeEmbedding(c.embedding)) * 10000) / 10000 }))
         .filter(c => c.similitud >= 0.25)
@@ -4415,7 +4334,8 @@ Reglas:
     for (const r of rows) {
       const entry = porFuente.get(r.fuente) || { fuente: r.fuente, total: 0, activas: 0 };
       entry.total++;
-      if (r.estado !== 'cerrada') entry.activas++;
+      // "Activas" = convocatorias abiertas; los fondos continuos no cuentan (2026-09-29).
+      if (r.estado === 'abierta') entry.activas++;
       porFuente.set(r.fuente, entry);
     }
     const data = [...porFuente.values()].sort((a, b) => b.total - a.total);
@@ -4597,7 +4517,9 @@ Reglas:
   // requireAccess('radar') (mismo criterio que el resto de mutaciones de
   // convocatorias/radar) y se valida el enum real de la columna.
   const ESTADOS_CONVOCATORIA_VALIDOS = ['abierta', 'cerrada', 'nueva'];
-  app.put('/api/convocatorias/:id/estado', authenticateToken, requireAccess('radar'), tryCatch(async (req, res) => {
+  // Solo admin (2026-09-29): cambia el estado en el catálogo GLOBAL; con plan
+  // Radar cualquier suscriptor podía deshacer la curaduría. Sin llamadores en el cliente.
+  app.put('/api/convocatorias/:id/estado', authenticateToken, requireAdmin, tryCatch(async (req, res) => {
     const validacionEstadoConv = validarBody(convocatoriaEstadoSchema, req.body);
     if (!validacionEstadoConv.ok) return res.status(400).json({ success: false, message: validacionEstadoConv.message });
     const { estado } = validacionEstadoConv.data;

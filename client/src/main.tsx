@@ -13,6 +13,7 @@ import FormuladorLayout from './components/FormuladorLayout';
 import AppLeftNav from './components/AppLeftNav';
 import ByokRequiredModal from './components/ByokRequiredModal';
 import { leerAuthToken, borrarAuthSession } from './lib/authStorage';
+import { planesAplicados } from './lib/planes';
 import './index.css';
 
 // ── Code-splitting: cada página (y sus dependencias pesadas — leaflet, xlsx,
@@ -209,8 +210,9 @@ function OAuthParamCleaner() {
 function PlanGate({ require: plan, children }: { require: 'radar' | 'formulador'; children: React.ReactNode }) {
   const { subscription, loading } = useSubscription();
 
-  // En modo desarrollo, todos los módulos son accesibles sin suscripción
-  if (import.meta.env.DEV) return <>{children}</>;
+  // En desarrollo los módulos son accesibles sin suscripción, SALVO en la
+  // suite E2E del CI (VITE_TEST_PLAN_ENFORCEMENT): ver client/src/lib/planes.ts.
+  if (!planesAplicados) return <>{children}</>;
 
   if (loading) {
     return (

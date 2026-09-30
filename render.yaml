@@ -55,8 +55,10 @@ services:
         generateValue: true
 
       # ── URLs ─────────────────────────────────────────────────────────────────
-      # URL pública del frontend en Firebase (sin trailing slash)
-      # Ej: https://antigravity-jairo-2026.web.app
+      # URL pública del FRONTEND para enlaces de correo, OAuth y Stripe (sin
+      # barra final). Un solo servicio sirve dist/ y /api: hoy puede quedar vacía
+      # (backend/utils/urlPublica.js usa VITE_API_URL en producción). Definirla
+      # cuando exista el dominio propio. Ej: https://app.radfor360.com
       - key: FRONTEND_URL
         sync: false
       # Obligatoria EN BUILD: `npm run build` la incrusta en el bundle y
@@ -161,8 +163,4 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: ADMIN_NOTIFY_EMAIL
-        sync: false
-
-      # ── URL pública del backend (usada en emails y en el build de Vite) ──────
-      - key: VITE_API_URL
         sync: false

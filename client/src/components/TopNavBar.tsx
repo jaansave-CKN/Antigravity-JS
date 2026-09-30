@@ -14,6 +14,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContextNew';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { obtenerCsrfHeaders } from '../lib/authStorage';
+import { planesAplicados } from '../lib/planes';
 import UserMenu from './UserMenu';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -264,8 +265,8 @@ export default function TopNavBar() {
                        (isDemo && currentPilar === 'B');
 
   // Pilar B bloqueado si: usuario tiene solo plan radar, O demo en contexto A (no aplica en DEV)
-  const pilarBLocked = (!import.meta.env.DEV && isAuth && !isDemo && hasRadar && !hasFormulador) ||
-                       (!import.meta.env.DEV && isDemo && currentPilar === 'A');
+  const pilarBLocked = (planesAplicados && isAuth && !isDemo && hasRadar && !hasFormulador) ||
+                       (planesAplicados && isDemo && currentPilar === 'A');
 
   return (
     <>
@@ -376,7 +377,7 @@ export default function TopNavBar() {
                 </span>
               );
             }
-            const planLocked = !import.meta.env.DEV && isAuth && link.requireAuth && !hasFormulador;
+            const planLocked = planesAplicados && isAuth && link.requireAuth && !hasFormulador;
             return (
               <span key={link.to} style={isMotor ? { background: 'rgba(189,194,255,0.06)', borderRadius: 4, padding: '0 2px' } : undefined}>
                 <NavItem {...link} isAuthenticated={isAuth} planLocked={planLocked} />

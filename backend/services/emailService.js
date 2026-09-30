@@ -9,12 +9,12 @@
  */
 
 import { Resend } from 'resend';
+import { urlPublica } from '../utils/urlPublica.js';
 
 // ── Inicialización condicional — no lanza si RESEND_API_KEY no está configurada ──
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const FROM    = process.env.EMAIL_FROM    || 'RadarFondos 360 <noreply@radarfondos.co>';
-const APP_URL = (process.env.FRONTEND_URL || process.env.VITE_API_URL || '').replace(/\/api$/, '') || 'http://localhost:5173';
 
 // Estado del módulo al cargar — visible en logs de producción
 if (resend) {
@@ -36,7 +36,7 @@ function noop(method) {
 export async function sendVerificationEmail(to, { nombre, verificationToken }) {
   if (!isConfigured()) return noop('sendVerificationEmail');
 
-  const link = `${APP_URL}/verificar-email?token=${verificationToken}`;
+  const link = `${urlPublica()}/verificar-email?token=${verificationToken}`;
 
   return resend?.emails.send({
     from: FROM,
@@ -110,7 +110,7 @@ export async function sendRadarAlert(to, { nombre, convocatorias }) {
         <tbody>${items}</tbody>
       </table>
       <br/>
-      <p><a href="${APP_URL}/radar" style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">
+      <p><a href="${urlPublica()}/radar" style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">
         Ver en el Radar
       </a></p>
     `,
@@ -132,7 +132,7 @@ export async function sendPlanUpgradeConfirmation(to, { nombre, plan, periodEnd 
       <h2>¡Tu plan fue activado, ${nombre}!</h2>
       <p>Ahora tienes acceso al <strong>${planLabel}</strong>.</p>
       <p>Tu período de facturación se renueva el <strong>${new Date(periodEnd * 1000).toLocaleDateString('es-CO')}</strong>.</p>
-      <p><a href="${APP_URL}/dashboard" style="background:#16a34a;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">
+      <p><a href="${urlPublica()}/dashboard" style="background:#16a34a;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">
         Ir al dashboard
       </a></p>
     `,
@@ -151,12 +151,12 @@ export async function sendSubscriptionAlert(to, { nombre, tipo }) {
     canceled: `
       <h2>Hola, ${nombre}</h2>
       <p>Tu suscripción fue cancelada. Tu acceso se mantiene hasta el final del período actual.</p>
-      <p><a href="${APP_URL}/planes">Ver planes disponibles</a></p>
+      <p><a href="${urlPublica()}/planes">Ver planes disponibles</a></p>
     `,
     payment_failed: `
       <h2>Hola, ${nombre}</h2>
       <p>No pudimos procesar tu último pago. Por favor actualiza tu método de pago para mantener el acceso.</p>
-      <p><a href="${APP_URL}/configuracion/facturacion" style="background:#dc2626;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">
+      <p><a href="${urlPublica()}/configuracion/facturacion" style="background:#dc2626;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">
         Actualizar método de pago
       </a></p>
     `,
@@ -186,7 +186,7 @@ export async function sendNewUserPendingApproval({ id, nombre, email }) {
          <strong>Correo:</strong> ${email}<br/>
          <strong>ID:</strong> ${id}</p>
       <p>Verifica el pago (Nequi u otro medio) y luego apruébalo desde el panel de administración:</p>
-      <p><a href="${APP_URL}/admin/usuarios-pendientes" style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">
+      <p><a href="${urlPublica()}/admin/usuarios-pendientes" style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">
         Ir al panel de aprobación
       </a></p>
       <hr/>

@@ -144,6 +144,42 @@ const FUERTES = [
   // Páginas institucionales medidas en el catálogo (menús de Minciencias,
   // ERC, GEF, Wellcome…): nombres exactos de sección, no convocatorias.
   ['pagina_institucional', /^(research ethics|transparen(cy|cia)|visitors'? cent(re|er)|heritage cent(re|er)|grants to date|grants portal|gef agencies|red exterior|registro esal|acreditaciones|viceministerios|el ministerio|universidades|resilience index|engaging people)$/i],
+  // Patrones SEGUROS absorbidos de las listas viejas del cron (CronScheduler
+  // NOISE_CRON_RE) y de POST /api/radar/expirar (NOISE_RE), eliminadas el
+  // 2026-09-29 (dictamen architect P4). Solo anclados y sin nombres de fondos:
+  // NO se absorbieron "green climate fund", "readiness grant", "small grants",
+  // "access/receive funding", "línea de crédito", "img/isg call"… (nombran
+  // fondos o ventanas reales) ni prefijos de sección ("^sustainable cities").
+  ['ruido_heredado', new RegExp([
+    '^(learn|read|see|view|explore)\\s(more|all)\\b',
+    '^(sign|log)\\s?(out)\\b',
+    '^(sign|subscribe)\\s(up|to)\\s',
+    'skip\\sto|to\\smain\\scontent|pasar\\sal\\scontenido|main\\scontent$',
+    '\\b(main|mobile)\\s(nav|navigation|menu)\\b',
+    'selector\\sde\\sidioma|ruta\\sde\\snaveg|activar\\sel\\smodo|publicador\\sde\\scontenidos|contenido\\sprincip|additional\\slinks',
+    'opens\\sa\\snew\\swindow|^(facebook|instagram|twitter|linkedin|youtube|flickr)\\b',
+    '\\bsocial\\smedia\\s(accounts|platform)',
+    'grantee\\s(publications|stories|news|research)',
+    '^resources\\sfor\\s.*grantees?$|^info\\sfor\\s(grantees?|grantseekers)',
+    '^managing\\s(your|funds|award)',
+    '^(results\\sand\\sevaluation|key\\smaterials|standard\\sdocuments|open\\saccess\\spolicy|open\\sknowledge)',
+    '^(funding\\spolicies|funding\\sguidance|applying\\sfor\\sfunding)$',
+    'funding\\sfaq|grants?\\sfaq|grants?\\sdata(base)?\\b',
+    '^(awarded\\sgrants|grant\\sopportunities|grants\\sand\\sfellowships|fellows\\ssearch)$',
+    'public\\sprocurement|general\\stendering|award\\sprocedure|tenders?\\selectronic\\sdaily|quantum\\setendering',
+    '^(tender\\sopportunities|data\\sprotection\\sin|contract\\sawards?|requests\\sfor\\sproposals)$',
+    '^(where\\s(we\\s)?work|case\\sstudies|impact\\sin\\snumbers|project\\sportfolio|major\\sinitiatives|country\\sprograms?)$',
+    '^(global\\sinvestment\\smap|portfolio\\sexplorer|awards\\sand\\srecognition|media\\srelease|research\\sfunding\\soverview)',
+    '^(sustainability|development\\sfinance|organisation|security\\sand\\sdefence)$',
+    'valores\\sinstitucionales|^values?\\sinstituc',
+    '^descarga\\s|^download\\s(our|the)\\s|\\bbrochure\\b',
+    '^(map\\sof\\sjica|open\\slearning\\scampus|commissioning\\sus|become\\sa\\scontractor|please\\sgive|where\\scgiar|management\\sboard)',
+    '^(zum\\shauptinhalt|förderung\\sfinden|formulaire\\sde\\sdemande|форма\\sзаявки)',
+    '\\bнавигаци|استمارة\\sالتقديم|bilan\\set\\scompte|balance\\sy\\scuenta',
+    '^(es|en|fr|pt|de|it|nl|ru|ar|zh)\\s[-–]\\s',
+    '^(convocatorias?|all\\sabout)$',
+    '^(equity|development|capacity|innovation|sustainability|resilience|empowerment)$',
+  ].join('|'), 'i')],
 ];
 
 const DEBILES = [
@@ -158,6 +194,11 @@ const DEBILES = [
   // "2024 – AGUA-C", "2024 – Redecom-Cartagena": subvenciones YA OTORGADAS
   // (anuncios de beneficiarios de la IAF), no convocatorias abiertas.
   ['subvencion_otorgada', /^20\d{2}\s*[–-]\s+/],
+  // Absorbido de las listas viejas, pero DÉBIL: "Join our Fellowship Program"
+  // queda protegido. El patrón viejo de testimonios (/^["“”]/) NO se absorbió:
+  // habría borrado "“NIÑOS, NIÑAS Y JÓVENES COMO AGENTES DE CAMBIO PARA LA
+  // RRD”", una convocatoria real de subvenciones (verificado 2026-09-29).
+  ['llamado_institucional', /^(partner|connect)\s(with|us)\b|^(join|follow)\s(our|us)\b/i],
 ];
 
 /** Cabeza del título: sin sufijo de sitio ("Terms of use | Wellcome") ni puntuación final. */

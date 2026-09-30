@@ -3,6 +3,8 @@
  * Envío de emails transaccionales desde el backend Node.js (ESM).
  */
 
+import { urlPublica } from '../utils/urlPublica.js';
+
 export class BrevoEmailAdapter {
   constructor(config = {}) {
     this.apiKey      = config.apiKey      || process.env.BREVO_API_KEY      || '';
@@ -99,7 +101,7 @@ export class BrevoEmailAdapter {
   }
 
   async sendPendingApprovalNotice(adminEmail, { id, nombre, email, aprobarUrl, rechazarUrl }) {
-    const appUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const appUrl = urlPublica();
     return this.sendEmail({
       to:      adminEmail,
       subject: 'Solicitud de validación RadFor-360',
@@ -184,7 +186,7 @@ export class BrevoEmailAdapter {
             <p><strong>Estado:</strong>  ${impactData.estado  || 'N/A'}</p>
             ${impactData.fechaCierre ? `<p><strong>Cierre:</strong> ${impactData.fechaCierre}</p>` : ''}
           </div>
-          <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/radar"
+          <a href="${urlPublica()}/radar"
              style="display:inline-block;padding:12px 24px;background:#0058be;color:#fff;
                     text-decoration:none;border-radius:8px;font-weight:700;font-size:12px;
                     font-family:monospace;letter-spacing:0.05em;">

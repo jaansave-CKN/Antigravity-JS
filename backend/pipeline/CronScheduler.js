@@ -8,8 +8,8 @@ import { ingestConvocatorias } from './DataIngestor.js';
 import { ingestDirectorioConvocatorias } from './EntityScraper.js';
 import { ejecutarBatchEmbeddings } from './EmbeddingsBatch.js';
 import { runSql, getRows } from '../db.js';
-
-const NOISE_CRON_RE = /^(our |their |its |the [\w])|^about\s(us|the\s|our\s)|^(who|what)\s(we|is)\s|^(learn|read|see|view|explore)\s(more|all)|^(sign|log)\s(in|out)|funding\sfaq|grants?\sfaq|grants?\sdata|grants?\sdatabase|^descarga |^download\sour\s|brochure$/i;
+import { dbStatus } from '../config/database.config.js';
+import { purgarBasuraConRespaldo } from '../services/purgaCatalogo.js';
 
 async function expirarConvocatorias() {
   const today = new Date().toISOString().slice(0, 10);
@@ -42,20 +42,13 @@ async function expirarConvocatorias() {
     cerradasAntiguas++;
   }
 
-  // 3. Soft-delete falsos positivos de navegación (títulos de sección/nav)
-  const allOpen = await getRows(
-    `SELECT id, titulo FROM convocatorias WHERE deleted_at IS NULL AND estado != 'cerrada'`,
-    []
-  );
-  let eliminados = 0;
-  for (const row of allOpen) {
-    if (NOISE_CRON_RE.test((row.titulo || '').trim())) {
-      await runSql('UPDATE convocatorias SET deleted_at = ? WHERE id = ?', [new Date().toISOString(), row.id]);
-      eliminados++;
-    }
-  }
+  // 3. Basura (páginas que no son convocatorias): servicio único con respaldo
+  // (backend/services/purgaCatalogo.js). Antes: lista propia NOISE_CRON_RE
+  // (con "^the \w", que borraba cualquier "The … Fund") y borrado SIN respaldo.
+  const purga = await purgarBasuraConRespaldo({ getRows, runSql, dbStatus }, { lote: `cron_${new Date().toISOString()}` });
+  if (purga.accion === 'omitida') console.warn(`[Cron] Purga de basura omitida: ${purga.motivo}${purga.candidatos ? ` (${purga.candidatos} candidatos > tope ${purga.tope}; revisar con backend/scripts/purgarBasuraCatalogo.mjs)` : ''}`);
 
-  return { cerradas, cerradas_antiguas: cerradasAntiguas, eliminados, revisadas: rowsFecha.length };
+  return { cerradas, cerradas_antiguas: cerradasAntiguas, eliminados: purga.eliminados, revisadas: rowsFecha.length };
 }
 
 // Timeout estricto: mata la tarea si supera el límite (defecto 60 min para rastreos)

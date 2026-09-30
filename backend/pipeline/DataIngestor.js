@@ -190,15 +190,18 @@ export async function ingestConvocatorias() {
           const estado = calcEstado(fechaLimite);
 
           const existing = await getRow(
-            'SELECT id, fecha_limite FROM convocatorias WHERE externo_id = ? LIMIT 1',
+            'SELECT id, fecha_limite, estado FROM convocatorias WHERE externo_id = ? LIMIT 1',
             [externoId]
           );
 
           if (existing) {
             if (fechaLimite && fechaLimite !== (existing.fecha_limite || '')) {
+              // Un 'fondo_continuo' curado conserva su estado (solo cambia la fecha).
               await runSql(
-                'UPDATE convocatorias SET fecha_limite = ?, estado = ? WHERE id = ?',
-                [fechaLimite, estado, existing.id]
+                existing.estado === 'fondo_continuo'
+                  ? 'UPDATE convocatorias SET fecha_limite = ? WHERE id = ?'
+                  : 'UPDATE convocatorias SET fecha_limite = ?, estado = ? WHERE id = ?',
+                existing.estado === 'fondo_continuo' ? [fechaLimite, existing.id] : [fechaLimite, estado, existing.id]
               );
               fuenteReport.inserted++; // reusa contador como "actualizadas"
             } else {
