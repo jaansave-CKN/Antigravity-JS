@@ -51,7 +51,7 @@ import { reenviarPendientesSystemLogs } from './backend/services/logService.js';
 import { alertarErrorServidor } from './backend/services/alertaErrores.js';
 import { faltantesViabilidad, respuesta422 } from './backend/services/datosMinimosIA.js';
 import { resolverLlavesUsuario } from './backend/services/byokService.js';
-import { estadoOpenRouter, generarConIA, buscarConGroundingServidor } from './backend/services/llmProveedor.js';
+import { estadoOpenRouter, estadoGroq, generarConIA, buscarConGroundingServidor } from './backend/services/llmProveedor.js';
 import { buscarPorTexto, estadoBusquedaSemantica } from './backend/agents/radar/index.js';
 import { configurarTopeSistema, topeSistemaDia } from './backend/services/iaTopeSistema.js';
 import { configurarFlagsIA, leerFlagsIA, fijarFlagIA } from './backend/services/iaFlags.js';
@@ -1613,6 +1613,10 @@ async function start() {
       const presupuesto = await estadoPresupuesto(req.userId);
       if (presupuesto && !presupuesto.agotado) return libre();
     }
+    // Groq (rol creador, 2026-09-30): mismo principio B1 — si un proveedor
+    // puede responder no se bloquea. Un "libre" que luego no aplique (contexto
+    // grande o agente auditor) termina en el 503 honesto del intento real.
+    if (estadoGroq().activo) return libre();
     const retryAt = geminiCB.getEarliestRetryAt();
     if (!retryAt) return libre();
     // Adaptador escopado: la lectura de llaves BYOK de un tenant nunca puede ver las de otro.

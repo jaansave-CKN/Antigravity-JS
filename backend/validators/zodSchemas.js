@@ -450,7 +450,7 @@ export const crearProyectoSchema = z.object({
 // Búnker de Conexiones (2026-09-28): interruptor de proveedor de IA (solo
 // admin). Estricto: una clave desconocida es 400.
 export const apisFlagsSchema = z.strictObject({
-  proveedor: z.enum(['openrouter', 'nvidia']),
+  proveedor: z.enum(['openrouter', 'nvidia', 'groq']),
   habilitado: z.boolean(),
 });
 

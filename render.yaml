@@ -96,6 +96,15 @@ services:
       - key: LLM_TOPE_USD_MES
         sync: false
 
+      # ── Groq (rol CREADOR, $0 — arquitectura híbrida Cero-Sesgo, 2026-09-30) ─
+      # Paso 0 de llmProveedor SOLO para Entrada IA, Árbol de Objetivos y el
+      # respaldo del Formulador MGA (openai/gpt-oss-120b, plan gratuito). Sin la
+      # llave, o con 413/429/503, cae a la cascada de siempre. Auditores
+      # (Viabilidad, MIROFISH, Sectores) siguen en Gemini.
+      # Obtener en: console.groq.com → API Keys
+      - key: GROQ_API_KEY
+        sync: false
+
       # ── NVIDIA NIM (Formulador MGA — Fase 3, backend/services/nimCliente.js) ──
       # Sin la llave (o si NIM falla), el consolidador MGA cae a la cascada de
       # llmProveedor (OpenRouter con tope → pool Gemini → BYOK) con la misma

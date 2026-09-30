@@ -85,7 +85,7 @@ export const MODULOS = {
     'backend/services/geminiCircuitBreaker.js', 'backend/services/geminiReintento.js',
     'backend/services/aiTokenLogger.js', 'backend/services/byokService.js',
     'backend/services/embeddingsService.js', 'backend/services/nimCliente.js',
-    'backend/services/llmProveedor.js', 'backend/services/openRouterCliente.js',
+    'backend/services/llmProveedor.js', 'backend/services/openRouterCliente.js', 'backend/services/groqCliente.js',
     'backend/services/iaPresupuesto.js', 'backend/services/iaTopeSistema.js', 'backend/services/iaFlags.js', 'backend/services/apisEstado.js',
     'backend/services/logService.js', 'backend/services/alertaErrores.js', 'backend/services/emailService.js',
     'backend/pipeline/CryptoHelper.js', 'backend/pipeline/seed-predios.js',
