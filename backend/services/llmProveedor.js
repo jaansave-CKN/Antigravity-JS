@@ -72,6 +72,10 @@ const PAUSA_CONFIG_MS = 10 * 60_000; // tras 401/402/403 (llave o saldo del due�
  */
 export const AGENTES_CREADORES = ['entrada-ia', 'arbol_objetivos', 'formulador_mga', 'expediente_financiador'];
 const GROQ_MAX_MS = 20_000;
+// Esfuerzo de razonamiento de gpt-oss por agente (por defecto 'low'). Medido en vivo 2026-09-30
+// (Marco Lógico, 4 llamadas por nivel): con 'low' el modelo devolvió grupos obligatorios vacíos en 2/4;
+// con 'medium' trajo todos los grupos en 4/4 (~2,4–3,2K tokens de salida, dentro del límite por minuto).
+const ESFUERZO_GROQ = Object.freeze({ expediente_financiador: 'medium' });
 const GROQ_LIMITE_TPM_DEFECTO = 8_000;  // plan gratuito de gpt-oss-120b (verificado 2026-09-30)
 const GROQ_SALIDA_MIN = 2_048;          // con menos presupuesto de salida no vale la pena intentar
 const GROQ_PAUSA_429_DEFECTO_MS = 60_000;
@@ -396,7 +400,7 @@ async function intentoGroq({ userId, agente, messages, temperature, maxTokens, r
   registrarLlamadaLLM(`groq:${agente}`); // LlmLoopGuardError corta toda la cascada
   let r;
   try {
-    r = await llamarGroq({ messages: mensajes, maxTokens: salida, temperature, responseFormat: responseFormat ?? { type: 'json_object' }, timeoutMs: tiempoGroq });
+    r = await llamarGroq({ messages: mensajes, maxTokens: salida, temperature, responseFormat: responseFormat ?? { type: 'json_object' }, timeoutMs: tiempoGroq, reasoningEffort: ESFUERZO_GROQ[agente] ?? 'low' });
   } catch (err) {
     const e = err instanceof GroqError ? err : new GroqError('error', err?.message);
     if ([413, 429, 503].includes(e.status)) {

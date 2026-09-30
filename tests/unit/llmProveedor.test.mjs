@@ -514,3 +514,11 @@ test('Groq: si Groq y el resto fallan → 503 honesto con el motivo de Groq prim
   await assert.rejects(generarConIA({ userId: 'u1', agente: 'formulador_mga', messages: MSGS_CREADOR }), (e) =>
     e instanceof IaNoDisponibleError && e.intentos[0].proveedor === 'groq' && e.intentos[0].motivo === 'saturado');
 });
+
+test('Groq: el Expediente del Financiador razona con esfuerzo "medium" (medido en vivo: con "low" dejaba grupos vacíos); el resto sigue en "low"', async () => {
+  prepararGroq();
+  red();
+  await generarConIA({ userId: 'u1', agente: 'expediente_financiador', messages: MSGS_CREADOR, validar: (t) => JSON.parse(t) });
+  await generarConIA({ userId: 'u1', agente: 'formulador_mga', messages: MSGS_CREADOR, validar: (t) => JSON.parse(t) });
+  assert.deepEqual(llamadas.map(l => [l.destino, l.cuerpo.reasoning_effort]), [['groq', 'medium'], ['groq', 'low']]);
+});
