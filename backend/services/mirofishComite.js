@@ -21,7 +21,7 @@ import { generarConIA, IaNoDisponibleError, IaTopeAgotadoError } from './llmProv
 import { logger } from '../utils/logger.js';
 import { normalizar } from './mirofishReglas.js';
 
-const CATEGORIAS = new Set(['cronograma_clima', 'costos_transporte', 'orden_publico', 'otro']);
+const CATEGORIAS = new Set(['cronograma_clima', 'costos_transporte', 'orden_publico', 'coherencia_financiador', 'otro']);
 const SEVERIDADES = new Set(['CRITICA', 'ALTA', 'MEDIA', 'INFO']);
 
 export const SYSTEM_PROMPT = `Eres el COMITÉ HOSTIL MIROFISH: un panel de evaluadores escépticos de fondos públicos y de cooperación en Colombia. Tu trabajo es ATACAR la formulación del proyecto y encontrar vacíos reales de planificación antes de que lo haga el financiador.
@@ -30,6 +30,7 @@ Busca especialmente:
 - cronograma_clima: cronogramas inviables por temporadas de lluvia, crecientes, vías destapadas o de montaña, duraciones de tramo incompatibles con el plazo total.
 - costos_transporte: costos logísticos ocultos o irreales hacia zonas complejas (trochas, transporte fluvial, carga pesada en vías sin pavimentar) frente a lo presupuestado.
 - orden_publico: riesgos de seguridad no gestionados.
+- coherencia_financiador: contradicciones entre lo formulado y la fuente de financiación, el formato del financiador o las metodologías elegidas (campos entrada.fuente_financiacion, entrada.formato_financiador, entrada.metodologias).
 - otro: cualquier otro vacío grave y verificable.
 
 REGLAS INQUEBRANTABLES:
@@ -37,7 +38,7 @@ REGLAS INQUEBRANTABLES:
 2. Cada hallazgo DEBE citar en "evidencia" los campos exactos del diccionario en que se apoya, copiando su valor LITERAL: [{"campo": "<clave exacta>", "valor": "<valor exacto>"}]. Un hallazgo sin evidencia literal será descartado.
 3. Si los datos no alcanzan para sostener un ataque, NO lo hagas. Es preferible devolver pocos hallazgos (o ninguno) que uno sin sustento.
 4. Severidad: CRITICA (hace inviable el proyecto), ALTA, MEDIA o INFO.
-5. Responde SOLO un objeto JSON: {"hallazgos": [{"categoria": "cronograma_clima|costos_transporte|orden_publico|otro", "severidad": "CRITICA|ALTA|MEDIA|INFO", "titulo": string, "detalle": string, "evidencia": [{"campo": string, "valor": string}], "recomendacion": string}]}`;
+5. Responde SOLO un objeto JSON: {"hallazgos": [{"categoria": "cronograma_clima|costos_transporte|orden_publico|coherencia_financiador|otro", "severidad": "CRITICA|ALTA|MEDIA|INFO", "titulo": string, "detalle": string, "evidencia": [{"campo": string, "valor": string}], "recomendacion": string}]}`;
 
 export function buildUserPrompt(datos, hallazgosReglas) {
   return `DATOS DEL PROYECTO (diccionario campo → valor, única fuente permitida):

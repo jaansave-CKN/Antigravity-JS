@@ -21,6 +21,10 @@ import { captureError } from '../config/sentry.config.js';
 import { evaluarReglas } from '../services/mirofishReglas.js';
 import { evaluarComiteIA } from '../services/mirofishComite.js';
 import { faltantesMirofish, respuesta422 } from '../services/datosMinimosIA.js';
+import { resolverDirectivas } from '../services/directivasFormulacion.js';
+import { evaluarVectores } from '../services/auditoriaVectores.js';
+import { hoyBogota } from '../services/vigenciaDocumental.js';
+import { logger } from '../utils/logger.js';
 
 const MAX_LINEAS = 40;
 
@@ -45,19 +49,30 @@ const texto = (v) => (v === null || v === undefined ? '' : String(v).trim());
 /** Reúne los datos reales del proyecto como diccionario plano campo → valor. */
 async function recolectar(proyecto, userId) {
   const pid = proyecto.id;
-  const [logistica, tramos, apu, budgets] = await Promise.all([
+  const [logistica, tramos, apu, budgets, anexos, teoriaCambioRegistrada] = await Promise.all([
     withTenantRow(userId, 'SELECT departamento, municipio, zona, fecha_inicio, duracion_meses FROM config_logistica WHERE proyecto_id = ? AND user_id = ?', [pid, userId]),
     withTenantRows(userId, 'SELECT numero, origen, destino, medio, distancia_km, duracion, estado_via, calidad, tipo_transporte, orden_publico FROM logistica_tramos WHERE proyecto_id = ? ORDER BY numero ASC', [pid]),
     withTenantRows(userId, 'SELECT descripcion, valor_total_cop FROM project_apu_lineas WHERE project_id = ?', [pid]),
     withTenantRows(userId, 'SELECT capitulo, item, valor_total FROM project_budgets WHERE proyecto_id = ?', [pid]),
+    withTenantRows(userId, "SELECT nombre_archivo, descripcion, categoria, tipo_vigencia, to_char(fecha_documento, 'YYYY-MM-DD') AS fecha_documento FROM project_anexos WHERE project_id = ?", [pid]),
+    teoriaCambioDelProyecto(pid, userId),
   ]);
   const entrada = parseJson(proyecto.ficha_tecnica).entrada_completa || {};
+  const directivas = resolverDirectivas(entrada);
 
   const datos = {};
   const poner = (k, v) => { const t = texto(v); if (t) datos[k] = t; };
   poner('proyecto.nombre', proyecto.nombre);
   poner('entrada.municipio', entrada.municipio);
   poner('entrada.vereda', entrada.vereda);
+  // Ejes del financiador (Fase B 2026-09-30): la IA adversarial puede citarlos.
+  poner('entrada.tipo_proyecto', directivas.vectores.tipoProyecto);
+  poner('entrada.fuente_financiacion', directivas.vectores.fuente);
+  poner('entrada.nivel_proyecto', directivas.vectores.nivel);
+  poner('entrada.metodologias', directivas.vectores.metodologias.join('; '));
+  poner('entrada.formato_financiador', directivas.vectores.formato);
+  poner('entrada.problema_seleccionado', entrada.contextoMeta?.problemaSeleccionado);
+  poner('entrada.problema_urgente', entrada.contexto?.problema_urgente);
   if (logistica) {
     for (const k of ['departamento', 'municipio', 'zona', 'fecha_inicio', 'duracion_meses']) poner(`logistica.${k}`, logistica[k]);
   }
@@ -82,7 +97,39 @@ async function recolectar(proyecto, userId) {
     { campo: 'logistica.municipio', valor: texto(logistica?.municipio) },
     { campo: 'logistica.departamento', valor: texto(logistica?.departamento) },
   ];
-  return { datos, lineasPresupuesto, ubicacion, tramos: tramos.map(t => ({ numero: texto(t.numero), orden_publico: texto(t.orden_publico) })) };
+  // Reglas V (auditor determinista por ejes del financiador).
+  const problemas = [
+    { campo: 'entrada.problema_seleccionado', valor: texto(entrada.contextoMeta?.problemaSeleccionado) },
+    { campo: 'entrada.problema_urgente', valor: texto(entrada.contexto?.problema_urgente) },
+  ].filter(p => p.valor);
+  const textosMoneda = [
+    ...Object.entries(entrada.contexto || {}).map(([k, v]) => ({ campo: `entrada.contexto.${k}`, valor: texto(v) })),
+    { campo: 'entrada.pitch', valor: texto(entrada.pitch) },
+    ...lineasPresupuesto,
+  ].filter(t => t.valor);
+  const hallazgosVectores = evaluarVectores({ directivas, problemas, textosMoneda, anexos, teoriaCambioRegistrada, hoy: hoyBogota() });
+
+  return { datos, lineasPresupuesto, ubicacion, hallazgosVectores, tramos: tramos.map(t => ({ numero: texto(t.numero), orden_publico: texto(t.orden_publico) })) };
+}
+
+/**
+ * true si el proyecto tiene ruta causal registrada; null si no se pudo
+ * verificar. try/catch propio: la tabla nació con dos esquemas distintos
+ * (server.js project_id vs migración 016 proyecto_id — la BD viva tiene
+ * proyecto_id, verificado 2026-09-30) y un error aquí no puede tumbar el
+ * comité con un 500 (dictamen architect, cond. 2).
+ */
+async function teoriaCambioDelProyecto(pid, userId) {
+  try {
+    const fila = await withTenantRow(userId, 'SELECT resultados_corto_plazo, impacto_largo_plazo FROM project_change_theory WHERE proyecto_id = ?', [pid]);
+    if (!fila) return false;
+    let resultados = [];
+    try { resultados = JSON.parse(fila.resultados_corto_plazo || '[]'); } catch { /* texto no JSON: sin resultados */ }
+    return Array.isArray(resultados) && resultados.length > 0 && !!texto(fila.impacto_largo_plazo);
+  } catch (err) {
+    logger.warn('[mirofish] project_change_theory no verificable — la regla V3 lo trata como no registrado', { proyectoId: pid, err: err.message });
+    return null;
+  }
 }
 
 export function registerMirofishRoutes(app, { authenticateToken, requireAccess, aiLimiter }) {
@@ -94,7 +141,7 @@ export function registerMirofishRoutes(app, { authenticateToken, requireAccess, 
     const proyecto = await cargarProyecto(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
-    const { datos, lineasPresupuesto, ubicacion, tramos } = await recolectar(proyecto, req.userId);
+    const { datos, lineasPresupuesto, ubicacion, tramos, hallazgosVectores } = await recolectar(proyecto, req.userId);
     // LOTE 10: sin ubicación o sin presupuesto el comité no tiene qué evaluar
     // → 422 con la lista exacta, ANTES de llamar a Gemini.
     const faltantes = faltantesMirofish({ datos, lineasPresupuesto, ubicacion });
@@ -103,13 +150,15 @@ export function registerMirofishRoutes(app, { authenticateToken, requireAccess, 
     if (reglas.municipio_match.municipio) {
       datos['pdet.municipio'] = `${reglas.municipio_match.municipio.municipio} (${reglas.municipio_match.municipio.departamento}) — municipio PDET, subregión ${reglas.municipio_match.municipio.subregion}`;
     }
-    const ia = await evaluarComiteIA({ datos, hallazgosReglas: reglas.hallazgos, userId: req.userId });
+    // Reglas R (PDET) + V (ejes del financiador): la IA recibe ambas para no repetirlas.
+    const hallazgosReglas = [...reglas.hallazgos, ...hallazgosVectores];
+    const ia = await evaluarComiteIA({ datos, hallazgosReglas, userId: req.userId });
 
     const fila = await withTenantRow(req.userId,
       `INSERT INTO project_mirofish_evaluaciones (project_id, org_id, municipio_match, reglas, ia, created_by)
        VALUES (?, ?, ?, ?, ?, ?) RETURNING *`,
       [req.params.id, req.userId, JSON.stringify(reglas.municipio_match),
-        JSON.stringify({ hallazgos: reglas.hallazgos, lineas_seguridad: reglas.lineas_seguridad }), JSON.stringify(ia), req.userId]
+        JSON.stringify({ hallazgos: hallazgosReglas, lineas_seguridad: reglas.lineas_seguridad }), JSON.stringify(ia), req.userId]
     );
     res.status(201).json({ success: true, data: fila });
   }));

@@ -25,6 +25,7 @@
  */
 import { generarConIA } from './llmProveedor.js';
 import { logger } from '../utils/logger.js';
+import { resolverDirectivas, bloqueVectores } from './directivasFormulacion.js';
 
 function r2(n) { return Math.round(n * 100) / 100; }
 
@@ -116,6 +117,10 @@ Eres el Núcleo de Inteligencia de Auditoría de Radfor-360, un software de inge
 3. COHERENCIA MULTIPROYECTO:
    - Toda la inferencia debe realizarse de manera aislada utilizando exclusivamente el contexto del \`id_proyecto\` actual. No contamines la lógica con datos de proyectos anteriores.
 
+4. COHERENCIA CON EL FINANCIADOR:
+   - Recibirás los "VECTORES DEL FINANCIADOR" que el usuario eligió (fuente, formato, metodologías) y las exigencias que se derivan de ellos.
+   - Contrasta la formulación con esas exigencias. Cada exigencia que los datos del proyecto no cubran, o cada incoherencia entre los ejes, va como una línea concreta en \`cruce_anexos.brechas_detectadas\` (qué falta y qué exige el financiador). No inventes que algo existe si no está en los datos.
+
 Devuelve la respuesta estrictamente cumpliendo el esquema JSON requerido, sin texto adicional fuera del formato estructurado.`;
 
 const JSON_SCHEMA = {
@@ -156,7 +161,7 @@ const JSON_SCHEMA = {
   },
 };
 
-function buildUserPrompt({ id, nombre, problema, metaEsperada, poblacionAfectada, coberturaGeografica, presupuesto, anexos }) {
+export function buildUserPrompt({ id, nombre, problema, metaEsperada, poblacionAfectada, coberturaGeografica, presupuesto, anexos, directivas = null }) {
   const anexosTaxonomia = anexos.map(a => `- ${a.nombre_archivo} → ${TAXONOMIA_ANEXO[a.categoria] || 'Evidencia'}`).join('\n') || '(sin anexos adjuntos)';
   return `id_proyecto: ${id}
 Nombre: ${nombre || '(sin nombre)'}
@@ -172,7 +177,7 @@ Presupuesto: ${JSON.stringify(presupuesto).slice(0, 2000)}
 
 Anexos adjuntos (${anexos.length}) clasificados por taxonomía:
 ${anexosTaxonomia}
-
+${directivas ? `\n${bloqueVectores(directivas)}\n` : ''}
 Responde ÚNICAMENTE con el JSON del esquema Radfor360ViabilityAudit, sin texto adicional.`;
 }
 
@@ -294,6 +299,8 @@ export async function recolectarContextoViabilidad(proyecto, userId, { getRow, g
     poblacionAfectada: entradaCompleta.numeroBeneficiarios || '',
     coberturaGeografica: entradaCompleta.coberturaGeografica || '',
     presupuesto, anexos, supuestosArbol, resultadosCambio,
+    // Ejes del financiador (Fase A 2026-09-30), de la entrada YA fusionada con fichaOverride.
+    directivas: resolverDirectivas(entradaCompleta),
   };
 
   return { ctx, fichaTecnica };
