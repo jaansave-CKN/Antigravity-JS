@@ -1,6 +1,10 @@
 services:
   - type: web
     name: radar-formulador-360
+    # Rama explícita (2026-10-04): sin ella Render usa la rama por defecto del
+    # repo en GitHub — "main", que contiene RadarFondos 360, no este servidor.
+    branch: master
+    autoDeploy: true
     runtime: node
     buildCommand: npm install && npm run build && node scripts/db-check.js
     startCommand: node server.js
@@ -13,8 +17,14 @@ services:
         value: 10000
 
       # ── IA — requeridos ────────────────────────────────────────────────────
+      # ADR-0003 (Opción A): producción solo con proveedores de pago con
+      # términos comerciales. NVIDIA_API_KEY NO se declara aquí: los endpoints
+      # gratuitos de NIM requieren licencia AI Enterprise para producción, y el
+      # código los rechaza con NODE_ENV=production.
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: PRIMARY_AI_MODEL
+        value: claude-sonnet-4-6
       - key: TAVILY_API_KEY
         sync: false
 

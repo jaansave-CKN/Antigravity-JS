@@ -878,3 +878,15 @@ test('FinOps: el razonamiento del modelo cuenta como tokens de salida en la esti
     const u = P.estimarUso({ system: '', user: '', texto: 'z'.repeat(31), razonamientoChars: 310 }, {});
     assert.equal(u.completion_tokens, Math.ceil(341 / P.CARACTERES_POR_TOKEN_DEFAULT));
 });
+
+test('ADR-0003: NIM gratuito prohibido con NODE_ENV=production (primario y eslabones); Anthropic sigue permitido', async () => {
+    const prod = { NVIDIA_API_KEY: KEY, NODE_ENV: 'production' };
+    assert.throws(() => P.resolverConfig(prod), (e) => e.codigo === 'nim_prohibido_en_produccion' && e.categoria === 'config');
+    assert.throws(() => P.resolverConfig({ ...prod, NODE_ENV: ' Production ' }), (e) => e.codigo === 'nim_prohibido_en_produccion');
+    const ant = P.resolverConfig({ ...prod, GATE_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: KEY_ANT });
+    assert.throws(() => P.resolverCadena({ ...prod, GATE_PROVIDER: 'anthropic', GATE_FALLBACK_CHAIN: 'nim:org/modelo-b' }, ant), (e) => e.codigo === 'nim_prohibido_en_produccion');
+    const f = fetchSecuencia([respuesta(200, OK_BODY)]);
+    await assert.rejects(P.llamarModelo(MSG, { env: prod, fetchImpl: f, breakerPath: breakerTmp() }), (e) => e.codigo === 'nim_prohibido_en_produccion');
+    assert.equal(f.llamadas.length, 0, 'ninguna llamada a NIM en producción');
+    assert.equal(P.resolverConfig({ NVIDIA_API_KEY: KEY, NODE_ENV: 'development' }).proveedor, 'nim');
+});

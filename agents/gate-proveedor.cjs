@@ -305,6 +305,13 @@ function resolverConfig(env = process.env) {
     if (proveedor !== 'nim') {
         throw new ErrorProveedor({ codigo: 'proveedor_desconocido', categoria: 'config', detalle: `GATE_PROVIDER="${proveedor}" no soportado (nim | anthropic).` });
     }
+    // ADR-0003 (decisión del dueño 2026-10-04, Opción A): los endpoints
+    // gratuitos de NVIDIA NIM son de desarrollo y pruebas; producción exige
+    // licencia NVIDIA AI Enterprise. Con NODE_ENV=production (Render) NIM se
+    // rechaza siempre, también como eslabón de la cadena.
+    if (String(env.NODE_ENV || '').trim().toLowerCase() === 'production') {
+        throw new ErrorProveedor({ codigo: 'nim_prohibido_en_produccion', categoria: 'config', detalle: 'NVIDIA NIM (endpoints gratuitos) no se usa con NODE_ENV=production: requiere licencia NVIDIA AI Enterprise (ADR-0003) — bloqueo duro.' });
+    }
     const baseUrl = (env.GATE_NIM_BASE_URL || NIM_BASE_URL_OFICIAL).trim().replace(/\/+$/, '');
     if (baseUrl !== NIM_BASE_URL_OFICIAL) {
         throw new ErrorProveedor({ codigo: 'base_url_no_oficial', categoria: 'config', detalle: `GATE_NIM_BASE_URL apunta a "${baseUrl}", no a ${NIM_BASE_URL_OFICIAL} — bloqueo duro.` });
