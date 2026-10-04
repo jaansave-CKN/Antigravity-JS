@@ -14,6 +14,7 @@
  * process.exitCode y se deja que el event loop drene solo.
  */
 import dotenv from 'dotenv';
+import { encabezadosSupabase } from '../src/shared/infrastructure/supabaseHeaders.js';
 dotenv.config();
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -32,12 +33,15 @@ async function main() {
 
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/formulador_proyectos?limit=0`, {
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      // sb_secret_ no es JWT: solo "apikey" (ver supabaseHeaders.js).
+      headers: encabezadosSupabase(SUPABASE_KEY),
       signal: controller.signal,
     });
     // 404 = tabla no existe pero la conexión/API key funcionan; sigue siendo OK.
     if (!res.ok && res.status !== 404) {
-      throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      // Mensaje de Supabase (nunca contiene la key) para diagnosticar 401/403.
+      const detalle = (await res.text().catch(() => '')).slice(0, 200);
+      throw new Error(`HTTP ${res.status} ${res.statusText}${detalle ? ` — ${detalle}` : ''}`);
     }
     console.log('✅ [DB-CHECK] Supabase (REST) conectado exitosamente.');
     console.log(`   → URL     : ${SUPABASE_URL}`);

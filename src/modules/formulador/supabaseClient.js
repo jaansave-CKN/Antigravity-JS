@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import { cacheGet, cacheSet } from '../../shared/infrastructure/cache.js';
+import { encabezadosSupabase } from '../../shared/infrastructure/supabaseHeaders.js';
 dotenv.config();
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -29,11 +30,12 @@ function assertValidTenant(tenantId) {
 // en Postgres. Con el JWT del usuario final -> rol "authenticated", RLS activo.
 // Sin JWT de usuario -> cae a SERVICE_KEY (bypassa RLS); reservado para tareas
 // internas, nunca para operaciones de usuario final.
+// "Authorization" solo con un JWT real (del usuario o service key legacy):
+// una key sb_secret_ no es JWT y el gateway la rechaza como Bearer (401).
 function buildHeaders(userJwt) {
   return {
     'Content-Type': 'application/json',
-    'apikey':        SERVICE_KEY,
-    'Authorization': `Bearer ${userJwt || SERVICE_KEY}`,
+    ...encabezadosSupabase(SERVICE_KEY, userJwt),
     'Prefer':        'return=representation',
   };
 }
@@ -94,17 +96,19 @@ async function registrarBypassAuditoria(path, userJwt) {
         p_jwt_sub: decodeJwtSubUnsafe(userJwt),
         p_detalle: 'jwt_rechazado_fallback_service_key',
       }),
-    }, `Bearer ${SERVICE_KEY}`);
+    }, null);
   } catch (err) {
     console.error('[Supabase] No se pudo registrar la violación en security_violations_ledger:', err.message);
   }
 }
 
-async function doFetch(path, options, authHeader) {
+// userJwt: JWT del usuario (RLS) o null para operar con la service key.
+// encabezadosSupabase decide si corresponde Authorization (solo JWT real).
+async function doFetch(path, options, userJwt) {
   const url = `${SUPABASE_URL}/rest/v1${path}`;
   const res  = await fetch(url, {
     ...options,
-    headers: { 'Content-Type': 'application/json', apikey: SERVICE_KEY, Prefer: 'return=representation', ...options.headers, Authorization: authHeader },
+    headers: { 'Content-Type': 'application/json', Prefer: 'return=representation', ...options.headers, ...encabezadosSupabase(SERVICE_KEY, userJwt) },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const text = await res.text();
@@ -124,7 +128,7 @@ async function sbFetch(path, options = {}, userJwt) {
     // cada función RPC (confirmado con prueba cruzada de 2 tenants reales), no RLS
     // por rol. Configurar Third-Party Auth en el dashboard de Supabase reactivaría
     // la ruta de RLS-por-rol sin tocar este archivo.
-    const attempt = await doFetch(path, options, `Bearer ${userJwt}`);
+    const attempt = await doFetch(path, options, userJwt);
     if (attempt.ok) return attempt.data;
     if (attempt.status !== 401) {
       throw Object.assign(new Error(attempt.data?.message || attempt.data?.error || 'Supabase error'), { status: attempt.status, data: attempt.data });
@@ -133,7 +137,7 @@ async function sbFetch(path, options = {}, userJwt) {
     registrarBypassAuditoria(path, userJwt); // fire-and-forget, ver definición arriba
   }
 
-  const fallback = await doFetch(path, options, `Bearer ${SERVICE_KEY}`);
+  const fallback = await doFetch(path, options, null);
   if (!fallback.ok) {
     throw Object.assign(new Error(fallback.data?.message || fallback.data?.error || 'Supabase error'), { status: fallback.status, data: fallback.data });
   }

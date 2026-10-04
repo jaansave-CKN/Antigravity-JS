@@ -15,7 +15,7 @@ const os = require('os');
 const path = require('path');
 
 const {
-  hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear, evidenciaE2E,
+  hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear, evidenciaE2E, diferimientoEnMandato,
   SUBGATES, archivosRelevantesPara, validarSubgate,
   descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
   escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe,
@@ -231,7 +231,8 @@ test('validarSubgate: un diferimiento real de 002 (diseno_aprobado.json vigente 
       timestamp: new Date().toISOString(),
       firmado_por: 'test de regresión',
       razones: ['fixture de test'],
-      diferimientos: [{ subgate: '004_SENTINELA_FRONTEND', razon: 'prueba de regresión — no es un diferimiento real' }],
+      // Cita la ruta exacta del archivo del mandato (regla endurecida 2026-10-04).
+      diferimientos: [{ subgate: '004_SENTINELA_FRONTEND', razon: 'public/src/App.jsx: prueba de regresión — no es un diferimiento real' }],
     };
     fs.writeFileSync(aprobacionPath, JSON.stringify(conDiferimiento, null, 2) + '\n', 'utf8');
 
@@ -240,9 +241,42 @@ test('validarSubgate: un diferimiento real de 002 (diseno_aprobado.json vigente 
     assert.equal(resultado.aprobado, true, 'el diferimiento debe satisfacer el subgate aunque veredicto_004.json no exista');
     assert.equal(resultado.diferido, true, 'debe quedar marcado explícitamente como diferido, no como aprobación real del agente');
     assert.match(resultado.razon, /prueba de regresión/);
+    assert.deepEqual(resultado.citadas, ['public/src/App.jsx']);
   } finally {
     fs.writeFileSync(aprobacionPath, original, 'utf8');
   }
+});
+
+test('validarSubgate: un diferimiento con justificación AJENA al mandato (caso real 002→005 citando render.yaml) se ignora y el subgate exige su veredicto', () => {
+  const path = require('path');
+  const aprobacionPath = path.join(__dirname, '..', 'agents', 'diseno_aprobado.json');
+  const veredicto005 = SUBGATES['005_INGENIERO_BACKEND'].veredictoPath;
+  const original = fs.readFileSync(aprobacionPath, 'utf8');
+  const original005 = fs.existsSync(veredicto005) ? fs.readFileSync(veredicto005, 'utf8') : null;
+  try {
+    fs.writeFileSync(aprobacionPath, JSON.stringify({
+      aprobado: true, origen: 'api_directa', firma: hashEstado(listarCarpetasAgentes()), timestamp: new Date().toISOString(),
+      firmado_por: 'test de regresión', razones: ['fixture de test'],
+      diferimientos: [{ subgate: '005_INGENIERO_BACKEND', razon: 'render.yaml omitido por presupuesto de caracteres; el ADR exige branch master' }],
+    }, null, 2) + '\n', 'utf8');
+    if (original005 !== null) fs.unlinkSync(veredicto005);
+
+    const resultado = validarSubgate('005_INGENIERO_BACKEND', ['server.js', 'src/modules/radar/m1Pipeline.js', 'render.yaml']);
+    assert.equal(resultado.aplica, true);
+    assert.notEqual(resultado.diferido, true, 'render.yaml no es del mandato de 005: el diferimiento no aplica');
+    assert.equal(resultado.aprobado, false, 'sin veredicto propio de 005 el commit queda bloqueado');
+  } finally {
+    fs.writeFileSync(aprobacionPath, original, 'utf8');
+    if (original005 !== null) fs.writeFileSync(veredicto005, original005, 'utf8');
+  }
+});
+
+test('diferimientoEnMandato: solo cuenta la cita exacta de un archivo staged del mandato', () => {
+  const relevantes = ['server.js', 'src/modules/radar/m1Pipeline.js'];
+  assert.deepEqual(diferimientoEnMandato({ razon: 'render.yaml omitido' }, relevantes), { valido: false, citadas: [] });
+  assert.deepEqual(diferimientoEnMandato({ razon: 'hallazgo menor en src/modules/radar/m1Pipeline.js, no bloqueante' }, relevantes), { valido: true, citadas: ['src/modules/radar/m1Pipeline.js'] });
+  assert.equal(diferimientoEnMandato({ razon: 'm1Pipeline.js sin ruta completa' }, relevantes).valido, false, 'el nombre suelto no basta');
+  assert.equal(diferimientoEnMandato({}, relevantes).valido, false);
 });
 
 test('validarSubgate: un diferimiento para OTRO subgate distinto no satisface este', () => {

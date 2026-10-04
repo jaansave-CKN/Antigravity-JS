@@ -24,6 +24,7 @@ import { m1Router, runM1Pipeline }   from './src/modules/radar/m1Pipeline.js';
 import { RadarItemSchema, validarHandoff } from './src/shared/contracts/Handoffs.js';
 import { dlq }                       from './src/shared/infrastructure/DeadLetterQueue.js';
 import { llamarIA, usoLangfuse, proveedoresConfigurados } from './src/shared/infrastructure/LlmGateway.js';
+import { encabezadosSupabase }        from './src/shared/infrastructure/supabaseHeaders.js';
 import { initSentry, Sentry, sentryHabilitado } from './src/shared/infrastructure/SentryMonitoring.js';
 import { initLangfuse, trackGeneration }     from './src/shared/infrastructure/LangfuseMonitoring.js';
 import './scripts/generar_reporte.cjs'; // regenera public/estado_antigravity.json con inventario real de agents/ al arrancar + cada 10 min
@@ -363,7 +364,7 @@ app.get('/api/health', async (_req, res) => {
   if (sbUrl && sbKey) {
     try {
       const r = await fetch(`${sbUrl}/rest/v1/formulador_proyectos?limit=0`, {
-        headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` },
+        headers: encabezadosSupabase(sbKey),
         signal:  AbortSignal.timeout(8_000),
       });
       dbPing = r.ok || r.status === 404; // 404 = tabla no existe pero la conexión funciona

@@ -530,7 +530,10 @@ async function pedirVeredictoArquitecto() {
                     `decide primero y emite COMO PRIMERA SALIDA tu JSON de veredicto completo ` +
                     `({"aprobado": boolean, "razones": [string], "diferimientos": [{"subgate": string, "razon": string}]}); ` +
                     `después, como máximo 300 palabras de análisis que sustenten las razones. Solo el JSON es parseable; ` +
-                    `si el análisis se corta por longitud, la decisión ya quedó registrada.\n\n${diff}${avisoTruncamiento}`,
+                    `si el análisis se corta por longitud, la decisión ya quedó registrada. ` +
+                    `REGLA DE DIFERIMIENTOS: difiere un subgate solo por un hallazgo sobre archivos de SU mandato, y la "razon" ` +
+                    `debe citar la ruta exacta de al menos uno de esos archivos tal como aparece en el diff; un diferimiento ` +
+                    `sin esa cita o con archivos de otro mandato se descarta automáticamente.\n\n${diff}${avisoTruncamiento}`,
     });
     if (!r.ok) {
         const falloApi = clasificarFalloApi(r.error);
@@ -986,6 +989,14 @@ function hashArchivosStaged(archivos) {
     return crypto.createHash('sha256').update(partes.join('|')).digest('hex');
 }
 
+// Un diferimiento está dentro del mandato del subgate solo si su razón cita
+// la ruta exacta de al menos un archivo staged que le compete.
+function diferimientoEnMandato(diferido, relevantes) {
+    const razon = String(diferido?.razon ?? '');
+    const citadas = relevantes.filter(f => razon.includes(f));
+    return { valido: citadas.length > 0, citadas };
+}
+
 function validarSubgate(agentId, archivosStaged) {
     const cfg = SUBGATES[agentId];
     const relevantes = archivosRelevantesPara(agentId, archivosStaged);
@@ -1000,11 +1011,20 @@ function validarSubgate(agentId, archivosStaged) {
     // que --check-gate ya aplica al gate principal) — un diferimiento de
     // una aprobación caducada no cuenta; si el diff cambia, el diferimiento
     // caduca junto con la aprobación que lo contenía, no por separado.
+    // Endurecido 2026-10-04 (orden del dueño, caso real: 002 difirió 005
+    // citando render.yaml, archivo del mandato de 006): el diferimiento solo
+    // vale si su razón cita la ruta exacta de un archivo staged que compete a
+    // ESE subgate. Si no, se ignora, queda en telemetría y el subgate exige su
+    // propio veredicto.
     const disenoVigente = validarDisenoAprobado(listarCarpetasAgentes());
     if (disenoVigente.aprobado && Array.isArray(disenoVigente.diferimientos)) {
         const diferido = disenoVigente.diferimientos.find(d => d.subgate === agentId);
         if (diferido) {
-            return { aplica: true, aprobado: true, diferido: true, razon: diferido.razon };
+            const mandato = diferimientoEnMandato(diferido, relevantes);
+            if (mandato.valido) {
+                return { aplica: true, aprobado: true, diferido: true, razon: diferido.razon, citadas: mandato.citadas };
+            }
+            registrarTelemetria({ tipo: 'diferimiento_rechazado', subsistema: agentId, resultado: 'ignorado', razon: String(diferido.razon).slice(0, 300), archivos_del_mandato: relevantes });
         }
     }
     if (!fs.existsSync(cfg.veredictoPath)) {
@@ -2553,7 +2573,7 @@ if (require.main === module && !process.argv.includes('--sondear-proveedores')) 
 }
 
 module.exports = {
-    hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear, evidenciaE2E,
+    hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear, evidenciaE2E, diferimientoEnMandato,
     SUBGATES, archivosRelevantesPara, validarSubgate,
     descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
     escanearSecretos, verificarEnvExample, verificarDependencias, ejecutarChequeosEstaticos,
