@@ -879,14 +879,62 @@ test('FinOps: el razonamiento del modelo cuenta como tokens de salida en la esti
     assert.equal(u.completion_tokens, Math.ceil(341 / P.CARACTERES_POR_TOKEN_DEFAULT));
 });
 
-test('ADR-0003: NIM gratuito prohibido con NODE_ENV=production (primario y eslabones); Anthropic sigue permitido', async () => {
-    const prod = { NVIDIA_API_KEY: KEY, NODE_ENV: 'production' };
-    assert.throws(() => P.resolverConfig(prod), (e) => e.codigo === 'nim_prohibido_en_produccion' && e.categoria === 'config');
-    assert.throws(() => P.resolverConfig({ ...prod, NODE_ENV: ' Production ' }), (e) => e.codigo === 'nim_prohibido_en_produccion');
-    const ant = P.resolverConfig({ ...prod, GATE_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: KEY_ANT });
-    assert.throws(() => P.resolverCadena({ ...prod, GATE_PROVIDER: 'anthropic', GATE_FALLBACK_CHAIN: 'nim:org/modelo-b' }, ant), (e) => e.codigo === 'nim_prohibido_en_produccion');
-    const f = fetchSecuencia([respuesta(200, OK_BODY)]);
-    await assert.rejects(P.llamarModelo(MSG, { env: prod, fetchImpl: f, breakerPath: breakerTmp() }), (e) => e.codigo === 'nim_prohibido_en_produccion');
-    assert.equal(f.llamadas.length, 0, 'ninguna llamada a NIM en producción');
-    assert.equal(P.resolverConfig({ NVIDIA_API_KEY: KEY, NODE_ENV: 'development' }).proveedor, 'nim');
+
+// ---------------------------------------------------------------------------
+// Enrutamiento por aptitud para la aplicación (orden del dueño 2026-10-04):
+// perfil de modelos NIM por tarea, Anthropic al final solo si hay key.
+// ---------------------------------------------------------------------------
+
+test('tarea: NIM primero por aptitud y Anthropic al final como respaldo de pago solo si hay su key', () => {
+    const conAmbas = P.configuracionPorTarea('razonamiento', { NVIDIA_API_KEY: KEY, ANTHROPIC_API_KEY: KEY_ANT });
+    assert.equal(conAmbas.GATE_PROVIDER, 'nim');
+    assert.equal(conAmbas.GATE_MODEL, P.PERFILES_TAREA.razonamiento[0]);
+    assert.equal(conAmbas.GATE_FALLBACK_CHAIN, [...P.PERFILES_TAREA.razonamiento.slice(1).map(m => `nim:${m}`), 'anthropic'].join(','));
+
+    const soloNim = P.configuracionPorTarea('rapido', { NVIDIA_API_KEY: KEY });
+    assert.equal(soloNim.GATE_MODEL, P.PERFILES_TAREA.rapido[0]);
+    assert.ok(!soloNim.GATE_FALLBACK_CHAIN.includes('anthropic'), 'sin key de pago no hay respaldo de pago');
+
+    const soloPago = P.configuracionPorTarea('razonamiento', { ANTHROPIC_API_KEY: KEY_ANT });
+    assert.equal(soloPago.GATE_PROVIDER, 'anthropic');
+    assert.equal(soloPago.GATE_FALLBACK_CHAIN, 'none');
+
+    assert.throws(() => P.configuracionPorTarea('razonamiento', {}), (e) => e.codigo === 'sin_proveedor_ia' && e.categoria === 'config');
+    assert.throws(() => P.configuracionPorTarea('poesia', { NVIDIA_API_KEY: KEY }), (e) => e.codigo === 'tarea_desconocida');
+});
+
+test('tarea: LLM_PERFIL_<TAREA> reemplaza el orden; un id inválido es bloqueo duro', () => {
+    assert.deepEqual(P.resolverPerfil('rapido', { LLM_PERFIL_RAPIDO: 'org/x, org/y' }), ['org/x', 'org/y']);
+    assert.throws(() => P.resolverPerfil('rapido', { LLM_PERFIL_RAPIDO: 'sin-barra' }), (e) => e.codigo === 'perfil_modelo_invalido');
+});
+
+test('tarea: NIM se usa también con NODE_ENV=production (decisión del dueño, ADR-0003 enmendado)', () => {
+    assert.equal(P.resolverConfig({ NVIDIA_API_KEY: KEY, NODE_ENV: 'production' }).proveedor, 'nim');
+});
+
+test('tarea: llamarPorTarea conmuta dentro del perfil y termina en Anthropic si todo NIM cae', async () => {
+    const original = globalThis.fetch;
+    const ant = [];
+    globalThis.fetch = async (url) => {
+        ant.push(String(url));
+        return new Response(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-4-6', content: [{ type: 'text', text: 'respaldo' }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 3, output_tokens: 2 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    try {
+        const env = { NVIDIA_API_KEY: KEY, ANTHROPIC_API_KEY: KEY_ANT, LLM_PERFIL_RAPIDO: 'org/a,org/b' };
+        const nimCaido = nimPorModelo({ 'org/a': 503, 'org/b': 503 });
+        const r = await P.llamarPorTarea(MSG, { tarea: 'rapido', env, fetchImpl: nimCaido, breakerPath: breakerTmp(), sleep: sinEspera });
+        assert.deepEqual(nimCaido.llamadas, ['org/a', 'org/b']);
+        assert.equal(r.proveedor, 'anthropic');
+        assert.equal(r.texto, 'respaldo');
+        assert.equal(r.costo.estimado, false);
+        assert.ok(r.costo.cop > 0, 'el respaldo de pago sí cuesta');
+
+        const nimOk = nimPorModelo({ 'org/a': 'ok' });
+        const r2 = await P.llamarPorTarea(MSG, { tarea: 'rapido', env, fetchImpl: nimOk, breakerPath: breakerTmp(), sleep: sinEspera });
+        assert.equal(r2.modelo, 'org/a');
+        assert.equal(r2.costo.cop, 0);
+        assert.equal(ant.length, 1, 'con NIM sano no se toca el respaldo de pago');
+    } finally {
+        globalThis.fetch = original;
+    }
 });

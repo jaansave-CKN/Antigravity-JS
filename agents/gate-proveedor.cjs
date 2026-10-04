@@ -305,13 +305,10 @@ function resolverConfig(env = process.env) {
     if (proveedor !== 'nim') {
         throw new ErrorProveedor({ codigo: 'proveedor_desconocido', categoria: 'config', detalle: `GATE_PROVIDER="${proveedor}" no soportado (nim | anthropic).` });
     }
-    // ADR-0003 (decisión del dueño 2026-10-04, Opción A): los endpoints
-    // gratuitos de NVIDIA NIM son de desarrollo y pruebas; producción exige
-    // licencia NVIDIA AI Enterprise. Con NODE_ENV=production (Render) NIM se
-    // rechaza siempre, también como eslabón de la cadena.
-    if (String(env.NODE_ENV || '').trim().toLowerCase() === 'production') {
-        throw new ErrorProveedor({ codigo: 'nim_prohibido_en_produccion', categoria: 'config', detalle: 'NVIDIA NIM (endpoints gratuitos) no se usa con NODE_ENV=production: requiere licencia NVIDIA AI Enterprise (ADR-0003) — bloqueo duro.' });
-    }
+    // ADR-0003 enmendado (decisión del dueño 2026-10-04, segunda directiva):
+    // NIM se usa en cualquier entorno, incluida producción, siempre que haya
+    // NVIDIA_API_KEY. Riesgo aceptado por el dueño y registrado en el ADR: los
+    // términos de NVIDIA reservan los endpoints gratuitos a desarrollo/pruebas.
     const baseUrl = (env.GATE_NIM_BASE_URL || NIM_BASE_URL_OFICIAL).trim().replace(/\/+$/, '');
     if (baseUrl !== NIM_BASE_URL_OFICIAL) {
         throw new ErrorProveedor({ codigo: 'base_url_no_oficial', categoria: 'config', detalle: `GATE_NIM_BASE_URL apunta a "${baseUrl}", no a ${NIM_BASE_URL_OFICIAL} — bloqueo duro.` });
@@ -788,6 +785,59 @@ async function llamarModelo(mensaje, opciones = {}) {
     throw new ErrorProveedor({ codigo: 'cadena_vacia', categoria: 'config', detalle: 'Sin candidatos.' });
 }
 
+// --- Enrutamiento por aptitud para la aplicación (orden del dueño 2026-10-04) --
+// Cada tarea tiene su cadena ordenada de modelos NIM; el primero que responde
+// gana y los demás son conmutación (<15 s de primer byte por eslabón).
+// Orden por aptitud y latencia medida en la sonda del 2026-10-04:
+//  - razonamiento: síntesis con criterio sobre contexto largo (M1).
+//  - rapido: respuestas cortas de baja latencia (plan de búsquedas del M1,
+//    justificación de 120 palabras del AGT-052, ping de salud).
+// LLM_PERFIL_<TAREA> (lista de ids NIM separados por coma) reemplaza el orden.
+// Anthropic entra al final como respaldo de pago solo si hay ANTHROPIC_API_KEY.
+const PERFILES_TAREA = Object.freeze({
+    razonamiento: Object.freeze(['moonshotai/kimi-k3', 'nvidia/nemotron-3-ultra-550b-a55b', 'z-ai/glm-5.3', 'deepseek-ai/deepseek-v4.1-flash']),
+    rapido: Object.freeze(['nvidia/nemotron-3-super-120b-a12b', 'moonshotai/kimi-k3', 'nvidia/nemotron-3-ultra-550b-a55b']),
+});
+
+function resolverPerfil(tarea, env = process.env) {
+    if (!PERFILES_TAREA[tarea]) {
+        throw new ErrorProveedor({ codigo: 'tarea_desconocida', categoria: 'config', detalle: `Tarea "${String(tarea).slice(0, 40)}" sin perfil (${Object.keys(PERFILES_TAREA).join(' | ')}).` });
+    }
+    const crudo = String(env[`LLM_PERFIL_${tarea.toUpperCase()}`] ?? '').trim();
+    if (!crudo) return [...PERFILES_TAREA[tarea]];
+    const modelos = crudo.split(',').map(s => s.trim()).filter(Boolean);
+    for (const m of modelos) {
+        if (!MODELO_NIM_VALIDO.test(m)) {
+            throw new ErrorProveedor({ codigo: 'perfil_modelo_invalido', categoria: 'config', detalle: `LLM_PERFIL_${tarea.toUpperCase()}: "${m.slice(0, 80)}" no es un id NIM válido — bloqueo duro.` });
+        }
+    }
+    return modelos;
+}
+
+// Traduce perfil + keys presentes a la configuración de llamarModelo: el
+// primer eslabón disponible es el primario y el resto la cadena.
+function configuracionPorTarea(tarea, env = process.env) {
+    const entradas = [
+        ...(String(env.NVIDIA_API_KEY ?? '').trim() ? resolverPerfil(tarea, env).map(m => `nim:${m}`) : []),
+        ...(String(env.ANTHROPIC_API_KEY ?? '').trim() ? ['anthropic'] : []),
+    ].slice(0, MAX_ESLABONES + 1);
+    if (entradas.length === 0) {
+        throw new ErrorProveedor({ codigo: 'sin_proveedor_ia', categoria: 'config', detalle: 'Ni NVIDIA_API_KEY ni ANTHROPIC_API_KEY configuradas — bloqueo duro.' });
+    }
+    const [primera, ...resto] = entradas;
+    const primario = primera === 'anthropic'
+        ? { GATE_PROVIDER: 'anthropic' }
+        : { GATE_PROVIDER: 'nim', GATE_MODEL: primera.slice(4) };
+    return { ...env, ...primario, GATE_FALLBACK_CHAIN: resto.length ? resto.join(',') : 'none' };
+}
+
+// Puerta de la aplicación (M1, AGT-052, health): misma contención, breakers y
+// FinOps que el gate, eligiendo modelos por aptitud de la tarea.
+async function llamarPorTarea(mensaje, opciones = {}) {
+    const { tarea, env = process.env, ...resto } = opciones;
+    return llamarModelo(mensaje, { ...resto, env: configuracionPorTarea(tarea, env) });
+}
+
 // Sonda de disponibilidad: un ping mínimo a cada modelo de la cadena, en
 // secuencia (respeta el límite de 40 RPM del catálogo gratuito). No toca los
 // breakers. "vivo" = el modelo respondió aunque el presupuesto mínimo no
@@ -910,4 +960,5 @@ module.exports = {
     resolverCadena, resolverPlazoFailover, rutaBreakerModelo, sondearModelos, etiquetaModelo,
     CADENA_NIM_DEFAULT, FAILOVER_PRIMER_BYTE_DEFAULT_MS,
     estimarUso, costoEnCOP, CARACTERES_POR_TOKEN_DEFAULT, TRM_COP_USD_DEFAULT,
+    PERFILES_TAREA, resolverPerfil, configuracionPorTarea, llamarPorTarea,
 };

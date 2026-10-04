@@ -7,7 +7,6 @@ import { WebSocketServer } from 'ws';
 import { fileURLToPath }   from 'url';
 import fs          from 'fs';
 import dotenv      from 'dotenv';
-import Anthropic   from '@anthropic-ai/sdk';
 
 // ── Módulos internos Antigravity OS ───────────────────────────────────────────
 import { BrevoEmailAdapter }         from './src/modules/communications/infrastructure/BrevoEmailAdapter.js';
@@ -24,6 +23,7 @@ import { validateBody, schemas }     from './src/shared/infrastructure/validatio
 import { m1Router, runM1Pipeline }   from './src/modules/radar/m1Pipeline.js';
 import { RadarItemSchema, validarHandoff } from './src/shared/contracts/Handoffs.js';
 import { dlq }                       from './src/shared/infrastructure/DeadLetterQueue.js';
+import { llamarIA, usoLangfuse, proveedoresConfigurados } from './src/shared/infrastructure/LlmGateway.js';
 import { initSentry, Sentry, sentryHabilitado } from './src/shared/infrastructure/SentryMonitoring.js';
 import { initLangfuse, trackGeneration }     from './src/shared/infrastructure/LangfuseMonitoring.js';
 import './scripts/generar_reporte.cjs'; // regenera public/estado_antigravity.json con inventario real de agents/ al arrancar + cada 10 min
@@ -33,23 +33,13 @@ initSentry();
 initLangfuse();
 
 // ── Configuración central ─────────────────────────────────────────────────────
-// Agnosticismo de modelo: un solo punto de verdad vía env var — al salir una
-// versión superior de Claude, se escala cambiando PRIMARY_AI_MODEL en .env/Render,
-// sin tocar código. Fallback = el modelo verificado en producción hoy (2026-08-07).
-const CLAUDE_MODEL = process.env.PRIMARY_AI_MODEL || 'claude-sonnet-4-6';
+// IA por aptitud (2026-10-04, ADR-0003 enmendado): toda llamada pasa por
+// LlmGateway — cadena NIM por tarea, Anthropic (PRIMARY_AI_MODEL) de respaldo.
 const PORT         = process.env.PORT || 5000;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const DIST_DIR   = path.join(__dirname, 'dist');
-
-// ── Cliente Anthropic (singleton) ─────────────────────────────────────────────
-let _anthropic = null;
-function getAnthropic() {
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY no configurada.');
-  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  return _anthropic;
-}
 
 // ── Datos iniciales convocatorias (en-memoria, reemplazar con DB cuando esté lista) ──
 const CONVOCATORIAS_SEED = [
@@ -203,50 +193,43 @@ app.get('/api/convocatorias', (_req, res) => {
   res.json(radarData);
 });
 
-// IA Central — Claude proxy (formato OpenAI-compatible)
+// IA Central — proxy de texto (formato OpenAI-compatible). Desde 2026-10-04
+// pasa por LlmGateway (tarea "rapido": NIM por aptitud, Anthropic de
+// respaldo). Lo usa AGT-052 (callAI). Un turno: system + transcripción.
 app.post('/api/chat', validateBody(schemas.chat), async (req, res) => {
+  const t0 = Date.now();
   try {
     const { messages, max_tokens = 4096 } = req.body;
     const quota = await checkQuota(req.user?.uid ?? 'anonymous');
     if (!quota.allowed) {
       return res.status(429).json({ error: 'Cuota diaria de consultas a IA agotada.', resetAt: quota.resetAt });
     }
-    const client       = getAnthropic();
-    const systemMsg    = messages.find(m => m.role === 'system');
-    const chatMessages = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content }));
-    const t0           = Date.now();
-    const response     = await client.messages.create({
-      model: CLAUDE_MODEL, max_tokens,
-      ...(systemMsg ? { system: systemMsg.content } : {}),
-      messages: chatMessages,
-    });
-    const reply = response.content[0]?.text ?? '';
-    AuditLogger.log('CLAUDE_CHAT_SUCCESS', { uid: req.user?.uid ?? null, model: CLAUDE_MODEL, tokens: response.usage?.input_tokens });
+    const system   = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
+    const turnos   = messages.filter(m => m.role !== 'system');
+    const user     = turnos.length === 1 ? turnos[0].content
+      : turnos.map(m => `${m.role === 'assistant' ? 'Asistente' : 'Usuario'}: ${m.content}`).join('\n\n');
+    const r        = await llamarIA({ system, user, max_tokens }, { tarea: 'rapido', deadlineMs: 60_000 });
+    AuditLogger.log('IA_CHAT_SUCCESS', { uid: req.user?.uid ?? null, proveedor: r.proveedor, model: r.modelo, tokens: r.uso?.prompt_tokens ?? null, cop: r.costo?.cop ?? null });
     trackGeneration({
       traceId: crypto.randomUUID(), name: 'api-chat', userId: req.user?.uid,
-      model: CLAUDE_MODEL, input: chatMessages, output: reply,
-      usage: response.usage, latencyMs: Date.now() - t0,
+      model: r.modelo, input: turnos, output: r.texto,
+      usage: usoLangfuse(r), latencyMs: Date.now() - t0,
+      metadata: { proveedor: r.proveedor, costo: r.costo, failover: r.failover },
     });
     res.json({
-      choices: [{ message: { role: 'assistant', content: reply }, finish_reason: response.stop_reason }],
-      usage:   response.usage,
-      model:   CLAUDE_MODEL,
+      choices: [{ message: { role: 'assistant', content: r.texto }, finish_reason: r.fin }],
+      usage:   r.uso,
+      model:   `${r.proveedor}:${r.modelo}`,
     });
   } catch (err) {
-    // uid agregado 2026-08-14 (PROTOCOLO TITÁN ∞, segunda ronda): ninguno de
-    // los 2 eventos de este endpoint incluía uid pese a que req.user ya está
-    // poblado en el mismo scope (ver checkQuota 2 líneas arriba) — sin esto,
-    // el ledger de auditoría no permitía atribuir consumo de IA a un usuario.
-    AuditLogger.log('CLAUDE_CHAT_ERROR', { uid: req.user?.uid ?? null, error: err.message });
-    trackGeneration({ traceId: crypto.randomUUID(), name: 'api-chat', userId: req.user?.uid, model: CLAUDE_MODEL, error: err });
-    // Detección de "sin saldo" agregada 2026-08-16 (mismo patrón que pingClaude(),
-    // ver línea ~276): sin esto, el mensaje crudo de facturación de Anthropic
-    // ("Your credit balance is too low...") llegaba tal cual al usuario final —
-    // interno, críptico y filtra detalle de la cuenta. El log de auditoría de
-    // arriba conserva err.message completo; solo la respuesta HTTP se limpia.
-    const sinSaldo = err?.status === 400 && /credit balance/i.test(err?.message || '');
-    if (sinSaldo) {
-      return res.status(503).json({ error: 'Módulo de IA temporalmente en mantenimiento por actualización de cuota. Intenta de nuevo más tarde.' });
+    // uid en ambos eventos (PROTOCOLO TITÁN ∞): el ledger de auditoría debe
+    // poder atribuir consumo de IA a un usuario.
+    AuditLogger.log('IA_CHAT_ERROR', { uid: req.user?.uid ?? null, codigo: err?.codigo ?? null, error: err.message });
+    trackGeneration({ traceId: crypto.randomUUID(), name: 'api-chat', userId: req.user?.uid, model: null, error: err });
+    // Sin proveedor disponible (cuota, caída o sin keys): mensaje neutro, sin
+    // filtrar detalle de cuentas al usuario final; el log conserva el detalle.
+    if (['cuota', 'caida', 'config'].includes(err?.categoria)) {
+      return res.status(503).json({ error: 'Módulo de IA temporalmente no disponible. Intenta de nuevo más tarde.' });
     }
     res.status(500).json({ error: err.message });
   }
@@ -337,34 +320,32 @@ app.delete('/api/session/:sessionId', async (req, res) => {
   }
 });
 
-// Ping real a Claude, cacheado — GET /api/health es público (sin auth, ver
+// Ping real a la IA, cacheado — GET /api/health es público (sin auth, ver
 // PUBLIC_API_PREFIXES) y es el healthCheckPath de Render (render.yaml), así que
-// se sondea constantemente. Sin caché, cada sondeo gastaría saldo real de la
-// cuenta de Anthropic solo por monitoreo. Antes este check solo confirmaba que
-// ANTHROPIC_API_KEY existiera como variable, nunca que la API respondiera — así
-// fue como el saldo agotado (2026-08-07) pasó "healthy" durante horas sin que
-// nada lo detectara (ver docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §1).
+// se sondea constantemente. Sin caché, cada sondeo consumiría cuota real. Desde
+// 2026-10-04 el ping recorre la misma cadena por aptitud que la app (tarea
+// "rapido"): sano = algún eslabón respondió; el label dice cuál. Antes de 2026-08
+// solo se comprobaba que la key existiera — así el saldo agotado pasó "healthy"
+// durante horas (docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §1).
 const HEALTH_PING_TTL_SEC = 120;
-const HEALTH_PING_KEY     = 'health:claude_ping';
+const HEALTH_PING_KEY     = 'health:ia_ping';
 
-async function pingClaude() {
+async function pingIA() {
   const cached = await cacheGet(HEALTH_PING_KEY);
   if (cached) return cached;
 
   let result;
-  if (!process.env.ANTHROPIC_API_KEY) {
-    result = { ok: false, label: '⚠️  ANTHROPIC_API_KEY ausente' };
+  const ia = proveedoresConfigurados();
+  if (!ia.nim && !ia.anthropic) {
+    result = { ok: false, label: '⚠️  sin proveedor de IA (NVIDIA_API_KEY / ANTHROPIC_API_KEY ausentes)', modelo: null };
   } else {
     try {
-      await getAnthropic().messages.create({
-        model: CLAUDE_MODEL, max_tokens: 1,
-        messages: [{ role: 'user', content: 'ping' }],
-      });
-      result = { ok: true, label: '✅ operativo (ping real)' };
+      const r = await llamarIA({ system: 'Responde exactamente con la palabra OK.', user: 'ping', max_tokens: 256 }, { tarea: 'rapido', deadlineMs: 30_000 });
+      result = { ok: true, label: `✅ operativo (ping real · ${r.proveedor}:${r.modelo})`, modelo: `${r.proveedor}:${r.modelo}` };
     } catch (err) {
-      const sinSaldo = err?.status === 400 && /credit balance/i.test(err?.message || '');
-      result = { ok: false, label: sinSaldo ? '🔴 saldo de cuenta agotado' : `🔴 fallo real: ${err.message}` };
-      console.error('[Health] Ping real a Claude falló:', err.message);
+      const etiqueta = err?.categoria === 'cuota' ? '🔴 sin saldo o cuota agotada' : `🔴 fallo real: ${err?.codigo || err.message}`;
+      result = { ok: false, label: etiqueta, modelo: null };
+      console.error('[Health] Ping real a la IA falló:', err.message);
     }
   }
   await cacheSet(HEALTH_PING_KEY, result, HEALTH_PING_TTL_SEC);
@@ -389,17 +370,20 @@ app.get('/api/health', async (_req, res) => {
     } catch { dbPing = false; }
   }
 
-  const claudePing = await pingClaude();
-  const status     = claudePing.ok && tavilyOk && dbPing ? 'healthy' : 'degradado';
+  const iaPing     = await pingIA();
+  const status     = iaPing.ok && tavilyOk && dbPing ? 'healthy' : 'degradado';
   // 503 solo cuando el ping real (no solo la config) falló — señal fuerte de que
-  // el motor pago está genuinamente roto, no solo que falte una pieza opcional.
-  const httpStatus = status === 'healthy' ? 200 : (claudePing.ok ? 206 : 503);
+  // ningún proveedor de IA responde, no solo que falte una pieza opcional.
+  const httpStatus = status === 'healthy' ? 200 : (iaPing.ok ? 206 : 503);
 
   res.status(httpStatus).json({
     status,
     timestamp:   new Date().toISOString(),
     services: {
-      claude:      claudePing.label,
+      ia:          iaPing.label,
+      // Alias histórico: tests/e2e/health.spec.js y monitores externos leen
+      // services.claude. Mismo valor que services.ia.
+      claude:      iaPing.label,
       tavily:      tavilyOk ? '✅ configurado' : '⚠️  TAVILY_API_KEY ausente',
       supabase:    dbPing   ? '✅ Supabase OK' : (sbUrl ? '⚠️  ping falló' : '⚠️  SUPABASE_URL ausente'),
       jwt:         jwtOk    ? '✅ configurado' : '⚠️  JWT_SECRET ausente',
@@ -576,15 +560,16 @@ setInterval(refreshRadarLive, RADAR_CRON_HOURS * 60 * 60 * 1000);
 
 // ── Arranque ──────────────────────────────────────────────────────────────────
 httpServer.listen(PORT, () => {
-  const claudeOk = !!process.env.ANTHROPIC_API_KEY;
+  const ia       = proveedoresConfigurados();
+  const claudeOk = ia.anthropic;
   const dbOk     = !!process.env.DATABASE_URL;
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('  Antigravity OS — Backend Express v9.0');
-  console.log('  Motor de IA: Claude / Anthropic (soberanía total)');
+  console.log('  Motor de IA: NIM por aptitud · Anthropic de respaldo (LlmGateway)');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`  Puerto      : http://localhost:${PORT}`);
-  console.log(`  Modelo      : ${CLAUDE_MODEL}`);
-  console.log(`  Claude API  : ${claudeOk ? '✅ Configurada' : '⚠️  ANTHROPIC_API_KEY ausente'}`);
+  console.log(`  NVIDIA NIM  : ${ia.nim ? '✅ Configurada' : '⚠️  NVIDIA_API_KEY ausente'}`);
+  console.log(`  Anthropic   : ${claudeOk ? '✅ Configurada (respaldo)' : '⚠️  ANTHROPIC_API_KEY ausente'}`);
   console.log(`  Database    : ${dbOk     ? '✅ Definida'    : '⚠️  Sin credenciales PostgreSQL'}`);
   console.log(`  Firebase    : ✅ Inicializado`);
   console.log(`  WebSocket   : ✅ ws://localhost:${PORT}/ws/live_radar`);

@@ -1,6 +1,6 @@
 # ADR-0003 — Proveedores de IA en producción: solo API de pago con términos comerciales
 
-- **Estado:** Aceptado (2026-10-04)
+- **Estado:** Aceptado (2026-10-04) — **§2 reemplazado el mismo día por la enmienda de §6** (segunda directiva del dueño). §2-§5 se conservan como registro de la decisión previa.
 - **Decisor:** Jairo Antonio Salinas Velasco (directiva de cierre de la Acción 1, Opción A)
 - **Alcance:** runtime de RadFor-360 en producción (`server.js`, `src/modules/radar/m1Pipeline.js`, `src/orchestrator-engine.js`), `render.yaml`, `agents/gate-proveedor.cjs`.
 
@@ -50,3 +50,26 @@ curl -s "$UPSTASH_REDIS_REST_URL/lrange/dlq:cuarentena/0/9" -H "Authorization: B
 - Producción tiene costo variable en COP (tabla §3) y depende del saldo de Anthropic; el health check lo detecta (`🔴 saldo de cuenta agotado`, HTTP 503).
 - Mientras el saldo no se recargue, un despliegue nuevo puede fallar el health check de Render y dejar corriendo la versión anterior.
 - El gate de desarrollo conserva su costo cero sobre NIM (ADR-0002).
+
+## 6. Enmienda 2026-10-04 (segunda directiva del dueño) — enrutamiento por aptitud sobre NIM en producción
+
+**Decisión vigente.** El dueño (Jairo Antonio Salinas Velasco) revocó la Opción A y ordenó operar producción sobre el catálogo NIM de build.nvidia.com, con selección de modelo por aptitud y respaldo de pago.
+
+- **Riesgo aceptado explícitamente por el dueño:** los términos publicados por NVIDIA (cita en §1.2) reservan los endpoints gratuitos a desarrollo y pruebas; para producción exigen licencia NVIDIA AI Enterprise. El incumplimiento puede derivar en suspensión de la key. La mitigación es técnica, no contractual: el respaldo de Anthropic mantiene el servicio si NIM se corta.
+- **Límite de tasa:** el catálogo gratuito limita por key (del orden de 40 solicitudes por minuto). Producción debe usar una `NVIDIA_API_KEY` distinta a la del gate de desarrollo. No hay "resiliencia total" frente a picos que superen ese límite: el exceso conmuta a Anthropic si su key está configurada y tiene saldo.
+- **Implementación:**
+  - `agents/gate-proveedor.cjs`: `PERFILES_TAREA` (`razonamiento`: kimi-k3 → nemotron-ultra → glm-5.3 → deepseek; `rapido`: nemotron-super → kimi-k3 → nemotron-ultra; orden por la sonda del 2026-10-04), `llamarPorTarea()`, Anthropic al final solo si existe `ANTHROPIC_API_KEY`. Se retiró el bloqueo por `NODE_ENV=production`.
+  - `src/shared/infrastructure/LlmGateway.js`: puerta única de IA de la aplicación; tope de primer byte de 15 s en todos los eslabones; breakers propios en `logs/llm/`.
+  - M1 (`src/modules/radar/m1Pipeline.js`): plan (tarea `rapido`, JSON validado por `TavilyToolInputSchema`) → Tavily → síntesis (tarea `razonamiento`, contrato `validarSalidaM1`). Reemplaza el bucle de tool-calling: no depende de que cada modelo gratuito soporte herramientas, y fija las llamadas en 1 plan + 1 síntesis.
+  - `/api/chat` (AGT-052) y `/api/health` pasan por el gateway (tarea `rapido`).
+- **Costo:** COP 0 con NIM (sin licencia); con respaldo de Anthropic, la tarifa de §3 aplica solo a las llamadas que conmutan.
+
+**Checklist de producción vigente (reemplaza §4):**
+
+| # | Requisito | Responsable | Evidencia esperada |
+|---|---|---|---|
+| 1 | Crear o vincular el servicio de Render desde `render.yaml` (Blueprint), rama `master` | Dueño (panel de Render) | Servicio `radar-formulador-360` desplegando `origin/master` |
+| 2 | Cargar `NVIDIA_API_KEY` (key de producción, distinta a la del gate), `TAVILY_API_KEY`, Supabase, JWT, Firebase, Upstash y demás `sync: false` | Dueño (panel de Render) | Despliegue sin errores de arranque; log `NVIDIA NIM : ✅ Configurada` |
+| 3 | (Opcional) `ANTHROPIC_API_KEY` con saldo como respaldo | Dueño (facturación) | Log `Anthropic : ✅ Configurada (respaldo)` |
+| 4 | `/api/health` en verde | Verificación | `HTTP 200`, `"status": "healthy"`, `services.ia: "✅ operativo (ping real · nim:…)"` |
+| 5 | DLQ operativa en Upstash | Verificación | `LLEN dlq:cuarentena` responde |

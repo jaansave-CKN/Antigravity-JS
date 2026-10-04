@@ -17,10 +17,14 @@ services:
         value: 10000
 
       # ── IA — requeridos ────────────────────────────────────────────────────
-      # ADR-0003 (Opción A): producción solo con proveedores de pago con
-      # términos comerciales. NVIDIA_API_KEY NO se declara aquí: los endpoints
-      # gratuitos de NIM requieren licencia AI Enterprise para producción, y el
-      # código los rechaza con NODE_ENV=production.
+      # ADR-0003 enmendado (2026-10-04): IA por aptitud sobre el catálogo NIM
+      # (LlmGateway) con Anthropic como respaldo de pago. Riesgo aceptado por el
+      # dueño: los términos de NVIDIA reservan los endpoints gratuitos a
+      # desarrollo/pruebas. Usar una key de NVIDIA distinta a la del gate de
+      # desarrollo: el límite de tasa es por key.
+      - key: NVIDIA_API_KEY
+        sync: false
+      # Respaldo de pago (opcional): sin esta key la app depende solo de NIM.
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: PRIMARY_AI_MODEL
