@@ -15,7 +15,7 @@ const os = require('os');
 const path = require('path');
 
 const {
-  hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear,
+  hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear, evidenciaE2E,
   SUBGATES, archivosRelevantesPara, validarSubgate,
   descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
   escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe,
@@ -876,4 +876,26 @@ test('validarDisenoAprobado: soft_fail_api con firma vigente aprueba con diferim
     if (original === null) fs.rmSync(aprobacionPath, { force: true });
     else fs.writeFileSync(aprobacionPath, original, 'utf8');
   }
+});
+
+test('evidenciaE2E (010): adjunta la última corrida real de Playwright y si es posterior a los specs staged; nunca fabrica un pass', () => {
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lastrun-'));
+  const ruta = path.join(dir, '.last-run.json');
+  const spec = ['tests/e2e/formulario-fase1.spec.js'];
+  const evidencia = (texto) => JSON.parse(texto.match(/\.last-run\.json\): (\{.*\})/)[1]);
+
+  fs.writeFileSync(ruta, JSON.stringify({ status: 'passed', failedTests: [] }));
+  const reciente = evidencia(evidenciaE2E(spec, ruta));
+  assert.equal(reciente.status, 'passed');
+  assert.equal(reciente.posterior_a_specs_staged, true);
+
+  fs.utimesSync(ruta, new Date('2020-01-01'), new Date('2020-01-01'));
+  assert.equal(evidencia(evidenciaE2E(spec, ruta)).posterior_a_specs_staged, false, 'corrida anterior al cambio no cuenta');
+
+  fs.writeFileSync(ruta, JSON.stringify({ status: 'failed', failedTests: ['x'] }));
+  assert.equal(evidencia(evidenciaE2E(spec, ruta)).status, 'failed');
+
+  assert.equal(evidencia(evidenciaE2E(spec, path.join(dir, 'no-existe.json'))).status, 'sin_evidencia');
+  assert.match(evidenciaE2E(spec, ruta), /"pass" solo si status es "passed" y posterior_a_specs_staged es true/);
 });

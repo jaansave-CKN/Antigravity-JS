@@ -1032,6 +1032,38 @@ function validarSubgate(agentId, archivosStaged) {
     return { aplica: true, aprobado: true, origen: veredicto.origen, excepcionManual: origenCheck.excepcionManual || null, softFail: origenCheck.softFail || null };
 }
 
+// Evidencia de ejecución real para 010 (2026-10-04, rechazo real): en modo
+// API el subgate no puede correr Playwright y su contrato exige pass/fail/
+// skip_justificado — sin evidencia respondía un valor fuera de contrato. Se le
+// entrega el resultado de la última corrida real (test-results/.last-run.json,
+// escrito por Playwright) y si es POSTERIOR a la última modificación de cada
+// spec staged. El archivo no dice qué specs corrieron: el modelo lo sabe y lo
+// pondera; nunca se fabrica un "pass".
+const LAST_RUN_PLAYWRIGHT = path.join(dirRoot, 'test-results', '.last-run.json');
+
+function evidenciaE2E(relevantes, rutaLastRun = LAST_RUN_PLAYWRIGHT) {
+    let evidencia;
+    try {
+        const crudo = JSON.parse(fs.readFileSync(rutaLastRun, 'utf8'));
+        const generadoMs = fs.statSync(rutaLastRun).mtimeMs;
+        const specs = relevantes.filter(f => /^tests\/e2e\/.+\.spec\.[cm]?[jt]s$/.test(f));
+        const posterior = specs.every(f => {
+            try { return fs.statSync(path.join(dirRoot, f)).mtimeMs < generadoMs; } catch { return false; }
+        });
+        evidencia = {
+            status: typeof crudo.status === 'string' ? crudo.status : 'desconocido',
+            failedTests: Array.isArray(crudo.failedTests) ? crudo.failedTests.slice(0, 20) : [],
+            generado: new Date(generadoMs).toISOString(),
+            posterior_a_specs_staged: posterior,
+        };
+    } catch {
+        evidencia = { status: 'sin_evidencia' };
+    }
+    return `\n\nEVIDENCIA DE EJECUCIÓN REAL (Playwright, test-results/.last-run.json): ${JSON.stringify(evidencia)}\n` +
+        `Regla de esta invocación: usa "pass" solo si status es "passed" y posterior_a_specs_staged es true; "fail" si status ` +
+        `es "failed"; en cualquier otro caso "skip_justificado" explicando que falta una corrida real posterior a los cambios.`;
+}
+
 async function pedirVeredictoSubagente(agentId, relevantes) {
     const cfg = SUBGATES[agentId];
     if (!fs.existsSync(cfg.promptPath)) {
@@ -1079,7 +1111,7 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
                     `FORMATO OBLIGATORIO PARA ESTA INVOCACIÓN (prevalece sobre "termina con tu JSON" de tu system prompt): ` +
                     `emite COMO PRIMERA SALIDA tu JSON de veredicto completo, con la forma exacta que exige tu system prompt; ` +
                     `después, como máximo 300 palabras de análisis. Solo el JSON es parseable; si el análisis se corta por ` +
-                    `longitud, la decisión ya quedó registrada.\n\n${diff.slice(0, 60000)}${manifiesto}`,
+                    `longitud, la decisión ya quedó registrada.\n\n${diff.slice(0, 60000)}${manifiesto}${agentId === '010_INGENIERO_QA_AUTOMATIZACION' ? evidenciaE2E(relevantes) : ''}`,
     });
     if (!r.ok) {
         const falloApi = clasificarFalloApi(r.error);
@@ -2521,7 +2553,7 @@ if (require.main === module && !process.argv.includes('--sondear-proveedores')) 
 }
 
 module.exports = {
-    hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear,
+    hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear, evidenciaE2E,
     SUBGATES, archivosRelevantesPara, validarSubgate,
     descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
     escanearSecretos, verificarEnvExample, verificarDependencias, ejecutarChequeosEstaticos,
