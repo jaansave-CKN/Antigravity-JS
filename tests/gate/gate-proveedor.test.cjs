@@ -63,9 +63,9 @@ test('llamarModelo: éxito devuelve texto y uso de tokens, cierra el breaker, en
     const r = await P.llamarModelo(MSG, { env: ENV, fetchImpl: f, breakerPath: bp, sleep: sinEspera });
     assert.match(r.texto, /"aprobado": true/);
     assert.deepEqual(r.uso, { prompt_tokens: 10, completion_tokens: 5 });
-    assert.equal(r.modelo, 'deepseek-ai/deepseek-v4.1-flash');
+    assert.equal(r.modelo, P.GATE_MODEL_DEFAULT);
     assert.equal(f.llamadas[0].url, 'https://integrate.api.nvidia.com/v1/chat/completions');
-    assert.equal(JSON.parse(f.llamadas[0].init.body).model, 'deepseek-ai/deepseek-v4.1-flash');
+    assert.equal(JSON.parse(f.llamadas[0].init.body).model, P.GATE_MODEL_DEFAULT);
     assert.equal(P.leerBreaker(bp).estado, 'cerrado');
 });
 
@@ -692,4 +692,153 @@ test('V2#1: firmado_por registra el proveedor y modelo reales, sin literal "vía
     const fuente = fs.readFileSync(path.join(__dirname, '..', '..', 'agents', 'architecture-gate.cjs'), 'utf8');
     assert.ok(!/vía API Anthropic\)/.test(fuente), 'quedó el literal quemado');
     assert.equal((fuente.match(/firmaEvaluador\(/g) || []).length >= 3, true, 'definición + 2 usos (002 y subgates)');
+});
+
+
+// ---------------------------------------------------------------------------
+// Cadena de conmutación entre modelos (orden del dueño 2026-10-04, enmienda
+// ADR-0002 §2.1): primario → modelos NIM del catálogo → Anthropic solo si se
+// lista. NIM se simula con fetchImpl (por body.model); Anthropic con
+// globalThis.fetch (el SDK lo captura al construir el cliente).
+// ---------------------------------------------------------------------------
+
+const KEY_ANT = 'sk-ant-api03-' + 'a'.repeat(40);
+const CADENA = ['org/modelo-b', 'org/modelo-c'];
+const ENV_CADENA = { NVIDIA_API_KEY: KEY, GATE_MODEL: 'org/modelo-a' };
+
+// Doble NIM por modelo: 'colgado' | 'ok' | código HTTP.
+function nimPorModelo(plan) {
+    const llamadas = [];
+    const f = (url, init) => {
+        const modelo = JSON.parse(init.body).model;
+        llamadas.push(modelo);
+        const accion = plan[modelo] ?? 'colgado';
+        if (accion === 'colgado') {
+            return new Promise((_, rej) => init.signal.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+        }
+        return Promise.resolve(accion === 'ok' ? respuesta(200, OK_BODY) : respuesta(accion, ''));
+    };
+    f.llamadas = llamadas;
+    return f;
+}
+
+test('cadena: sin cadenaPorDefecto ni GATE_FALLBACK_CHAIN no hay conmutación; "none" la apaga explícitamente', () => {
+    const cfg = P.resolverConfig(ENV_CADENA);
+    assert.deepEqual(P.resolverCadena(ENV_CADENA, cfg), []);
+    assert.deepEqual(P.resolverCadena({ ...ENV_CADENA, GATE_FALLBACK_CHAIN: 'none' }, cfg, CADENA), []);
+    assert.deepEqual(P.resolverCadena(ENV_CADENA, cfg, CADENA).map(P.etiquetaModelo), ['nim:org/modelo-b', 'nim:org/modelo-c']);
+});
+
+test('cadena: primario sin primer byte → 1 solo intento contenido y conmuta al siguiente modelo NIM, sin costo', async () => {
+    const bp = breakerTmp();
+    const nim = nimPorModelo({ 'org/modelo-b': 'ok' });
+    const r = await P.llamarModelo(MSG, { env: ENV_CADENA, fetchImpl: nim, breakerPath: bp, sleep: sinEspera, primerByteMs: 30, cadenaPorDefecto: CADENA });
+    assert.deepEqual(nim.llamadas, ['org/modelo-a', 'org/modelo-b'], 'el primario no se reintenta: conmuta');
+    assert.equal(r.modelo, 'org/modelo-b');
+    assert.deepEqual(r.failover, { desde: 'nim:org/modelo-a', hacia: 'nim:org/modelo-b', fallos: ['nim:org/modelo-a=timeout_sin_respuesta'] });
+    assert.equal(P.leerBreaker(bp).fallos_consecutivos, 1, 'la falla queda en el breaker del primario');
+    const cfgB = P.resolverCadena(ENV_CADENA, P.resolverConfig(ENV_CADENA), CADENA)[0];
+    assert.equal(P.leerBreaker(P.rutaBreakerModelo(bp, cfgB)).estado, 'cerrado');
+});
+
+test('cadena: breaker del primario abierto → se salta al instante, sin esperar el plazo de 15 s', async () => {
+    const bp = breakerTmp();
+    P.escribirBreaker(bp, { ...P.BREAKER_DEFAULT, estado: 'abierto', fallos_consecutivos: 3, abierto_desde: new Date().toISOString(), categoria_apertura: 'caida', ultimo_error: { codigo: 'timeout_sin_respuesta', categoria: 'caida', huella_key: P.huellaKey(KEY) } });
+    const nim = nimPorModelo({ 'org/modelo-a': 'ok', 'org/modelo-b': 'ok' });
+    const r = await P.llamarModelo(MSG, { env: ENV_CADENA, fetchImpl: nim, breakerPath: bp, sleep: sinEspera, cadenaPorDefecto: CADENA });
+    assert.deepEqual(nim.llamadas, ['org/modelo-b']);
+    assert.equal(r.failover.fallos[0], 'nim:org/modelo-a=circuito_abierto');
+});
+
+test('cadena: 403 aborta toda la cadena (misma key para todos los NIM: conmutar no lo arregla ni debe ocultarlo)', async () => {
+    const nim = nimPorModelo({ 'org/modelo-a': 403, 'org/modelo-b': 'ok' });
+    await assert.rejects(P.llamarModelo(MSG, { env: ENV_CADENA, fetchImpl: nim, breakerPath: breakerTmp(), sleep: sinEspera, cadenaPorDefecto: CADENA }), (e) => {
+        assert.equal(e.categoria, 'auth');
+        assert.equal(gate.clasificarFalloApi(e), null);
+        return true;
+    });
+    assert.deepEqual(nim.llamadas, ['org/modelo-a']);
+});
+
+test('cadena: modelo retirado (404) o contexto excedido (400) en un eslabón → salta al siguiente', async () => {
+    const nim = nimPorModelo({ 'org/modelo-a': 404, 'org/modelo-b': 400, 'org/modelo-c': 'ok' });
+    const r = await P.llamarModelo(MSG, { env: ENV_CADENA, fetchImpl: nim, breakerPath: breakerTmp(), sleep: sinEspera, cadenaPorDefecto: CADENA });
+    assert.equal(r.modelo, 'org/modelo-c');
+    assert.deepEqual(r.failover.fallos, ['nim:org/modelo-a=http_404_modelo_no_disponible', 'nim:org/modelo-b=http_400']);
+});
+
+test('cadena: todos caídos → error del último con el recorrido completo en el detalle', async () => {
+    const nim = nimPorModelo({ 'org/modelo-a': 503, 'org/modelo-b': 503, 'org/modelo-c': 503 });
+    await assert.rejects(P.llamarModelo(MSG, { env: ENV_CADENA, fetchImpl: nim, breakerPath: breakerTmp(), sleep: sinEspera, cadenaPorDefecto: CADENA }), (e) => {
+        assert.equal(e.codigo, 'http_503');
+        assert.match(e.detalle, /cadena: nim:org\/modelo-a=http_503, nim:org\/modelo-b=http_503, nim:org\/modelo-c=http_503/);
+        return true;
+    });
+    assert.equal(nim.llamadas.filter(m => m === 'org/modelo-c').length, 3, 'solo el último eslabón usa la política normal de reintentos');
+});
+
+test('cadena: Anthropic solo entra si se lista explícitamente, y al final', async () => {
+    const original = globalThis.fetch;
+    const ant = [];
+    globalThis.fetch = async (url) => {
+        ant.push(String(url));
+        return new Response(JSON.stringify({ id: 'msg_t', type: 'message', role: 'assistant', model: 'claude-sonnet-4-6', content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    try {
+        const env = { ...ENV_CADENA, ANTHROPIC_API_KEY: KEY_ANT, GATE_FALLBACK_CHAIN: 'nim:org/modelo-b,anthropic' };
+        const r = await P.llamarModelo(MSG, { env, fetchImpl: nimPorModelo({}), breakerPath: breakerTmp(), sleep: sinEspera, primerByteMs: 30, cadenaPorDefecto: CADENA });
+        assert.equal(r.proveedor, 'anthropic');
+        assert.equal(r.failover.hacia, 'anthropic:claude-sonnet-4-6');
+        assert.equal(ant.length, 1);
+        await P.llamarModelo(MSG, { env: ENV_CADENA, fetchImpl: nimPorModelo({ 'org/modelo-c': 'ok' }), breakerPath: breakerTmp(), sleep: sinEspera, primerByteMs: 30, cadenaPorDefecto: CADENA });
+        assert.equal(ant.length, 1, 'la cadena por defecto nunca toca Anthropic');
+    } finally {
+        globalThis.fetch = original;
+    }
+});
+
+test('cadena: configuración inválida es bloqueo duro; duplicados y el propio primario se ignoran', () => {
+    const cfg = P.resolverConfig(ENV_CADENA);
+    const malo = (chain) => () => P.resolverCadena({ ...ENV_CADENA, GATE_FALLBACK_CHAIN: chain }, cfg, CADENA);
+    assert.throws(malo('nim:sin-barra'), (e) => e.codigo === 'cadena_modelo_invalido' && e.categoria === 'config');
+    assert.throws(malo('openai:gpt'), (e) => e.codigo === 'proveedor_desconocido');
+    assert.throws(malo(Array.from({ length: 7 }, (_, i) => `nim:o/m${i}`).join(',')), (e) => e.codigo === 'cadena_demasiado_larga');
+    assert.throws(() => P.resolverPlazoFailover({ GATE_FAILOVER_PRIMER_BYTE_MS: '1000' }), (e) => e.codigo === 'failover_primer_byte_invalido');
+    assert.equal(P.resolverPlazoFailover({}), 15000);
+    assert.deepEqual(P.resolverCadena({ ...ENV_CADENA, GATE_FALLBACK_CHAIN: 'nim:org/modelo-a,nim:org/modelo-b,nim:org/modelo-b' }, cfg).map(P.etiquetaModelo), ['nim:org/modelo-b']);
+});
+
+test('cadena por defecto: solo modelos NIM (sin costo), primario fuera de la lista, máximo de eslabones respetado', () => {
+    assert.ok(P.CADENA_NIM_DEFAULT.length > 0 && P.CADENA_NIM_DEFAULT.length <= 6);
+    assert.ok(!P.CADENA_NIM_DEFAULT.includes(P.GATE_MODEL_DEFAULT));
+    for (const m of P.CADENA_NIM_DEFAULT) assert.match(m, /^[A-Za-z0-9._-]+\/[A-Za-z0-9._:-]+$/);
+});
+
+test('sondearModelos: reporta vivo/ms/código por modelo; respuesta vacía de un modelo de razonamiento cuenta como vivo', async () => {
+    const vacio = { choices: [{ message: { content: '' }, finish_reason: 'length' }] };
+    const f = (url, init) => {
+        const modelo = JSON.parse(init.body).model;
+        if (modelo === 'org/modelo-a') return Promise.resolve(respuesta(503, ''));
+        if (modelo === 'org/modelo-b') return Promise.resolve(respuesta(200, vacio));
+        return Promise.resolve(respuesta(200, OK_BODY));
+    };
+    const r = await P.sondearModelos({ env: ENV_CADENA, fetchImpl: f, cadenaPorDefecto: CADENA });
+    assert.deepEqual(r.map(x => [x.modelo, x.vivo, x.codigo]), [
+        ['nim:org/modelo-a', false, 'http_503'],
+        ['nim:org/modelo-b', true, 'respuesta_truncada'],
+        ['nim:org/modelo-c', true, 'ok'],
+    ]);
+    assert.ok(r.every(x => Number.isInteger(x.ms)));
+});
+
+test('breaker atado al modelo: un circuito abierto por OTRO modelo no bloquea al primario actual (regresión en vivo 2026-10-04)', async () => {
+    const bp = breakerTmp();
+    P.escribirBreaker(bp, { ...P.BREAKER_DEFAULT, estado: 'abierto', fallos_consecutivos: 3, abierto_desde: new Date().toISOString(), categoria_apertura: 'caida', modelo: 'nim:deepseek-ai/deepseek-v4.1-flash', ultimo_error: { codigo: 'timeout_sin_respuesta', categoria: 'caida', huella_key: P.huellaKey(KEY) } });
+    const nim = nimPorModelo({ 'org/modelo-a': 'ok' });
+    const r = await P.llamarModelo(MSG, { env: ENV_CADENA, fetchImpl: nim, breakerPath: bp, sleep: sinEspera, cadenaPorDefecto: CADENA });
+    assert.equal(r.modelo, 'org/modelo-a');
+    assert.equal(r.failover, null);
+    const b = P.leerBreaker(bp);
+    assert.equal(b.estado, 'cerrado');
+    assert.equal(b.modelo, 'nim:org/modelo-a', 'el breaker queda etiquetado con su modelo');
 });

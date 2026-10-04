@@ -211,11 +211,13 @@ const FLAGS_DIFF_PROVEEDOR = ['--no-color', '--no-ext-diff', '--src-prefix=a/', 
 async function consultarModelo(subsistema, { system, user, max_tokens }) {
     const { diff: userFiltrado, omitidos } = proveedorIA.filtrarSecretosDiff(user);
     try {
-        const r = await proveedorIA.llamarModelo({ system, user: userFiltrado, max_tokens }, { breakerPath: BREAKER_PATH });
+        // Cadena por defecto: modelos NIM gratuitos (GATE_FALLBACK_CHAIN la reemplaza).
+        const r = await proveedorIA.llamarModelo({ system, user: userFiltrado, max_tokens }, { breakerPath: BREAKER_PATH, cadenaPorDefecto: proveedorIA.CADENA_NIM_DEFAULT });
         registrarTelemetria({
             tipo: 'uso_modelo', subsistema, resultado: 'ok', proveedor: r.proveedor, modelo: r.modelo,
             intentos: r.intentos, uso: r.uso, fin: r.fin, archivos_sensibles_omitidos: omitidos.length,
             texto_chars: r.texto_chars ?? null, razonamiento_chars: r.razonamiento_chars ?? null,
+            failover: r.failover ?? null,
         });
         return { ok: true, texto: r.texto, fin: r.fin, proveedor: r.proveedor, modelo: r.modelo };
     } catch (e) {
@@ -1460,6 +1462,9 @@ function generarEstadoOperativo() {
     try {
         const c = proveedorIA.resolverConfig();
         cfgProveedor = { proveedor: c.proveedor, modelo: c.modelo, base_url: c.baseUrl, key_configurada: Boolean(c.key) };
+        cfgProveedor.cadena_conmutacion = proveedorIA.resolverCadena(process.env, c, proveedorIA.CADENA_NIM_DEFAULT)
+            .map(e => ({ modelo: proveedorIA.etiquetaModelo(e), key_configurada: Boolean(e.key) }));
+        cfgProveedor.primer_byte_conmutacion_ms = proveedorIA.resolverPlazoFailover(process.env);
     } catch (e) {
         cfgProveedor = { proveedor: process.env.GATE_PROVIDER || 'nim', error_config: e.codigo || String(e.message) };
     }
@@ -1867,6 +1872,24 @@ if (process.argv.includes('--check-gate')) {
     }
     process.exitCode = (subgatesOk && chequeosOk) ? 0 : 1;
     return;
+}
+
+// Sonda de modelos: `node agents/architecture-gate.cjs --sondear-proveedores`
+// — ping mínimo a cada modelo de la cadena (primario + conmutación) para
+// saber cuáles responden hoy y en cuánto. Exit 0 si al menos uno vive.
+if (process.argv.includes('--sondear-proveedores')) {
+    (async () => {
+        const resultados = await proveedorIA.sondearModelos({ cadenaPorDefecto: proveedorIA.CADENA_NIM_DEFAULT });
+        console.log('\n📡 Sonda de modelos del gate (orden de la cadena):');
+        for (const r of resultados) {
+            console.log(`   ${r.vivo ? '🟢' : '🔴'} ${r.modelo.padEnd(48)} ${String(r.ms).padStart(6)} ms  ${r.codigo}`);
+        }
+        registrarTelemetria({ tipo: 'sonda_proveedores', subsistema: 'gate', resultado: resultados.some(r => r.vivo) ? 'ok' : 'sin_modelos', resultados });
+        process.exit(resultados.some(r => r.vivo) ? 0 : 1);
+    })().catch(err => {
+        console.error(`🛑 Sonda falló: ${proveedorIA.redactar(err?.message || err)}`);
+        process.exit(1);
+    });
 }
 
 // Modo tablero: `node agents/architecture-gate.cjs --pmu-status` — imprime el
@@ -2489,7 +2512,8 @@ async function ejecutarTodosLosAgentes() {
 // funciones puras (hashArchivo, hashEstado, validarDisenoAprobado,
 // listarCarpetasAgentes) para scripts/architecture-gate.test.cjs sin correr
 // nada con efectos secundarios.
-if (require.main === module) {
+// --sondear-proveedores es asíncrono y no consulta el gate: el batch no corre.
+if (require.main === module && !process.argv.includes('--sondear-proveedores')) {
     ejecutarTodosLosAgentes();
 }
 

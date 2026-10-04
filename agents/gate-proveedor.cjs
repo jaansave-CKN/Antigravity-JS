@@ -16,7 +16,10 @@ const fs = require('fs');
 const path = require('path');
 
 const NIM_BASE_URL_OFICIAL = 'https://integrate.api.nvidia.com/v1';
-const GATE_MODEL_DEFAULT = 'deepseek-ai/deepseek-v4.1-flash';
+// Primario por defecto elegido por sonda real (--sondear-proveedores,
+// 2026-10-04): kimi-k3 respondió en 2,1 s mientras deepseek-v4.1-flash no
+// emitía primer byte en 15 s. GATE_MODEL lo reemplaza.
+const GATE_MODEL_DEFAULT = 'moonshotai/kimi-k3';
 // Tres relojes independientes por intento (corrección 2026-09-26, auditoría
 // del timeout_30s en vivo): el tope único de 30 s TOTALES con stream:false
 // era aritméticamente incompatible con max_tokens 4096 (002) / 8192
@@ -274,7 +277,7 @@ function alertasDeProveedor(b, proveedor, modelo) {
         ultimo_error: b.ultimo_error,
         accion: critica
             ? 'Verificar NVIDIA_API_KEY / modelo en build.nvidia.com — el gate bloquea hasta corregirlo.'
-            : 'Proveedor degradado — el gate opera en soft-fail autorizado hasta que el breaker cierre.',
+            : 'Modelo primario degradado — el gate conmuta por la cadena de modelos (GATE_FALLBACK_CHAIN / CADENA_NIM_DEFAULT) hasta que su breaker cierre; soft-fail solo con opt-in y responsable.',
     }];
 }
 
@@ -608,9 +611,166 @@ async function unIntentoAnthropic({ cfg, system, user, max_tokens, deadlineMs })
     }
 }
 
+// --- Cadena de conmutación por fallo (orden del dueño 2026-10-04, enmienda ADR-0002 §2.1) --
+// El gate prueba una cadena ordenada de modelos y se queda con el primero que
+// responde: primario (GATE_PROVIDER/GATE_MODEL) → cadena. La cadena por
+// defecto (CADENA_NIM_DEFAULT, la inyecta architecture-gate.cjs) son modelos
+// del catálogo NIM de build.nvidia.com: misma NVIDIA_API_KEY, sin costo.
+// GATE_FALLBACK_CHAIN la reemplaza ("nim:<modelo>", "anthropic",
+// "anthropic:<modelo>", separados por coma; "none" = sin conmutación).
+// Anthropic —de pago— solo entra si se lista explícitamente.
+// Cada eslabón salvo el último corre con contención: primer byte acotado
+// (GATE_FAILOVER_PRIMER_BYTE_MS, 15 s por defecto) y un solo intento; una
+// falla de disponibilidad pasa al siguiente en vez de bloquear 300 s. Cada
+// modelo tiene su propio breaker: uno abierto se salta al instante, sin
+// esperar los 15 s — así el gate cambia de modelo cuando conviene y vuelve al
+// preferido cuando su breaker se cierra.
+// auth (key revocada) y config abortan la cadena: conmutar ocultaría una
+// credencial rota o una configuración inválida. Cualquier otra falla del
+// modelo (caída, cuota, contexto, respuesta vacía, modelo retirado) salta al
+// siguiente eslabón.
+const CATEGORIAS_ABORTAN_CADENA = new Set(['auth', 'config']);
+const FAILOVER_PRIMER_BYTE_DEFAULT_MS = 15000;
+const FAILOVER_PRIMER_BYTE_RANGO_MS = Object.freeze([5000, 120000]);
+const MAX_ESLABONES = 6;
+const MODELO_NIM_VALIDO = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._:-]+$/;
+// Orden por capacidad entre los que respondieron en la sonda del 2026-10-04
+// (nemotron-ultra 2,4 s · nemotron-super 0,8 s · glm-5.3 11,4 s). deepseek
+// queda al final para cuando se recupere; mistral-large-2-instruct salió
+// (404: retirado aunque siga en /v1/models).
+const CADENA_NIM_DEFAULT = Object.freeze([
+    'nvidia/nemotron-3-ultra-550b-a55b',
+    'nvidia/nemotron-3-super-120b-a12b',
+    'z-ai/glm-5.3',
+    'deepseek-ai/deepseek-v4.1-flash',
+]);
+
+const etiquetaModelo = (cfg) => `${cfg.proveedor}:${cfg.modelo}`;
+
+function resolverPlazoFailover(env) {
+    const crudo = String(env.GATE_FAILOVER_PRIMER_BYTE_MS ?? '').trim();
+    if (!crudo) return FAILOVER_PRIMER_BYTE_DEFAULT_MS;
+    const [min, max] = FAILOVER_PRIMER_BYTE_RANGO_MS;
+    const ms = /^\d+$/.test(crudo) ? Number(crudo) : NaN;
+    if (!(ms >= min && ms <= max)) {
+        throw new ErrorProveedor({ codigo: 'failover_primer_byte_invalido', categoria: 'config', detalle: `GATE_FAILOVER_PRIMER_BYTE_MS="${crudo.slice(0, 20)}" fuera de rango (entero ${min}-${max} ms) — bloqueo duro.` });
+    }
+    return ms;
+}
+
+// Configuración de cada eslabón. Duplicados y el propio primario se ignoran.
+function resolverCadena(env, cfgPrimario, cadenaPorDefecto = []) {
+    const crudo = String(env.GATE_FALLBACK_CHAIN ?? '').trim();
+    if (crudo.toLowerCase() === 'none') return [];
+    const entradas = crudo ? crudo.split(',').map(s => s.trim()).filter(Boolean) : cadenaPorDefecto.map(m => `nim:${m}`);
+    if (entradas.length > MAX_ESLABONES) {
+        throw new ErrorProveedor({ codigo: 'cadena_demasiado_larga', categoria: 'config', detalle: `GATE_FALLBACK_CHAIN tiene ${entradas.length} eslabones (máximo ${MAX_ESLABONES}) — bloqueo duro.` });
+    }
+    const vistos = new Set([etiquetaModelo(cfgPrimario)]);
+    const cadena = [];
+    for (const entrada of entradas) {
+        const i = entrada.indexOf(':');
+        const proveedor = (i < 0 ? entrada : entrada.slice(0, i)).trim().toLowerCase();
+        const modelo = i < 0 ? '' : entrada.slice(i + 1).trim();
+        let cfg;
+        if (proveedor === 'nim') {
+            if (!MODELO_NIM_VALIDO.test(modelo)) {
+                throw new ErrorProveedor({ codigo: 'cadena_modelo_invalido', categoria: 'config', detalle: `Eslabón "${entrada.slice(0, 80)}" no es un id de modelo NIM válido (organizacion/modelo) — bloqueo duro.` });
+            }
+            cfg = resolverConfig({ ...env, GATE_PROVIDER: 'nim', GATE_MODEL: modelo });
+        } else if (proveedor === 'anthropic') {
+            cfg = resolverConfig({ ...env, GATE_PROVIDER: 'anthropic', ...(modelo ? { PRIMARY_AI_MODEL: modelo } : {}) });
+        } else {
+            throw new ErrorProveedor({ codigo: 'proveedor_desconocido', categoria: 'config', detalle: `Eslabón "${entrada.slice(0, 80)}": proveedor no soportado (nim | anthropic).` });
+        }
+        if (vistos.has(etiquetaModelo(cfg))) continue;
+        vistos.add(etiquetaModelo(cfg));
+        cadena.push(cfg);
+    }
+    return cadena;
+}
+
+// Breaker propio por modelo secundario; circuit_breaker.json sigue siendo el
+// del primario (PMU y tests existentes).
+function rutaBreakerModelo(breakerPath, cfg) {
+    return breakerPath.replace(/\.json$/i, `.${cfg.proveedor}__${cfg.modelo.replace(/[^A-Za-z0-9._-]+/g, '_')}.json`);
+}
+
 // Única puerta a un modelo. Devuelve {texto, uso, fin, request_id, proveedor,
-// modelo, intentos}; lanza ErrorProveedor en cualquier falla.
-async function llamarModelo({ system, user, max_tokens }, opciones = {}) {
+// modelo, intentos, failover}; lanza ErrorProveedor en cualquier falla.
+async function llamarModelo(mensaje, opciones = {}) {
+    const env = opciones.env ?? process.env;
+    const primario = resolverConfig(env);
+    const cadena = resolverCadena(env, primario, opciones.cadenaPorDefecto ?? []);
+    if (cadena.length === 0) return { ...(await llamarProveedor(primario, mensaje, opciones)), failover: null };
+
+    const plazo = resolverPlazoFailover(env);
+    const candidatos = [primario, ...cadena];
+    const fallos = [];
+    for (const [i, cfg] of candidatos.entries()) {
+        const ultimo = i === candidatos.length - 1;
+        const op = { ...opciones, breakerPath: opciones.breakerPath && i > 0 ? rutaBreakerModelo(opciones.breakerPath, cfg) : opciones.breakerPath };
+        if (!ultimo) Object.assign(op, { primerByteMs: Math.min(opciones.primerByteMs ?? TIMEOUT_PRIMER_BYTE_MS, plazo), maxIntentos: 1 });
+        try {
+            const r = await llamarProveedor(cfg, mensaje, op);
+            return { ...r, failover: i === 0 ? null : { desde: etiquetaModelo(primario), hacia: etiquetaModelo(cfg), fallos: [...fallos] } };
+        } catch (e) {
+            if (!(e instanceof ErrorProveedor)) throw e;
+            // Entre eslabones, toda falla propia del modelo (caída, cuota,
+            // contexto excedido, respuesta vacía, modelo retirado) pasa al
+            // siguiente. auth (la key es la misma para todos los NIM) y
+            // config abortan: ningún otro modelo lo arreglaría.
+            const saltable = !CATEGORIAS_ABORTAN_CADENA.has(e.categoria);
+            if (saltable && !ultimo) {
+                fallos.push(`${etiquetaModelo(cfg)}=${e.codigo}`);
+                continue;
+            }
+            if (fallos.length === 0) throw e;
+            throw new ErrorProveedor({
+                codigo: e.codigo, categoria: e.categoria, http: e.http, request_id: e.request_id,
+                detalle: `${e.detalle} | cadena: ${[...fallos, `${etiquetaModelo(cfg)}=${e.codigo}`].join(', ')}`.slice(0, 500),
+            });
+        }
+    }
+    throw new ErrorProveedor({ codigo: 'cadena_vacia', categoria: 'config', detalle: 'Sin candidatos.' });
+}
+
+// Sonda de disponibilidad: un ping mínimo a cada modelo de la cadena, en
+// secuencia (respeta el límite de 40 RPM del catálogo gratuito). No toca los
+// breakers. "vivo" = el modelo respondió aunque el presupuesto mínimo no
+// alcanzara para texto (modelos de razonamiento).
+async function sondearModelos(opciones = {}) {
+    const env = opciones.env ?? process.env;
+    const primario = resolverConfig(env);
+    const cadena = resolverCadena(env, primario, opciones.cadenaPorDefecto ?? []);
+    const plazo = resolverPlazoFailover(env);
+    const resultados = [];
+    for (const cfg of [primario, ...cadena]) {
+        const t0 = Date.now();
+        try {
+            const r = await llamarProveedor(cfg, { system: 'Responde exactamente con la palabra OK.', user: 'ping', max_tokens: 512 }, {
+                env, fetchImpl: opciones.fetchImpl ?? globalThis.fetch, primerByteMs: plazo, maxIntentos: 1, deadlineMs: 90000,
+            });
+            resultados.push({ modelo: etiquetaModelo(cfg), vivo: true, ms: Date.now() - t0, codigo: 'ok', fin: r.fin });
+        } catch (e) {
+            const vivo = e instanceof ErrorProveedor && (e.codigo === 'respuesta_vacia' || e.codigo === 'respuesta_truncada');
+            resultados.push({ modelo: etiquetaModelo(cfg), vivo, ms: Date.now() - t0, codigo: e?.codigo || 'error_interno', categoria: e?.categoria || null });
+        }
+    }
+    return resultados;
+}
+
+// El breaker queda atado al modelo que lo abrió: si GATE_MODEL cambia, el
+// archivo del primario no hereda un circuito abierto ajeno (hallazgo en vivo
+// 2026-10-04: kimi-k3 se saltó por el breaker que había abierto deepseek).
+// Formato previo sin "modelo" se conserva tal cual (compatibilidad).
+function leerBreakerDe(breakerPath, cfg) {
+    const b = leerBreaker(breakerPath);
+    return b.modelo && b.modelo !== etiquetaModelo(cfg) ? { ...BREAKER_DEFAULT } : b;
+}
+
+// Un proveedor concreto: validación de key, breaker y reintentos.
+async function llamarProveedor(cfg, { system, user, max_tokens }, opciones = {}) {
     const {
         env = process.env,
         fetchImpl = globalThis.fetch,
@@ -621,9 +781,9 @@ async function llamarModelo({ system, user, max_tokens }, opciones = {}) {
         primerByteMs = TIMEOUT_PRIMER_BYTE_MS,
         deadlineMs,
         aleatorio = Math.random,
+        maxIntentos: topeIntentos = MAX_REINTENTOS + 1,
     } = opciones;
 
-    const cfg = resolverConfig(env);
     const plazoTotalMs = deadlineMs ?? resolverTimeoutTotal(env);
     if (!cfg.key) {
         throw new ErrorProveedor({
@@ -641,7 +801,7 @@ async function llamarModelo({ system, user, max_tokens }, opciones = {}) {
     }
 
     const huella = huellaKey(cfg.key);
-    const breaker = breakerPath ? leerBreaker(breakerPath) : { ...BREAKER_DEFAULT };
+    const breaker = breakerPath ? leerBreakerDe(breakerPath, cfg) : { ...BREAKER_DEFAULT };
     const decision = evaluarBreaker(breaker, ahora(), huella);
     if (decision === 'rechazar') {
         const ult = breaker.ultimo_error || { codigo: 'desconocido', http: null };
@@ -655,7 +815,7 @@ async function llamarModelo({ system, user, max_tokens }, opciones = {}) {
             detalle: `Circuit breaker abierto desde ${breaker.abierto_desde} (último error ${ult.codigo}) — no se llama al proveedor hasta el cooldown de ${breaker.cooldown_s}s.`,
         });
     }
-    const maxIntentos = decision === 'permitir_prueba' ? 1 : MAX_REINTENTOS + 1;
+    const maxIntentos = decision === 'permitir_prueba' ? 1 : Math.max(1, Math.min(topeIntentos, MAX_REINTENTOS + 1));
 
     let ultimoError;
     for (let intento = 1; intento <= maxIntentos; intento++) {
@@ -667,7 +827,7 @@ async function llamarModelo({ system, user, max_tokens }, opciones = {}) {
             // paralelo (--aprobar-pendientes), otra llamada pudo actualizar el
             // breaker mientras esta esperaba la red. leer+escribir sin await
             // de por medio es atómico dentro del proceso (un solo hilo).
-            if (breakerPath) escribirBreaker(breakerPath, registrarExito(leerBreaker(breakerPath), ahora()));
+            if (breakerPath) escribirBreaker(breakerPath, { ...registrarExito(leerBreakerDe(breakerPath, cfg), ahora()), modelo: etiquetaModelo(cfg) });
             return { ...r, proveedor: cfg.proveedor, modelo: cfg.modelo, intentos: intento };
         } catch (e) {
             ultimoError = e instanceof ErrorProveedor ? e : new ErrorProveedor({ codigo: 'error_interno', categoria: 'solicitud', detalle: redactar(e?.message || e, cfg.key).slice(0, 300) });
@@ -679,9 +839,9 @@ async function llamarModelo({ system, user, max_tokens }, opciones = {}) {
         }
     }
     if (breakerPath) {
-        const actual = leerBreaker(breakerPath);
+        const actual = leerBreakerDe(breakerPath, cfg);
         if (decision === 'permitir_prueba') actual.estado = 'semiabierto'; // la prueba falló → reabre
-        escribirBreaker(breakerPath, registrarFallo(actual, ultimoError, ahora(), huella));
+        escribirBreaker(breakerPath, { ...registrarFallo(actual, ultimoError, ahora(), huella), modelo: etiquetaModelo(cfg) });
     }
     throw ultimoError;
 }
@@ -693,4 +853,6 @@ module.exports = {
     leerBreaker, escribirBreaker, evaluarBreaker, registrarExito, registrarFallo, alertasDeProveedor, huellaKey, breakerPublico, esErrorDeRed,
     extraerErrorEstructurado,
     resolverConfig, filtrarSecretosDiff, llamarModelo,
+    resolverCadena, resolverPlazoFailover, rutaBreakerModelo, sondearModelos, etiquetaModelo,
+    CADENA_NIM_DEFAULT, FAILOVER_PRIMER_BYTE_DEFAULT_MS,
 };

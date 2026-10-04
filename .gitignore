@@ -49,3 +49,4 @@ tests/test_mcp.cjs
 # Estado runtime del circuit breaker del gate (ADR-0002) — contiene huella de key, no se versiona
 agents/pmu/circuit_breaker.json
 agents/pmu/circuit_breaker.json.*.tmp
+agents/pmu/circuit_breaker.*.json
