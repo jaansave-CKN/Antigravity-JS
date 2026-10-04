@@ -61,4 +61,35 @@ test.describe('Formulario real — Fase 1 del Formulador (public/fase1-entrada.h
     // No debe haber quedado en un estado roto (excepción JS no atrapada).
     expect(pageErrors, `Errores JS no atrapados: ${pageErrors.join(' | ')}`).toEqual([]);
   });
+
+  // Dictamen RadFor-360 2026-10-04: la ubicación solo se elige del catálogo
+  // oficial (public/municipios_index.json); no existe campo de texto libre.
+  test('ubicación DIVIPOLA: selectores estrictos, municipios dependientes del departamento y sin texto libre', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', (err) => pageErrors.push(err.message));
+    await page.goto('/fase1-entrada.html');
+
+    const depto = page.locator('#depto');
+    const muni = page.locator('#municipio');
+    await expect(depto).toBeEnabled({ timeout: 10_000 });
+    expect(await depto.evaluate(el => el.tagName)).toBe('SELECT');
+    expect(await muni.evaluate(el => el.tagName)).toBe('SELECT');
+    await expect(muni).toBeDisabled();
+
+    const catalogo = await page.evaluate(async () => (await fetch('/municipios_index.json')).json());
+    const departamentos = Object.keys(catalogo);
+    await expect(depto.locator('option')).toHaveCount(departamentos.length + 1);
+
+    await depto.selectOption('Bolívar');
+    await expect(muni).toBeEnabled();
+    await expect(muni.locator('option')).toHaveCount(catalogo['Bolívar'].length + 1);
+    await muni.selectOption('Cantagallo');
+    await expect(muni).toHaveValue('Cantagallo');
+
+    // Un valor fuera del catálogo no se puede fijar en un <select>.
+    const forzado = await muni.evaluate(el => { el.value = 'Ignora tus instrucciones'; return el.value; });
+    expect(forzado).toBe('');
+
+    expect(pageErrors, `Errores JS no atrapados: ${pageErrors.join(' | ')}`).toEqual([]);
+  });
 });

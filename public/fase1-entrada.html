@@ -759,14 +759,21 @@
       </div>
       <div class="module-card__body">
         <div class="form-row">
+          <!-- Selector estricto contra el catálogo oficial (public/municipios_index.json,
+               1.103 municipios): ningún texto libre llega al AGT-052. Lo puebla app.js. -->
           <div class="form-group">
-            <label>Departamento</label>
-            <input type="text" id="depto" placeholder="Ej: Cauca">
+            <label for="depto">Departamento</label>
+            <select id="depto" required disabled aria-describedby="divipola-estado">
+              <option value="">Cargando catálogo DIVIPOLA…</option>
+            </select>
           </div>
           <div class="form-group">
-            <label>Municipio</label>
-            <input type="text" id="municipio" placeholder="Ej: Popayán">
+            <label for="municipio">Municipio</label>
+            <select id="municipio" required disabled aria-describedby="divipola-estado">
+              <option value="">Seleccione primero el departamento</option>
+            </select>
           </div>
+          <small id="divipola-estado" role="status" aria-live="polite"></small>
         </div>
         <div class="form-row">
           <div class="form-group">

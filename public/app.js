@@ -27,9 +27,69 @@ const Fase1App = {
   actions: { submit: 'Finalizar Fase 1: Generar Ficha Técnica Integral', output: 'JSON_SCHEMA_V1' }
 };
 
+// ── Catálogo DIVIPOLA (public/municipios_index.json) ─────────────────────────
+// Ubicación solo por selección del catálogo oficial: el municipio dejó de ser
+// texto libre (dictamen RadFor-360 2026-10-04). El catálogo trae nombres
+// oficiales, no códigos: se valida el par departamento/municipio, el mismo
+// criterio del contrato del servidor (Handoffs.js). Falla cerrada: sin
+// catálogo no hay envío.
+const CatalogoDivipola = {
+  departamentos: null, // Map<departamento, Set<municipio>>
+
+  async cargar() {
+    const depto = document.getElementById('depto');
+    const muni = document.getElementById('municipio');
+    const estado = document.getElementById('divipola-estado');
+    if (!depto || !muni) return;
+    try {
+      const res = await fetch('/municipios_index.json', { cache: 'force-cache' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const crudo = await res.json();
+      const mapa = new Map();
+      for (const [d, lista] of Object.entries(crudo ?? {})) {
+        if (typeof d !== 'string' || !Array.isArray(lista)) continue;
+        const municipios = lista.filter(m => typeof m === 'string' && m.trim());
+        if (municipios.length) mapa.set(d, new Set(municipios));
+      }
+      if (mapa.size === 0) throw new Error('catálogo vacío o con formato inválido');
+      this.departamentos = mapa;
+      poblarSelect(depto, [...mapa.keys()], 'Seleccione el departamento');
+      depto.disabled = false;
+      depto.addEventListener('change', () => {
+        const municipios = this.departamentos.get(depto.value);
+        poblarSelect(muni, municipios ? [...municipios] : [], municipios ? 'Seleccione el municipio' : 'Seleccione primero el departamento');
+        muni.disabled = !municipios;
+      });
+      if (estado) estado.textContent = '';
+    } catch (err) {
+      console.error('[DIVIPOLA] Catálogo no disponible:', err.message);
+      poblarSelect(depto, [], 'Catálogo DIVIPOLA no disponible — recargue la página');
+      depto.disabled = true;
+      muni.disabled = true;
+      if (estado) estado.textContent = 'No se pudo cargar el catálogo oficial de municipios; el envío queda bloqueado.';
+    }
+  },
+
+  esValido(departamento, municipio) {
+    return Boolean(this.departamentos?.get(departamento)?.has(municipio));
+  },
+};
+
+// new Option() asigna texto, nunca HTML: un nombre del catálogo no puede
+// inyectar marcado.
+function poblarSelect(select, valores, placeholder) {
+  select.replaceChildren(new Option(placeholder, ''));
+  for (const v of valores) select.add(new Option(v, v));
+}
+
 const Fase1Validator = {
   validate(ficha) {
     const errors = [], warnings = [];
+    if (!CatalogoDivipola.departamentos) {
+      errors.push({ mod: 2, field: 'municipio', msg: '⛔ Catálogo DIVIPOLA no disponible: recargue la página antes de enviar', severity: 'BLOCKING' });
+    } else if (!CatalogoDivipola.esValido(ficha.geography?.departamento, ficha.geography?.municipio)) {
+      errors.push({ mod: 2, field: 'municipio', msg: '⛔ Seleccione departamento y municipio del catálogo DIVIPOLA oficial', severity: 'BLOCKING' });
+    }
     if (!ficha.ficha_fase1?.nombre_proyecto) errors.push({ mod: 1, field: 'nombre_proyecto', msg: 'Nombre del proyecto requerido' });
     if (!ficha.metadata?.user_type) errors.push({ mod: 1, field: 'user_type', msg: 'Tipo de proponente requerido' });
     if (!ficha.metadata?.sector) errors.push({ mod: 1, field: 'sector', msg: 'Sector requerido' });
@@ -297,6 +357,8 @@ window.removeFile = removeFile;
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('btn-generar-ficha');
   if (btn) btn.addEventListener('click', () => FinalizarFase1());
+
+  CatalogoDivipola.cargar();
 
   const oxiTrigger = document.getElementById('oxi-trigger');
   const oxiOptions = document.getElementById('oxi-options');
