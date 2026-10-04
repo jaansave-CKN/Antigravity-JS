@@ -6,7 +6,8 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import express   from 'express';
-import { cacheKey, cacheGet, cacheSet, clearMemCache, cacheInfo } from '../../shared/infrastructure/cache.js';
+import { cacheGet, cacheSet, clearMemCache, cacheInfo } from '../../shared/infrastructure/cache.js';
+import { m1CacheKey, normalizarQuery, construirResultado, esCacheable } from './m1Cache.js';
 import { initSSE, acquireQuery, releaseQuery, checkQuota } from '../../shared/infrastructure/session-manager.js';
 import { trackGeneration } from '../../shared/infrastructure/LangfuseMonitoring.js';
 import ExtraerDatos from '../../../skills/seguridad/Skill_Protocolo_Fuente_Unica.cjs';
@@ -176,44 +177,14 @@ async function runClaudeWithTavily(query, filters = {}, userId) {
 }
 
 // =============================================================================
-// FILTERS
-// =============================================================================
-function safeParseJSON(raw) {
-  try {
-    return JSON.parse(
-      raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
-    );
-  } catch { return { oportunidades: [] }; }
-}
-
-function applyFilters(opportunities, filters) {
-  let rows = Array.isArray(opportunities) ? [...opportunities] : [];
-  if (filters.cobertura && filters.cobertura !== 'all') {
-    const geo = filters.cobertura.toLowerCase();
-    rows = rows.filter(op =>
-      (op.cobertura || '').toLowerCase().includes(geo) ||
-      (op.cobertura || '').toLowerCase().includes('nacional')
-    );
-  }
-  if (filters.sector && filters.sector !== 'all') {
-    const sec = filters.sector.toLowerCase();
-    rows = rows.filter(op =>
-      (op.sector || '').toLowerCase().includes(sec) ||
-      (op.sector || '').toLowerCase().includes('multisectorial')
-    );
-  }
-  return rows;
-}
-
-// =============================================================================
 // PIPELINE PRINCIPAL — con cache dual 24h
 // =============================================================================
+// Clave, forma del resultado y política de caché viven en m1Cache.js — la
+// misma para /search, /stream y el Radar Cron (hallazgo 2, 2026-09-28).
 export async function runM1Pipeline({ query, filters = {}, bypassCache = false, userId }) {
   if (!query?.trim()) throw new Error('Se requiere query string.');
 
-  // Cache key normalizada (trim+lowercase) para que "Vivienda rural" y "vivienda rural "
-  // compartan el mismo hit en vez de pagar dos pipelines por la misma búsqueda semántica.
-  const key = cacheKey({ query: query.trim().toLowerCase(), filters });
+  const key = m1CacheKey(query, filters);
 
   if (!bypassCache) {
     const cached = await cacheGet(key);
@@ -226,28 +197,13 @@ export async function runM1Pipeline({ query, filters = {}, bypassCache = false, 
   const startMs = Date.now();
   console.log(`[M1] MISS — Iniciando Tavily+Claude | "${query}"`);
 
-  const raw      = await runClaudeWithTavily(query, filters, userId);
-  const parsed   = safeParseJSON(raw);
-  const all      = parsed.oportunidades || [];
-  const filtered = applyFilters(all, filters);
+  const raw    = await runClaudeWithTavily(query, filters, userId);
+  const result = construirResultado({ query, filters, raw, model: CLAUDE_MODEL, startMs, key });
 
-  console.log(`[M1] ✅ ${all.length} total | ${filtered.length} filtradas | ${Date.now() - startMs}ms`);
+  console.log(`[M1] ✅ ${result.rawTotal} total | ${result.total} filtradas | ${result.meta.durationMs}ms`);
 
-  const result = {
-    query, filters,
-    total:         filtered.length,
-    rawTotal:      all.length,
-    oportunidades: filtered,
-    meta: {
-      engine:     'Claude + Tavily Search API',
-      model:      CLAUDE_MODEL,
-      durationMs: Date.now() - startMs,
-      cacheKey:   key,
-    },
-    fromCache: false,
-  };
-
-  await cacheSet(key, result);
+  if (esCacheable(result)) await cacheSet(key, result);
+  else console.warn(`[M1] Resultado vacío o no parseable — NO se cachea | "${query}"`);
   return result;
 }
 
@@ -294,7 +250,9 @@ router.post('/stream', async (req, res) => {
   if (!query) return sse.error('Campo "query" requerido.');
 
   const uid     = req.user?.uid ?? 'anonymous';
-  const queryId = `${uid}:${query}`;
+  // Normalizada: "Vivienda" y "vivienda " son la misma consulta en curso —
+  // antes un cambio de mayúsculas esquivaba el bloqueo de consulta duplicada.
+  const queryId = `${uid}:${normalizarQuery(query)}`;
 
   const quota = await checkQuota(uid);
   if (!quota.allowed) return sse.error('Cuota diaria de búsquedas agotada.');
@@ -304,13 +262,15 @@ router.post('/stream', async (req, res) => {
   }
 
   try {
-    // Verificar cache primero
-    const key    = cacheKey({ query, filters });
+    // Misma clave que /search y el Radar Cron (m1Cache.js) — antes la query
+    // cruda aquí nunca coincidía con la clave normalizada de /search.
+    const key    = m1CacheKey(query, filters);
     const cached = await cacheGet(key);
     if (cached) {
-      sse.send({ event: 'cache_hit', data: cached });
+      sse.send({ event: 'cache_hit', data: { ...cached, fromCache: true } });
       return sse.done();
     }
+    const startMs = Date.now();
 
     const client = getClient();
     const userContent =
@@ -345,6 +305,13 @@ router.post('/stream', async (req, res) => {
         for (let i = 0; i < finalText.length; i += CHUNK) {
           sse.send({ event: 'delta', text: finalText.slice(i, i + CHUNK) });
         }
+
+        // Mismo resultado estructurado y misma política de caché que /search:
+        // lo que paga /stream lo reutilizan /search, el cron y el próximo /stream.
+        const result = construirResultado({ query, filters, raw: finalText, model: CLAUDE_MODEL, startMs, key });
+        if (esCacheable(result)) await cacheSet(key, result);
+        else console.warn(`[M1 /stream] Resultado vacío o no parseable — NO se cachea | "${query}"`);
+        sse.send({ event: 'result', data: result });
         break;
       }
 

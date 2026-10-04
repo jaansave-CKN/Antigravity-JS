@@ -313,7 +313,12 @@ test('generarEstadoOperativo: expone "alertas_activas" como arreglo, combinando 
   }
   assert.ok(Array.isArray(estado.alertas_criticas_proveedor), 'alertas_criticas_proveedor debe existir siempre');
   assert.ok(estado.proveedor_ia && estado.proveedor_ia.circuit_breaker, 'proveedor_ia.circuit_breaker debe existir');
-  assert.ok(!JSON.stringify(estado).includes('nvapi-'), 'P6: el PMU nunca contiene una key');
+  // Formato real de key, no la subcadena (2026-10-04): el PMU incluye
+  // veredictos reales y 006 citó en prosa "'nvapi-'" al comentar este mismo
+  // test — mencionar el prefijo no es fugar una credencial.
+  const serializado = JSON.stringify(estado);
+  assert.ok(!/nvapi-[A-Za-z0-9_-]{8,}/.test(serializado), 'P6: el PMU nunca contiene una key NIM');
+  assert.ok(!/sk-ant-[A-Za-z0-9_-]{8,}/.test(serializado), 'P6: el PMU nunca contiene una key Anthropic');
 });
 
 test('generarEstadoOperativo: se autoasegura (llama asegurarSubgatesAutoDescubiertos internamente) — 009 siempre reporta "subgate", nunca "sin_gate_propio" (regresión 2026-08-13)', () => {
