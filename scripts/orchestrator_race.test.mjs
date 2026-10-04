@@ -28,7 +28,9 @@ const fakeServer = http.createServer((req, res) => {
   const delay = Math.random() * 60; // jitter 0-60ms, simula latencia de red real
   setTimeout(() => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ choices: [{ message: { content: `echo:${auth}` } }] }));
+    // Texto ≥ 40 caracteres y sin enlaces: el contrato SalidaAgt052Schema
+    // (Handoffs.js) rechaza respuestas más cortas y las convierte en plantilla.
+    res.end(JSON.stringify({ choices: [{ message: { content: `echo:${auth} | justificación legal simulada conforme a la Ley 152 de 1994.` } }] }));
   }, delay);
 });
 
@@ -56,7 +58,8 @@ async function simulateRequest(userId) {
   const diseno = await orchestrator.validarDiseno(fichaBase);
   const { borrador } = await orchestrator.run(fichaBase, diseno, token);
   const textoIA = borrador?.componente_administrativo?.justificacion_legal || '';
-  const authRecibido = textoIA.startsWith('echo:') ? textoIA.replace('echo:Bearer ', '') : null;
+  const authRecibido = textoIA.match(/^echo:Bearer (\S+)/)?.[1] ?? null;
+  assert.equal(borrador?.componente_administrativo?.origen_justificacion, 'ia', 'la respuesta del modelo debe pasar el contrato de salida');
   return { userId, token, authRecibido };
 }
 

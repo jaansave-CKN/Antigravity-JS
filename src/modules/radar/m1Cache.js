@@ -12,6 +12,7 @@
 // =============================================================================
 
 import { cacheKey } from '../../shared/infrastructure/cache.js';
+import { validarSalidaM1 } from '../../shared/contracts/Handoffs.js';
 
 // Versión del formato de clave. Subirla invalida de forma limpia las entradas
 // viejas (expiran solas por TTL de 24 h) sin tocar Redis a mano.
@@ -47,18 +48,6 @@ export function m1CacheKey(query, filters) {
   return cacheKey({ v: M1_CACHE_VERSION, query: normalizarQuery(query), filters: normalizarFiltros(filters) });
 }
 
-// El modelo a veces envuelve el JSON en ```json … ```; cualquier otra cosa no
-// parseable es un resultado vacío (nunca una excepción hacia el endpoint).
-export function safeParseJSON(raw) {
-  try {
-    return JSON.parse(
-      String(raw ?? '').replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
-    );
-  } catch {
-    return { oportunidades: [] };
-  }
-}
-
 export function applyFilters(opportunities, filters) {
   const f = normalizarFiltros(filters);
   let rows = Array.isArray(opportunities) ? [...opportunities] : [];
@@ -79,15 +68,18 @@ export function applyFilters(opportunities, filters) {
 
 // Forma única del resultado M1 — la misma que devuelve /search, la que guarda
 // la caché y la que /stream emite en su evento "result" o "cache_hit".
-export function construirResultado({ query, filters, raw, model, startMs, key }) {
-  const parsed = safeParseJSON(raw);
-  const all = Array.isArray(parsed?.oportunidades) ? parsed.oportunidades : [];
-  const filtered = applyFilters(all, filters);
+// Traspaso M1 → caché/cron/SPA con contrato (dictamen F1-1): solo pasan
+// oportunidades válidas y con URL devuelta por Tavily en ESTA corrida; el
+// resto va a cuarentena. rawTotal cuenta solo las válidas.
+export function construirResultado({ query, filters, raw, model, startMs, key, urlsVistas = [], dlq }) {
+  const { oportunidades: validas, rechazadas } = validarSalidaM1(raw, { urlsVistas, dlq });
+  const filtered = applyFilters(validas, filters);
   return {
     query,
     filters: filters || {},
     total: filtered.length,
-    rawTotal: all.length,
+    rawTotal: validas.length,
+    rechazadas,
     oportunidades: filtered,
     meta: {
       engine: 'Claude + Tavily Search API',

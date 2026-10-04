@@ -1,8 +1,16 @@
 // =============================================================================
 // ORCHESTRATOR-ENGINE.JS — Radar Formulador 360 v9.0
 // Motor central de la Fase 1. Orquesta AGT-052 / AGT-053 / AGT-054 / AGT-056.
-// Corre en el navegador (ESM puro). Llama al backend via /api/chat (Claude / Anthropic).
+// Corre solo server-side (FormuladorPgController.js). Llama al backend via
+// /api/chat (Claude / Anthropic). Traspasos con contrato: Handoffs.js
+// (dictamen RadFor-360 2026-10-04, F1-2, F1-3, F3-1, F3-3).
 // =============================================================================
+
+import {
+  obtenerContextoAgt052Schema, construirPromptAgt052, SalidaAgt052Schema,
+  SECTORES_052, validarHandoff, ponerEnCuarentena,
+} from './shared/contracts/Handoffs.js';
+import { dlq, cuarentenaPorFallo } from './shared/infrastructure/DeadLetterQueue.js';
 
 // Browser: relativa (el propio origen de la app). Node (Oleada 1, Grupo Elite,
 // 2026-08-06): este motor ahora también corre server-side desde
@@ -62,8 +70,31 @@ const NORMATIVA_MAP = {
 // cadena de llamadas (callAI -> AgentAdministrativo.process -> Orchestrator000.run),
 // sin ningún estado compartido entre requests concurrentes.
 
-// ── Llamada unificada al proxy de IA con fallback local ───────────────────────
-async function callAI(systemPrompt, userContent, { maxTokens = 1200, authToken = null } = {}) {
+// ── Llamada unificada al proxy de IA: timeout estricto + circuit breaker ───────
+// Dictamen F3-3 (orden del dueño 2026-10-04): sin AbortSignal la llamada
+// podía colgarse indefinidamente. 15 s duros por llamada; tras 3 fallos
+// consecutivos el circuito se abre 60 s y AGT-052 conmuta directo a su
+// plantilla local sin tocar la red. Estado a nivel de módulo: compartido
+// entre requests a propósito (protege al proveedor, no guarda identidad).
+export const CALLAI_TIMEOUT_MS = 15_000;
+const CIRCUITO_UMBRAL = 3;
+const CIRCUITO_COOLDOWN_MS = 60_000;
+const circuitoIA = { fallos: 0, abiertoHasta: 0 };
+
+export function estadoCircuitoAgt052() {
+  return { ...circuitoIA, abierto: Date.now() < circuitoIA.abiertoHasta };
+}
+
+export function reiniciarCircuitoAgt052() {
+  circuitoIA.fallos = 0;
+  circuitoIA.abiertoHasta = 0;
+}
+
+// Devuelve { texto } o { texto: null, error, circuitoAbierto }; nunca lanza.
+async function callAI(systemPrompt, userContent, { maxTokens = 1200, authToken = null, timeoutMs = CALLAI_TIMEOUT_MS } = {}) {
+  if (Date.now() < circuitoIA.abiertoHasta) {
+    return { texto: null, circuitoAbierto: true, error: new Error(`circuito AGT-052 abierto hasta ${new Date(circuitoIA.abiertoHasta).toISOString()}`) };
+  }
   try {
     const res = await fetch(AI_ENDPOINT, {
       method:  'POST',
@@ -78,13 +109,23 @@ async function callAI(systemPrompt, userContent, { maxTokens = 1200, authToken =
           { role: 'user',   content: userContent  },
         ],
       }),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    return data.choices?.[0]?.message?.content ?? null;
+    const texto = data.choices?.[0]?.message?.content ?? null;
+    if (!texto) throw new Error('respuesta sin contenido');
+    circuitoIA.fallos = 0;
+    return { texto };
   } catch (err) {
-    console.warn('[Orchestrator] callAI → fallback local.', err.message);
-    return null;
+    circuitoIA.fallos += 1;
+    if (circuitoIA.fallos >= CIRCUITO_UMBRAL) {
+      circuitoIA.abiertoHasta = Date.now() + CIRCUITO_COOLDOWN_MS;
+      circuitoIA.fallos = 0;
+    }
+    const error = err?.name === 'TimeoutError' ? new Error(`timeout de ${timeoutMs} ms`) : err;
+    console.warn('[Orchestrator] callAI → plantilla local.', error.message);
+    return { texto: null, circuitoAbierto: false, error };
   }
 }
 
@@ -92,19 +133,29 @@ async function callAI(systemPrompt, userContent, { maxTokens = 1200, authToken =
 // AGT-052 — Componente Administrativo y Legal
 // =============================================================================
 class AgentAdministrativo {
+  constructor({ timeoutMs = CALLAI_TIMEOUT_MS } = {}) {
+    this.timeoutMs = timeoutMs;
+  }
+
   async process(ficha, authToken = null) {
-    const sector     = ficha.metadata?.sector     || 'general';
-    const mecanismo  = ficha.metadata?.mecanismo  || 'inversion_directa';
-    const userType   = ficha.metadata?.user_type  || 'Entidad pública';
-    const depto      = ficha.geography?.departamento || '';
-    const municipio  = ficha.geography?.municipio    || '';
-    const ter        = ficha.geography?.territorialidad || {};
+    // Valores cerrados derivados de la ficha: sector y mecanismo nunca viajan
+    // como texto libre del usuario (dictamen F1-2).
+    const sectorFicha = String(ficha.metadata?.sector || '');
+    const sector      = SECTORES_052.includes(sectorFicha) ? sectorFicha : 'general';
+    const mecanismo   = ficha.metadata?.mecanismo === 'oxi' || ficha.metadata?.is_oxi === true ? 'oxi' : 'inversion_directa';
+    const terFicha    = ficha.geography?.territorialidad || {};
+    const ter = {
+      zomac:               terFicha.zomac === true,
+      pdet:                terFicha.pdet === true,
+      frontera:            terFicha.frontera === true,
+      territorio_indigena: terFicha.territorio_indigena === true,
+    };
     const normativa  = NORMATIVA_MAP[sector] || NORMATIVA_MAP.general;
 
     const territorialidad = [
-      ter.zomac            && 'ZOMAC',
-      ter.pdet             && 'PDET',
-      ter.frontera         && 'Zona de Frontera',
+      ter.zomac               && 'ZOMAC',
+      ter.pdet                && 'PDET',
+      ter.frontera            && 'Zona de Frontera',
       ter.territorio_indigena && 'Territorio Indígena',
     ].filter(Boolean).join(' · ') || 'Territorio estándar';
 
@@ -112,20 +163,47 @@ class AgentAdministrativo {
       ? 'Obras por Impuestos — Art. 238 Ley 1819/2016'
       : 'Inversión Directa (SGR / SGP)';
 
-    const systemPrompt =
-      'Eres el Agente Administrativo AGT-052 del sistema Radar Formulador 360. ' +
-      'Generas justificaciones legales concisas (máx. 120 palabras) para proyectos ' +
-      'de inversión pública en Colombia. Solo responde con el texto, sin prefijos.';
+    // Traspaso ficha → AGT-052: municipio y departamento contra el catálogo
+    // DIVIPOLA; el modelo recibe solo el contexto validado, como JSON.
+    const esquema = obtenerContextoAgt052Schema();
+    const candidato = {
+      sector, mecanismo,
+      user_type:    String(ficha.metadata?.user_type || 'Entidad pública'),
+      departamento: String(ficha.geography?.departamento || ''),
+      municipio:    String(ficha.geography?.municipio || ''),
+      territorialidad: ter,
+    };
+    const contexto = esquema
+      ? validarHandoff(esquema, candidato, { origen: 'ficha_usuario', destino: 'AGT-052', dlq })
+      : { ok: false, registro: ponerEnCuarentena({ origen: 'ficha_usuario', destino: 'AGT-052', motivo: 'catalogo_divipola_no_disponible', errores: ['catálogo DIVIPOLA no cargado'], muestra: candidato, dlq }) };
 
-    const userContent =
-      `Sector: ${sector}. Mecanismo: ${mecanismoLabel}. Proponente: ${userType}. ` +
-      `Ubicación: ${municipio}, ${depto}. Territorialidad: ${territorialidad}. ` +
-      `Normativa: ${normativa}. Genera la justificación legal institucional.`;
+    let justificacion_legal = null;
+    let origen_justificacion = 'plantilla';
+    if (contexto.ok) {
+      const { system, user } = construirPromptAgt052(contexto.data, normativa);
+      const ia = await callAI(system, user, { authToken, timeoutMs: this.timeoutMs });
+      if (ia.texto) {
+        const salida = validarHandoff(SalidaAgt052Schema, { justificacion_legal: ia.texto, origen: 'ia' }, { origen: 'AGT-052', destino: 'borrador_ficha', dlq });
+        if (salida.ok) {
+          justificacion_legal = salida.data.justificacion_legal;
+          origen_justificacion = 'ia';
+        }
+      } else {
+        cuarentenaPorFallo({
+          origen: 'AGT-052', destino: 'api_chat',
+          motivo: ia.circuitoAbierto ? 'circuito_abierto' : 'ia_no_disponible',
+          error: ia.error, muestra: { sector, mecanismo, municipio: contexto.data.municipio },
+        });
+      }
+    }
 
-    const justificacion_legal = await callAI(systemPrompt, userContent, { authToken }) ??
+    // Plantilla local: solo usa valores validados o cerrados, nunca el texto
+    // crudo del usuario si no pasó el contrato.
+    const lugar = contexto.ok ? contexto.data.municipio : 'el territorio de intervención';
+    justificacion_legal ??=
       `El proyecto se enmarca en los lineamientos del Plan Nacional de Desarrollo y ` +
       `la normativa sectorial vigente (${normativa}), garantizando la inversión eficiente ` +
-      `de recursos públicos en ${municipio || 'el territorio de intervención'}, con ` +
+      `de recursos públicos en ${lugar}, con ` +
       `énfasis en ${territorialidad} y cumplimiento pleno del mecanismo de ${mecanismoLabel}.`;
 
     return {
@@ -135,6 +213,7 @@ class AgentAdministrativo {
       mecanismo:           mecanismoLabel,
       territorialidad,
       justificacion_legal,
+      origen_justificacion,
     };
   }
 }
@@ -300,10 +379,10 @@ class AgentEvaluador {
 // ORCHESTRATOR000 — Exportación pública
 // =============================================================================
 export class Orchestrator000 {
-  constructor() {
+  constructor({ timeoutIAms = CALLAI_TIMEOUT_MS } = {}) {
     this.version = '9.0';
     this._agents = {
-      AGT_052: new AgentAdministrativo(),
+      AGT_052: new AgentAdministrativo({ timeoutMs: timeoutIAms }),
       AGT_053: new AgentOperativo(),
       AGT_054: new AgentRiesgos(),
       AGT_056: new AgentEvaluador(),

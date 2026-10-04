@@ -22,6 +22,8 @@ import './src/shared/infrastructure/FirebaseAdmin.js';
 import { verifyFirebaseAuth }        from './src/shared/infrastructure/FirebaseAuthMiddleware.js';
 import { validateBody, schemas }     from './src/shared/infrastructure/validation.js';
 import { m1Router, runM1Pipeline }   from './src/modules/radar/m1Pipeline.js';
+import { RadarItemSchema, validarHandoff } from './src/shared/contracts/Handoffs.js';
+import { dlq }                       from './src/shared/infrastructure/DeadLetterQueue.js';
 import { initSentry, Sentry, sentryHabilitado } from './src/shared/infrastructure/SentryMonitoring.js';
 import { initLangfuse, trackGeneration }     from './src/shared/infrastructure/LangfuseMonitoring.js';
 import './scripts/generar_reporte.cjs'; // regenera public/estado_antigravity.json con inventario real de agents/ al arrancar + cada 10 min
@@ -549,18 +551,23 @@ async function refreshRadarLive() {
 
     for (const op of oportunidades) {
       const id = slugId(op.entidad || 'entidad', op.titulo || 'oportunidad');
-      const item = {
+      // Contrato antes de difundir a TODOS los clientes WebSocket (dictamen
+      // F2-2): un ítem fuera de forma va a cuarentena, nunca al broadcast.
+      const contrato = validarHandoff(RadarItemSchema, {
         id, entidad: op.entidad || 'Por confirmar', objeto: op.titulo || 'Por confirmar',
         monto: op.monto || 'Por confirmar', sector: op.sector || 'Multisectorial',
         region: op.cobertura || 'Nacional', status: 'Abierta', fechaCierre: op.fechaCierre || 'Por confirmar',
         _ts: Date.now(),
-      };
+      }, { origen: 'radar_cron', destino: 'ws_broadcast', dlq });
+      if (!contrato.ok) continue;
+      const item = contrato.data;
       const idx = radarData.findIndex(r => r.id === id);
       const isNew = idx < 0;
       if (isNew) radarData.unshift(item); else radarData[idx] = item;
       broadcastRadar(isNew ? 'NEW_FUND_DETECTED' : 'STATUS_UPDATE', item);
     }
   } catch (err) {
+    // El fallo del pipeline ya quedó en la DLQ dentro de runM1Pipeline.
     console.error('[Radar Cron] Falló la corrida:', err.message);
   }
 }
