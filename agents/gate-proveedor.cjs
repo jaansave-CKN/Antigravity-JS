@@ -611,6 +611,52 @@ async function unIntentoAnthropic({ cfg, system, user, max_tokens, deadlineMs })
     }
 }
 
+// --- FinOps: uso de tokens y costo en COP (orden del dueño 2026-10-04) -------
+// NIM no reporta usage en streaming: se estima por volumen. El factor por
+// defecto sale de dos mediciones reales del gate con deepseek-v4.1-flash
+// (21 642 prompt_tokens ≈ 68 400 caracteres → 3,16; 45 905 ≈ 138 500 → 3,02),
+// no del 3,5 supuesto en el dictamen. Cada tokenizador difiere: el valor se
+// ajusta con LLM_CARACTERES_POR_TOKEN y el registro queda marcado estimado.
+const CARACTERES_POR_TOKEN_DEFAULT = 3.1;
+const CARACTERES_POR_TOKEN_RANGO = Object.freeze([1.5, 6]);
+// TRM oficial (datos.gov.co, recurso 32sa-8pi3) vigente 2026-10-03..05.
+// TRM_COP_USD la actualiza sin tocar código.
+const TRM_COP_USD_DEFAULT = 3273.49;
+// USD por millón de tokens. NIM: endpoints del NVIDIA Developer Program,
+// sin cobro (uso de desarrollo/pruebas; producción requiere licencia NVIDIA
+// AI Enterprise). Anthropic: tarifa pública al 2026-09-25.
+const TARIFAS_USD_POR_MILLON = Object.freeze({
+    nim: { '*': { entrada: 0, salida: 0 } },
+    anthropic: { 'claude-sonnet-4-6': { entrada: 3, salida: 15 }, 'claude-opus-5-5': { entrada: 4, salida: 20 }, 'claude-haiku-4-5': { entrada: 1, salida: 5 } },
+});
+
+function numeroEnRango(crudo, [min, max], porDefecto) {
+    const n = Number(String(crudo ?? '').trim());
+    return String(crudo ?? '').trim() && Number.isFinite(n) && n >= min && n <= max ? n : porDefecto;
+}
+
+function estimarUso({ system, user, texto, razonamientoChars }, env = process.env) {
+    const factor = numeroEnRango(env.LLM_CARACTERES_POR_TOKEN, CARACTERES_POR_TOKEN_RANGO, CARACTERES_POR_TOKEN_DEFAULT);
+    const entrada = String(system ?? '').length + String(user ?? '').length;
+    const salida = String(texto ?? '').length + (Number.isInteger(razonamientoChars) ? razonamientoChars : 0);
+    return {
+        prompt_tokens: Math.ceil(entrada / factor),
+        completion_tokens: Math.ceil(salida / factor),
+        estimado: true,
+        caracteres_por_token: factor,
+    };
+}
+
+function costoEnCOP(uso, cfg, env = process.env) {
+    if (!uso) return null;
+    const tabla = TARIFAS_USD_POR_MILLON[cfg.proveedor] || {};
+    const tarifa = tabla[cfg.modelo] || tabla['*'];
+    if (!tarifa) return { usd: null, cop: null, trm: null, motivo: 'tarifa_desconocida', estimado: Boolean(uso.estimado) };
+    const trm = numeroEnRango(env.TRM_COP_USD, [1000, 10000], TRM_COP_USD_DEFAULT);
+    const usd = ((uso.prompt_tokens ?? 0) * tarifa.entrada + (uso.completion_tokens ?? 0) * tarifa.salida) / 1e6;
+    return { usd: Number(usd.toFixed(6)), cop: Number((usd * trm).toFixed(2)), trm, estimado: Boolean(uso.estimado) };
+}
+
 // --- Cadena de conmutación por fallo (orden del dueño 2026-10-04, enmienda ADR-0002 §2.1) --
 // El gate prueba una cadena ordenada de modelos y se queda con el primero que
 // responde: primario (GATE_PROVIDER/GATE_MODEL) → cadena. La cadena por
@@ -828,7 +874,8 @@ async function llamarProveedor(cfg, { system, user, max_tokens }, opciones = {})
             // breaker mientras esta esperaba la red. leer+escribir sin await
             // de por medio es atómico dentro del proceso (un solo hilo).
             if (breakerPath) escribirBreaker(breakerPath, { ...registrarExito(leerBreakerDe(breakerPath, cfg), ahora()), modelo: etiquetaModelo(cfg) });
-            return { ...r, proveedor: cfg.proveedor, modelo: cfg.modelo, intentos: intento };
+            const uso = r.uso ?? estimarUso({ system, user, texto: r.texto, razonamientoChars: r.razonamiento_chars }, env);
+            return { ...r, uso, costo: costoEnCOP(uso, cfg, env), proveedor: cfg.proveedor, modelo: cfg.modelo, intentos: intento };
         } catch (e) {
             ultimoError = e instanceof ErrorProveedor ? e : new ErrorProveedor({ codigo: 'error_interno', categoria: 'solicitud', detalle: redactar(e?.message || e, cfg.key).slice(0, 300) });
             if (intento < maxIntentos && esReintentable(ultimoError.categoria, ultimoError.codigo)) {
@@ -855,4 +902,5 @@ module.exports = {
     resolverConfig, filtrarSecretosDiff, llamarModelo,
     resolverCadena, resolverPlazoFailover, rutaBreakerModelo, sondearModelos, etiquetaModelo,
     CADENA_NIM_DEFAULT, FAILOVER_PRIMER_BYTE_DEFAULT_MS,
+    estimarUso, costoEnCOP, CARACTERES_POR_TOKEN_DEFAULT, TRM_COP_USD_DEFAULT,
 };

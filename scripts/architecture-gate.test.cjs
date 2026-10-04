@@ -442,6 +442,18 @@ test('SUBGATES: 005 configurado con valorAprobado string (no booleano) sobre mó
   assert.deepEqual(relevantes.sort(), ['src/modules/formulador/supabaseClient.js', 'src/shared/infrastructure/session-manager.js']);
 });
 
+test('SUBGATES 005: cubre src/modules/radar/ y src/shared/contracts/ (orden del dueño 2026-10-04)', () => {
+  const relevantes = archivosRelevantesPara('005_INGENIERO_BACKEND', [
+    'src/modules/radar/m1Pipeline.js',
+    'src/modules/radar/m1Cache.js',
+    'src/shared/contracts/Handoffs.js',
+    'src/orchestrator-engine.js',
+    'public/src/RadarApp.jsx',
+    'docs/RADFOR360.pdf',
+  ]);
+  assert.deepEqual(relevantes.sort(), ['src/modules/radar/m1Cache.js', 'src/modules/radar/m1Pipeline.js', 'src/orchestrator-engine.js', 'src/shared/contracts/Handoffs.js']);
+});
+
 test('extraerJSONConCampo: JSON PRIMERO + análisis cortado por max_tokens con llaves sueltas → el veredicto sigue válido (2026-09-26)', () => {
   const texto = '{"aprobado": true, "razones": ["coherente"], "diferimientos": [{"subgate": "010", "razon": "sin specs"}]}\n\n' +
     '## Análisis\nEl bloque `if (x) {` del gate y un objeto {"otro": 1} de ejemplo, luego el corte por length a mitad de { frase';

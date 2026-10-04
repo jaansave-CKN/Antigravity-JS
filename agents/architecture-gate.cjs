@@ -217,7 +217,7 @@ async function consultarModelo(subsistema, { system, user, max_tokens }) {
             tipo: 'uso_modelo', subsistema, resultado: 'ok', proveedor: r.proveedor, modelo: r.modelo,
             intentos: r.intentos, uso: r.uso, fin: r.fin, archivos_sensibles_omitidos: omitidos.length,
             texto_chars: r.texto_chars ?? null, razonamiento_chars: r.razonamiento_chars ?? null,
-            failover: r.failover ?? null,
+            failover: r.failover ?? null, costo: r.costo ?? null,
         });
         return { ok: true, texto: r.texto, fin: r.fin, proveedor: r.proveedor, modelo: r.modelo };
     } catch (e) {
@@ -908,7 +908,10 @@ const SUBGATES = {
         // proxy y /api/mcp en server.js — NO cubiertos) los hizo el
         // orquestador directamente en vez de pasar por 005. Ver
         // docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md para el hallazgo completo.
-        patrones: [/^src\/modules\/formulador\//, /^src\/shared\/infrastructure\//, /^server\.js$/, /^src\/orchestrator-engine\.js$/],
+        // radar/ y contracts/ agregados 2026-10-04 (orden del dueño, dictamen
+        // RadFor-360): el M1 y los contratos de traspaso se modificaban sin
+        // que ningún subgate de backend los evaluara.
+        patrones: [/^src\/modules\/formulador\//, /^src\/modules\/radar\//, /^src\/shared\/infrastructure\//, /^src\/shared\/contracts\//, /^server\.js$/, /^src\/orchestrator-engine\.js$/],
         campoAprobado: 'estado_backend',
         valorAprobado: 'aislado_y_seguro',
         veredictoPath: path.join(dirAgents, 'veredicto_005.json'),

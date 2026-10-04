@@ -842,3 +842,39 @@ test('breaker atado al modelo: un circuito abierto por OTRO modelo no bloquea al
     assert.equal(b.estado, 'cerrado');
     assert.equal(b.modelo, 'nim:org/modelo-a', 'el breaker queda etiquetado con su modelo');
 });
+
+// ---------------------------------------------------------------------------
+// FinOps (orden del dueño 2026-10-04): NIM no reporta usage en streaming →
+// estimación volumétrica marcada como tal; costo en COP con TRM configurable.
+// ---------------------------------------------------------------------------
+
+test('FinOps: SSE sin usage → estimación volumétrica (factor medido 3,1) marcada estimado:true; NIM cuesta COP 0', async () => {
+    const partes = [chunk('a'.repeat(310)), chunkFin('stop'), 'data: [DONE]\n\n'];
+    const msg = { system: 's'.repeat(155), user: 'u'.repeat(155), max_tokens: 100 };
+    const r = await P.llamarModelo(msg, { env: ENV, fetchImpl: fetchSecuencia([respuestaSSE(partes)]), breakerPath: breakerTmp(), sleep: sinEspera });
+    assert.deepEqual(r.uso, { prompt_tokens: 100, completion_tokens: 100, estimado: true, caracteres_por_token: P.CARACTERES_POR_TOKEN_DEFAULT });
+    assert.deepEqual(r.costo, { usd: 0, cop: 0, trm: P.TRM_COP_USD_DEFAULT, estimado: true });
+});
+
+test('FinOps: el usage real del proveedor se respeta (no se sobreescribe con la estimación)', async () => {
+    const r = await P.llamarModelo(MSG, { env: ENV, fetchImpl: fetchSecuencia([respuesta(200, OK_BODY)]), breakerPath: breakerTmp(), sleep: sinEspera });
+    assert.deepEqual(r.uso, { prompt_tokens: 10, completion_tokens: 5 });
+    assert.equal(r.costo.estimado, false);
+});
+
+test('FinOps: costo en COP por tarifa del modelo y TRM configurable; factor y TRM inválidos caen al valor por defecto', () => {
+    const uso = { prompt_tokens: 1_000_000, completion_tokens: 100_000 };
+    const sonnet = { proveedor: 'anthropic', modelo: 'claude-sonnet-4-6' };
+    assert.deepEqual(P.costoEnCOP(uso, sonnet, { TRM_COP_USD: '4000' }), { usd: 4.5, cop: 18000, trm: 4000, estimado: false });
+    assert.equal(P.costoEnCOP(uso, sonnet, { TRM_COP_USD: 'abc' }).trm, P.TRM_COP_USD_DEFAULT);
+    assert.equal(P.costoEnCOP(uso, { proveedor: 'anthropic', modelo: 'claude-desconocido' }, {}).motivo, 'tarifa_desconocida');
+    assert.equal(P.costoEnCOP(uso, { proveedor: 'nim', modelo: 'moonshotai/kimi-k3' }, {}).cop, 0);
+    assert.equal(P.estimarUso({ system: 'x'.repeat(30), user: '', texto: 'y'.repeat(30) }, { LLM_CARACTERES_POR_TOKEN: '3' }).prompt_tokens, 10);
+    assert.equal(P.estimarUso({ system: 'x', user: '', texto: '' }, { LLM_CARACTERES_POR_TOKEN: '99' }).caracteres_por_token, P.CARACTERES_POR_TOKEN_DEFAULT);
+    assert.equal(P.costoEnCOP(null, sonnet, {}), null);
+});
+
+test('FinOps: el razonamiento del modelo cuenta como tokens de salida en la estimación', () => {
+    const u = P.estimarUso({ system: '', user: '', texto: 'z'.repeat(31), razonamientoChars: 310 }, {});
+    assert.equal(u.completion_tokens, Math.ceil(341 / P.CARACTERES_POR_TOKEN_DEFAULT));
+});
