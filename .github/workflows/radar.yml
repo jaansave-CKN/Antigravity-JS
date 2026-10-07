@@ -39,6 +39,14 @@ jobs:
       - name: TypeScript check
         run: npx tsc --noEmit
 
+      # H9 (dictamen pre-lanzamiento 2026-09-30): hasta aquí el gate de deploy
+      # era solo tsc + build — un cambio que compilaba pero rompía el cobro, el
+      # gating de plan o el guardado llegaba a producción sin fricción, aunque
+      # las 300+ pruebas unitarias lo detectaran. Ahora son bloqueantes: el job
+      # `deploy` tiene `needs: ci`, así que si esto falla, nada se despliega.
+      - name: Pruebas unitarias (bloqueante)
+        run: npm run test:unit
+
       - name: Build frontend
         run: npm run build
         env:
@@ -154,5 +162,7 @@ jobs:
           echo "::warning::/api/health no respondió 200 tras 120s de polling — se ejecuta el smoke test de todas formas."
 
       - name: Ejecutar smoke test contra el backend real
+        env:
+          SMOKE_TEST_TOKEN: ${{ secrets.SMOKE_TEST_TOKEN }}
         run: node backend/scripts/smokeTest.js "${{ secrets.SMOKE_TEST_URL }}"
 

@@ -24,7 +24,7 @@ import { withTenant, withTenantRow, withTenantRows } from '../config/database.co
  * @param {import('express').Application} app
  * @param {{ authenticateToken: Function }} deps
  */
-export function registerReporteRoutes(app, { authenticateToken }) {
+export function registerReporteRoutes(app, { authenticateToken, requireAccess }) {
 
   async function manejarReporte(req, res, graficos) {
     try {
@@ -86,6 +86,6 @@ export function registerReporteRoutes(app, { authenticateToken }) {
     }
   }
 
-  app.get('/api/modulo9/reporte/:proyectoId', authenticateToken, (req, res) => manejarReporte(req, res, []));
-  app.post('/api/modulo9/reporte/:proyectoId', authenticateToken, (req, res) => manejarReporte(req, res, Array.isArray(req.body?.graficos) ? req.body.graficos : []));
+  app.get('/api/modulo9/reporte/:proyectoId', authenticateToken, requireAccess('formulador'), (req, res) => manejarReporte(req, res, []));
+  app.post('/api/modulo9/reporte/:proyectoId', authenticateToken, requireAccess('formulador'), (req, res) => manejarReporte(req, res, Array.isArray(req.body?.graficos) ? req.body.graficos : []));
 }

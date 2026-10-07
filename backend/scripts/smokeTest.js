@@ -100,6 +100,23 @@ async function run() {
   check('GET /api/estadisticas → success', stats.ok && stats.data?.success === true,
     `convocatorias: ${stats.data?.data?.total_convocatorias ?? '?'} · entidades: ${stats.data?.data?.total_entidades ?? '?'}`);
 
+  // ── 7. Persistir el resultado del smoke con un secreto dedicado ────────────
+  if (failed === 0) {
+    console.log('\n[7/7] Marcador de producción...');
+    const smokeToken = process.env.SMOKE_TEST_TOKEN;
+    if (!smokeToken) {
+      check('POST /api/system/production-ready → success', false, 'SMOKE_TEST_TOKEN no configurado');
+    } else {
+      const mark = await fetchJSON('/api/system/production-ready', {
+        method: 'POST',
+        headers: { 'X-Smoke-Token': smokeToken },
+      });
+      check('POST /api/system/production-ready → success', mark.ok && mark.data?.success === true, mark.data?.message);
+    }
+  } else {
+    console.log('\n[7/7] Marcador de producción omitido porque falló un check previo.');
+  }
+
   // ── Resultado ─────────────────────────────────────────────────────────────
   const allPassed = failed === 0;
 
@@ -113,15 +130,6 @@ async function run() {
   console.log(`  Passed: ${passed} / Failed: ${failed} / Total: ${passed + failed}`);
 
   if (allPassed) {
-    // Marcar BD como production_ready via API
-    try {
-      const mark = await fetchJSON('/api/system/production-ready', {
-        method: 'POST',
-        headers: { 'X-Smoke-Token': process.env.JWT_SECRET || '' },
-      });
-      if (mark.ok) console.log('\n  ✓ Base de datos marcada como PRODUCTION_READY');
-      else         console.log('\n  ⚠ El endpoint /api/system/production-ready no está disponible (registrar manualmente)');
-    } catch {}
     console.log('\n  🚀 SISTEMA LISTO PARA VENTA\n');
     process.exit(0);
   } else {

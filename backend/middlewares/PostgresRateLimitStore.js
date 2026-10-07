@@ -25,18 +25,16 @@
  * Implementa la interfaz Store real de express-rate-limit v7
  * (init/increment/decrement/resetKey).
  *
- * IMPORTANTE (lección aprendida esta sesión): nunca uses ON CONFLICT en
- * las queries de este store — bajo el fallback REST de database.config.js
- * (Capa 2) esa cláusula se ignora en silencio. Por eso el patrón aquí es
- * SELECT → decide UPDATE o INSERT, ambos con placeholders reales, igual
- * que el resto del código ya corregido en esta sesión.
+ * Cada incremento usa un UPSERT atómico directo a PostgreSQL. No se permite
+ * pasar esta operación por pgOrRest: PostgREST no conserva la semántica del
+ * ON CONFLICT y podría aceptar el request sin incrementar el contador.
  */
-import { getRow, runSql } from '../config/database.config.js';
+import { queryPgOnly } from '../config/database.config.js';
 
 let _tableReady = null;
 function ensureTable() {
   if (!_tableReady) {
-    _tableReady = runSql(`
+    _tableReady = queryPgOnly(`
       CREATE TABLE IF NOT EXISTS rate_limit_counters (
         id         TEXT PRIMARY KEY,
         count      INTEGER NOT NULL DEFAULT 1,
@@ -68,40 +66,34 @@ export class PostgresRateLimitStore {
   async increment(key) {
     await ensureTable();
     const id = this._key(key);
-    const now = Date.now();
-    const existing = await getRow(
-      'SELECT count, reset_at FROM rate_limit_counters WHERE id = ?',
-      [id]
-    );
-
-    const ventanaVencida = !existing || new Date(existing.reset_at).getTime() <= now;
-
-    if (ventanaVencida) {
-      const resetAt = new Date(now + this.windowMs).toISOString();
-      if (existing) {
-        await runSql('UPDATE rate_limit_counters SET count = ?, reset_at = ? WHERE id = ?', [1, resetAt, id]);
-      } else {
-        await runSql('INSERT INTO rate_limit_counters (id, count, reset_at) VALUES (?, ?, ?)', [id, 1, resetAt]);
-      }
-      return { totalHits: 1, resetTime: new Date(resetAt) };
-    }
-
-    const totalHits = existing.count + 1;
-    await runSql('UPDATE rate_limit_counters SET count = ? WHERE id = ?', [totalHits, id]);
-    return { totalHits, resetTime: new Date(existing.reset_at) };
+    const result = await queryPgOnly(`
+      INSERT INTO rate_limit_counters (id, count, reset_at)
+      VALUES ($1, 1, NOW() + ($2::double precision * INTERVAL '1 millisecond'))
+      ON CONFLICT (id) DO UPDATE SET
+        count = CASE
+          WHEN rate_limit_counters.reset_at <= NOW() THEN 1
+          ELSE rate_limit_counters.count + 1
+        END,
+        reset_at = CASE
+          WHEN rate_limit_counters.reset_at <= NOW()
+            THEN NOW() + ($2::double precision * INTERVAL '1 millisecond')
+          ELSE rate_limit_counters.reset_at
+        END,
+        updated_at = NOW()
+      RETURNING count, reset_at
+    `, [id, this.windowMs]);
+    const row = result.rows[0];
+    return { totalHits: Number(row.count), resetTime: new Date(row.reset_at) };
   }
 
   async decrement(key) {
     await ensureTable();
-    const id = this._key(key);
-    const existing = await getRow('SELECT count FROM rate_limit_counters WHERE id = ?', [id]);
-    if (!existing) return;
-    const nuevo = Math.max(0, existing.count - 1);
-    await runSql('UPDATE rate_limit_counters SET count = ? WHERE id = ?', [nuevo, id]);
+    await queryPgOnly('UPDATE rate_limit_counters SET count = GREATEST(count - 1, 0), updated_at = NOW() WHERE id = ?', [this._key(key)]);
   }
 
   async resetKey(key) {
-    await runSql('DELETE FROM rate_limit_counters WHERE id = ?', [this._key(key)]);
+    await ensureTable();
+    await queryPgOnly('DELETE FROM rate_limit_counters WHERE id = ?', [this._key(key)]);
   }
 }
 

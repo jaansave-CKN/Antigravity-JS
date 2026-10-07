@@ -187,7 +187,7 @@ function wrap(fn) {
 // este archivo migraron a withTenantRow/withTenantRows/withTenantRun, pool
 // RLS-escopado) — si server.js los sigue pasando en el objeto de deps, se
 // ignoran sin error.
-export async function registerAnexosRoutes(app, { authenticateToken, financialPipelineLimiter }) {
+export async function registerAnexosRoutes(app, { authenticateToken, requireAccess, financialPipelineLimiter }) {
   if (!supabaseStorage) {
     console.error('[anexos] SUPABASE_URL/SUPABASE_SERVICE_KEY no configurados — subida de anexos desactivada');
   } else {
@@ -237,7 +237,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
   /**
    * GET /api/proyectos/:id/anexos
    */
-  app.get('/api/proyectos/:id/anexos', authenticateToken, wrap(async (req, res) => {
+  app.get('/api/proyectos/:id/anexos', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -264,7 +264,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
    * solo actualiza los campos que vinieron en el body; null en fecha_documento
    * es un borrado intencional válido.
    */
-  app.patch('/api/proyectos/:id/anexos/:anexoId/vigencia', authenticateToken, wrap(async (req, res) => {
+  app.patch('/api/proyectos/:id/anexos/:anexoId/vigencia', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -295,7 +295,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
   /**
    * GET /api/proyectos/:id/anexos/carpetas
    */
-  app.get('/api/proyectos/:id/anexos/carpetas', authenticateToken, wrap(async (req, res) => {
+  app.get('/api/proyectos/:id/anexos/carpetas', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -309,7 +309,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
   /**
    * POST /api/proyectos/:id/anexos/carpetas — crea una carpeta { nombre }
    */
-  app.post('/api/proyectos/:id/anexos/carpetas', authenticateToken, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/anexos/carpetas', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -334,7 +334,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
   /**
    * PUT /api/proyectos/:id/anexos/carpetas/:carpetaId — renombra { nombre }
    */
-  app.put('/api/proyectos/:id/anexos/carpetas/:carpetaId', authenticateToken, wrap(async (req, res) => {
+  app.put('/api/proyectos/:id/anexos/carpetas/:carpetaId', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -364,7 +364,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
    * Storage), acción explícita y opt-in desde el frontend — mismo criterio
    * que biblioteca.routes.js.
    */
-  app.delete('/api/proyectos/:id/anexos/carpetas/:carpetaId', authenticateToken, wrap(async (req, res) => {
+  app.delete('/api/proyectos/:id/anexos/carpetas/:carpetaId', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -400,7 +400,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
    * El archivo es opcional — una fila puramente narrativa (descripcion/texto/link
    * sin adjunto real) también es válida, siempre que no esté completamente vacía.
    */
-  app.post('/api/proyectos/:id/anexos', authenticateToken, upload.single('file'), wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/anexos', authenticateToken, requireAccess('formulador'), upload.single('file'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -657,7 +657,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
    * lo borró) de "el campo ni siquiera vino en el body" — por PRESENCIA
    * (`!== undefined`), mismo criterio que ya usaba `categoria` más abajo.
    */
-  app.patch('/api/proyectos/:id/anexos/:anexoId', authenticateToken, wrap(async (req, res) => {
+  app.patch('/api/proyectos/:id/anexos/:anexoId', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -716,7 +716,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
    * así que no hay forma de acceder al archivo sin pasar por este endpoint
    * autenticado y con ownership verificado.
    */
-  app.get('/api/proyectos/:id/anexos/:anexoId/download', authenticateToken, wrap(async (req, res) => {
+  app.get('/api/proyectos/:id/anexos/:anexoId/download', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -738,7 +738,7 @@ export async function registerAnexosRoutes(app, { authenticateToken, financialPi
   /**
    * DELETE /api/proyectos/:id/anexos/:anexoId
    */
-  app.delete('/api/proyectos/:id/anexos/:anexoId', authenticateToken, wrap(async (req, res) => {
+  app.delete('/api/proyectos/:id/anexos/:anexoId', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 

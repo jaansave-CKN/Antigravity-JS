@@ -6,7 +6,7 @@
  *   1. Por-token (logout individual):
  *      revokeToken(token, userId, expiresAt, runSql)
  *      → Hashea el token (SHA-256) y lo almacena en `revoked_tokens`.
- *      → Check en memoria: O(1), sin DB en cada request.
+ *      → Cache local O(1) + consulta persistida para compartir el logout entre instancias.
  *
  *   2. Bulk por usuario (Stripe cancellation, admin kick):
  *      revokeUserSession(userId, runSql)
@@ -18,7 +18,7 @@
  *   1. Arranque  → carga tokens vigentes desde BD → revokedSet (memoria)
  *   2. Logout    → revokeToken() → INSERT en BD + add al Set
  *   3. Stripe    → revokeUserSession() → UPDATE usuarios
- *   4. Request   → isRevoked() O(1) + checkSessionValid() ~1ms BD
+ *   4. Request   → hash local + lookup persistido + checkSessionValid()
  *   5. Cada hora → purgeExpiredTokens() limpia BD + reconstruye Set
  *
  * Sin Redis. Sin dependencias externas.
@@ -26,6 +26,15 @@
 
 import crypto from 'crypto';
 import { logCriticalError } from '../services/logService.js';
+
+let _queryPgOnly = null;
+async function persistRevocation(sql, params) {
+  if (!_queryPgOnly) {
+    const database = await import('../config/database.config.js');
+    _queryPgOnly = database.queryPgOnly;
+  }
+  return _queryPgOnly(sql, params);
+}
 
 // ── Set en memoria: fuente primaria O(1) para logout por-token ───────────────
 const revokedSet = new Set();
@@ -61,23 +70,34 @@ export async function initBlacklist(runSql, getRows) {
 }
 
 // ── Revocar token individual (POST /api/auth/logout) ─────────────────────────
-export async function revokeToken(token, userId, expiresAt, runSql) {
+export class TokenRevocationPersistenceError extends Error {
+  constructor(cause) {
+    super('No se pudo persistir la revocación de sesión. El logout no se confirmó; intenta de nuevo.');
+    this.name = 'TokenRevocationPersistenceError';
+    this.code = 'TOKEN_REVOCATION_UNAVAILABLE';
+    this.status = 503;
+    this.cause = cause;
+  }
+}
+
+export async function revokeToken(token, userId, expiresAt) {
   const hash = hashToken(token);
 
   // Efecto inmediato en memoria
   revokedSet.add(hash);
 
-  // Persistir en BD (tolerante a fallos — el Set ya protege)
+  // La memoria protege esta instancia, pero solo PostgreSQL comparte el logout.
   try {
     const expiresISO = new Date(expiresAt * 1000).toISOString();
-    await runSql(
+    await persistRevocation(
       `INSERT INTO revoked_tokens (token_hash, user_id, expires_at)
        VALUES ($1, $2, $3)
        ON CONFLICT (token_hash) DO NOTHING`,
       [hash, userId, expiresISO]
     );
   } catch (e) {
-    console.warn('[blacklist] Error persistiendo token revocado (protección en memoria activa):', e.message);
+    console.error('[blacklist] No se confirmó logout porque falló la persistencia de revocación:', e.message);
+    throw new TokenRevocationPersistenceError(e);
   }
 }
 
@@ -103,6 +123,17 @@ export async function revokeUserSession(userId, runSql) {
 // ── Verificar si el token individual está en la blacklist ────────────────────
 export function isRevoked(token) {
   return revokedSet.has(hashToken(token));
+}
+
+/** Checks persisted revocations so every application instance sees logout immediately. */
+export async function isRevokedPersisted(token, getRow) {
+  if (isRevoked(token)) return true;
+  if (!token || typeof getRow !== 'function') throw new Error('No se puede verificar la revocación persistida del token.');
+  const row = await getRow(
+    'SELECT 1 AS revoked FROM revoked_tokens WHERE token_hash = ? AND expires_at > NOW()',
+    [hashToken(token)]
+  );
+  return !!row;
 }
 
 // ── Verificar si la sesión del usuario es válida (mecanismo bulk) ────────────

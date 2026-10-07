@@ -103,7 +103,7 @@ function wrap(fn) {
   };
 }
 
-export async function registerBibliotecaRoutes(app, { authenticateToken }) {
+export async function registerBibliotecaRoutes(app, { authenticateToken, requireAccess }) {
   if (!supabaseStorage) {
     console.error('[biblioteca] SUPABASE_URL/SUPABASE_SERVICE_KEY no configurados — subida a la Biblioteca desactivada');
   } else {
@@ -147,7 +147,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
   /**
    * GET /api/proyectos/:id/biblioteca
    */
-  app.get('/api/proyectos/:id/biblioteca', authenticateToken, wrap(async (req, res) => {
+  app.get('/api/proyectos/:id/biblioteca', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -163,7 +163,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
   /**
    * GET /api/proyectos/:id/biblioteca/carpetas
    */
-  app.get('/api/proyectos/:id/biblioteca/carpetas', authenticateToken, wrap(async (req, res) => {
+  app.get('/api/proyectos/:id/biblioteca/carpetas', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -177,7 +177,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
   /**
    * POST /api/proyectos/:id/biblioteca/carpetas — crea una carpeta { nombre }
    */
-  app.post('/api/proyectos/:id/biblioteca/carpetas', authenticateToken, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/biblioteca/carpetas', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -202,7 +202,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
   /**
    * PUT /api/proyectos/:id/biblioteca/carpetas/:carpetaId — renombra { nombre }
    */
-  app.put('/api/proyectos/:id/biblioteca/carpetas/:carpetaId', authenticateToken, wrap(async (req, res) => {
+  app.put('/api/proyectos/:id/biblioteca/carpetas/:carpetaId', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -228,7 +228,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
    * ?eliminarDocumentos=true se borran también los documentos (fila +
    * archivo en Storage), acción explícita y opt-in desde el frontend.
    */
-  app.delete('/api/proyectos/:id/biblioteca/carpetas/:carpetaId', authenticateToken, wrap(async (req, res) => {
+  app.delete('/api/proyectos/:id/biblioteca/carpetas/:carpetaId', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -261,7 +261,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
    * El archivo es opcional — una fila puramente narrativa también es válida,
    * siempre que no esté completamente vacía.
    */
-  app.post('/api/proyectos/:id/biblioteca', authenticateToken, upload.single('file'), wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/biblioteca', authenticateToken, requireAccess('formulador'), upload.single('file'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -364,7 +364,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
   // usuario lo borró) de "el campo ni siquiera vino en el body" (un llamador
   // parcial que no debería tocarlo) — por PRESENCIA, no por vacío/no-vacío.
   // carpeta_id/categoria ya usaban este mismo criterio de presencia.
-  app.patch('/api/proyectos/:id/biblioteca/:docId', authenticateToken, wrap(async (req, res) => {
+  app.patch('/api/proyectos/:id/biblioteca/:docId', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -416,7 +416,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
    * GET /api/proyectos/:id/biblioteca/:docId/download
    * URL firmada de corta duración (5 min) — bucket privado.
    */
-  app.get('/api/proyectos/:id/biblioteca/:docId/download', authenticateToken, wrap(async (req, res) => {
+  app.get('/api/proyectos/:id/biblioteca/:docId/download', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -438,7 +438,7 @@ export async function registerBibliotecaRoutes(app, { authenticateToken }) {
   /**
    * DELETE /api/proyectos/:id/biblioteca/:docId
    */
-  app.delete('/api/proyectos/:id/biblioteca/:docId', authenticateToken, wrap(async (req, res) => {
+  app.delete('/api/proyectos/:id/biblioteca/:docId', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 

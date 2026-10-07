@@ -23,22 +23,29 @@ mock.module(svc('geminiCircuitBreaker.js'), { namedExports: { LlmLoopGuardError 
 
 const { evaluarComiteIA, validarHallazgosIA, parsearRespuestaComite } = await import('../../backend/services/mirofishComite.js');
 
-const DATOS = { 'tramo[02].estado_via': 'Destapada', 'tramo[02].distancia_km': '180', 'logistica.duracion_meses': '3' };
+const DATOS = { 'tramo[02].estado_via': 'Destapada', 'tramo[02].distancia_km': '180', 'logistica.duracion_meses': '3', 'presupuesto.seguridad': 'Sin rubro de seguridad' };
 
 test('validación anti-alucinación: solo pasan hallazgos con evidencia literal de datos enviados', () => {
   const { validos, descartados } = validarHallazgosIA([
     { categoria: 'cronograma_clima', severidad: 'ALTA', titulo: 'Plazo corto para vía destapada',
       evidencia: [{ campo: 'tramo[02].estado_via', valor: 'destapada' }, { campo: 'logistica.duracion_meses', valor: '3' }] },
+    { categoria: 'orden_publico', severidad: 'CRITICA', titulo: 'Permiso ambiental vencido', detalle: 'El permiso vencido bloquea el proyecto.',
+      evidencia: [{ campo: 'presupuesto.seguridad', valor: 'Sin rubro de seguridad' }] },
     { titulo: 'Campo inventado', evidencia: [{ campo: 'clima.precipitacion_mm', valor: '4000' }] },
     { titulo: 'Valor alterado', evidencia: [{ campo: 'tramo[02].distancia_km', valor: '18' }] },
     { titulo: 'Sin evidencia', evidencia: [] },
-    { titulo: 'Categoría rara', categoria: 'xyz', severidad: 'EXTREMA', evidencia: [{ campo: 'tramo[02].estado_via', valor: 'Destapada' }] },
+    { titulo: 'Destapada', categoria: 'xyz', severidad: 'EXTREMA', evidencia: [{ campo: 'tramo[02].estado_via', valor: 'Destapada' }] },
   ], DATOS);
-  assert.deepEqual(validos.map(v => v.titulo), ['Plazo corto para vía destapada', 'Categoría rara']);
+  assert.deepEqual(validos.map(v => v.titulo), ['Plazo corto para vía destapada', 'Destapada']);
   assert.equal(validos[1].categoria, 'otro');
   assert.equal(validos[1].severidad, 'MEDIA');
-  assert.deepEqual(descartados.map(d => d.motivo), ['evidencia_no_coincide:clima.precipitacion_mm', 'evidencia_no_coincide:tramo[02].distancia_km', 'sin_evidencia']);
+  assert.deepEqual(descartados.map(d => d.motivo), ['afirmacion_sin_sustento_literal', 'evidencia_no_coincide:clima.precipitacion_mm', 'evidencia_no_coincide:tramo[02].distancia_km', 'sin_evidencia']);
   assert.equal(validos[0].evidencia[0].valor, 'Destapada', 'la evidencia guardada es el valor REAL enviado');
+});
+
+test('un hallazgo IA no puede llegar como CRITICA aunque aporte evidencia coincidente', () => {
+  const r = validarHallazgosIA([{ categoria: 'cronograma_clima', severidad: 'CRITICA', titulo: 'Vía destapada', evidencia: [{ campo: 'tramo[02].estado_via', valor: 'Destapada' }] }], DATOS);
+  assert.equal(r.validos[0].severidad, 'ALTA');
 });
 
 test('respuesta sin arreglo "hallazgos" es rechazada (la capa prueba el siguiente proveedor)', () => {
@@ -48,7 +55,7 @@ test('respuesta sin arreglo "hallazgos" es rechazada (la capa prueba el siguient
 });
 
 test('JSON válido → ok con hallazgos validados y el modelo que realmente respondió (B7)', async () => {
-  const texto = JSON.stringify({ hallazgos: [{ categoria: 'costos_transporte', severidad: 'ALTA', titulo: 'T', evidencia: [{ campo: 'tramo[02].distancia_km', valor: '180' }] }] });
+  const texto = JSON.stringify({ hallazgos: [{ categoria: 'costos_transporte', severidad: 'ALTA', titulo: 'Distancia de 180 km', evidencia: [{ campo: 'tramo[02].distancia_km', valor: '180' }] }] });
   generar = async (p) => ({ valor: p.validar(texto), modelo: 'anthropic/claude-sonnet-5', proveedor: 'openrouter' });
   const ok = await evaluarComiteIA({ datos: DATOS, hallazgosReglas: [], userId: 'u1' });
   assert.deepEqual([ok.estado, ok.hallazgos.length, ok.modelo, ok.proveedor], ['ok', 1, 'anthropic/claude-sonnet-5', 'openrouter']);

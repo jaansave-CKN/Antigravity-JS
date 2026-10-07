@@ -43,7 +43,7 @@ const SIGLAS_VALIDAS = new Set(['R', 'A', 'C', 'I', 'V', 'IA']);
 const NOMBRE_MAX = 300;
 const DESCRIPCION_MAX = 5000;
 
-export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, financialPipelineLimiter }) {
+export function registerMatrizRaciRoutes(app, { authenticateToken, requireAccess, tryCatch, financialPipelineLimiter }) {
   const limiteEscritura = financialPipelineLimiter ? [financialPipelineLimiter] : [];
 
   // Mismo patrón de aislamiento multi-tenant que configLogistica.routes.js/
@@ -56,7 +56,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
 
   // ── TAREAS (filas de la matriz) ───────────────────────────────────────────
 
-  app.get('/api/proyectos/:id/raci/tareas', authenticateToken, tryCatch(async (req, res) => {
+  app.get('/api/proyectos/:id/raci/tareas', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -67,7 +67,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
     res.json({ success: true, data: tareasRes.rows || [] });
   }));
 
-  app.post('/api/proyectos/:id/raci/tareas', authenticateToken, ...limiteEscritura, tryCatch(async (req, res) => {
+  app.post('/api/proyectos/:id/raci/tareas', authenticateToken, requireAccess('formulador'), ...limiteEscritura, tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -85,7 +85,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
     res.json({ success: true, data: { id, nombre, descripcion, orden } });
   }));
 
-  app.patch('/api/proyectos/:id/raci/tareas/:tareaId', authenticateToken, ...limiteEscritura, tryCatch(async (req, res) => {
+  app.patch('/api/proyectos/:id/raci/tareas/:tareaId', authenticateToken, requireAccess('formulador'), ...limiteEscritura, tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -115,7 +115,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
     res.json({ success: true });
   }));
 
-  app.delete('/api/proyectos/:id/raci/tareas/:tareaId', authenticateToken, ...limiteEscritura, tryCatch(async (req, res) => {
+  app.delete('/api/proyectos/:id/raci/tareas/:tareaId', authenticateToken, requireAccess('formulador'), ...limiteEscritura, tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -130,7 +130,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
 
   // ── ROLES (columnas de la matriz) ─────────────────────────────────────────
 
-  app.get('/api/proyectos/:id/raci/roles', authenticateToken, tryCatch(async (req, res) => {
+  app.get('/api/proyectos/:id/raci/roles', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -141,7 +141,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
     res.json({ success: true, data: rolesRes.rows || [] });
   }));
 
-  app.post('/api/proyectos/:id/raci/roles', authenticateToken, ...limiteEscritura, tryCatch(async (req, res) => {
+  app.post('/api/proyectos/:id/raci/roles', authenticateToken, requireAccess('formulador'), ...limiteEscritura, tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -158,7 +158,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
     res.json({ success: true, data: { id, nombre, orden } });
   }));
 
-  app.patch('/api/proyectos/:id/raci/roles/:rolId', authenticateToken, ...limiteEscritura, tryCatch(async (req, res) => {
+  app.patch('/api/proyectos/:id/raci/roles/:rolId', authenticateToken, requireAccess('formulador'), ...limiteEscritura, tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -185,7 +185,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
     res.json({ success: true });
   }));
 
-  app.delete('/api/proyectos/:id/raci/roles/:rolId', authenticateToken, ...limiteEscritura, tryCatch(async (req, res) => {
+  app.delete('/api/proyectos/:id/raci/roles/:rolId', authenticateToken, requireAccess('formulador'), ...limiteEscritura, tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -198,7 +198,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
 
   // ── MATRIZ (agregado en un solo round-trip) ───────────────────────────────
 
-  app.get('/api/proyectos/:id/raci/matriz', authenticateToken, tryCatch(async (req, res) => {
+  app.get('/api/proyectos/:id/raci/matriz', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -220,7 +220,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
   // request podría cruzar una tarea del proyecto A con un rol del proyecto B
   // (contaminación de datos entre proyectos del mismo usuario, hallazgo del
   // architect review, no solo entre usuarios distintos).
-  app.put('/api/proyectos/:id/raci/asignaciones/:tareaId/:rolId', authenticateToken, ...limiteEscritura, tryCatch(async (req, res) => {
+  app.put('/api/proyectos/:id/raci/asignaciones/:tareaId/:rolId', authenticateToken, requireAccess('formulador'), ...limiteEscritura, tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -256,7 +256,7 @@ export function registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, fin
 
   // ── RESUMEN (validación) ──────────────────────────────────────────────────
 
-  app.get('/api/proyectos/:id/raci/resumen', authenticateToken, tryCatch(async (req, res) => {
+  app.get('/api/proyectos/:id/raci/resumen', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.id, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 

@@ -11,7 +11,7 @@ import { generarNormasAplicables } from '../agents/normativoAgent.js';
 import { withTenantRow, withTenantRun } from '../config/database.config.js';
 import { validarBody, marcoNormativoGenerarSchema, marcoNormativoGuardarSchema } from '../validators/zodSchemas.js';
 
-export function registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch }) {
+export function registerMarcoNormativoRoutes(app, { authenticateToken, requireAccess, tryCatch }) {
 
   // SECURITY: valida propiedad de proyecto_id antes de tocar marco_normativo —
   // mismo fix de BOLA aplicado en compliance/configLogistica/motorDialectico.
@@ -20,7 +20,7 @@ export function registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch 
   }
 
   // GET /api/m8/normas/:proyectoId
-  app.get('/api/m8/normas/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+  app.get('/api/m8/normas/:proyectoId', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -33,7 +33,7 @@ export function registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch 
 
   // POST /api/m8/normas/generar
   // Genera normas aplicables a partir del sector y municipio del proyecto.
-  app.post('/api/m8/normas/generar', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/m8/normas/generar', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const validacionNormGen = validarBody(marcoNormativoGenerarSchema, req.body);
     if (!validacionNormGen.ok) return res.status(400).json({ success: false, message: validacionNormGen.message });
     const { proyecto_id, sector, municipio } = validacionNormGen.data;
@@ -70,7 +70,7 @@ export function registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch 
   }));
 
   // POST /api/m8/normas/:proyectoId — guardar normas editadas manualmente
-  app.post('/api/m8/normas/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/m8/normas/:proyectoId', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 

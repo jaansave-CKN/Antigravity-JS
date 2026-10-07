@@ -28,7 +28,7 @@ function wrap(fn) {
  * @param {import('express').Application} app
  * @param {{ authenticateToken: Function }} deps
  */
-export function registerRadicacionRoutes(app, { authenticateToken }) {
+export function registerRadicacionRoutes(app, { authenticateToken, requireAccess }) {
 
   /**
    * POST /api/modulo9/radicar/:proyectoId
@@ -43,7 +43,7 @@ export function registerRadicacionRoutes(app, { authenticateToken }) {
    *   3a. Falla → estado BLOQUEADO + bloqueo_razon + 422 CROSSCHECK_FAILED.
    *   3b. OK    → estado Finalizado + crosscheck_sello + 200.
    */
-  app.post('/api/modulo9/radicar/:proyectoId', authenticateToken, wrap(async (req, res) => {
+  app.post('/api/modulo9/radicar/:proyectoId', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const { proyectoId } = req.params;
     const validacionRadicar = validarBody(radicacionSchema, req.body);
     if (!validacionRadicar.ok) {

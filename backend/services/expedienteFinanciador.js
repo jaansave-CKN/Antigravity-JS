@@ -60,8 +60,30 @@ const MONTO = /\$\s?\d|\b(COP|USD|EUR)\b|\bmill[oó]n(es)?\s+de\s+(pesos|d[oó]l
 // AFIRMACIONES de dictamen, no palabras sueltas: "Concepto de viabilidad técnica" o "certificado de
 // elegibilidad" son documentos reales del checklist. Se evalúa sobre texto normalizado (sin tildes).
 const AUTOEVALUACION = /\b(es|son|resulta|resultan|sera|seran|se considera|se consideran|se declara|se declaran)\s+(\w+mente\s+)?(viables?|elegibles?)\b|\b(el proyecto|la propuesta|la iniciativa|la solicitud|la postulacion|la financiacion|los recursos)\s+(\w+\s+){0,2}?(es|fue|sera|esta|queda|resulta|se considera)\s+(\w+mente\s+)?(aprobad[oa]s?|otorgad[oa]s?|favorables?)\b|\bviabilidad\s+(aprobada|otorgada|favorable|garantizada)\b|\bscore\b|\bpuntaje\s+de\s+(auditoria|evaluacion)\b/;
-// Grupos donde no puede aparecer un monto (el presupuesto está en el documento externo del usuario); null = toda la sección.
-const SIN_MONTOS = { cadena_valor: null, marco_logico: new Set(['actividades']), sostenibilidad_oym: null };
+// CERO MONTOS ABSOLUTO (Operación Lanzamiento Seguro, punto 5, dueño 2026-09-30).
+// Antes solo 3 secciones (y en marco_logico solo el grupo 'actividades') tenían
+// vetado el monto; ahora son las 9, sin excepción y sin importar que la cifra
+// venga de los TdR: el presupuesto vive ÚNICAMENTE en el documento externo del
+// usuario, y el Expediente nunca lo duplica ni lo contradice. null = toda la sección.
+const SIN_MONTOS = Object.freeze({
+  marco_logico: null,
+  teoria_cambio: null,
+  cadena_valor: null,
+  salvaguardas: null,
+  hseq: null,
+  mel: null,
+  riesgos_pmi: null,
+  sostenibilidad_oym: null,
+  checklist_juridico: null,
+});
+
+// Campos que, en vez de tumbar el ítem completo por llevar un monto, se
+// NEUTRALIZAN a "ND". Motivo: `riesgos_pmi.reserva` está diseñado para llevar
+// una reserva de contingencia en pesos; con el veto total, descartar el ítem
+// borraría el riesgo entero del registro —perdiendo información real— solo
+// porque su reserva traía una cifra. Se vacía el campo y el riesgo se conserva.
+// Solo aplica a campos que ya admiten "ND" (ADMITE_ND).
+const MONTO_A_ND = Object.freeze({ riesgos_pmi: new Set(['reserva']) });
 
 const ESCALA_ORDINAL = new Map([
   ['muy baja', 1], ['muy bajo', 1], ['baja', 2], ['bajo', 2], ['media', 3], ['medio', 3], ['moderada', 3], ['moderado', 3],
@@ -145,7 +167,7 @@ export const SECCIONES = Object.freeze({
     grupos: {
       riesgos: { campos: { evento: 'texto', categoria: `enum:${CATEGORIAS_RIESGO.join(',')}`, probabilidad: 'ordinal', impacto: 'ordinal', respuesta: 'texto', reserva: 'texto' } },
     },
-    instrucciones: 'Construye el registro de riesgos: evento de riesgo sustentado en las fuentes, categoría, probabilidad e impacto, estrategia de respuesta y reserva de contingencia. La reserva SOLO si el monto está en las fuentes; si no, "ND". "probabilidad" e "impacto" NO son datos de las fuentes: son TU calificación experta del evento y van SIEMPRE como número entero de 1 a 5 (1 = muy baja, 2 = baja, 3 = media, 4 = alta, 5 = muy alta) — nunca "ND", nunca texto. "ND" solo es válido en "reserva".',
+    instrucciones: 'Construye el registro de riesgos: evento de riesgo sustentado en las fuentes, categoría, probabilidad e impacto, estrategia de respuesta y reserva de contingencia. La reserva se describe SIEMPRE sin cifras de dinero (p. ej. "Reserva de contingencia a cargo del contratista" o "ND"): el valor monetario está en el presupuesto del documento externo del usuario, nunca aquí. "probabilidad" e "impacto" NO son datos de las fuentes: son TU calificación experta del evento y van SIEMPRE como número entero de 1 a 5 (1 = muy baja, 2 = baja, 3 = media, 4 = alta, 5 = muy alta) — nunca "ND", nunca texto. "ND" solo es válido en "reserva".',
   },
   sostenibilidad_oym: {
     titulo: 'Sostenibilidad — operación y mantenimiento',
@@ -295,7 +317,8 @@ REGLAS INQUEBRANTABLES:
 2. NUNCA inventes cifras, montos, fechas, porcentajes, normas, entidades ni documentos: toda cifra de un ítem debe aparecer en sus fuentes. Si el dato no está, usa "ND" (o cadena vacía donde se indique).
 3. Si las fuentes no alcanzan para un grupo, devuélvelo como lista vacía. Es preferible poco contenido verificable que contenido inventado.
 4. Tu rol es REDACTAR, no evaluar: NUNCA declares que el proyecto es viable, elegible, aprobado u otorgado, ni asignes un score o puntaje. La fiscalización la hace el Comité MIROFISH con un modelo independiente.
-5. Máximo ${MAX_ITEMS} ítems por grupo. Responde SOLO un objeto JSON con esta forma exacta, sin texto antes ni después:
+5. CERO MONTOS, en TODAS las secciones y sin excepción: está PROHIBIDO escribir cifras de dinero (símbolos o códigos de moneda como $, COP, USD, EUR; "N pesos/dólares/euros"; "millones de pesos"; importes con separador de miles como 120.000.000), AUNQUE la cifra aparezca en los términos de referencia o en cualquier otra fuente. El presupuesto del proyecto vive ÚNICAMENTE en el documento externo del usuario y el Expediente no lo duplica. Donde harías falta un monto, escribe "ND". Esto NO aplica a magnitudes no monetarias (metros, litros, viviendas, personas, porcentajes de cobertura), que sí se conservan si están en las fuentes.
+6. Máximo ${MAX_ITEMS} ítems por grupo. Responde SOLO un objeto JSON con esta forma exacta, sin texto antes ni después:
 ${JSON.stringify(forma)}`;
   const user = `${bloqueVectores(directivas)}
 
@@ -392,8 +415,17 @@ export function validarSeccion(seccionId, salida, datos, anexosIds) {
       if (seccionId === 'marco_logico' && g === 'problema_central' && PROBLEMA_COMO_AUSENCIA.test(normalizarEje(item.texto).toUpperCase())) {
         descartados.push({ grupo: g, item: resumen, motivo: 'problema_como_ausencia' }); continue;
       }
-      // Cadena de valor sin montos: el costo por actividad vive en el presupuesto del documento externo.
-      if (seccionId in SIN_MONTOS && (SIN_MONTOS[seccionId] === null || SIN_MONTOS[seccionId].has(g)) && MONTO.test(textoItem)) { descartados.push({ grupo: g, item: resumen, motivo: 'monto_no_permitido' }); continue; }
+      // CERO MONTOS: ninguna sección del Expediente lleva cifras de dinero — el
+      // presupuesto vive en el documento externo del usuario. Los campos de
+      // MONTO_A_ND se vacían a "ND" primero, para no perder el ítem completo
+      // por una sola cifra en un campo accesorio (ver comentario de MONTO_A_ND).
+      if (seccionId in SIN_MONTOS && (SIN_MONTOS[seccionId] === null || SIN_MONTOS[seccionId].has(g))) {
+        for (const campo of MONTO_A_ND[seccionId] ?? []) {
+          if (item[campo] && MONTO.test(String(item[campo]))) item[campo] = 'ND';
+        }
+        const textoSinMontoND = camposTexto.map(c => item[c]).join(' \n ');
+        if (MONTO.test(textoSinMontoND)) { descartados.push({ grupo: g, item: resumen, motivo: 'monto_no_permitido' }); continue; }
+      }
       // Cifras: solo en campos de texto (las calificaciones 1–5 no son datos).
       const textos = camposCifras.map(c => item[c]).join(' \n ');
       const malas = cifrasNoTrazables(textos, fuentes, datos);

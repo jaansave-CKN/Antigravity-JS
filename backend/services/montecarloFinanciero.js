@@ -20,9 +20,10 @@
 
 export const TASA_SOCIAL_DESCUENTO = 0.12;
 export const ITERACIONES = 10000;      // fijo en servidor: el cálculo es síncrono
-const MONTO_MAXIMO_COP = 1e15;
+const MONTO_MAXIMO_COP = 1e12; // mantiene centavos distinguibles en el contrato JSON Number
 const BINS_HISTOGRAMA = 30;
 const TIR_MIN = -0.99, TIR_MAX = 10;   // búsqueda de la TIR en (-99%, 1000%]
+const FACTOR_ESCALA = 2n ** 52n;
 
 export class MontecarloError extends Error {
   constructor(message) { super(message); this.status = 422; this.code = 'MONTECARLO_ENTRADA_INVALIDA'; }
@@ -58,6 +59,24 @@ function van(inversion, beneficios, r) {
   return total;
 }
 
+function vanEscaladoCentavos(inversionCentavos, beneficiosCentavos, tasa) {
+  let factor = 1 / (1 + tasa);
+  const descuento = factor;
+  let total = -BigInt(inversionCentavos) * FACTOR_ESCALA;
+  for (const beneficio of beneficiosCentavos) {
+    const factorFijo = BigInt(Math.round(factor * Number(FACTOR_ESCALA)));
+    total += beneficio * factorFijo;
+    factor *= descuento;
+  }
+  return total;
+}
+
+function centavosEscaladosACop(valor) {
+  const centavos = valor / FACTOR_ESCALA;
+  const fraccion = valor % FACTOR_ESCALA;
+  return Number(centavos) / 100 + Number(fraccion) / Number(FACTOR_ESCALA) / 100;
+}
+
 // TIR por bisección. Con -I en t=0 y beneficios >= 0, el VAN es estrictamente
 // decreciente en r > -1, así que la raíz (si existe en el intervalo) es única.
 // Devuelve null si no hay cambio de signo en [TIR_MIN, TIR_MAX].
@@ -85,12 +104,12 @@ function percentil(ordenado, p) {
 const cop2 = (n) => (n === null || n === undefined ? null : Math.round(n * 100) / 100);
 const pct4 = (n) => (n === null || n === undefined ? null : Math.round(n * 10000) / 10000);
 
-function validar({ inversionCop, beneficioMin, beneficioProbable, beneficioMax, horizonteAnios }) {
+function validar({ inversionCop, beneficioMin, beneficioProbable, beneficioMax, horizonteAnios, tasa }) {
   const montos = { inversionCop, beneficioMin, beneficioProbable, beneficioMax };
   for (const [k, v] of Object.entries(montos)) {
     if (typeof v !== 'number' || !Number.isFinite(v)) throw new MontecarloError(`${k} debe ser un número finito en COP.`);
     if (v < 0) throw new MontecarloError(`${k} no puede ser negativo.`);
-    if (v > MONTO_MAXIMO_COP) throw new MontecarloError(`${k} supera el máximo permitido (1.000 billones COP).`);
+    if (v > MONTO_MAXIMO_COP) throw new MontecarloError(`${k} supera el máximo con precisión de centavos (1 billón COP).`);
   }
   if (inversionCop <= 0) throw new MontecarloError('La inversión inicial debe ser mayor que 0.');
   if (!(beneficioMin <= beneficioProbable && beneficioProbable <= beneficioMax)) {
@@ -99,6 +118,7 @@ function validar({ inversionCop, beneficioMin, beneficioProbable, beneficioMax, 
   if (!Number.isInteger(horizonteAnios) || horizonteAnios < 1 || horizonteAnios > 50) {
     throw new MontecarloError('El horizonte debe ser un número entero de años entre 1 y 50.');
   }
+  if (!Number.isFinite(tasa) || tasa < 0 || tasa > 1) throw new MontecarloError('La tasa de descuento debe estar entre 0 y 1.');
 }
 
 /**
@@ -108,7 +128,7 @@ export function simularVanTir({
   inversionCop, beneficioMin, beneficioProbable, beneficioMax, horizonteAnios,
   tasa = TASA_SOCIAL_DESCUENTO, iteraciones = ITERACIONES, semilla,
 }) {
-  validar({ inversionCop, beneficioMin, beneficioProbable, beneficioMax, horizonteAnios });
+  validar({ inversionCop, beneficioMin, beneficioProbable, beneficioMax, horizonteAnios, tasa });
   if (!Number.isInteger(iteraciones) || iteraciones < 1 || iteraciones > ITERACIONES) {
     throw new MontecarloError(`iteraciones debe estar entre 1 y ${ITERACIONES}.`);
   }
@@ -119,22 +139,27 @@ export function simularVanTir({
   const rnd = mulberry32(semilla);
   const vans = new Float64Array(iteraciones);
   const tirs = [];
-  let tirIndefinida = 0, vanPositivo = 0;
+  let tirIndefinida = 0, vanPositivo = 0, sumaVanEscalada = 0n;
   const beneficios = new Float64Array(horizonteAnios);
+  const beneficiosCentavos = new Array(horizonteAnios);
+  const inversionCentavos = BigInt(Math.round(inversionCop * 100));
 
   for (let i = 0; i < iteraciones; i++) {
-    for (let t = 0; t < horizonteAnios; t++) beneficios[t] = triangular(rnd(), beneficioMin, beneficioProbable, beneficioMax);
-    const v = van(inversionCop, beneficios, tasa);
+    for (let t = 0; t < horizonteAnios; t++) {
+      beneficios[t] = triangular(rnd(), beneficioMin, beneficioProbable, beneficioMax);
+      beneficiosCentavos[t] = BigInt(Math.round(beneficios[t] * 100));
+    }
+    const vanEscalado = vanEscaladoCentavos(inversionCentavos, beneficiosCentavos, tasa);
+    const v = centavosEscaladosACop(vanEscalado);
     vans[i] = v;
-    if (v > 0) vanPositivo++;
+    sumaVanEscalada += vanEscalado;
+    if (vanEscalado > 0n) vanPositivo++;
     const r = tir(inversionCop, beneficios);
     if (r === null) tirIndefinida++; else tirs.push(r);
   }
 
   const vansOrd = Float64Array.from(vans).sort();
   const tirsOrd = Float64Array.from(tirs).sort();
-  let suma = 0;
-  for (const v of vans) suma += v;
 
   // Histograma del VAN (bins iguales entre el mínimo y el máximo simulados).
   const vMin = vansOrd[0], vMax = vansOrd[vansOrd.length - 1];
@@ -148,6 +173,12 @@ export function simularVanTir({
     histograma = cuentas.map((frecuencia, k) => ({ desde: cop2(vMin + k * ancho), hasta: cop2(vMin + (k + 1) * ancho), frecuencia }));
   }
 
+  const beneficioProbableCentavos = BigInt(Math.round(beneficioProbable * 100));
+  const vanProbable = centavosEscaladosACop(vanEscaladoCentavos(
+    inversionCentavos,
+    new Array(horizonteAnios).fill(beneficioProbableCentavos),
+    tasa
+  ));
   const beneficiosProbables = new Array(horizonteAnios).fill(beneficioProbable);
 
   return {
@@ -159,10 +190,10 @@ export function simularVanTir({
     distribucion: 'triangular',
     // Escenario determinista (beneficio = probable todos los años): NO es la
     // media simulada — se etiquetan por separado a propósito.
-    van_escenario_probable_cop: cop2(van(inversionCop, beneficiosProbables, tasa)),
+    van_escenario_probable_cop: cop2(vanProbable),
     tir_escenario_probable: pct4(tir(inversionCop, beneficiosProbables)),
     van: {
-      media_cop: cop2(suma / iteraciones),
+      media_cop: cop2(centavosEscaladosACop(sumaVanEscalada / BigInt(iteraciones))),
       p10_cop: cop2(percentil(vansOrd, 0.10)),
       p50_cop: cop2(percentil(vansOrd, 0.50)),
       p90_cop: cop2(percentil(vansOrd, 0.90)),

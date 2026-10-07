@@ -24,7 +24,8 @@ mock.module(u('db.js'), { namedExports: {
   getRows: async () => [],
 } });
 mock.module(u('middlewares/tokenBlacklist.js'), { namedExports: {
-  isRevoked: async () => false, checkSessionValid: async () => true, checkAccountStatus: async () => ({ ok: true }),
+  isRevoked: async () => false, isRevokedPersisted: async () => false,
+  checkSessionValid: async () => true, checkAccountStatus: async () => ({ ok: true }),
 } });
 mock.module(u('services/llmProveedor.js'), { namedExports: { generarConIA: async () => { throw new Error('sin IA en tests'); } } });
 class StoreFalso { async increment() { return { totalHits: 1, resetTime: new Date() }; } async decrement() {} async resetKey() {} }
@@ -37,8 +38,20 @@ const { normalizarFechaLimite, calcEstado } = await import(u('utils/fechasConvoc
 const { planificarPurga, TOPE } = await import(u('scripts/purgarBasuraCatalogo.mjs'));
 
 const srv = fs.readFileSync(new URL('../../server.js', import.meta.url), 'utf8');
+const smoke = fs.readFileSync(new URL('../../backend/scripts/smokeTest.js', import.meta.url), 'utf8');
+const render = fs.readFileSync(new URL('../../render.yaml', import.meta.url), 'utf8');
+const workflow = fs.readFileSync(new URL('../../.github/workflows/radar.yml', import.meta.url), 'utf8');
 
 // ── F1 ───────────────────────────────────────────────────────────────────────
+test('smoke de producción exige el secreto dedicado y nunca usa JWT_SECRET', () => {
+  assert.match(smoke, /process\.env\.SMOKE_TEST_TOKEN/);
+  assert.match(smoke, /SMOKE_TEST_TOKEN no configurado/);
+  assert.doesNotMatch(smoke, /X-Smoke-Token['"]\s*:\s*process\.env\.JWT_SECRET/);
+  assert.match(smoke, /mark\.ok && mark\.data\?\.success === true/);
+  assert.match(render, /- key: SMOKE_TEST_TOKEN\s+sync: false/);
+  assert.match(workflow, /SMOKE_TEST_TOKEN:\s*\$\{\{ secrets\.SMOKE_TEST_TOKEN \}\}/);
+});
+
 test('F1: requireAdmin rechaza con 403 a un usuario estándar y deja pasar al admin', () => {
   const respuesta = () => { const r = { code: null, body: null }; r.status = (c) => { r.code = c; return r; }; r.json = (b) => { r.body = b; return r; }; return r; };
   for (const rol of ['user', 'usuario', 'radar', undefined]) {
@@ -51,6 +64,12 @@ test('F1: requireAdmin rechaza con 403 a un usuario estándar y deja pasar al ad
   requireAdmin({ userRole: 'admin' }, res, () => { siguio = true; });
   assert.equal(siguio, true);
   assert.equal(res.code, null);
+});
+
+test('revocación de sesión y links se comprueba en ledger persistido', () => {
+  assert.match(srv, /isRevokedPersisted\(token, getRow\)/);
+  assert.doesNotMatch(srv, /if \(isRevoked\(token\)\)/);
+  assert.doesNotMatch(srv, /await revokeToken\([^\n;]*,\s*runSql\)/);
 });
 
 test('F1: las rutas que escriben el catálogo global exigen authenticateToken + requireAdmin', () => {

@@ -255,6 +255,40 @@ test('montos: "millones de litros" y "pesos de carga" NO son montos; "$", "millo
   assert.deepEqual(om.descartados.map(d => d.motivo), ['monto_no_permitido']);
 });
 
+test('CERO MONTOS ABSOLUTO (punto 5, 2026-09-30): el veto cubre las 9 secciones, también Teoría del Cambio y Riesgos', () => {
+  const { datos, anexosIds } = X.construirFuentes(ENTRADA, [...ANEXOS, { nombre: 'TdR.pdf', texto: 'El financiador aporta 120.000.000. Riesgo de sobrecosto por lluvias. Se prevé una reserva de contingencia de $ 50.000.000. Resultado: mayor cobertura de agua apta.' }]);
+  const f = ['anexo:TdR.pdf'];
+
+  // Teoría del Cambio: antes NO tenía veto de montos; ahora sí, aunque la cifra venga del TdR.
+  const tc = X.validarSeccion('teoria_cambio', { resultados_intermedios: [
+    { texto: 'Mayor cobertura de agua apta en la zona rural', fuentes: f },
+    { texto: 'Ejecución del aporte del financiador de 120.000.000', fuentes: f },
+  ] }, datos, anexosIds);
+  assert.equal(tc.grupos.resultados_intermedios.length, 1, 'el ítem con monto se descarta');
+  assert.deepEqual(tc.descartados.map(d => d.motivo), ['monto_no_permitido']);
+
+  // Riesgos PMI: el monto en "reserva" NO tumba el riesgo — se neutraliza a "ND".
+  const rp = X.validarSeccion('riesgos_pmi', { riesgos: [
+    { evento: 'Sobrecosto por lluvias', categoria: 'Climático', probabilidad: 3, impacto: 4, respuesta: 'Mitigar con cronograma holgado', reserva: 'Reserva de $ 50.000.000', fuentes: f },
+  ] }, datos, anexosIds);
+  assert.equal(rp.grupos.riesgos.length, 1, 'el riesgo se conserva, no se pierde por la cifra de la reserva');
+  assert.equal(rp.grupos.riesgos[0].reserva, 'ND');
+  assert.deepEqual(rp.descartados, []);
+
+  // Pero un monto en un campo sustantivo del riesgo sí lo descarta.
+  const rp2 = X.validarSeccion('riesgos_pmi', { riesgos: [
+    { evento: 'Sobrecosto de 120.000.000 por lluvias', categoria: 'Climático', probabilidad: 3, impacto: 4, respuesta: 'Mitigar', reserva: 'ND', fuentes: f },
+  ] }, datos, anexosIds);
+  assert.deepEqual(rp2.descartados.map(d => d.motivo), ['monto_no_permitido']);
+
+  // Las 9 secciones declaran el veto.
+  assert.deepEqual([...X.SECCIONES_IDS].sort(), [...X.SECCIONES_IDS].sort());
+  for (const id of X.SECCIONES_IDS) {
+    const [sys] = X.construirPrompt(id, resolverDirectivas(ENTRADA), datos);
+    assert.match(sys.content, /CERO MONTOS/, `la sección ${id} debe llevar la regla de cero montos en el prompt`);
+  }
+});
+
 test('norma derogada anclada a la RESOLUCIÓN: "1063 viviendas en 2016" pasa; en el checklist solo se vacía la referencia derogada', () => {
   const { datos, anexosIds } = X.construirFuentes(ENTRADA, [...ANEXOS, { nombre: 'Censo.pdf', texto: 'Se censaron 1063 viviendas en 2016. Requisito: concepto técnico según Resolución 1063 de 2016.' }]);
   const h = X.validarSeccion('hseq', {

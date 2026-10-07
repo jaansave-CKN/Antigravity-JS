@@ -23,6 +23,19 @@ import { normalizar } from './mirofishReglas.js';
 
 const CATEGORIAS = new Set(['cronograma_clima', 'costos_transporte', 'orden_publico', 'coherencia_financiador', 'otro']);
 const SEVERIDADES = new Set(['CRITICA', 'ALTA', 'MEDIA', 'INFO']);
+const PALABRAS_VACIAS = new Set(['ANTE', 'COMO', 'CON', 'DEL', 'DESDE', 'ESTA', 'ESTE', 'HASTA', 'LAS', 'LOS', 'PARA', 'PERO', 'POR', 'QUE', 'UNA', 'UNO']);
+
+function tokensSustantivos(valor) {
+  return new Set(normalizar(valor).split(/[^A-Z0-9]+/).filter(t => t.length >= 4 && !PALABRAS_VACIAS.has(t)));
+}
+
+function evidenciaCubreHallazgo(hallazgo, evidencias) {
+  const afirmacion = tokensSustantivos(`${hallazgo.titulo} ${hallazgo.detalle || ''}`);
+  const soporte = tokensSustantivos(evidencias.map(e => `${e.campo} ${e.valor}`).join(' '));
+  if (!afirmacion.size || !soporte.size) return false;
+  const coincidencias = [...afirmacion].filter(t => soporte.has(t)).length;
+  return coincidencias / afirmacion.size >= 0.3;
+}
 
 export const SYSTEM_PROMPT = `Eres el COMITÉ HOSTIL MIROFISH: un panel de evaluadores escépticos de fondos públicos y de cooperación en Colombia. Tu trabajo es ATACAR la formulación del proyecto y encontrar vacíos reales de planificación antes de que lo haga el financiador.
 
@@ -67,9 +80,14 @@ export function validarHallazgosIA(crudos, datos) {
       return !citado || !(enviado === citado || (citado.length >= 4 && enviado.includes(citado)));
     });
     if (invalida) { descartados.push({ titulo, motivo: `evidencia_no_coincide:${String(invalida?.campo ?? '')}` }); continue; }
+    if (!evidenciaCubreHallazgo({ titulo, detalle: h.detalle }, ev)) {
+      descartados.push({ titulo, motivo: 'afirmacion_sin_sustento_literal' });
+      continue;
+    }
     validos.push({
       categoria: CATEGORIAS.has(h.categoria) ? h.categoria : 'otro',
-      severidad: SEVERIDADES.has(h.severidad) ? h.severidad : 'MEDIA',
+      // La IA propone riesgos; solo las reglas verificables pueden declarar CRITICA.
+      severidad: h.severidad === 'CRITICA' ? 'ALTA' : (SEVERIDADES.has(h.severidad) ? h.severidad : 'MEDIA'),
       titulo,
       detalle: String(h.detalle || '').slice(0, 1500),
       evidencia: ev.map(e => ({ campo: String(e.campo), valor: String(datos[e.campo]) })),
