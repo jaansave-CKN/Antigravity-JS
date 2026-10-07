@@ -42,7 +42,14 @@ mock.module(u('services/iaPresupuesto.js'), { namedExports: {
   IaTopeAgotadoError, PresupuestoNoVerificableError,
   configPresupuesto: (env = process.env) => {
     const ok = !!env.LLM_TOPE_USD_DIA && !!env.LLM_TOPE_USD_MES;
-    return { ok, faltante: ok ? [] : ['LLM_TOPE_USD_DIA'] };
+    // Devuelve también los topes y precios, como el real: cfgPresupuestoGemini()
+    // los hereda para aplicar el tope por usuario al pool Gemini (H1).
+    return {
+      ok, faltante: ok ? [] : ['LLM_TOPE_USD_DIA'],
+      topeDia: Number(env.LLM_TOPE_USD_DIA) || null,
+      topeMes: Number(env.LLM_TOPE_USD_MES) || null,
+      precioIn: 2, precioOut: 10,
+    };
   },
   estimarReservaUsd: () => 0.09,
   costoRealUsd: (usage, costo) => (Number.isFinite(costo) ? costo : 0.01),
@@ -58,7 +65,7 @@ mock.module(u('utils/logger.js'), { namedExports: { logger: {
   error: (m, extra) => estado.logs.push({ nivel: 'error', m, ...extra }),
 } } });
 
-const { generarConIA, IaNoDisponibleError, estadoOpenRouter, estadoGroq, GUARDA_CERO_INVENCION, AGENTES_CREADORES, _reiniciarEstadoProveedor } = await import('../../backend/services/llmProveedor.js');
+const { generarConIA, IaNoDisponibleError, estadoOpenRouter, estadoGroq, GUARDA_CERO_INVENCION, AGENTES_CREADORES, AGENTES_CAROS, MODELO_GEMINI, _reiniciarEstadoProveedor } = await import('../../backend/services/llmProveedor.js');
 
 const MSGS = [{ role: 'system', content: 'sistema' }, { role: 'user', content: 'pregunta' }];
 const respuesta = ({ status = 200, finish = 'stop', content = '{"ok":true}', usage = { prompt_tokens: 100, completion_tokens: 50, total_tokens: 1150 }, model, headers = {} } = {}) => ({
@@ -141,13 +148,24 @@ test('sin tope configurado: OpenRouter NO se usa (nunca gasto sin límite)', asy
   assert.equal(estadoOpenRouter().motivo, 'sin_tope_configurado');
 });
 
-test('presupuesto no verificable (BD degradada / tabla ausente): falla cerrado, se salta OpenRouter', async () => {
+test('presupuesto no verificable (BD degradada / tabla ausente): falla cerrado en AMBOS proveedores pagados (H1, 2026-09-30)', async () => {
+  // Cambio de contrato: desde H1 el pool Gemini también reserva contra el tope
+  // por usuario, así que un presupuesto no verificable lo salta igual que a
+  // OpenRouter. Sin BYOK no queda nadie → REGLA DE ORO (503), nunca una
+  // respuesta sin techo de gasto.
   preparar();
   estado.reservar = async () => { throw new PresupuestoNoVerificableError('BD en modo REST'); };
   red();
-  const r = await generarConIA({ userId: 'u1', agente: 'x', messages: MSGS });
-  assert.equal(r.proveedor, 'gemini_servidor');
-  assert.equal(llamadas.some(l => l.destino === 'openrouter'), false);
+  await assert.rejects(generarConIA({ userId: 'u1', agente: 'x', messages: MSGS }), (e) => {
+    assert.ok(e instanceof IaNoDisponibleError);
+    assert.deepEqual(e.intentos, [
+      { proveedor: 'openrouter', motivo: 'presupuesto_no_verificable' },
+      { proveedor: 'gemini_servidor', motivo: 'presupuesto_no_verificable' },
+      { proveedor: 'byok', motivo: 'sin_llaves_usuario' },
+    ]);
+    return true;
+  });
+  assert.equal(llamadas.length, 0, 'no sale ninguna petición sin tope verificable');
 });
 
 test('402 sin créditos: se libera la reserva, se pasa a Gemini y OpenRouter queda en pausa 10 min', async () => {
@@ -156,7 +174,8 @@ test('402 sin créditos: se libera la reserva, se pasa a Gemini y OpenRouter que
   const r = await generarConIA({ userId: 'u1', agente: 'x', messages: MSGS });
   assert.equal(r.proveedor, 'gemini_servidor');
   assert.deepEqual(estado.liberadas, ['reserva-1']);
-  assert.equal(estado.liquidadas.length, 0, 'nada generado = nada cobrado');
+  // H1: Gemini ahora también reserva y liquida; lo de OpenRouter sigue en cero.
+  assert.equal(estado.liquidadas.filter(l => l.modelo !== MODELO_GEMINI).length, 0, 'nada generado por OpenRouter = nada cobrado');
   assert.equal(estadoOpenRouter().motivo, 'pausado_por_configuracion');
   llamadas = [];
   await generarConIA({ userId: 'u1', agente: 'x', messages: MSGS });
@@ -169,7 +188,8 @@ test('timeout de OpenRouter: la reserva se LIQUIDA (pudo haber cobrado), no se l
   const r = await generarConIA({ userId: 'u1', agente: 'x', messages: MSGS });
   assert.equal(r.proveedor, 'gemini_servidor');
   assert.equal(estado.liberadas.length, 0);
-  assert.equal(estado.liquidadas.length, 1);
+  assert.equal(estado.liquidadas.filter(l => l.modelo !== MODELO_GEMINI).length, 1, 'la reserva de OpenRouter se liquida');
+  assert.equal(estado.liquidadas.filter(l => l.modelo === MODELO_GEMINI).length, 1, 'H1: Gemini liquida la suya aparte');
 });
 
 test('salida de OpenRouter rechazada por validar(): costo liquidado y se prueba Gemini, que sí cumple', async () => {
@@ -228,12 +248,60 @@ test('tope del usuario agotado y el resto de la cascada también falla → 429 I
   assert.equal(llamadas.some(l => l.destino === 'openrouter'), false, 'con el tope agotado no se llama a OpenRouter');
 });
 
-test('tope agotado pero Gemini responde → se entrega (el tope solo limita el gasto de OpenRouter)', async () => {
+test('H1: tope agotado también frena el pool Gemini — 429 IA_TOPE_AGOTADO, no una respuesta gratis', async () => {
+  // Antes de H1 (2026-09-30) el tope solo limitaba OpenRouter y Gemini
+  // respondía igual: un usuario con el tope agotado seguía gastando la cuota
+  // del dueño sin techo. Ahora los dos proveedores pagados comparten el tope.
   preparar();
-  estado.reservar = async () => { throw new IaTopeAgotadoError(new Date()); };
+  estado.reservar = async () => { throw new IaTopeAgotadoError(new Date(), 'dia'); };
+  red();
+  await assert.rejects(generarConIA({ userId: 'u1', agente: 'x', messages: MSGS }), (e) => {
+    assert.ok(e instanceof IaTopeAgotadoError);
+    assert.deepEqual([e.status, e.code], [429, 'IA_TOPE_AGOTADO']);
+    return true;
+  });
+  assert.equal(llamadas.length, 0, 'con el tope agotado no sale ninguna petición');
+});
+
+test('H1: el pool Gemini reserva con las tarifas de Gemini y liquida el costo real de esa llamada', async () => {
+  preparar({ openrouter: false });
+  const reservas = [];
+  estado.reservar = async (datos) => { reservas.push(datos); return 'reserva-gemini'; };
   red();
   const r = await generarConIA({ userId: 'u1', agente: 'x', messages: MSGS });
   assert.equal(r.proveedor, 'gemini_servidor');
+  assert.equal(reservas.length, 1);
+  assert.deepEqual([reservas[0].modelo, reservas[0].agente], [MODELO_GEMINI, 'x']);
+  assert.deepEqual(estado.liquidadas.map(l => [l.id, l.modelo]), [['reserva-gemini', MODELO_GEMINI]]);
+});
+
+test('H1: sin LLM_TOPE_USD_* en el entorno, el pool Gemini NO queda sin techo — usa el tope de respaldo', async () => {
+  const { cfgPresupuestoGemini } = await import('../../backend/services/llmProveedor.js');
+  const cfg = cfgPresupuestoGemini({});
+  assert.equal(cfg.ok, true, 'siempre hay un techo verificable para Gemini');
+  assert.ok(cfg.topeDia > 0 && cfg.topeMes > 0, 'topes de respaldo positivos');
+  // Y el entorno manda cuando está definido.
+  const conEnv = cfgPresupuestoGemini({ LLM_TOPE_USD_DIA: '7', LLM_TOPE_USD_MES: '70' });
+  assert.deepEqual([conEnv.topeDia, conEnv.topeMes], [7, 70]);
+});
+
+test('Punto 4: agente CARO con llaves BYOK → la llave del usuario se intenta ANTES del pool del servidor', async () => {
+  preparar({ openrouter: false });
+  estado.llavesUsuario = ['llave-propia'];
+  red();
+  const r = await generarConIA({ userId: 'u1', agente: 'formulador_mga', messages: MSGS });
+  assert.equal(r.proveedor, 'byok');
+  assert.equal(llamadas[0].headers.Authorization, 'Bearer llave-propia', 'la primera petición usa la llave del usuario');
+  assert.equal(estado.liquidadas.length, 0, 'BYOK lo paga el usuario: no toca el tope');
+});
+
+test('Punto 4: agente CARO SIN llaves BYOK conserva el orden histórico (pool del servidor primero)', async () => {
+  preparar({ openrouter: false });
+  estado.llavesUsuario = [];
+  red();
+  const r = await generarConIA({ userId: 'u1', agente: 'formulador_mga', messages: MSGS });
+  assert.equal(r.proveedor, 'gemini_servidor');
+  assert.equal(estado.leyoLlaves, 1, 'las llaves se consultan una sola vez, no dos');
 });
 
 test('guardián anti-bucle: corta toda la cascada (no se prueba BYOK)', async () => {

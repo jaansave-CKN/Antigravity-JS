@@ -199,6 +199,12 @@ setInterval(async () => {
 
 if (process.env.DATABASE_URL_TENANT_SCOPED) {
   probeScopedPg();
+} else if (process.env.NODE_ENV === 'production') {
+  // H8: en producción no se degrada. No se lanza aquí (un throw en la carga
+  // del módulo tumbaría el arranque completo y dejaría el servicio sin health
+  // check); el corte real lo hace withTenant(), que rechaza toda consulta
+  // multi-tenant con RlsNoDisponibleError. Esto es la alarma de arranque.
+  console.error('[DB] CRÍTICO: DATABASE_URL_TENANT_SCOPED no configurada en producción — withTenant() rechazará TODA consulta multi-tenant (RLS_NO_DISPONIBLE). Definir la variable y aplicar backend/migrations/053_rls_scoped_role.sql.');
 } else {
   console.warn('[DB] DATABASE_URL_TENANT_SCOPED no configurada — withTenant() degrada al pool principal (BYPASSRLS), sin enforcement real de RLS. Ver migración 053_rls_scoped_role.sql.');
 }
@@ -528,7 +534,25 @@ async function restDelete(sql, params) {
 // vivo (aislamiento cross-tenant confirmado por prueba directa contra la BD).
 // Si el pool escopado no está configurado/disponible, degrada al pool
 // principal con advertencia explícita (comportamiento anterior, nunca peor).
+/**
+ * H8: en producción, una consulta multi-tenant que tendría que correr sin RLS
+ * real no se ejecuta — se corta aquí. 503 porque es un fallo de configuración
+ * de infraestructura recuperable (definir DATABASE_URL_TENANT_SCOPED y aplicar
+ * la migración 053_rls_scoped_role.sql), no un error del usuario.
+ */
+export class RlsNoDisponibleError extends Error {
+  constructor() {
+    super('Aislamiento multi-tenant no disponible: el pool RLS-escopado (rf360_rls_scoped) no está activo. Revisar DATABASE_URL_TENANT_SCOPED y la migración 053_rls_scoped_role.sql.');
+    this.name = 'RlsNoDisponibleError';
+    this.code = 'RLS_NO_DISPONIBLE';
+    this.status = 503;
+  }
+}
+
 export async function withTenant(tenantId, callback) {
+  const strictProduction = process.env.NODE_ENV === 'production';
+  const scopedConfigured = !!process.env.DATABASE_URL_TENANT_SCOPED;
+
   // Gate por RETRY_INTERVAL_MS (mismo patrón que pgOrRest/_lastRetry): si el
   // pool escopado está caído, NO reintenta conectar (con su timeout de 8s)
   // en cada llamada — eso volvería lentísima cada request de withTenant()
@@ -540,8 +564,27 @@ export async function withTenant(tenantId, callback) {
       await probeScopedPg().catch(() => {});
     }
   }
+
+  // Fail-closed only after the bounded probe: a recovering scoped pool must
+  // be allowed to become ready before production tenant access is rejected.
+  if (strictProduction && (!scopedConfigured || !_pgScopedReady)) {
+    throw new RlsNoDisponibleError();
+  }
+
   await asegurarSondeoInicial();
   const pool = _pgScopedReady ? _pgScopedPool : (_pgReady ? _pgPool : null);
+
+  // H8 (dictamen pre-lanzamiento 2026-09-30, Operación Lanzamiento Seguro
+  // punto 3): en PRODUCCIÓN la degradación a BYPASSRLS deja de ser un warning
+  // y pasa a ser un fallo duro. Antes, si DATABASE_URL_TENANT_SCOPED faltaba o
+  // el rol rf360_rls_scoped no conectaba, withTenant() seguía ejecutando la
+  // consulta contra el pool "postgres" (BYPASSRLS): el aislamiento entre
+  // cuentas quedaba dependiendo de que ningún WHERE se hubiera olvidado, y el
+  // único aviso era una línea en los logs que nadie mira. Fuera de producción
+  // se conserva la degradación con advertencia (entornos locales sin el rol).
+  if (pool && pool === _pgPool && strictProduction) {
+    throw new RlsNoDisponibleError();
+  }
 
   if (pool) {
     if (pool === _pgPool && !_scopedWarnLogged) {
@@ -718,6 +761,29 @@ export async function runTransaction(queries) {
 // ── Helpers públicos ──────────────────────────────────────────────────────────
 export async function query(sql, params = []) { return pgOrRest(sql, params); }
 
+/** Query PostgreSQL directly for operations whose semantics PostgREST cannot preserve. */
+export async function queryPgOnly(sql, params = []) {
+  await asegurarSondeoInicial();
+  if (!_pgReady && Date.now() - _lastRetry > RETRY_INTERVAL_MS) {
+    _lastRetry = Date.now();
+    await probePg().catch(() => {});
+  }
+  if (!_pgReady || !_pgPool) {
+    const err = new Error('PostgreSQL directo no disponible; la operación requiere semántica atómica.');
+    err.status = 503;
+    err.code = 'PG_DIRECTO_NO_DISPONIBLE';
+    throw err;
+  }
+
+  const { sql: q, params: p } = normalizePlaceholders(sql, params);
+  try {
+    return await _pgPool.query(q, p);
+  } catch (err) {
+    if (CODIGOS_ERROR_CONEXION.has(err.code)) _pgReady = false;
+    throw err;
+  }
+}
+
 export async function getRow(sql, params = []) {
   const { sql: q, params: p } = normalizePlaceholders(sql, params);
   const res = await pgOrRest(q, p);
@@ -743,6 +809,9 @@ export async function runSql(sql, params = []) {
 
 // ── Status helper (para /api/db-status) ──────────────────────────────────────
 export function dbStatus() {
+  const strictProduction = process.env.NODE_ENV === 'production';
+  const productionGatePassed = !strictProduction || (!!process.env.DATABASE_URL_TENANT_SCOPED && _pgScopedReady);
+
   return {
     layer: _pgReady ? 1 : 2,
     engine: _pgReady ? 'pg-pool (Session Pooler)' : 'Supabase REST API',
@@ -753,10 +822,12 @@ export function dbStatus() {
     // principal (BYPASSRLS) hasta que se resuelva.
     rlsScopedReady: _pgScopedReady,
     withTenantConfigured: !!process.env.DATABASE_URL_TENANT_SCOPED,
+    strictTenantIsolation: strictProduction,
+    productionGatePassed,
     supabaseUrl: SB_URL,
-    message: _pgReady
+    message: !strictProduction || productionGatePassed
       ? 'Base de datos OK — pg Pool conectado'
-      : 'Modo degradado — usando REST API. Habilita Connection Pooling en Supabase dashboard para máximo rendimiento.',
+      : 'Modo degradado crítico en producción: DATABASE_URL_TENANT_SCOPED y rf360_rls_scoped deben estar activos para que no haya fuga de aislamiento multi-tenant.',
   };
 }
 

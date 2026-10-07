@@ -26,7 +26,7 @@ import crypto from 'crypto';
 import { withTenantRow, withTenantRun, getRow } from '../config/database.config.js';
 import { validarBody, complianceSchema, estadoLegalSchema } from '../validators/zodSchemas.js';
 
-export function registerComplianceRoutes(app, { authenticateToken, tryCatch }) {
+export function registerComplianceRoutes(app, { authenticateToken, requireAccess, tryCatch }) {
 
   // SECURITY: valida que :proyectoId pertenezca al llamante ANTES de leer/escribir
   // en compliance_data — sin esto, cualquier usuario autenticado que conozca el UUID
@@ -37,7 +37,7 @@ export function registerComplianceRoutes(app, { authenticateToken, tryCatch }) {
   }
 
   // GET /api/m10/compliance/:proyectoId
-  app.get('/api/m10/compliance/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+  app.get('/api/m10/compliance/:proyectoId', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -49,7 +49,7 @@ export function registerComplianceRoutes(app, { authenticateToken, tryCatch }) {
   }));
 
   // POST /api/m10/compliance/:proyectoId
-  app.post('/api/m10/compliance/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/m10/compliance/:proyectoId', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -105,7 +105,7 @@ export function registerComplianceRoutes(app, { authenticateToken, tryCatch }) {
   // no bloquea nada aquí — es solo el flag que lee el badge del frontend y el
   // Hard-Lock de certificación (POST /api/m12/ficha/:proyectoId).
   const ESTADOS_LEGALES_VALIDOS = new Set(['sin_evaluar', 'condicionado', 'despejado']);
-  app.patch('/api/proyectos/:id/estado-legal', authenticateToken, tryCatch(async (req, res) => {
+  app.patch('/api/proyectos/:id/estado-legal', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const validacionEstadoLegal = validarBody(estadoLegalSchema, req.body);
     if (!validacionEstadoLegal.ok) {
       return res.status(400).json({

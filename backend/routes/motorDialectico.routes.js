@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { withTenantRow, withTenantRun } from '../config/database.config.js';
 import { validarBody, motorDialecticoSchema } from '../validators/zodSchemas.js';
 
-export function registerMotorDialecticoRoutes(app, { authenticateToken, tryCatch }) {
+export function registerMotorDialecticoRoutes(app, { authenticateToken, requireAccess, tryCatch }) {
 
   // SECURITY: valida propiedad de :proyectoId antes de tocar motor_dialectico —
   // mismo fix de BOLA aplicado en compliance/configLogistica/marcoNormativo.
@@ -11,7 +11,7 @@ export function registerMotorDialecticoRoutes(app, { authenticateToken, tryCatch
   }
 
   // GET /api/m4/config/:proyectoId
-  app.get('/api/m4/config/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+  app.get('/api/m4/config/:proyectoId', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 
@@ -33,7 +33,7 @@ export function registerMotorDialecticoRoutes(app, { authenticateToken, tryCatch
   //
   // Columnas nuevas (interlocutor/enfoque/humanizacion/adicionales) capturan
   // el resto de la UI real de Dialéctica, que no tenía dónde persistirse.
-  app.post('/api/m4/config/:proyectoId', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/m4/config/:proyectoId', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const proyecto = await checkOwnership(req.params.proyectoId, req.userId);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 

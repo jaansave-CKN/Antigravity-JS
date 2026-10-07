@@ -44,7 +44,8 @@ test('validaciones → MontecarloError 422, nunca un resultado inventado', () =>
     { beneficioMin: 3e8, beneficioProbable: 2e8 },
     { horizonteAnios: 0 }, { horizonteAnios: 51 }, { horizonteAnios: 2.5 },
     { inversionCop: 0 }, { beneficioMax: -1 }, { beneficioMax: 2e15 },
-    { beneficioProbable: NaN }, { iteraciones: 10001 }, { semilla: -1 },
+    { beneficioProbable: NaN }, { beneficioMax: 1e12 + 1 }, { tasa: -0.01 },
+    { iteraciones: 10001 }, { semilla: -1 },
   ];
   for (const c of casos) {
     assert.throws(() => simularVanTir({ ...ok, ...c }), (e) => e instanceof MontecarloError && e.status === 422, JSON.stringify(c));
@@ -53,7 +54,16 @@ test('validaciones → MontecarloError 422, nunca un resultado inventado', () =>
 
 test('peor caso (10.000 iteraciones × 50 años) termina en menos de 3 s', () => {
   const t0 = Date.now();
-  simularVanTir({ inversionCop: 1e15, beneficioMin: 0, beneficioProbable: 5e13, beneficioMax: 1e15, horizonteAnios: 50, semilla: 3 });
+  simularVanTir({ inversionCop: 1e12, beneficioMin: 0, beneficioProbable: 5e11, beneficioMax: 1e12, horizonteAnios: 50, semilla: 3 });
   const ms = Date.now() - t0;
   assert.ok(ms < 3000, `tardó ${ms} ms`);
+});
+
+test('COP extremo aceptado conserva el centavo; supera el límite con 422', () => {
+  const beneficio = 1e12 - 0.01;
+  assert.notEqual(beneficio, 1e12, 'el JSON Number conserva el centavo dentro del límite');
+  const r = simularVanTir({ inversionCop: 1e12, beneficioMin: beneficio, beneficioProbable: beneficio, beneficioMax: beneficio, horizonteAnios: 1, semilla: 1, iteraciones: 1 });
+  const esperado = Math.round((-1e12 + beneficio / 1.12) * 100) / 100;
+  cerca(r.van_escenario_probable_cop, esperado, 0.01, 'VAN de escala billón COP');
+  assert.throws(() => simularVanTir({ inversionCop: 1e12 + 0.01, beneficioMin: 0, beneficioProbable: 0, beneficioMax: 0, horizonteAnios: 1, semilla: 1 }), MontecarloError);
 });

@@ -397,7 +397,7 @@ export const sroiSchema = z.object({
 // vacío ("") se volvía 0, que pasa la validación (>= 0) y produce un VAN
 // falso. Los rangos finos (min ≤ probable ≤ max, inversión > 0) los valida
 // el motor (montecarloFinanciero.js) con 422.
-const montoCop = z.number({ message: 'Monto requerido (número en COP)' }).finite().nonnegative().max(1e15);
+const montoCop = z.number({ message: 'Monto requerido (número en COP)' }).finite().nonnegative().max(1e12);
 export const montecarloSchema = z.object({
   beneficioMin: montoCop,
   beneficioProbable: montoCop,

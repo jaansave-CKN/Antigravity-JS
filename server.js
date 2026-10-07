@@ -11,6 +11,7 @@ import jwt from 'jsonwebtoken';
 import { authenticator } from 'otplib';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { PostgresRateLimitStore } from './backend/middlewares/PostgresRateLimitStore.js';
 import { authLimiter, sanitizeAuthBody, COOKIE_OPTIONS, trialLimiter, aiLimiter, entradaCampoLimiter, slowDown, esHealthCheck, topeLimiteGlobalApi, financialPipelineLimiter, formulacionIntegralLimiter } from './backend/middlewares/SecurityMiddleware.js';
 import { authenticateToken, optionalAuth, requireAdmin, extractToken, AUTH_COOKIE_NAME } from './backend/middlewares/auth.middleware.js';
 import {
@@ -59,7 +60,7 @@ import { estadoApis } from './backend/services/apisEstado.js';
 import { estadoPresupuesto } from './backend/services/iaPresupuesto.js';
 import { stripeWebhookHandler } from './backend/routes/stripe.webhook.js';
 import { wompiWebhookHandler } from './backend/routes/wompi.webhook.js';
-import { isRevoked, checkSessionValid, checkAccountStatus, revokeToken, revokeUserSession, initBlacklist, purgeExpiredTokens } from './backend/middlewares/tokenBlacklist.js';
+import { isRevokedPersisted, checkSessionValid, checkAccountStatus, revokeToken, revokeUserSession, initBlacklist, purgeExpiredTokens } from './backend/middlewares/tokenBlacklist.js';
 import { seedPredios } from './backend/pipeline/seed-predios.js';
 import { rejectMaterialsInput } from './backend/middlewares/materialValidator.js';
 import { logger } from './backend/utils/logger.js';
@@ -1496,6 +1497,9 @@ async function start() {
     windowMs: 15 * 60 * 1000,
     // 300 en producción; 1000 solo en el entorno E2E sellado (ver SecurityMiddleware.js).
     max: topeLimiteGlobalApi(),
+    // Contador atómico compartido entre instancias. Requiere PostgreSQL directo;
+    // no debe degradar a REST, que no conserva el UPSERT atómico.
+    store: new PostgresRateLimitStore('globalApi'),
     // Health check exento (2026-09-23): el sondeo de Render agotaba el cupo — ver esHealthCheck().
     skip: esHealthCheck,
     standardHeaders: true,
@@ -1519,7 +1523,8 @@ async function start() {
   // ── Health Check (plataformas: Railway, Render, K8s liveness probe) ─────────
   app.get('/health', (_req, res) => {
     const db = dbStatus();
-    res.json({ status: 'ok', uptime: process.uptime(), db });
+    const ok = db.productionGatePassed !== false;
+    res.status(ok ? 200 : 503).json({ status: ok ? 'ok' : 'degraded', uptime: process.uptime(), db });
   });
 
   app.get('/api/db-status', (_req, res) => {
@@ -1653,7 +1658,9 @@ async function start() {
   setInterval(refreshProductionReadyCache, 5 * 60_000);
 
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString(), production_ready: productionReadyCache, version: '8.0' });
+    const db = dbStatus();
+    const ok = db.productionGatePassed !== false;
+    res.status(ok ? 200 : 503).json({ status: ok ? 'ok' : 'degraded', timestamp: new Date().toISOString(), production_ready: productionReadyCache && ok, version: '8.0', db });
   });
 
   // POST /api/system/production-ready — llamado externamente (deploy hook) tras checks exitosos
@@ -2000,7 +2007,7 @@ async function start() {
     if (!validacionTok.ok) return res.status(400).json({ success: false, message: validacionTok.message });
     const { token } = validacionTok.data;
     if (!token) return res.status(400).json({ success: false, message: 'token es requerido' });
-    if (isRevoked(token)) {
+    if (await isRevokedPersisted(token, getRow)) {
       return res.status(400).json({ success: false, message: 'Este enlace ya fue usado. Inicia sesión normalmente con tu correo y contraseña.' });
     }
     let payload;
@@ -2029,7 +2036,7 @@ async function start() {
     // revokeToken: ledger GLOBAL de tokens revocados (revoked_tokens), no dato
     // de tenant -- se carga completo en memoria al arrancar para O(1) checks
     // de CUALQUIER usuario. Sin escopar a propósito, ver nota en logout más abajo.
-    await revokeToken(token, user.id, payload.exp, runSql);
+    await revokeToken(token, user.id, payload.exp);
     const sessionToken = jwt.sign({ sub: user.id, role: user.tipousuario }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '7d' });
     res.cookie(AUTH_COOKIE_NAME, sessionToken, authCookieOptions(MS_7D));
     res.json({
@@ -2304,7 +2311,7 @@ async function start() {
   // ni abrir el panel — esto es lo que se pidió explícitamente.
   async function verificarTokenAprobacionCorreo(targetId, token) {
     if (!token) return { ok: false, message: 'Enlace inválido — falta el token.' };
-    if (isRevoked(token)) return { ok: false, message: 'Este enlace ya fue usado o fue invalidado.' };
+    if (await isRevokedPersisted(token, getRow)) return { ok: false, message: 'Este enlace ya fue usado o fue invalidado.' };
     let payload;
     try {
       payload = jwt.verify(token, JWT_SECRET);
@@ -2357,12 +2364,12 @@ async function start() {
 
     if (objetivo.is_approved) {
       // revokeToken: ledger GLOBAL, sin escopar a propósito (ver logout en Bloque 1).
-      await revokeToken(req.query.token, req.params.id, check.payload.exp, runSql);
+      await revokeToken(req.query.token, req.params.id, check.payload.exp);
       return res.send(paginaResultadoAprobacion('Ya estaba aprobado', `${objetivo.email} ya tenía acceso habilitado.`, true));
     }
 
     await withTenantRun(req.params.id, 'UPDATE usuarios SET is_approved = ? WHERE id = ?', [1, req.params.id]);
-    await revokeToken(req.query.token, req.params.id, check.payload.exp, runSql);
+    await revokeToken(req.query.token, req.params.id, check.payload.exp);
     await registrarAuditoriaAdminSinSesion('aprobar', objetivo, req);
 
     // Cierra el círculo: el usuario recién aprobado recibe un correo con UN
@@ -2388,7 +2395,7 @@ async function start() {
     if (!objetivo) return res.status(404).send(paginaResultadoAprobacion('Usuario no encontrado', 'La cuenta ya no existe.', false));
 
     await withTenantRun(req.params.id, 'UPDATE usuarios SET is_active = ? WHERE id = ?', [0, req.params.id]);
-    await revokeToken(req.query.token, req.params.id, check.payload.exp, runSql);
+    await revokeToken(req.query.token, req.params.id, check.payload.exp);
     await registrarAuditoriaAdminSinSesion('rechazar', objetivo, req);
     res.send(paginaResultadoAprobacion('Cuenta rechazada', `${objetivo.email} fue rechazada.`, true));
   }));
@@ -2512,7 +2519,7 @@ async function start() {
     // criterio que stripe_events/gemini_key_state.
     const payload = jwt.decode(rawToken);
     const expiresAt = payload?.exp ?? Math.floor(Date.now() / 1000) + 3600;
-    await revokeToken(rawToken, req.userId, expiresAt, runSql);
+    await revokeToken(rawToken, req.userId, expiresAt);
 
     // 2. Invalidación bulk: todos los tokens con iat < NOW() quedan rechazados
     await revokeUserSession(req.userId, runSql);
@@ -2596,7 +2603,7 @@ async function start() {
     const errorPassword = validarFortalezaPassword(newPassword);
     if (errorPassword) return res.status(400).json({ success: false, message: errorPassword });
 
-    if (isRevoked(token)) {
+    if (await isRevokedPersisted(token, getRow)) {
       return res.status(400).json({ success: false, message: 'Este enlace ya fue usado o fue invalidado. Solicita uno nuevo.' });
     }
 
@@ -2618,7 +2625,7 @@ async function start() {
     await withTenantRun(user.id, 'UPDATE usuarios SET password_hash = ? WHERE id = ?', [newHash, user.id]);
     await withTenantRun(user.id, 'UPDATE usuarios SET tokens_invalidated_at = NOW() WHERE id = ?', [user.id]);
     // revokeToken: ledger GLOBAL, sin escopar a propósito (ver nota en logout).
-    await revokeToken(token, user.id, payload.exp, runSql);
+    await revokeToken(token, user.id, payload.exp);
 
     res.json({ success: true, message: 'Contraseña actualizada correctamente. Inicia sesión con tu nueva contraseña.' });
   }));
@@ -4842,13 +4849,13 @@ Reglas:
   registerSubscriptionRoutes(app, { authenticateToken, tryCatch });
 
   // V8.0 — Formulador: M4 Motor Dialéctico
-  registerMotorDialecticoRoutes(app, { authenticateToken, tryCatch });
+  registerMotorDialecticoRoutes(app, { authenticateToken, requireAccess, tryCatch });
 
   // V8.0 — Formulador: M5 Configuración Logística
   registerConfigLogisticaRoutes(app, { authenticateToken, requireAccess, tryCatch });
 
   // Matriz RACI (módulo nuevo, 2026-08-24 — diseño revisado por architect)
-  registerMatrizRaciRoutes(app, { authenticateToken, tryCatch, financialPipelineLimiter });
+  registerMatrizRaciRoutes(app, { authenticateToken, requireAccess, tryCatch, financialPipelineLimiter });
 
   // Evaluación Financiera (2026-09-24): F-06 Montecarlo VAN/TIR + F-11
   // estrés financiero y SROI restaurados — los 3 los consume la vista
@@ -4866,10 +4873,10 @@ Reglas:
   registerFormuladorMgaRoutes(app, { authenticateToken, requireAccess, aiLimiter });
 
   // V8.0 — Formulador: M8 Marco Normativo
-  registerMarcoNormativoRoutes(app, { authenticateToken, tryCatch });
+  registerMarcoNormativoRoutes(app, { authenticateToken, requireAccess, tryCatch });
 
   // V8.0 — Formulador: M10 Compliance
-  registerComplianceRoutes(app, { authenticateToken, tryCatch });
+  registerComplianceRoutes(app, { authenticateToken, requireAccess, tryCatch });
 
   // V8.0 — Formulador: M12 Ficha Técnica Maestra (Hash SHA-256)
 
@@ -4880,13 +4887,13 @@ Reglas:
   registerProyectosRoutes(app, { authenticateToken, requireAccess, runSql, runTransaction, getRow, getRows, verifyPassword });
 
   // M4: Presupuesto APU por proyecto
-  registerPresupuestoRoutes(app, { authenticateToken });
+  registerPresupuestoRoutes(app, { authenticateToken, requireAccess });
 
   // Anexos: CRUD real contra project_anexos (migración 013) — reemplaza localStorage de AnexosView.tsx
-  await registerAnexosRoutes(app, { authenticateToken, runSql, getRow, getRows, financialPipelineLimiter });
+  await registerAnexosRoutes(app, { authenticateToken, requireAccess, runSql, getRow, getRows, financialPipelineLimiter });
   // Biblioteca Gubernamental: clon aislado de Anexos (migración 039) — bucket
   // de Storage propio, sin pipeline financiero (ExtractorService/AuditorForenseService)
-  await registerBibliotecaRoutes(app, { authenticateToken });
+  await registerBibliotecaRoutes(app, { authenticateToken, requireAccess });
   // B1/B6 (2026-09-28): requireAccess — sin el gate BYOK, el Co-Piloto
   // consumiría IA pagada por el servidor para cualquier usuario sin plan.
   await registerCopilotoRoutes(app, { authenticateToken, requireAccess, aiLimiter });
@@ -4899,13 +4906,13 @@ Reglas:
   registerFormulacionIntegralRoutes(app, { authenticateToken, requireAccess, formulacionIntegralLimiter });
 
   // F5-01: Módulo 9 — Cross-Check Pipeline & Radicación
-  registerRadicacionRoutes(app, { authenticateToken });
+  registerRadicacionRoutes(app, { authenticateToken, requireAccess });
 
   // Fase 5: Exportación a estructura MGA / BID / OXI
-  registerExportacionRoutes(app, { authenticateToken, tryCatch });
+  registerExportacionRoutes(app, { authenticateToken, requireAccess, tryCatch });
 
   // F5-02: Módulo 9 — Exportación Certificada (reporte PDF SSR)
-  registerReporteRoutes(app, { authenticateToken });
+  registerReporteRoutes(app, { authenticateToken, requireAccess });
 
   // Google Auth routes
   registerGoogleAuthRoutes(app, { authenticateToken, encryptKey, JWT_SECRET });

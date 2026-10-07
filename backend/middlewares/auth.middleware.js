@@ -10,7 +10,7 @@
  */
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger.js';
-import { isRevoked, checkSessionValid, checkAccountStatus } from './tokenBlacklist.js';
+import { isRevokedPersisted, checkSessionValid, checkAccountStatus } from './tokenBlacklist.js';
 import { getRow } from '../db.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -109,8 +109,10 @@ async function resolveSession(req, { registrar = true } = {}) {
   }
 
   // Sesión revocada: blacklist por-token (logout) o invalidación bulk (Stripe/admin)
-  const revocado = isRevoked(token);
-  const sesionValida = await checkSessionValid(payload.sub, payload.iat, getRow);
+  const [revocado, sesionValida] = await Promise.all([
+    isRevokedPersisted(token, getRow),
+    checkSessionValid(payload.sub, payload.iat, getRow),
+  ]);
   if (revocado || !sesionValida) {
     log(req, 'sesion_revocada', { userId: payload.sub, revocadoPorBlacklist: revocado, sesionValida, iat: payload.iat });
     return { ok: false, message: 'Sesión revocada' };

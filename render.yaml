@@ -34,6 +34,8 @@ services:
       # Opción B: pegar manualmente el valor de tu .env si quieres reusar el mismo
       - key: JWT_SECRET
         generateValue: true
+      - key: SMOKE_TEST_TOKEN
+        sync: false
 
       # ── Base de datos — OBLIGATORIO para producción real ────────────────────
       # Pegar la URL de Neon.tech (postgresql://user:pass@host/dbname?sslmode=require)

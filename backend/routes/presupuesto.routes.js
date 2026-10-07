@@ -53,13 +53,13 @@ function wrap(fn) {
   };
 }
 
-export function registerPresupuestoRoutes(app, { authenticateToken }) {
+export function registerPresupuestoRoutes(app, { authenticateToken, requireAccess }) {
 
   /**
    * GET /api/rendimientos
    * Catalogo de rendimientos disponible para el formulador.
    */
-  app.get('/api/rendimientos', authenticateToken, wrap(async (req, res) => {
+  app.get('/api/rendimientos', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     let rows = [];
     try {
       rows = await getRows('SELECT clave, descripcion, fase, unidad, valor FROM catalogo_rendimientos WHERE activo = TRUE ORDER BY fase, clave');
@@ -76,7 +76,7 @@ export function registerPresupuestoRoutes(app, { authenticateToken }) {
    * Body: { items: [{ fase, capitulo, item, unidad, cantidad, rendimiento_std,
    *                   rendimiento_real, costo_jornal_dia, materiales, equipos, aiu }] }
    */
-  app.post('/api/proyectos/:id/presupuesto', authenticateToken, wrap(async (req, res) => {
+  app.post('/api/proyectos/:id/presupuesto', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyectoId = req.params.id;
     const validacionItems = validarBody(presupuestoItemsSchema, req.body);
     if (!validacionItems.ok) return res.status(400).json({ success: false, message: validacionItems.message });
@@ -162,7 +162,7 @@ export function registerPresupuestoRoutes(app, { authenticateToken }) {
    * GET /api/proyectos/:id/presupuesto
    * Devuelve todos los items APU calculados del proyecto.
    */
-  app.get('/api/proyectos/:id/presupuesto', authenticateToken, wrap(async (req, res) => {
+  app.get('/api/proyectos/:id/presupuesto', authenticateToken, requireAccess('formulador'), wrap(async (req, res) => {
     const proyecto = await withTenantRow(req.userId, 'SELECT id FROM proyectos WHERE id = ? AND org_id = ?', [req.params.id, req.userId]);
     if (!proyecto) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
 

@@ -71,6 +71,60 @@ const PAUSA_CONFIG_MS = 10 * 60_000; // tras 401/402/403 (llave o saldo del due�
  * libre con permitirTruncado, incompatible con la salida solo-JSON.
  */
 export const AGENTES_CREADORES = ['entrada-ia', 'arbol_objetivos', 'formulador_mga', 'expediente_financiador'];
+
+/**
+ * Agentes CAROS (Operación Lanzamiento Seguro, punto 4, dueño 2026-09-30):
+ * agentes de usuario que redactan documentos largos y son los que de verdad
+ * mueven la factura. Para ellos, si el usuario TIENE llaves BYOK propias, se
+ * intentan ANTES del pool Gemini del servidor — el orden viejo (BYOK como
+ * último recurso) hacía que el dueño pagara primero y la llave del usuario
+ * solo se usara cuando ya no quedaba cuota propia.
+ *
+ * La inversión SOLO ocurre si el usuario tiene llaves: sin llaves, el orden es
+ * el de siempre (pool del servidor y luego el intento BYOK fallido al final),
+ * para no cambiar el comportamiento de los usuarios que no configuraron nada.
+ * Nunca aplica a `soloServidor` (tráfico de fondo del Radar, que jamás toca BYOK).
+ */
+export const AGENTES_CAROS = ['entrada-ia', 'arbol_objetivos', 'formulador_mga', 'expediente_financiador', 'mirofish_comite', 'viabilidad', 'copiloto'];
+
+/**
+ * Precio del pool Gemini del servidor, USD por millón de tokens
+ * (gemini-3.6-flash, tarifa pagada). Se usa para RESERVAR contra el mismo
+ * tope por usuario que ya gobierna OpenRouter (iaPresupuesto.js) — H1 del
+ * dictamen pre-lanzamiento 2026-09-30: antes esta rama no tenía ningún techo
+ * en USD y era el único camino realmente en uso (OPENROUTER_API_KEY vacía),
+ * así que un usuario podía consumir la cuota del dueño sin límite.
+ * Sobreescribibles por entorno sin tocar código.
+ */
+const GEMINI_PRECIO_IN_DEFECTO = 0.075;
+const GEMINI_PRECIO_OUT_DEFECTO = 0.30;
+/**
+ * Topes de respaldo del pool Gemini, en USD. A diferencia de OpenRouter —que
+ * se SALTA si no hay topes configurados— Gemini es hoy el único proveedor
+ * real: saltarlo dejaría la app sin IA. Por eso, si LLM_TOPE_USD_DIA/MES no
+ * están definidas en el entorno (en Render son `sync:false`, pueden faltar),
+ * se aplican estos valores conservadores en vez de dejar la rama sin techo.
+ * "Ningún proceso con cheque en blanco" (directiva del dueño 2026-09-28).
+ */
+const GEMINI_TOPE_DIA_DEFECTO = 1.00;
+const GEMINI_TOPE_MES_DEFECTO = 15.00;
+
+const num = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+
+/** Configuración de presupuesto con las tarifas y los respaldos del pool Gemini. */
+export function cfgPresupuestoGemini(env = process.env) {
+  const base = configPresupuesto(env);
+  return {
+    ...base,
+    precioIn: num(env.GEMINI_PRECIO_USD_M_IN) ?? GEMINI_PRECIO_IN_DEFECTO,
+    precioOut: num(env.GEMINI_PRECIO_USD_M_OUT) ?? GEMINI_PRECIO_OUT_DEFECTO,
+    topeDia: base.topeDia ?? GEMINI_TOPE_DIA_DEFECTO,
+    topeMes: base.topeMes ?? GEMINI_TOPE_MES_DEFECTO,
+    ok: true,     // siempre hay techo: el del entorno o el de respaldo de arriba
+    faltante: [],
+  };
+}
+
 const GROQ_MAX_MS = 20_000;
 // Esfuerzo de razonamiento de gpt-oss por agente (por defecto 'low'). Medido en vivo 2026-09-30
 // (Marco Lógico, 4 llamadas por nivel): con 'low' el modelo devolvió grupos obligatorios vacíos en 2/4;
@@ -320,37 +374,65 @@ async function generarConIAInterno({
     }
   }
 
-  // ── 2. Pool Gemini del servidor ────────────────────────────────────────────
-  if (!geminiCB.keys.length) {
-    intentos.push({ proveedor: 'gemini_servidor', motivo: 'sin_llaves_servidor' });
-  } else if (restante() < TIEMPO_MIN_PASO_MS) {
-    intentos.push({ proveedor: 'gemini_servidor', motivo: 'sin_tiempo' });
-  } else {
+  // ── Pool Gemini del servidor — CON tope por usuario (H1, 2026-09-30) ───────
+  // Antes esta rama no reservaba nada: era el único proveedor realmente en uso
+  // (OPENROUTER_API_KEY vacía) y no tenía ningún techo en USD. Ahora reserva
+  // contra el MISMO contador por usuario que OpenRouter (ai_consumo_usuario),
+  // con las tarifas de Gemini. Falla CERRADO igual que OpenRouter: si el gasto
+  // no se puede verificar (BD en modo REST), no sale la petición.
+  const pasoGeminiServidor = async () => {
+    if (!geminiCB.keys.length) { intentos.push({ proveedor: 'gemini_servidor', motivo: 'sin_llaves_servidor' }); return null; }
+    if (restante() < TIEMPO_MIN_PASO_MS) { intentos.push({ proveedor: 'gemini_servidor', motivo: 'sin_tiempo' }); return null; }
+
+    const cfg = cfgPresupuestoGemini();
+    let reservaId = null;
+    try {
+      reservaId = await reservar({ userId, agente, modelo: MODELO_GEMINI, reservaUsd: estimarReservaUsd(messages, maxTokens, cfg) }, cfg);
+    } catch (err) {
+      if (err instanceof IaTopeAgotadoError) {
+        topeAgotado = err;
+        intentos.push({ proveedor: 'gemini_servidor', motivo: 'tope_agotado' });
+      } else {
+        logger.error('[llmProveedor] Tope de gasto no verificable — el pool Gemini se salta (falla cerrado)', { agente, userId, motivo: err instanceof PresupuestoNoVerificableError ? err.motivo : err.message });
+        intentos.push({ proveedor: 'gemini_servidor', motivo: 'presupuesto_no_verificable' });
+      }
+      return null;
+    }
+
     try {
       const r = await withKeyRotation(intentoGemini({ messages, temperature, maxTokens, responseFormat, permitirTruncado, validar, agente, timeoutMs: Math.min(GEMINI_MAX_MS, restante()) }));
-      logTokenUsage({ userId, agentName: agente, tokensInput: r.usage?.prompt_tokens ?? 0, tokensOutput: salidaFacturada(r.usage) }).catch(() => {});
+      const tokensIn = r.usage?.prompt_tokens ?? 0;
+      const tokensOut = salidaFacturada(r.usage);
+      const costo = costoRealUsd({ prompt_tokens: tokensIn, completion_tokens: tokensOut }, null, cfg);
+      await liquidar(userId, reservaId, { costoUsd: costo, tokensIn, tokensOut, modelo: MODELO_GEMINI }, logger);
+      logTokenUsage({ userId, agentName: agente, tokensInput: tokensIn, tokensOutput: tokensOut }).catch(() => {});
       return { ...r, proveedor: 'gemini_servidor' };
     } catch (err) {
+      // Una respuesta truncada o rechazada por validar() SÍ consumió tokens del
+      // lado de Google: se liquida lo estimado en vez de liberar la reserva
+      // (el error siempre favorece al dinero). Un fallo de red/cuota sin
+      // respuesta no cobró nada: se libera.
+      const cobrable = !!err?.usage || err?.motivo === 'respuesta_truncada' || err instanceof SalidaInvalidaError;
+      if (cobrable) {
+        const tokensIn = err.usage?.prompt_tokens ?? 0;
+        const tokensOut = salidaFacturada(err.usage ?? {});
+        await liquidar(userId, reservaId, { costoUsd: costoRealUsd({ prompt_tokens: tokensIn, completion_tokens: tokensOut }, null, cfg), tokensIn, tokensOut, modelo: MODELO_GEMINI }, logger);
+      } else {
+        await liberar(userId, reservaId, logger);
+      }
       if (err instanceof LlmLoopGuardError) throw err;
       if (err instanceof GeminiPoolExhaustedError) retryAtGemini = err.retryAt;
       const motivo = motivoDe(err);
       logger[motivo === 'cuota_agotada' ? 'warn' : 'error']('[llmProveedor] Pool Gemini del servidor falló', { agente, motivo, detalle: err.detalle || err.message });
       intentos.push({ proveedor: 'gemini_servidor', motivo });
+      return null;
     }
-  }
+  };
 
-  // ── 3. BYOK del usuario (último recurso, también salida del tope) ──────────
-  let llaves = [];
-  if (!soloServidor) try {
-    llaves = await resolverLlavesUsuario(userId, { getRows: (sql, params) => withTenantRows(userId, sql, params) });
-  } catch (err) {
-    logger.warn('[llmProveedor] No se pudieron leer las llaves BYOK del usuario', { userId, err: err.message });
-  }
-  if (!llaves.length) {
-    intentos.push({ proveedor: 'byok', motivo: soloServidor ? 'omitido_solo_servidor' : 'sin_llaves_usuario' });
-  } else if (restante() < TIEMPO_MIN_PASO_MS) {
-    intentos.push({ proveedor: 'byok', motivo: 'sin_tiempo' });
-  } else {
+  // ── BYOK del usuario — la paga el usuario, nunca cuenta contra el tope ─────
+  const pasoByok = async (llaves) => {
+    if (!llaves.length) { intentos.push({ proveedor: 'byok', motivo: soloServidor ? 'omitido_solo_servidor' : 'sin_llaves_usuario' }); return null; }
+    if (restante() < TIEMPO_MIN_PASO_MS) { intentos.push({ proveedor: 'byok', motivo: 'sin_tiempo' }); return null; }
     try {
       const r = await withUserKeyRotation(llaves, intentoGemini({ messages, temperature, maxTokens, responseFormat, permitirTruncado, validar, agente, timeoutMs: Math.min(GEMINI_MAX_MS, restante()) }));
       logTokenUsage({ userId, agentName: agente, tokensInput: r.usage?.prompt_tokens ?? 0, tokensOutput: salidaFacturada(r.usage) }).catch(() => {});
@@ -359,7 +441,48 @@ async function generarConIAInterno({
       const motivo = motivoDe(err);
       logger.warn('[llmProveedor] Llaves BYOK del usuario fallaron', { agente, motivo, detalle: err.detalle || err.message });
       intentos.push({ proveedor: 'byok', motivo });
+      return null;
     }
+  };
+
+  const leerLlaves = async () => {
+    if (soloServidor) return [];
+    try {
+      return await resolverLlavesUsuario(userId, { getRows: (sql, params) => withTenantRows(userId, sql, params) });
+    } catch (err) {
+      logger.warn('[llmProveedor] No se pudieron leer las llaves BYOK del usuario', { userId, err: err.message });
+      return [];
+    }
+  };
+
+  // ── 2 y 3. Orden: BYOK primero SOLO en agentes caros y si el usuario tiene
+  // llaves propias (punto 4 de Operación Lanzamiento Seguro). En cualquier
+  // otro caso, el orden histórico: pool del servidor y BYOK como respaldo.
+  let llaves = [];
+  if (!soloServidor && AGENTES_CAROS.includes(agente)) {
+    llaves = await leerLlaves();
+    if (llaves.length) {
+      logger.info?.('[llmProveedor] Agente caro con BYOK configurado — se usa la llave del usuario antes que el pool del servidor', { agente, userId });
+      const rb = await pasoByok(llaves);
+      if (rb) return rb;
+      const rg = await pasoGeminiServidor();
+      if (rg) return rg;
+      logger.error('[llmProveedor] Ningún proveedor de IA respondió', { agente, userId, intentos });
+      if (topeAgotado) throw topeAgotado;
+      throw new IaNoDisponibleError(intentos, retryAtGemini);
+    }
+  }
+
+  {
+    const rg = await pasoGeminiServidor();
+    if (rg) return rg;
+  }
+
+  {
+    // Sin relectura si el paso de "agente caro" ya las consultó y vinieron vacías.
+    if (!AGENTES_CAROS.includes(agente) || soloServidor) llaves = await leerLlaves();
+    const rb = await pasoByok(llaves);
+    if (rb) return rb;
   }
 
   // ── Nadie respondió: regla de oro ──────────────────────────────────────────

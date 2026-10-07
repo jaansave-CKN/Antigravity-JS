@@ -15,7 +15,7 @@ function safeJson(v, fallback = {}) {
   try { return JSON.parse(v); } catch { return fallback; }
 }
 
-export function registerExportacionRoutes(app, { authenticateToken, tryCatch }) {
+export function registerExportacionRoutes(app, { authenticateToken, requireAccess, tryCatch }) {
   async function cargarContexto(proyectoId, userId) {
     const proyecto = await withTenantRow(userId, 'SELECT * FROM proyectos WHERE id = ? AND org_id = ?', [proyectoId, userId]);
     if (!proyecto) return null;
@@ -68,39 +68,39 @@ export function registerExportacionRoutes(app, { authenticateToken, tryCatch }) 
     return validacion.ok ? (validacion.data.graficos || []) : [];
   }
 
-  app.get('/api/proyectos/:id/exportar/mga', authenticateToken, tryCatch(async (req, res) => {
+  app.get('/api/proyectos/:id/exportar/mga', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const ctx = await cargarContexto(req.params.id, req.userId);
     if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     const buffer = await generarMGA(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica, { consolidacion: await consolidacionParaPdf(ctx.proyecto, req.userId) });
     sendPdf(res, buffer, `MGA_${req.params.id}.pdf`);
   }));
-  app.post('/api/proyectos/:id/exportar/mga', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/proyectos/:id/exportar/mga', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const ctx = await cargarContexto(req.params.id, req.userId);
     if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     const buffer = await generarMGA(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica, { graficos: graficosDe(req), consolidacion: await consolidacionParaPdf(ctx.proyecto, req.userId) });
     sendPdf(res, buffer, `MGA_${req.params.id}.pdf`);
   }));
 
-  app.get('/api/proyectos/:id/exportar/bid', authenticateToken, tryCatch(async (req, res) => {
+  app.get('/api/proyectos/:id/exportar/bid', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const ctx = await cargarContexto(req.params.id, req.userId);
     if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     const buffer = await generarBID(ctx.proyecto, ctx.arbol, ctx.indicadores);
     sendPdf(res, buffer, `BID_${req.params.id}.pdf`);
   }));
-  app.post('/api/proyectos/:id/exportar/bid', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/proyectos/:id/exportar/bid', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const ctx = await cargarContexto(req.params.id, req.userId);
     if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     const buffer = await generarBID(ctx.proyecto, ctx.arbol, ctx.indicadores, graficosDe(req));
     sendPdf(res, buffer, `BID_${req.params.id}.pdf`);
   }));
 
-  app.get('/api/proyectos/:id/exportar/oxi', authenticateToken, tryCatch(async (req, res) => {
+  app.get('/api/proyectos/:id/exportar/oxi', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const ctx = await cargarContexto(req.params.id, req.userId);
     if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     const buffer = await generarOXI(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica);
     sendPdf(res, buffer, `OXI_${req.params.id}.pdf`);
   }));
-  app.post('/api/proyectos/:id/exportar/oxi', authenticateToken, tryCatch(async (req, res) => {
+  app.post('/api/proyectos/:id/exportar/oxi', authenticateToken, requireAccess('formulador'), tryCatch(async (req, res) => {
     const ctx = await cargarContexto(req.params.id, req.userId);
     if (!ctx) return res.status(404).json({ success: false, message: 'Proyecto no encontrado' });
     const buffer = await generarOXI(ctx.proyecto, ctx.arbol, ctx.indicadores, ctx.tdc, ctx.logistica, graficosDe(req));
