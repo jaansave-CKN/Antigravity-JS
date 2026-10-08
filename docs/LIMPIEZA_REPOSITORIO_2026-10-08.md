@@ -44,3 +44,12 @@ El Proyecto 01 fue purgado del disco el 2026-08-05 (`AGENTS.md` §VI); estos arc
 ## Cambios ajenos apartados (no incluidos en esta limpieza)
 
 Modificaciones sin commitear de `projects/Radford-360/` (IDENTITY/PERMISSIONS, otra sesión, 2026-09-29) apartadas en `git stash` ("EXTERNO 2026-09-29: …") para no mezclarlas: el agente 002 objetó que describen como política vigente PRs aún no fusionados. Quedan a decisión del dueño (`git stash list`).
+
+## Grupo 3 — artefactos de build versionados por error
+
+| Ruta | Qué era | Por qué se retira |
+|---|---|---|
+| `config/public/` (`index.html`, `assets/index-*.js/css`, iconos) | Copia antigua del frontend compilado | La app se construye en `dist/` (`npm run build`, ignorado por git) y se sirve desde Render; esta copia no se regeneraba y desplegarla publicaría una versión obsoleta |
+| `config/.firebase/hosting.*.cache` | Caché local de Firebase Hosting | Artefacto de la CLI de Firebase, no fuente |
+
+**No se tocan, a propósito:** `config/firebase.json`, `config/.firebaserc`, `config/firestore.rules`, `config/firestore.indexes.json` y la `firestore.rules` de la raíz. Son configuración de seguridad de Firestore: las dos copias de reglas difieren (la de `config/` aún incluye colecciones del Proyecto 01: donaciones, contadores, proyectos modulares) y no hay forma de saber desde el repositorio cuál está desplegada. Unificarlas requiere verificar las reglas activas en la consola de Firebase. Con `config/public/` retirado, un `firebase deploy` de Hosting fallará en vez de publicar el frontend viejo; `firebase deploy --only firestore` no se ve afectado.
