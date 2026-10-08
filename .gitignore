@@ -50,3 +50,7 @@ tests/test_mcp.cjs
 agents/pmu/circuit_breaker.json
 agents/pmu/circuit_breaker.json.*.tmp
 agents/pmu/circuit_breaker.*.json
+
+# Estado runtime del gate (se regenera en cada aprobación; no se versiona)
+agents/veredicto_*.json
+agents/pmu/orquestacion_log.jsonl
