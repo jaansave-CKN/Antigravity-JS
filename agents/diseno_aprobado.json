@@ -2,21 +2,21 @@
   "aprobado": true,
   "origen": "api_directa",
   "firma": "d3bbc5bc07ee6623b4f08809ab7db78c1841d89006bde2d3296f4b867c9e584c",
-  "timestamp": "2026-10-08T20:48:04.986Z",
+  "timestamp": "2026-10-08T21:24:04.754Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API nim · modelo moonshotai/kimi-k3)",
   "razones": [
-    "Alcance ajustado: el diff toca solo el paso advisory de 008 en CI (script, tests, workflow, .env.example) para pivotar de Anthropic a NVIDIA NIM, sin tocar el veto determinista check_veto_008.cjs ni el gate 002",
-    "Consistencia: reutiliza la capa existente agents/gate-proveedor.cjs (misma que el gate 002) en vez de duplicar un cliente HTTP nuevo — previene la duplicación histórica del proyecto",
-    "Seguridad: el diff se filtra con proveedorIA.filtrarSecretosDiff antes de salir al tercero; la API key se redacta en mensajes de error (test 401 lo verifica); entornoNim elimina ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL/GATE_FALLBACK_CHAIN heredados para que ninguna config local reintroduzca el proveedor de pago",
-    "No-bloqueo preservado: doble cinturón intacto (continue-on-error: true en el workflow + exit 0 garantizado en el script, verificado con test de proceso real vía execFileSync); sin NVIDIA_API_KEY el paso se omite limpiamente",
-    "Manejo de errores completo: clasificación de errores del proveedor (ErrorProveedor con categoría/código), conmutación de modelos con registro de failover, y tests que cubren 503→failover, 401→omitido, sin key→omitido",
-    "Trazabilidad FinOps: meta con modelo, failover, tokens y costo se propaga al Step Summary vía lineaModelo",
-    "Tests nuevos con fetch simulado (sin red) cubren el camino feliz, filtrado de secretos, failover, auth y entorno — cobertura adecuada para un paso advisory"
+    "El diff es exclusivamente un ADR (docs/ADR/ADR-0004) — documento de diseño, no código; fiscalizar el diseño propuesto es exactamente el mandato de este agente y el documento es la especificación previa a la implementación",
+    "Completitud de especificación: define entradas/salidas (endpoints de listado de ambos proveedores, formato de keys, variables de entorno), manejo de errores (clasificación ErrorProveedor, comportamiento sin keys por contexto: app degradada, gate bloqueo duro, 008 exit 0), y quién llama a quién (cadena por tarea con orden explícito y reglas de conmutación entre familias)",
+    "Seguridad bien cubierta: URLs base fijas sin override por entorno (elimina vector de exfiltración de keys/diffs a host falso), validación de formato de keys, filtro de secretos heredado de ADR-0002/0003 declarado vigente, y riesgo de privacidad Ley 1581 con Gemini explícitamente documentado con requisito del dueño",
+    "Trazabilidad de reemplazo: el ADR declara explícitamente qué secciones de ADR-0002 y ADR-0003 reemplaza y cuáles siguen vigentes — no hay borrado implícito de interfaces ni decisiones huérfanas",
+    "Alcance ajustado: lista cerrada de archivos a tocar en §Alcance y plan de entrega en commits atómicos con gate por commit; el retiro de NIM/Groq/OpenRouter está justificado con hechos verificados (15 archivos, keys sin consumidor)",
+    "Criterios de cierre con evidencia física verificable (suite, build, sonda real, CI) y riesgo de determinismo del descubrimiento dinámico mitigado con LLM_MODELOS_* y registro de modelo por veredicto",
+    "Limitación declarada: esta fiscalización se basa solo en el diff (sin acceso a Read/Grep en esta invocación); la consistencia con el código real (p. ej. que el SDK solo se use en los 2 archivos citados) queda apoyada en los hechos verificados que el propio ADR declara con fecha"
   ],
   "diferimientos": [],
   "amarre": {
-    "base_sha": "f0cf35f1d2a1c69c0f6c694aa6782325d192e3e9",
-    "huella": "bf21a5673a3b8f90a41c517fb466b557498d74b9cf827e08ca298f8250b305a6",
-    "archivos": 4
+    "base_sha": "c36ec4d29f5ada619e3ce1c588180cd953680af6",
+    "huella": "ee55fda1c9a3d285aefa8f08dbf76cfa639303920c6b24db296034190325cd28",
+    "archivos": 1
   }
 }
