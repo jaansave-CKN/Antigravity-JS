@@ -52,7 +52,7 @@ Modificaciones sin commitear de `projects/Radford-360/` (hoy `agents/dominio-rad
 | `config/public/` (`index.html`, `assets/index-*.js/css`, iconos) | Copia antigua del frontend compilado | La app se construye en `dist/` (`npm run build`, ignorado por git) y se sirve desde Render; esta copia no se regeneraba y desplegarla publicaría una versión obsoleta |
 | `config/.firebase/hosting.*.cache` | Caché local de Firebase Hosting | Artefacto de la CLI de Firebase, no fuente |
 
-**No se tocan, a propósito:** `config/firebase.json`, `config/.firebaserc`, `config/firestore.rules`, `config/firestore.indexes.json` y la `firestore.rules` de la raíz. Son configuración de seguridad de Firestore: las dos copias de reglas difieren (la de `config/` aún incluye colecciones del Proyecto 01: donaciones, contadores, proyectos modulares) y no hay forma de saber desde el repositorio cuál está desplegada. Unificarlas requiere verificar las reglas activas en la consola de Firebase. Con `config/public/` retirado, un `firebase deploy` de Hosting fallará en vez de publicar el frontend viejo; `firebase deploy --only firestore` no se ve afectado.
+La configuración de Firestore quedó fuera de este grupo y se unificó después (grupo 5).
 
 ## Grupo 4 — reorganización estructural (`git mv`, historial conservado)
 
@@ -98,3 +98,67 @@ grep -rl 'projects/Radford-360' "$D" | xargs -d '\n' sed -i 's#projects/Radford-
 ```
 
 Revisar antes de commitear: tres de las fichas IDENTITY citan PRs (`PR #…`) no fusionados como política vigente (objeción del 002).
+
+## Grupo 5 — unificación canónica de configuración (orden "Operación Unificación")
+
+### Skills (`skills-lock.json`)
+
+Los dos lockfiles no eran uno subconjunto del otro, sino conjuntos **disjuntos**:
+- la raíz tenía 12 skills de `firebase/agent-skills`, instaladas en `.claude/skills/`;
+- `config/` tenía 17 skills de otros orígenes, instaladas en `agents/skills/`.
+
+Se consolidó un único `skills-lock.json` en la raíz con las **23 skills que existen en disco**, ordenadas y sin conflictos de hash. `config/skills-lock.json` se eliminó. Ningún código del repositorio lee el lock; solo lo usa la CLI de skills, que busca en el directorio actual.
+
+Quedan fuera del lock 6 entradas de `config/` sin instalación en ninguna carpeta. Listarlas sería información falsa:
+
+| Skill | Situación |
+|---|---|
+| `humanizer` | Sustituida por la local `agents/skills/humanizer-es` |
+| `paddleocr-text-recognition` | Borrada en `89da27a` |
+| `bmad-generate-project-context`, `linkly`, `product-manager-toolkit`, `stitch-ui-design` | Nunca quedaron instaladas |
+
+Se pueden recuperar del historial de git (`git show 91a8650:config/skills-lock.json`).
+
+### Firestore
+
+| Antes | Después |
+|---|---|
+| `config/firebase.json` | `firebase.json` (raíz) — solo bloque `firestore`; el bloque `hosting` se retiró |
+| `config/.firebaserc`, `config/firestore.indexes.json` | raíz (`git mv`) |
+| `config/firestore.rules` + `firestore.rules` (raíz, distintas) | solo `firestore.rules` (raíz) |
+
+**Versión canónica: la de la raíz, y no la de `config/`.** La de `config/` era la más extensa, pero lo que añadía eran permisos de lectura y escritura sobre 6 colecciones del Proyecto 01, retirado el 2026-08-05: `donaciones`, `contadores`, `proyectos_modulares`, `modulos_proyecto`, `ubicaciones_geograficas` y `metricas_proyecto`. Verificación en el código:
+- la única colección en uso es `audit_logs`, que escribe el backend con el SDK admin (`src/shared/infrastructure/AuditLogger.js`);
+- el cliente web solo usa Firebase Auth (`public/src/lib/firebase.js`), nunca Firestore.
+
+La versión de la raíz cubre ese uso con mínimo privilegio: el dueño puede leer `audit_logs` y todo lo demás queda denegado. Antes, `firebase.json` vivía en `config/` y apuntaba a las reglas de esa carpeta, así que un `firebase deploy` habría publicado las reglas amplias.
+
+**Por qué se retiró `hosting`:** la producción es Render (`render.yaml`). Con `firebase.json` en la raíz, `hosting.public: "public"` habría publicado el código fuente sin compilar. Un `firebase deploy` sin opciones ahora solo despliega las reglas e índices de Firestore.
+
+**Verificación externa pendiente:** las reglas activas en la consola de Firebase (proyecto `antigravity-jairo-2026`) pueden seguir siendo las amplias. Se igualan con `npx firebase-tools deploy --only firestore:rules` desde la raíz, con credenciales del dueño.
+
+**Se conservan en `config/`, a propósito (sin versionar, en `.gitignore`):**
+- `serviceAccountKey.json`: credencial local que lee `src/shared/infrastructure/FirebaseAdmin.js`;
+- `.mcp.json`: copia local antigua de la configuración de MCP. Claude Code usa la de la raíz.
+
+## Gate 002 — aprobación amarrada al commit
+
+**Brecha.** La firma de 002 (`hashEstado()`) solo cubría:
+- `agents/` numeradas;
+- `src/`, `public/src/` y `.claude/agents/`;
+- el motor del gate.
+
+Nada la ataba a un commit. Una aprobación vigente cubrió un commit posterior que 002 no revisó (incidente `410e113`, ver arriba), y cambios en `server.js`, `scripts/`, `docs/`, `package.json` o la configuración no la invalidaban.
+
+**Cierre (`agents/architecture-gate.cjs`).** El SHA del commit no existe en el momento de aprobar, porque depende del mensaje y la hora. Por eso la aprobación sella lo que sí determina el commit:
+
+1. **Base (`amarre.base_sha`).** Es el `HEAD` al aprobar. El pre-commit solo deja pasar el commit si su padre es ese SHA: **una aprobación cubre un solo commit**.
+2. **Huella (`amarre.huella`).** Es un sha256 de (estado, modo, blob de git, ruta) de cada archivo del cambio staged. Agregar, quitar o modificar cualquier archivo después de aprobar invalida la aprobación.
+   - Solo se excluyen los artefactos que el gate escribe después de aprobar: `agents/diseno_aprobado.json`, `agents/veredicto_*.json` y `agents/pmu/`.
+   - Un commit que solo trae esos artefactos no requiere aprobación.
+3. **Revisión de 002 = lo que se commitea.** 002 fiscaliza `git diff --cached HEAD`, no el árbol de trabajo.
+   - Antes de evaluar se toma una instantánea del amarre y después se vuelve a calcular. Si el cambio staged o `HEAD` cambian durante la evaluación (actores concurrentes), no se firma.
+   - Las rutas de soft-fail y de excepción manual también escriben el amarre.
+4. **Auditoría posterior.** `node agents/architecture-gate.cjs --verificar-commit [ref]` comprueba que el `diseno_aprobado.json` commiteado en `ref` describe exactamente el diff `ref^..ref`. Los commits anteriores a este cambio no tienen amarre y responden "no está amarrada (esquema anterior)".
+
+Pruebas añadidas: `parsearDiffRaw`, `huellaCambios`, `validarAmarre` y una prueba de integración con un repositorio git real. Esa prueba comprueba que la huella staged es igual a la del commit hecho y que la misma aprobación se rechaza en el commit siguiente.

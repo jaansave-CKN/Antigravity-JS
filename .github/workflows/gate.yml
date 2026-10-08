@@ -32,6 +32,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 1 -> 2 (2026-10-08): --verificar-commit (paso más abajo) necesita
+          # el commit padre de la punta para recalcular la huella del diff
+          # HEAD^..HEAD. Con profundidad 1 el clone superficial no lo trae.
+          # Sin efecto sobre los demás pasos.
+          fetch-depth: 2
 
       - uses: actions/setup-node@v4
         with:
@@ -60,6 +66,24 @@ jobs:
 
       - name: Tests del gate de arquitectura
         run: npm run test:gate
+
+      - name: Gate 002 — aprobación amarrada al commit (--verificar-commit, BLOQUEANTE)
+        if: github.event_name == 'push'
+        run: node agents/architecture-gate.cjs --verificar-commit HEAD
+        # SIN continue-on-error, a propósito (2026-10-08, ver
+        # docs/LIMPIEZA_REPOSITORIO_2026-10-08.md, "Gate 002 — aprobación
+        # amarrada al commit"). Cierra la brecha "una aprobación vigente
+        # cubría commits posteriores no auditados" (incidente 410e113): el
+        # agents/diseno_aprobado.json COMMITEADO en la punta debe traer
+        # amarre.base_sha = su primer padre y amarre.huella = huella del diff
+        # HEAD^..HEAD. No llama a ninguna API. Exit 0 si está amarrado o si
+        # el commit solo trae artefactos del gate; exit 1 si ninguna
+        # aprobación lo cubre.
+        # Verifica SOLO la punta del push, no cada commit intermedio.
+        # Limitado a push: en pull_request el checkout es un merge commit
+        # sintético de GitHub, que no tiene (ni puede tener) aprobación
+        # propia. Los commits anteriores al 2026-10-08 no tienen amarre,
+        # pero la punta actual sí — por eso basta con la punta.
 
       - name: Veto de 008_AUDITOR_DE_CODIGO — tenant_id / idempotencia / COP (BLOQUEANTE)
         run: node scripts/check_veto_008.cjs --base ${{ github.event.pull_request.base.sha || github.event.before }}

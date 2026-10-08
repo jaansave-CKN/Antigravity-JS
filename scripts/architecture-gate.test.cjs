@@ -19,6 +19,7 @@ const {
   SUBGATES, archivosRelevantesPara, validarSubgate,
   descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
   escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe, parsearNameStatus,
+  parsearDiffRaw, huellaCambios, amarreStaged, amarreDeCommit, validarAmarre, GENERADO_POR_GATE,
   analizarTelemetriaPMU, verificarVigenciaAgentes, extraerJSONConCampo,
   asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
   validarFormaVeredicto, VEREDICTO_SCHEMAS,
@@ -439,6 +440,95 @@ test('parsearNameStatus: un git mv es UNA entrada con origen y similitud, no baj
     { estado: 'A', archivo: 'docs/con espacio ñ.md' },
   ]);
   assert.deepEqual(parsearNameStatus(''), []);
+});
+
+// --- Amarre al commit (2026-10-08): una aprobación cubre un solo commit ------
+
+const SHA_A = 'a'.repeat(40), SHA_B = 'b'.repeat(40), SHA_0 = '0'.repeat(40);
+
+test('parsearDiffRaw: lee estado, modo, blob y ruta (alta, baja, rutas con espacios); falla ruidosamente si no parsea', () => {
+  const salida = [
+    `:100644 100644 ${SHA_A} ${SHA_B} M`, 'server.js',
+    `:000000 100644 ${SHA_0} ${SHA_A} A`, 'agents/dominio-radfor360/Proy_03 A Radar/PERMISSIONS.json',
+    `:100644 000000 ${SHA_B} ${SHA_0} D`, 'config/firestore.rules',
+    '',
+  ].join('\0');
+  assert.deepEqual(parsearDiffRaw(salida), [
+    { estado: 'M', modo: '100644', blob: SHA_B, ruta: 'server.js' },
+    { estado: 'A', modo: '100644', blob: SHA_A, ruta: 'agents/dominio-radfor360/Proy_03 A Radar/PERMISSIONS.json' },
+    { estado: 'D', modo: '000000', blob: SHA_0, ruta: 'config/firestore.rules' },
+  ]);
+  assert.deepEqual(parsearDiffRaw(''), []);
+  assert.throws(() => parsearDiffRaw('basura\0x\0'), /no parseable/);
+});
+
+test('huellaCambios: excluye solo artefactos del gate, no depende del orden, y cambia con 1 blob distinto', () => {
+  const base = [
+    { estado: 'M', modo: '100644', blob: SHA_A, ruta: 'server.js' },
+    { estado: 'M', modo: '100644', blob: SHA_B, ruta: 'docs/x.md' },
+  ];
+  const conArtefactos = [...base,
+    { estado: 'M', modo: '100644', blob: SHA_A, ruta: 'agents/diseno_aprobado.json' },
+    { estado: 'M', modo: '100644', blob: SHA_A, ruta: 'agents/pmu/telemetria.jsonl' },
+  ];
+  const h = huellaCambios(base);
+  assert.equal(h.archivos, 2);
+  assert.equal(huellaCambios(conArtefactos).huella, h.huella, 'veredicto/PMU no entran en la huella');
+  assert.equal(huellaCambios(base.slice().reverse()).huella, h.huella);
+  assert.notEqual(huellaCambios([base[0], { ...base[1], blob: SHA_A }]).huella, h.huella);
+  assert.equal(huellaCambios(conArtefactos.slice(2)).huella, null, 'solo artefactos del gate → nada que aprobar');
+  // El código del gate SÍ entra: no es artefacto generado.
+  assert.ok(!GENERADO_POR_GATE.test('agents/architecture-gate.cjs'));
+  assert.ok(!GENERADO_POR_GATE.test('agents/dominio-radfor360/Proy_03 GP Radford-360/PERMISSIONS.json'));
+});
+
+test('validarAmarre: rechaza aprobación sin amarre, sobre otro HEAD o con otro contenido (regresión 410e113)', () => {
+  const actual = { base_sha: SHA_A, huella: 'h1', archivos: 3 };
+  assert.equal(validarAmarre({ base_sha: SHA_A, huella: 'h1', archivos: 3 }, actual).ok, true);
+  assert.match(validarAmarre(null, actual).razon, /no está amarrada/);
+  assert.match(validarAmarre({ base_sha: SHA_B, huella: 'h1' }, actual).razon, /un solo commit/);
+  assert.match(validarAmarre({ base_sha: SHA_A, huella: 'h2', archivos: 2 }, actual).razon, /no es el que aprobó 002/);
+  const soloGate = validarAmarre(null, { base_sha: SHA_A, huella: null, archivos: 0 });
+  assert.equal(soloGate.ok, true);
+  assert.equal(soloGate.soloArtefactosGate, true);
+});
+
+test('amarreStaged/amarreDeCommit: la huella del cambio staged es idéntica a la del commit hecho, y caduca en el siguiente (git real)', () => {
+  const { execFileSync } = require('child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-amarre-'));
+  const git = (...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'core.autocrlf=false', ...a], { cwd: dir, encoding: 'utf8' });
+  try {
+    git('init', '-q');
+    fs.writeFileSync(path.join(dir, 'a.js'), 'uno\n');
+    fs.mkdirSync(path.join(dir, 'sub dir'));
+    fs.writeFileSync(path.join(dir, 'sub dir', 'b.md'), 'b\n');
+    git('add', '-A'); git('commit', '-q', '-m', 'base');
+    const padre = git('rev-parse', 'HEAD').trim();
+
+    fs.writeFileSync(path.join(dir, 'a.js'), 'dos\n');
+    fs.rmSync(path.join(dir, 'sub dir', 'b.md'));
+    fs.writeFileSync(path.join(dir, 'nuevo.js'), 'n\n');
+    fs.mkdirSync(path.join(dir, 'agents', 'pmu'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'agents', 'diseno_aprobado.json'), '{}\n');
+    fs.writeFileSync(path.join(dir, 'agents', 'pmu', 'telemetria.jsonl'), '{}\n');
+    git('add', '-A');
+    const staged = amarreStaged(dir);
+    assert.equal(staged.base_sha, padre);
+    assert.equal(staged.archivos, 3, 'a.js, b.md (baja) y nuevo.js — sin artefactos del gate');
+
+    git('commit', '-q', '-m', 'cambio');
+    const hecho = amarreDeCommit('HEAD', dir);
+    assert.equal(hecho.base_sha, padre);
+    assert.equal(hecho.huella, staged.huella, 'pre-commit y post-commit deben sellar lo mismo');
+    assert.equal(validarAmarre(staged, hecho).ok, true);
+
+    // Siguiente commit con la MISMA aprobación: HEAD ya no es la base → rechazo.
+    fs.writeFileSync(path.join(dir, 'a.js'), 'tres\n');
+    git('add', '-A');
+    assert.match(validarAmarre(staged, amarreStaged(dir)).razon, /un solo commit/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('bucketDe: fichas de agentes de dominio (IDENTITY/PERMISSIONS) antes que docs/ y que la telemetría (2026-10-08)', () => {

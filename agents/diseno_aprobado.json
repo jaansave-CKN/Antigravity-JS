@@ -1,18 +1,24 @@
 {
   "aprobado": true,
   "origen": "api_directa",
-  "firma": "3a3fe6b3997fc72fa8d777a1702e1bfe76904b85dab41148b5f6400ae53f8a96",
-  "timestamp": "2026-10-08T19:39:21.570Z",
+  "firma": "d3bbc5bc07ee6623b4f08809ab7db78c1841d89006bde2d3296f4b867c9e584c",
+  "timestamp": "2026-10-08T20:18:05.305Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API nim · modelo moonshotai/kimi-k3)",
   "razones": [
-    "Alcance ajustado y coherente: reorganización estructural con git mv (projects/Radford-360/ → agents/dominio-radfor360/, informes fechados → docs/historico/, script .sh → scripts/) más la corrección del gate para renombrados — nada de lógica de negocio, ni DDL, ni auth, ni borrado de interfaces de dominio vigente.",
-    "La corrección del gate (parsearNameStatus con --name-status -z -M, resumen de R100 siempre visible, delta con -M para renombrados con cambios, bucket nuevo para agents/dominio-*) resuelve una causa raíz real y documentada (rechazo falso de 002 por 'ruta inexistente' ante git mv) y mejora la fiscalización: ningún renombrado queda invisible aun con presupuesto agotado.",
-    "Cobertura de pruebas incluida en el mismo diff: tests de regresión para parsearNameStatus (R100, R087, M, D, A con espacios/ñ, entrada vacía) y para el nuevo bucket en scripts/architecture-gate.test.cjs, con la aserción de rutear('formulacion') actualizada a la nueva ruta.",
-    "Trazabilidad completa: docs/LIMPIEZA_REPOSITORIO_2026-10-08.md documenta los 4 grupos, el método de recuperación del stash ajeno verificado (6/6 archivos), y la nueva sección §0-AN de ARQUITECTURA_AGENTICA_ANTIGRAVITY.md asienta el estado con honestidad (incluye 'Qué no se verificó').",
-    "Referencias cruzadas actualizadas de forma consistente en código (server.js, FormuladorPgController.js, session-manager.js, validation.js, generar_reporte.cjs), IDENTITY.md/PERMISSIONS.json del dominio, y documentos vivos; los históricos solo actualizan punteros sin reescribir narrativa fechada.",
-    ".gitattributes (*.sh text eol=lf) es una corrección preventiva correcta y de riesgo cero para scripts bash bajo core.autocrlf=true.",
-    "Residual conocido y aceptable, ya autodenunciado en §0-AN.4: el manifiesto de subgates (:1131) seguiría usando --no-renames sin -z (sin evidencia de impacto observado) — queda como mejora futura, no bloquea este cambio.",
-    "Archivos omitidos por presupuesto (public/estado_antigravity.json, skills/ag_skills_registry.json) son artefactos auto-generados de bajo riesgo; no requieren re-envío."
+    "Consistencia: el paso de `git diff HEAD` a `git diff --cached HEAD` en construirDiffPriorizado alinea la base fiscalizada por 002 con la que sella amarreStaged(); mensajes de error, prompt al modelo y docs actualizados de forma coherente en todo el diff.",
+    "Completitud: el amarre define entradas (diff raw staged), salidas (base_sha+huella+archivos), manejo de errores con try/catch y exit codes en las cuatro rutas (--check-gate, --aprobar-diseno, --aprobar-excepcion-manual, --verificar-commit), y un único punto de comparación (validarAmarre) propagado por validarDisenoAprobado.",
+    "Cierre de brecha real y verificable (incidente 410e113): base_sha ata la aprobación a un solo commit y la huella sha256 de (estado, modo, blob, ruta) invalida cualquier modificación post-aprobación; la doble instantánea antes/después de la evaluación cubre actores concurrentes y rechaza la firma si el staging cambió.",
+    "Exclusión GENERADO_POR_GATE correctamente acotada (diseno_aprobado.json, veredicto_*.json, pmu/): el propio motor del gate y las fichas de dominio quedan dentro de la huella, con test explícito que lo garantiza — sin esto el mecanismo sería auto-eludible.",
+    "Pruebas proporcionadas: parsearDiffRaw (altas/bajas/rutas con espacios/fallo ruidoso), huellaCambios (orden, exclusión, sensibilidad a un blob), validarAmarre (regresión 410e113) e integración con git real verificando huella staged == huella del commit y rechazo en el commit siguiente.",
+    "CI: fetch-depth 2 justificado y necesario para HEAD^; --verificar-commit bloqueante, sin API, limitado a push con justificación documentada (merge commit sintético en PR) y la limitación 'solo la punta' declarada explícitamente.",
+    "Rutas alternas cubiertas: soft-fail y excepción manual también escriben amarre y rechazan staging vacío — no quedan caminos que emitan aprobación sin amarre.",
+    "Unificación de config (firebase.json sin hosting, firestore.rules canónica de mínimo privilegio, skills-lock consolidado) documentada con verificación en código citada (AuditLogger.js, firebase.js) y la verificación externa pendiente en consola Firebase registrada — la baja de config/firestore.rules reduce privilegio en vez de ampliarlo.",
+    "Alcance ajustado: todo el diff sirve a la orden 'Blindaje Estricto del Gate 002' más la unificación de config ya documentada en el mismo doc; sin abstracciones no solicitadas."
   ],
-  "diferimientos": []
+  "diferimientos": [],
+  "amarre": {
+    "base_sha": "91a8650e2b996e252b0bf3a6f048165560bbe62d",
+    "huella": "69660b3f6838e5a498743fce134b8e8a46bddc56929d5e2838f12014c743019a",
+    "archivos": 13
+  }
 }

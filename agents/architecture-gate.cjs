@@ -316,9 +316,11 @@ function construirDiffPriorizado(limiteChars) {
     try {
         // --name-status: una baja (D) se fiscaliza por su nombre, no línea a
         // línea — 20 archivos legacy borrados se comían ~60 KB de presupuesto.
-        entradas = parsearNameStatus(execFileSync('git', ['diff', 'HEAD', '--name-status', '-z', '-M'], { cwd: dirRoot, encoding: 'utf8' }));
+        // --cached (2026-10-08): 002 fiscaliza exactamente lo que se va a
+        // commitear — la misma base que sella amarreStaged().
+        entradas = parsearNameStatus(execFileSync('git', ['diff', '--cached', 'HEAD', '--name-status', '-z', '-M'], { cwd: dirRoot, encoding: 'utf8' }));
     } catch (e) {
-        return { diff: '', truncado: false, error: `No se pudo leer 'git diff HEAD --name-status': ${e.message}` };
+        return { diff: '', truncado: false, error: `No se pudo leer 'git diff --cached HEAD --name-status': ${e.message}` };
     }
     if (entradas.length === 0) return { diff: '', truncado: false };
 
@@ -346,7 +348,7 @@ function construirDiffPriorizado(limiteChars) {
             // Renombrado con cambios: solo el delta respecto al origen (-M con
             // ambas rutas en el pathspec), no el archivo entero como alta.
             const rutas = renombrado ? [origen, archivo] : [archivo];
-            diffArchivo = execFileSync('git', ['diff', ...FLAGS_DIFF_PROVEEDOR, '-M', 'HEAD', '--', ...rutas], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+            diffArchivo = execFileSync('git', ['diff', ...FLAGS_DIFF_PROVEEDOR, '-M', '--cached', 'HEAD', '--', ...rutas], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
         } catch (e) {
             diffArchivo = `[No se pudo leer el diff de ${archivo}: ${e.message}]\n`;
         }
@@ -517,7 +519,7 @@ async function pedirVeredictoArquitecto() {
         return { aprobado: false, razones: [error] };
     }
     if (!diff || !diff.trim()) {
-        return { aprobado: false, razones: ['git diff HEAD está vacío — no hay cambios pendientes que aprobar.'] };
+        return { aprobado: false, razones: ['No hay cambios staged que aprobar (git diff --cached HEAD vacío) — usa git add antes de --aprobar-diseno.'] };
     }
 
     const avisoTruncamiento = truncado
@@ -539,7 +541,7 @@ async function pedirVeredictoArquitecto() {
             // (98,6 %) en su primer veredicto real — a un paso del truncado.
             max_tokens: 8192,
             system: systemPrompt,
-            user: `Fiscaliza el siguiente diff pendiente de aprobación (git diff HEAD, reordenado por criticidad y ` +
+            user: `Fiscaliza el siguiente diff pendiente de aprobación (git diff --cached HEAD: exactamente lo que se va a commitear, reordenado por criticidad y ` +
                     `truncado a ${LIMITE_DIFF_002} caracteres si aplica — ver aviso al final si corresponde; los archivos ` +
                     `eliminados y binarios aparecen resumidos por ruta). ` +
                     `IMPORTANTE: esta invocación es una llamada directa a un modelo vía API, no una sesión de Claude Code — ` +
@@ -859,7 +861,85 @@ function validarDisenoAprobado(carpetas) {
         diferimientos: origenCheck.softFail ? [] : (firma.diferimientos || []), origen: firma.origen,
         excepcionManual: origenCheck.excepcionManual || null,
         softFail: origenCheck.softFail || null,
+        amarre: firma.amarre || null,
     };
+}
+
+// =============================================================================
+// AMARRE AL COMMIT (2026-10-08, orden del usuario "Blindaje Estricto del Gate
+// 002"). Brecha real que cierra: la firma de hashEstado() solo cubre agents/
+// numeradas, src/, public/src, .claude/agents y el motor del gate — nada la
+// ataba a un commit concreto, así que una aprobación vigente cubrió commits
+// posteriores que 002 nunca vio (incidente 410e113, docs/LIMPIEZA_
+// REPOSITORIO_2026-10-08.md), y server.js, scripts/, docs/ o package.json
+// podían cambiar sin invalidarla. El SHA del commit no existe al aprobar
+// (depende de mensaje y hora), así que el amarre sella las dos cosas que sí
+// lo determinan:
+//   - base_sha: HEAD al aprobar. El commit solo pasa si su padre es ese SHA
+//     → una aprobación = un commit; tras commitear, HEAD cambia y caduca.
+//   - huella: sha256 de (estado, modo, blob git, ruta) de cada archivo del
+//     cambio staged. Mismo valor en el índice (pre-commit) y en el commit
+//     ya hecho (`<sha>^..<sha>`) → --verificar-commit lo comprueba después.
+// Se excluyen solo los artefactos que escribe el propio gate DESPUÉS de
+// aprobar (el veredicto y el PMU); sellarlos haría imposible commitearlos.
+const GENERADO_POR_GATE = /^agents\/(diseno_aprobado\.json|veredicto_[^/]+\.json|pmu\/)/;
+
+// Parsea `git diff --raw -z --no-renames --no-abbrev`:
+// ":<modoA> <modoB> <blobA> <blobB> <estado>\0<ruta>\0" por archivo.
+function parsearDiffRaw(salida) {
+    const tokens = String(salida || '').split('\0');
+    const entradas = [];
+    for (let i = 0; i < tokens.length;) {
+        const meta = tokens[i++];
+        if (!meta) continue;
+        const ruta = tokens[i++];
+        const m = meta.match(/^:(\d{6}) (\d{6}) ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) ([A-Z])\d*$/);
+        if (!m || !ruta) throw new Error(`salida de git diff --raw no parseable: "${meta}"`);
+        entradas.push({ estado: m[5], modo: m[2], blob: m[4], ruta });
+    }
+    return entradas;
+}
+
+// huella null = el cambio solo trae artefactos del gate (nada que 002 apruebe).
+function huellaCambios(entradas) {
+    const lineas = entradas
+        .filter(e => !GENERADO_POR_GATE.test(e.ruta))
+        .map(e => `${e.estado} ${e.modo} ${e.blob} ${e.ruta}`)
+        .sort();
+    return {
+        huella: lineas.length ? crypto.createHash('sha256').update(lineas.join('\n')).digest('hex') : null,
+        archivos: lineas.length,
+    };
+}
+
+const FLAGS_RAW = ['--raw', '-z', '--no-renames', '--no-abbrev'];
+
+function amarreStaged(cwd = dirRoot) {
+    const base_sha = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
+    const raw = execFileSync('git', ['diff', '--cached', ...FLAGS_RAW, 'HEAD'], { cwd, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+    return { base_sha, ...huellaCambios(parsearDiffRaw(raw)) };
+}
+
+// Amarre de un commit ya hecho: base = su primer padre, huella = su diff.
+function amarreDeCommit(ref, cwd = dirRoot) {
+    const sha = execFileSync('git', ['rev-parse', '--verify', `${ref}^{commit}`], { cwd, encoding: 'utf8' }).trim();
+    const base_sha = execFileSync('git', ['rev-parse', '--verify', `${sha}^1`], { cwd, encoding: 'utf8' }).trim();
+    const raw = execFileSync('git', ['diff', ...FLAGS_RAW, base_sha, sha], { cwd, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+    return { sha, base_sha, ...huellaCambios(parsearDiffRaw(raw)) };
+}
+
+function validarAmarre(amarreAprobado, actual) {
+    if (!actual.huella) return { ok: true, soloArtefactosGate: true };
+    if (!amarreAprobado || !amarreAprobado.base_sha || !amarreAprobado.huella) {
+        return { ok: false, razon: 'La aprobación no está amarrada a un commit (esquema anterior a 2026-10-08) — re-aprobar con --aprobar-diseno.' };
+    }
+    if (amarreAprobado.base_sha !== actual.base_sha) {
+        return { ok: false, razon: `La aprobación se emitió sobre ${amarreAprobado.base_sha.slice(0, 7)} y el commit va sobre ${actual.base_sha.slice(0, 7)} — una aprobación cubre un solo commit; re-aprobar con --aprobar-diseno.` };
+    }
+    if (amarreAprobado.huella !== actual.huella) {
+        return { ok: false, razon: `El cambio staged (${actual.archivos} archivos) no es el que aprobó 002 (${amarreAprobado.archivos ?? '?'}) — algo se agregó, quitó o modificó después de aprobar; re-aprobar con --aprobar-diseno.` };
+    }
+    return { ok: true };
 }
 
 // =============================================================================
@@ -1883,11 +1963,29 @@ if (process.argv.includes('--check-gate')) {
         process.exitCode = 1;
         return;
     }
+    // Amarre al commit (2026-10-08): la firma de estado no basta — el cambio
+    // staged debe ser exactamente el aprobado, sobre el mismo HEAD.
+    let amarre;
+    try {
+        amarre = validarAmarre(veredicto.amarre, amarreStaged());
+    } catch (e) {
+        amarre = { ok: false, razon: `No se pudo calcular el amarre del cambio staged: ${e.message}` };
+    }
+    if (!amarre.ok) {
+        console.error('\n🛑 [GATE_ARQUITECTURA] ' + amarre.razon);
+        registrarTelemetria({ tipo: 'check-gate', subsistema: '002_principal', resultado: 'rechazado', razon: amarre.razon });
+        escribirEstadoOperativo();
+        process.exitCode = 1;
+        return;
+    }
     if (veredicto.origen === 'soft_fail_api') {
         console.warn(`🟡 [GATE_ARQUITECTURA] SOFT-FAIL vigente (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp}) — SIN evaluación de 002: API no disponible (${veredicto.softFail.codigo}), autorizado por ${veredicto.softFail.autorizado_por}.`);
     } else {
         console.log(`✅ [GATE_ARQUITECTURA] Aprobación vigente (firma ${veredicto.firma.slice(0, 12)}…, ${veredicto.timestamp})`);
     }
+    console.log(amarre.soloArtefactosGate
+        ? '   ↳ Amarre: el cambio staged solo trae artefactos del gate (veredicto/PMU) — nada que 002 deba aprobar.'
+        : `   ↳ Amarre al commit OK: base ${veredicto.amarre.base_sha.slice(0, 7)}, huella ${veredicto.amarre.huella.slice(0, 12)}… (${veredicto.amarre.archivos} archivos).`);
     if (veredicto.origen === 'excepcion_manual') {
         console.warn(`   🟡 EXCEPCIÓN MANUAL, no veredicto de la API de 002 — ${JSON.stringify(veredicto.excepcionManual)}`);
     }
@@ -1953,6 +2051,53 @@ if (process.argv.includes('--check-gate')) {
         console.warn(`\n🚨 [PMU] ${al.tipo} (${al.proveedor}, ${al.ultimo_error?.codigo || 'sin código'}) — ${al.accion}`);
     }
     process.exitCode = (subgatesOk && chequeosOk) ? 0 : 1;
+    return;
+}
+
+// Auditoría posterior: `node agents/architecture-gate.cjs --verificar-commit [ref]`
+// (2026-10-08) — comprueba que el diseno_aprobado.json COMMITEADO en <ref>
+// describe exactamente el diff <ref>^..<ref> sobre ese mismo padre. La usa
+// la CI en cada push; también sirve a mano sobre cualquier commit. No llama
+// a la API. Exit 0 = commit amarrado a su aprobación (o solo artefactos del
+// gate); exit 1 = commit sin aprobación que lo cubra.
+if (process.argv.includes('--verificar-commit')) {
+    const idx = process.argv.indexOf('--verificar-commit');
+    const ref = (process.argv[idx + 1] && !process.argv[idx + 1].startsWith('--')) ? process.argv[idx + 1] : 'HEAD';
+    let actual, firma;
+    try {
+        actual = amarreDeCommit(ref);
+    } catch (e) {
+        console.error(`🛑 [VERIFICAR_COMMIT] No se pudo leer el commit "${ref}" o su padre: ${e.message.split('\n')[0]}`);
+        process.exitCode = 1;
+        return;
+    }
+    const corto = actual.sha.slice(0, 7);
+    if (!actual.huella) {
+        console.log(`✅ [VERIFICAR_COMMIT] ${corto} solo trae artefactos del gate (veredicto/PMU) — no requiere aprobación de 002.`);
+        process.exitCode = 0;
+        return;
+    }
+    try {
+        firma = JSON.parse(execFileSync('git', ['show', `${actual.sha}:agents/diseno_aprobado.json`], { cwd: dirRoot, encoding: 'utf8' }));
+    } catch (e) {
+        console.error(`🛑 [VERIFICAR_COMMIT] ${corto} no contiene un agents/diseno_aprobado.json legible: ${e.message.split('\n')[0]}`);
+        process.exitCode = 1;
+        return;
+    }
+    const fallas = [];
+    if (firma.aprobado !== true) fallas.push('el veredicto commiteado no es aprobado:true');
+    if (!ORIGENES_VALIDOS.includes(firma.origen)) fallas.push(`origen "${firma.origen}" no válido`);
+    const r = validarAmarre(firma.amarre, actual);
+    if (!r.ok) fallas.push(r.razon);
+    if (fallas.length) {
+        console.error(`🛑 [VERIFICAR_COMMIT] ${corto} NO está cubierto por una aprobación de 002:`);
+        fallas.forEach(f => console.error(`   - ${f}`));
+        process.exitCode = 1;
+        return;
+    }
+    const aviso = firma.origen === 'api_directa' ? '' : ` — 🟡 origen ${firma.origen}, SIN evaluación del modelo`;
+    console.log(`✅ [VERIFICAR_COMMIT] ${corto} amarrado a su aprobación (${firma.timestamp}, ${firma.origen}): base ${actual.base_sha.slice(0, 7)}, ${actual.archivos} archivos, huella ${actual.huella.slice(0, 12)}…${aviso}`);
+    process.exitCode = 0;
     return;
 }
 
@@ -2157,15 +2302,43 @@ if (process.argv.includes('--aprobar-pendientes')) {
 // se calcula el hash y se escribe diseno_aprobado.json — ya no hay autofirma.
 if (process.argv.includes('--aprobar-diseno')) {
     (async () => {
-        console.log('\n🔎 [Agente Arquitecto] Evaluando git diff HEAD contra .claude/agents/002-arquitecto-de-software.md...');
+        console.log('\n🔎 [Agente Arquitecto] Evaluando el cambio staged (git diff --cached HEAD) contra .claude/agents/002-arquitecto-de-software.md...');
+        // Instantánea del amarre ANTES de evaluar: se sella lo que 002 vio.
+        let amarre;
+        try {
+            amarre = amarreStaged();
+        } catch (e) {
+            console.error(`\n🛑 [GATE_ARQUITECTURA] No se pudo calcular el amarre del cambio staged: ${e.message}`);
+            process.exitCode = 1;
+            return;
+        }
+        if (!amarre.huella) {
+            console.error('\n🛑 [GATE_ARQUITECTURA] No hay cambios staged que aprobar (solo artefactos del gate o nada) — usa git add antes de --aprobar-diseno.');
+            process.exitCode = 1;
+            return;
+        }
         const veredicto = await pedirVeredictoArquitecto();
+        // Actores concurrentes (vigilancia de estado real): si el staging o
+        // HEAD cambió durante la evaluación, lo aprobado ya no es lo que se
+        // commitea — no se firma.
+        if (veredicto.aprobado || veredicto.apiNoDisponible) {
+            let despues = null;
+            try { despues = amarreStaged(); } catch { /* null → no coincide */ }
+            if (!despues || despues.base_sha !== amarre.base_sha || despues.huella !== amarre.huella) {
+                console.error('\n🛑 [GATE_ARQUITECTURA] El cambio staged o HEAD cambió mientras 002 evaluaba — no se firma; vuelve a ejecutar --aprobar-diseno.');
+                registrarTelemetria({ tipo: 'aprobar-diseno', subsistema: '002_principal', resultado: 'rechazado', razones: ['staging modificado durante la evaluación'] });
+                escribirEstadoOperativo();
+                process.exitCode = 1;
+                return;
+            }
+        }
 
         if (!veredicto.aprobado && veredicto.apiNoDisponible) {
             const permiso = resolverPermisoSoftFail();
             if (permiso.permitido) {
                 const firma = hashEstado(listarCarpetasAgentes());
                 fs.writeFileSync(APROBACION_PATH, JSON.stringify(
-                    construirRegistroSoftFail(firma, veredicto.falloApi, permiso, '002_ARQUITECTO_DE_SOFTWARE'), null, 2) + '\n', 'utf8');
+                    { ...construirRegistroSoftFail(firma, veredicto.falloApi, permiso, '002_ARQUITECTO_DE_SOFTWARE'), amarre }, null, 2) + '\n', 'utf8');
                 console.warn(`\n🟡 [GATE_ARQUITECTURA] SOFT-FAIL — proveedor de IA no disponible (${veredicto.falloApi.codigo}).`);
                 console.warn(`   Commit permitido SIN evaluación de 002. Autorizado por: ${permiso.autorizadoPor} (vía ${permiso.via}). Firma: ${firma}`);
                 registrarTelemetria({ tipo: 'aprobar-diseno', subsistema: '002_principal', resultado: 'soft_fail', firma, razon: veredicto.falloApi.codigo });
@@ -2200,8 +2373,10 @@ if (process.argv.includes('--aprobar-diseno')) {
             firmado_por: firmaEvaluador('Agente Arquitecto', '.claude/agents/002-arquitecto-de-software.md', veredicto),
             razones: veredicto.razones,
             diferimientos: veredicto.diferimientos || [],
+            amarre,
         }, null, 2) + '\n', 'utf8');
         console.log(`\n✅ [Agente Arquitecto] Diseño aprobado. Firma: ${firma}`);
+        console.log(`   ↳ Amarrada al commit sobre ${amarre.base_sha.slice(0, 7)} · huella ${amarre.huella.slice(0, 12)}… (${amarre.archivos} archivos). Válida solo para ese cambio exacto.`);
         (veredicto.razones || []).forEach(r => console.log(`   - ${r}`));
         (veredicto.diferimientos || []).forEach(d => console.log(`   🟡 DIFERIDO — ${d.subgate}: ${d.razon}`));
         registrarTelemetria({ tipo: 'aprobar-diseno', subsistema: '002_principal', resultado: 'aprobado', firma });
@@ -2254,6 +2429,19 @@ if (process.argv.includes('--aprobar-excepcion-manual')) {
     if (objetivo === 'principal') {
         const carpetas = listarCarpetasAgentes();
         const firma = hashEstado(carpetas);
+        let amarre;
+        try {
+            amarre = amarreStaged();
+        } catch (e) {
+            console.error(`🛑 [EXCEPCION_MANUAL] No se pudo calcular el amarre del cambio staged: ${e.message}`);
+            process.exitCode = 1;
+            return;
+        }
+        if (!amarre.huella) {
+            console.error('🛑 [EXCEPCION_MANUAL] No hay cambios staged que aprobar — usa git add primero.');
+            process.exitCode = 1;
+            return;
+        }
         fs.writeFileSync(APROBACION_PATH, JSON.stringify({
             aprobado: true,
             origen: 'excepcion_manual',
@@ -2263,6 +2451,7 @@ if (process.argv.includes('--aprobar-excepcion-manual')) {
             firmado_por: `Excepción manual (canal alterno, sin evaluación de 002 vía API) — autorizada por ${autorizadoPor}: ${motivo}`,
             razones: [`EXCEPCIÓN MANUAL, no veredicto de 002: ${motivo}`],
             diferimientos: [],
+            amarre,
         }, null, 2) + '\n', 'utf8');
         console.warn(`\n🟡 [EXCEPCION_MANUAL] Aprobación PRINCIPAL bajo excepción manual — expira ${expira} (${horas}h). Autorizada por: ${autorizadoPor}. Esto NO es un veredicto de la API de 002.`);
         registrarTelemetria({ tipo: 'aprobar-excepcion-manual', subsistema: '002_principal', resultado: 'aprobado', razon: `excepcion_manual, expira ${expira}` });
@@ -2605,6 +2794,7 @@ module.exports = {
     descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
     escanearSecretos, verificarEnvExample, verificarDependencias, ejecutarChequeosEstaticos,
     diffTocaDependencias, bucketDe, construirDiffPriorizado, parsearNameStatus,
+    parsearDiffRaw, huellaCambios, amarreStaged, amarreDeCommit, validarAmarre, GENERADO_POR_GATE,
     analizarTelemetriaPMU, verificarVigenciaAgentes, leerTelemetria,
     extraerJSONConCampo, asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
     validarFormaVeredicto, VEREDICTO_SCHEMAS,
