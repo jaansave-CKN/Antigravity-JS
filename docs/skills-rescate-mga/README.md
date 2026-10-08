@@ -1,6 +1,6 @@
 # Rescate de skills MGA — legacy 010 "Redactor Técnico"
 
-Rescatadas 2026-09-25 de `agents/010-ingeniero-qa-automatizacion/` (Sistema A legacy, antes `010_redactor_tecnico`) antes de moverlo a `_legacy_backup/` (directorio eliminado 2026-09-26; original recuperable con `git checkout ac1721c -- agents/010-ingeniero-qa-automatizacion`). Copia byte a byte (SHA-256 verificado). Destino previsto: base documental del Agente Formulador (`projects/Radford-360/Proy_03 B Formulador/`).
+Rescatadas 2026-09-25 de `agents/010-ingeniero-qa-automatizacion/` (Sistema A legacy, antes `010_redactor_tecnico`) antes de moverlo a `_legacy_backup/` (directorio eliminado 2026-09-26; original recuperable con `git checkout ac1721c -- agents/010-ingeniero-qa-automatizacion`). Copia byte a byte (SHA-256 verificado). Destino previsto: base documental del Agente Formulador (`agents/dominio-radfor360/Proy_03 B Formulador/`).
 
 | Archivo | Qué hace realmente | Estado |
 |---|---|---|

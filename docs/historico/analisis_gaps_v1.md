@@ -1,6 +1,6 @@
 # RadFor-360 — Auditoría de Vacíos (Fase 3, Grupo Elite)
 
-**Origen:** deriva 1:1 de la matriz de diagnóstico de `docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md` §7 (36 filas). Este documento toma únicamente las filas 🟠 INCOMPLETO y 🔴 AUSENTE que representan una brecha real a cerrar (excluye las eliminaciones deliberadas como Trello/MongoDB, que ya están resueltas por decisión previa del usuario).
+**Origen:** deriva 1:1 de la matriz de diagnóstico de `docs/historico/RADIOGRAFIA_FORENSE_360_2026-08-06.md` §7 (36 filas). Este documento toma únicamente las filas 🟠 INCOMPLETO y 🔴 AUSENTE que representan una brecha real a cerrar (excluye las eliminaciones deliberadas como Trello/MongoDB, que ya están resueltas por decisión previa del usuario).
 
 **Método:** 001_ARQUITECTO_CORE analiza cada vacío y propone resolución. Por protocolo (`docs/ESTADO.md` aún no existe → arquitectura no cerrada), **ningún vacío se cierra por omisión** — cada uno termina en `RESUELTO` (decisión técnica sin ambigüedad de producto, tomada aquí) o `DECISIÓN DEL USUARIO REQUERIDA` (impacta alcance, costo recurrente, o identidad de producto — no se fabrica).
 

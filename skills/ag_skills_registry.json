@@ -19,11 +19,11 @@
       "skills": [
         {
           "id": "Skill_050_Formulador_Proyecto",
-          "file": "projects/Radford-360/Proy_03 B Formulador/skills/Skill_050_Formulador_Proyecto.cjs"
+          "file": "agents/dominio-radfor360/Proy_03 B Formulador/skills/Skill_050_Formulador_Proyecto.cjs"
         }
       ],
-      "location": "./projects/Radford-360/Proy_03 B Formulador/skills/",
-      "sync_note": "Renombrado 2026-08-16 desde '050_Formulador_proy', luego reubicado el mismo día fuera de agents/ a projects/Radford-360/ (limpieza total y reestructuración, mandato directo del usuario). Mismo estado real: sin conexión a src/ ni server.js, solo cambia la ubicación.",
+      "location": "./agents/dominio-radfor360/Proy_03 B Formulador/skills/",
+      "sync_note": "Renombrado 2026-08-16 desde '050_Formulador_proy', luego reubicado el mismo día fuera de agents/ a agents/dominio-radfor360/ (limpieza total y reestructuración, mandato directo del usuario). Mismo estado real: sin conexión a src/ ni server.js, solo cambia la ubicación.",
       "skills_rescate_mga": [
         {
           "id": "Skill_002_Redactor_Propuestas",
@@ -38,14 +38,14 @@
     },
     "Proy_03 A Radar": {
       "skills": [],
-      "location": "./projects/Radford-360/Proy_03 A Radar/",
-      "sync_note": "Renombrado 2026-08-16 desde '011_Radar1_minero', luego reubicado el mismo día fuera de agents/ a projects/Radford-360/ (limpieza total y reestructuración, mandato directo del usuario). Sin cambio de estado real: PURGADO de código desde 2026-08-13 (duplicaba la capacidad del Radar real en producción, src/modules/radar/m1Pipeline.js, dormido desde 2026-05-16). Solo se preservó repositorio_convocatorias.json (datos históricos). Carpeta sigue sin código ejecutable.",
+      "location": "./agents/dominio-radfor360/Proy_03 A Radar/",
+      "sync_note": "Renombrado 2026-08-16 desde '011_Radar1_minero', luego reubicado el mismo día fuera de agents/ a agents/dominio-radfor360/ (limpieza total y reestructuración, mandato directo del usuario). Sin cambio de estado real: PURGADO de código desde 2026-08-13 (duplicaba la capacidad del Radar real en producción, src/modules/radar/m1Pipeline.js, dormido desde 2026-05-16). Solo se preservó repositorio_convocatorias.json (datos históricos). Carpeta sigue sin código ejecutable.",
       "raw_scripts": []
     },
     "Proy_03 GP Radford-360": {
       "skills": [],
-      "location": "./projects/Radford-360/Proy_03 GP Radford-360/",
-      "sync_note": "Agregado 2026-08-16 — líder de dominio de 'Proy_03 A Radar' y 'Proy_03 B Formulador', sin permisos técnicos propios (ver _legacy_backup/001-orquestador-maestro/IDENTITY.md). Reubicado a projects/Radford-360/ en la misma ronda de limpieza total."
+      "location": "./agents/dominio-radfor360/Proy_03 GP Radford-360/",
+      "sync_note": "Agregado 2026-08-16 — líder de dominio de 'Proy_03 A Radar' y 'Proy_03 B Formulador', sin permisos técnicos propios (ver _legacy_backup/001-orquestador-maestro/IDENTITY.md). Reubicado a agents/dominio-radfor360/ en la misma ronda de limpieza total."
     }
   },
   "transversal_skills_cjs": {

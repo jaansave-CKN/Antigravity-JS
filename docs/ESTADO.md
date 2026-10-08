@@ -2,7 +2,7 @@
 
 ARQUITECTURA_CERRADA: SI — 2026-08-06
 
-**Origen:** `docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md` → `docs/analisis_gaps_v1.md` (Fase 3) → `docs/01_propuesta_integral.md` (Fase 4) → 4 preguntas de autorización respondidas por el usuario el 2026-08-06.
+**Origen:** `docs/historico/RADIOGRAFIA_FORENSE_360_2026-08-06.md` → `docs/historico/analisis_gaps_v1.md` (Fase 3) → `docs/01_propuesta_integral.md` (Fase 4) → 4 preguntas de autorización respondidas por el usuario el 2026-08-06.
 
 **Restricción vigente en todas las oleadas:** mantener intacto el diseño gráfico e identidad visual actual de RadFor-360 (paleta oscura, dorado de marca, Hanken Grotesk, `Sidebar.jsx`/`Layout.jsx`, `lucide-react`).
 

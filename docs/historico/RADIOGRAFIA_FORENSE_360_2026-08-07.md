@@ -2,9 +2,9 @@
 **Fecha de auditoría:** 2026-08-07
 **Auditor:** Chief Software Auditor / DevSecOps Lead / System Architect (inspección en disco, no invasiva)
 **Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS` (servicio Render `radar-formulador-360`). Excluye explícitamente los subproyectos hermanos en `proyectos/` (`Proy_03_RadarFondos`, `Proy_04_Geomatrix`, `Proy_05_SIG`, `api-usuarios`, `react-basico`) — cada uno tiene su propio repositorio git y está fuera del árbol versionado de este proyecto (`.gitignore:19-24`).
-**Antecedente directo:** `docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md` (auditoría de ayer) → `docs/analisis_gaps_v1.md` (plan de remediación) → `docs/ESTADO.md` (bitácora de ejecución, Oleadas 0-3 cerradas). Esta radiografía es una verificación independiente, hecha leyendo el código actual sin asumir que la bitácora está actualizada, y confirma o corrige lo que esa bitácora declara.
+**Antecedente directo:** `docs/historico/RADIOGRAFIA_FORENSE_360_2026-08-06.md` (auditoría de ayer) → `docs/historico/analisis_gaps_v1.md` (plan de remediación) → `docs/ESTADO.md` (bitácora de ejecución, Oleadas 0-3 cerradas). Esta radiografía es una verificación independiente, hecha leyendo el código actual sin asumir que la bitácora está actualizada, y confirma o corrige lo que esa bitácora declara.
 
-**Nota de conservación (2026-08-07, post-remediación):** este documento es el snapshot ANTERIOR a la Operación Exterminio Final (purga de `pg`, `EGIOC5/`, `OPENCODE-MODEL/`, `MiniMaxChat.jsx` original, guardrail RLS, corrección del gate de arquitectura). Se conserva como evidencia histórica del estado pre-remediación. El estado posterior está en `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md` y en la radiografía re-emitida más reciente.
+**Nota de conservación (2026-08-07, post-remediación):** este documento es el snapshot ANTERIOR a la Operación Exterminio Final (purga de `pg`, `EGIOC5/`, `OPENCODE-MODEL/`, `MiniMaxChat.jsx` original, guardrail RLS, corrección del gate de arquitectura). Se conserva como evidencia histórica del estado pre-remediación. El estado posterior está en `docs/historico/INFORME_RECONCILIACION_CIERRE_2026-08-07.md` y en la radiografía re-emitida más reciente.
 
 ---
 
@@ -62,7 +62,7 @@ Nivel de acoplamiento: **medio-alto entre Presentación (rutas Express) y Aplica
 | `/radar` | A · Monitoreo | 🟢 **Real** — REST + WebSocket en vivo, búsqueda IA on-demand (Claude+Tavily) | `RadarApp.jsx`, `server.js:95-98,201,375-437` |
 | `/panel` | A · Monitoreo | 🔴 **Stub puro** — `FrozenPage.jsx` genérico, sin datos, con badge "Frozen — Próximamente" | `FrozenPage.jsx:1-31`, referenciado en `App.jsx:22` |
 | `/directorio` | A · Monitoreo | 🔴 **Stub puro** | Idéntico patrón `FrozenPage` |
-| `/favoritos` | A · Monitoreo | 🔴 **Stub puro** — requiere modelo de datos nuevo, no existe tabla `favoritos` en las migraciones | `docs/analisis_gaps_v1.md:38` |
+| `/favoritos` | A · Monitoreo | 🔴 **Stub puro** — requiere modelo de datos nuevo, no existe tabla `favoritos` en las migraciones | `docs/historico/analisis_gaps_v1.md:38` |
 | `/calendario` | A · Monitoreo | 🔴 **Stub puro** — depende de Favoritos | Idéntico patrón `FrozenPage` |
 | `fase1-entrada.html` | B · Formulación | 🟢 **Real** — fuera del SPA React (HTML standalone servido por Express estático), persiste Módulos 1-9 vía `POST /api/formulador/fase1` | `FormuladorRouter.js:12`, confirmado operativo en `docs/ESTADO.md:24-33` |
 | `/modulo10` | B · Formulación | 🟢 **Real** — única pantalla de Formulador ya migrada al SPA React, CRUD completo contra Supabase | `Modulo10Page.jsx` (169 líneas, fetch real con token Firebase) |
@@ -88,7 +88,7 @@ Este es el hallazgo más matizado de la auditoría. El "sistema multiagente" que
 
 `scripts/generar_reporte.cjs:18-21` lo declara explícitamente: *"esto es una librería de prompts/skills para uso interactivo, no un runtime — ningún agente de `agents/` corre como proceso en `server.js`"*. Verificado: `server.js` no importa nada de `agents/`. El inventario real generado en vivo (`public/estado_antigravity.json`) muestra **8 de 15 carpetas "definidas"** y **7 solo con `IDENTITY.md`** sin ningún skill implementado (`005_Radar1_minero`, `006_Radar2_Estratega`, `015_intelligence-core`, `03-analista-secop`, `07-ing-concreto_GFRC`, `08-estratega-neuromarketing`, `14-analista-comportamiento`).
 
-**Matiz descubierto en la remediación de este mismo día (ver `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md`):** `agents/000_Orquestador.cjs` sí es un script real y ejecutable (CLI, no wireado a `server.js`) que corre agentes como child process y aplica un gate de arquitectura. No contradice el hallazgo anterior (no corre en el request path del servidor web), pero matiza "no-runtime" — es runtime de herramienta de desarrollo, no de negocio.
+**Matiz descubierto en la remediación de este mismo día (ver `docs/historico/INFORME_RECONCILIACION_CIERRE_2026-08-07.md`):** `agents/000_Orquestador.cjs` sí es un script real y ejecutable (CLI, no wireado a `server.js`) que corre agentes como child process y aplica un gate de arquitectura. No contradice el hallazgo anterior (no corre en el request path del servidor web), pero matiza "no-runtime" — es runtime de herramienta de desarrollo, no de negocio.
 
 ---
 
@@ -102,7 +102,7 @@ Este es el hallazgo más matizado de la auditoría. El "sistema multiagente" que
 
 - El campo `role` viaja en el JWT propio (`session-manager.js:22-30`), default `'user'`.
 - **El único lugar del sistema que lee `role === 'admin'` es `revokeSession()`** (`session-manager.js:47`).
-- No hay middleware `requireAdmin` reutilizable (`docs/analisis_gaps_v1.md:53-55`, brecha C1 sin resolver).
+- No hay middleware `requireAdmin` reutilizable (`docs/historico/analisis_gaps_v1.md:53-55`, brecha C1 sin resolver).
 - Ningún endpoint de negocio (Radar, Formulador, Comunicaciones, GitHub) está protegido por rol — todos exigen solo *estar autenticado*, no un rol específico.
 - El frontend (`Sidebar.jsx`) no tiene ninguna sección condicionada por `user.role`.
 
@@ -143,11 +143,11 @@ No se encontraron endpoints con lógica de negocio sensible fuera del gate. El p
 ### FinOps — control de consumo de tokens
 
 - **Captura:** `AuditLogger.log('CLAUDE_CHAT_SUCCESS', { model, tokens: response.usage })` — sí se registra el consumo por request, con doble respaldo (archivo local `logs/audit.log` append-only + colección Firestore `audit_logs`).
-- **Agregación / alertas / dashboard: 🔴 ausente.** No existe ningún endpoint que sume tokens por usuario/día, ni alerta de costo (`docs/analisis_gaps_v1.md:65-67`, brecha D1 resuelta solo en el plan, no en el código).
+- **Agregación / alertas / dashboard: 🔴 ausente.** No existe ningún endpoint que sume tokens por usuario/día, ni alerta de costo (`docs/historico/analisis_gaps_v1.md:65-67`, brecha D1 resuelta solo en el plan, no en el código).
 - **Integración con Langfuse/Helicone: 🔴 ausente**, decisión explícita de no incorporar herramientas de terceros con costo recurrente.
 - **Control de gasto real implementado:** `checkQuota()` limita a 50 consultas de IA por `uid`/día — guardrail de abuso, no FinOps real (no calcula costo en dinero, se resetea en memoria).
 - **Evidencia de volumen real de uso:** `logs/audit.log` contenía **una sola línea** al momento de esta auditoría (`SESSION_LOGIN` de un uid de prueba) — el sistema estaba en fase de pruebas, sin tráfico de producción acumulado todavía.
-- **Hallazgo posterior (2026-08-07, mismo día):** el `GET /api/health` reporta `claude: ✅ configurado` solo verificando que la variable de entorno exista, nunca probando la API real. Se descubrió en vivo que la cuenta de Anthropic tiene saldo agotado — un falso positivo de salud que el propio FinOps ausente no puede detectar. Ver `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §1`.
+- **Hallazgo posterior (2026-08-07, mismo día):** el `GET /api/health` reporta `claude: ✅ configurado` solo verificando que la variable de entorno exista, nunca probando la API real. Se descubrió en vivo que la cuenta de Anthropic tiene saldo agotado — un falso positivo de salud que el propio FinOps ausente no puede detectar. Ver `docs/historico/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §1`.
 
 ### Orquestadores de agentes
 
@@ -191,7 +191,7 @@ Las 6 migraciones SQL existentes definen exclusivamente tablas de dominio del Fo
 
 El único tratamiento de moneda es funcional dentro del motor de Ficha Técnica: AGT-053 calcula presupuestos en COP implícitamente (AIU 25% + IVA 19%), consistente con el Axioma II de `AGENTS.md:23` ("Soberanía Financiera Absoluta... COP"). Esto es cálculo de presupuesto de proyecto, no un sistema de facturación SaaS.
 
-**Decisión de producto confirmada, no un olvido:** `docs/analisis_gaps_v1.md:75-79` documenta que la monetización fue evaluada y pospuesta explícitamente por el usuario el 2026-08-06, en espera de una base de usuarios que la justifique.
+**Decisión de producto confirmada, no un olvido:** `docs/historico/analisis_gaps_v1.md:75-79` documenta que la monetización fue evaluada y pospuesta explícitamente por el usuario el 2026-08-06, en espera de una base de usuarios que la justifique.
 
 ---
 
@@ -242,7 +242,7 @@ El único tratamiento de moneda es funcional dentro del motor de Ficha Técnica:
 
 El sistema tiene un **núcleo real y verificado en producción**: autenticación, perímetro de seguridad, Radar (Módulo A núcleo) y Formulador Fase 1 + Módulo 10 (Módulo B núcleo) funcionan con datos reales, persistencia real en Supabase, y un motor de IA (Claude + Tavily) genuinamente integrado con function-calling, no simulado — aunque bloqueado hoy por saldo de cuenta agotado. La disciplina de ingeniería es alta: hay gates de arquitectura reales, rate limiting probado con requests HTTP reales, y una bitácora de decisiones (`docs/ESTADO.md`) que documenta con honestidad qué quedó pendiente y por qué.
 
-Los vacíos no son deuda técnica oculta — son **decisiones explícitas y documentadas** de posponer 3 frentes completos (RBAC/panel admin, telemetría de terceros, monetización) a favor de cerrar primero el flujo end-to-end del Formulador. Ver `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md` para el detalle completo de la remediación ejecutada el mismo día y el hallazgo crítico de saldo de Anthropic.
+Los vacíos no son deuda técnica oculta — son **decisiones explícitas y documentadas** de posponer 3 frentes completos (RBAC/panel admin, telemetría de terceros, monetización) a favor de cerrar primero el flujo end-to-end del Formulador. Ver `docs/historico/INFORME_RECONCILIACION_CIERRE_2026-08-07.md` para el detalle completo de la remediación ejecutada el mismo día y el hallazgo crítico de saldo de Anthropic.
 
 ---
 

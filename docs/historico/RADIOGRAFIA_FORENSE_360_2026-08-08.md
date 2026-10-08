@@ -2,7 +2,7 @@
 **Fecha de auditoría:** 2026-08-08
 **Auditor:** Chief Software Auditor / DevSecOps Lead / System Architect (inspección en disco, no invasiva, servidor no ejecutado)
 **Alcance:** proyecto raíz `c:\2026 AI EGIOC5\Antigravity JS` (servicio Render `radar-formulador-360`, `render.yaml:3`). Excluye `proyectos/`, `Repositorios/`, `EGIOC5/`, `ObsidianVault/`, `Radar_Resultados/` — proyectos hermanos con repositorio propio (`.gitignore:23-31`).
-**Antecedentes directos:** `docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md` → `docs/RADIOGRAFIA_FORENSE_360_2026-08-07.md` → `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md` → `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md`. Esta radiografía verifica de forma independiente, leyendo el código, `git log`/`git diff`/`git status` reales y `.env`/`claves_privadas.txt` reales, qué de lo que esos cuatro documentos declara está efectivamente en disco hoy — y qué no.
+**Antecedentes directos:** `docs/historico/RADIOGRAFIA_FORENSE_360_2026-08-06.md` → `docs/historico/RADIOGRAFIA_FORENSE_360_2026-08-07.md` → `docs/historico/INFORME_RECONCILIACION_CIERRE_2026-08-07.md` → `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md`. Esta radiografía verifica de forma independiente, leyendo el código, `git log`/`git diff`/`git status` reales y `.env`/`claves_privadas.txt` reales, qué de lo que esos cuatro documentos declara está efectivamente en disco hoy — y qué no.
 
 ---
 

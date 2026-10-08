@@ -604,7 +604,7 @@ Orden explícita del usuario: auditoría exhaustiva del ecosistema multiagente c
 | `011_Radar1_minero/` | `radar_oficial.py`, `miner_deep_scan.py` (no `.cjs`, Python suelto) | Escribe `repositorio_convocatorias.json` + `radar_log.txt` | No revisado | **Dormido 3 meses** (evidencia arriba) — el Radar REAL de producción es `src/modules/radar/m1Pipeline.js` (Claude + Tavily, function-calling nativo, sí conectado a `/api/radar`). Dos sistemas de "radar" coexisten, uno fósil y uno real. |
 | `015_intelligence-core/` | 4 scripts PowerShell (`gatekeeper.ps1`, `maestro_forense.ps1`, `processor.ps1`, `project_manager.ps1`, `war_room.ps1`) | No verificado esta ronda | No revisado | Nombres evocan un sistema de gobernanza propio ("gatekeeper", "war_room") que no tiene relación con el gate real (`architecture-gate.cjs`) — riesgo de que alguien confunda cuál es el mecanismo de control vigente |
 
-**Injerto mal estructurado, confirmado y ya corregido esta sesión (no nuevo, pero es el ejemplo más claro del patrón que pediste detectar):** `agents/generar_reporte.cjs` (raíz, distinto de `scripts/generar_reporte.cjs`) escribía un JSON con estado **hardcodeado falso** ("17 OPERATIVOS", "SINCRONIZADA CON FIRESTORE", "AUTÓNOMO ACTIVO") sin verificar nada real, cada vez que se cargaba el módulo — corregido hoy (commit `63348d6`), confinado detrás de `require.main===module` y marcado con advertencia explícita en el propio archivo.
+**Injerto mal estructurado, confirmado y ya corregido esta sesión (no nuevo, pero es el ejemplo más claro del patrón que pediste detectar):** `agents/generar_reporte.cjs` (retirado 2026-10-08, ver `docs/LIMPIEZA_REPOSITORIO_2026-10-08.md`) (raíz, distinto de `scripts/generar_reporte.cjs`) escribía un JSON con estado **hardcodeado falso** ("17 OPERATIVOS", "SINCRONIZADA CON FIRESTORE", "AUTÓNOMO ACTIVO") sin verificar nada real, cada vez que se cargaba el módulo — corregido hoy (commit `63348d6`), confinado detrás de `require.main===module` y marcado con advertencia explícita en el propio archivo.
 
 **Manejo de errores, patrón general observado:** las skills del Sistema A con código real usan try/catch local consistentemente (no dejan excepciones sin atrapar), pero **ninguna reporta a un sistema central de logging** — a diferencia del Sistema C, que desde hoy sí tiene esa pieza (`AuditLogger` + Sentry, ver commit `4f38c15`). Si una skill del Sistema A fallara en producción (si alguna vez se ejecutara), nadie se enteraría.
 
@@ -804,6 +804,7 @@ Pedido explícito del usuario: repetir la auditoría de los 5 bloques del protoc
         check_image.cjs, clean_excel.cjs, fetch_municipios.cjs,
         read_excel.cjs, read_image.cjs — utilidades CLI puntuales,
         fuera del foco "sistema multiagente", no auditadas individualmente
+        (retirados 2026-10-08, ver docs/LIMPIEZA_REPOSITORIO_2026-10-08.md)
 ```
 
 **Desalineaciones de rol (sin cambios respecto a la versión anterior):** persisten 3 entidades llamadas "000/orquestador" (el `.cjs` real, la carpeta con el daemon `puente_ejecutor.py`, y `.agent/agents/000_orquestador.md` del Sistema B). El nodo orquestador central existe pero está fragmentado, no faltante.
@@ -1995,24 +1996,25 @@ fue editada in-place (no se agregó una tercera nota separada) para reflejar los
 contra disco antes de esta edición:
 
 - `agents/011_Radar1_minero/` → `agents/Proy_03_Minero_A/` (primera pasada) → **`agents/Proy_03 A Radar/`**
-  (nombre final, con espacio literal, no guion bajo). Mismo contenido: `repositorio_convocatorias.json`.
+  (hoy `agents/dominio-radfor360/Proy_03 A Radar/`) (nombre final, con espacio literal, no guion bajo). Mismo contenido: `repositorio_convocatorias.json`.
   `IDENTITY.md:2` mantiene `Status: INACTIVE` (corregido de un `ACTIVE` falso preexistente, ver `§0-AJ.8`) —
   sigue sin código ejecutable desde su purga del 2026-08-13. `IDENTITY.md:7` documenta explícitamente ser "segunda
   renombrada del mismo día de esta carpeta".
 - `agents/050_Formulador_proy/` → `agents/Proy_03_Minero_B/` (primera pasada) → **`agents/Proy_03 B Formulador/`**
-  (nombre final). El script interno también se renombró: `Proy_03_Minero_B.cjs` → **`Proy_03_B_Formulador.cjs`**.
+  (hoy `agents/dominio-radfor360/Proy_03 B Formulador/`) (nombre final). El script interno también se renombró: `Proy_03_Minero_B.cjs` → **`Proy_03_B_Formulador.cjs`**.
   Referencia interna de ruta actualizada al nombre final —
-  `agents/Proy_03 B Formulador/skills/Skill_050_Formulador_Proyecto.cjs:44`,
+  `agents/Proy_03 B Formulador/skills/Skill_050_Formulador_Proyecto.cjs:44` (hoy bajo `agents/dominio-radfor360/`),
   `path.join('./agents', args[1] || 'Proy_03 B Formulador', 'skills', s.skill + '.cjs')`. Sigue sin ningún import
   real desde `src/`/`server.js` — mismo estado que antes de ambos renombramientos.
-- `agents/Proy_03_GP_Radford-360/` (primera pasada) → **`agents/Proy_03 GP Radford-360/`** (nombre final, con
-  espacios). Agente "Gerente de Proyecto" coordinador de los dos anteriores (`IDENTITY.md`). `IDENTITY.md:7`
+- `agents/Proy_03_GP_Radford-360/` (primera pasada) → **`agents/Proy_03 GP Radford-360/`** (hoy
+  `agents/dominio-radfor360/Proy_03 GP Radford-360/`) (nombre final, con espacios). Agente "Gerente de Proyecto" coordinador de los dos anteriores (`IDENTITY.md`). `IDENTITY.md:7`
   documenta explícitamente ser la "tercera y última iteración de nombre de esta misma carpeta en el mismo día".
   Sin código ejecutable, sin permisos técnicos (`Write`/`Edit`/`Bash`), no está en `.claude/agents/` — el Escuadrón
   Élite oficial 001-010 no se tocó, por restricción explícita del usuario
-  (`agents/Proy_03 GP Radford-360/IDENTITY.md:32`).
+  (`agents/Proy_03 GP Radford-360/IDENTITY.md:32`, hoy bajo `agents/dominio-radfor360/`).
 
-**Nuevo en esta pasada:** `agents/Proy_03 GP Radford-360/PERMISSIONS.json` — matriz de permisos declarativa de la
+**Nuevo en esta pasada:** `agents/Proy_03 GP Radford-360/PERMISSIONS.json` (hoy
+`agents/dominio-radfor360/Proy_03 GP Radford-360/PERMISSIONS.json`) — matriz de permisos declarativa de la
 jerarquía (líder `Proy_03 GP Radford-360` con privilegios declarados `read/write/execute` sobre outputs, no sobre
 código fuente ni sobre la plataforma real; subalternos `Proy_03 A Radar` y `Proy_03 B Formulador` con `read`,
 reportando al líder por un "canal" explícitamente sin transporte real). El propio archivo se autodenuncia en su
@@ -2075,7 +2077,7 @@ y NO se inventaron resultados para ellos — se reporta su ausencia como hallazg
   es el guardado explícito de Fase 1/Módulo 10 del Formulador, cubierto abajo con evidencia real de su propia
   auditoría previa (idempotencia + OCC), no con una simulación de un feature que no está en este repo.
 - "1000 requests reales contra Claude": **no se ejecutaron** — dispararlas de verdad gasta saldo real de Anthropic
-  (el mismo saldo que ya se agotó una vez, documentado en `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §1`
+  (el mismo saldo que ya se agotó una vez, documentado en `docs/historico/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §1`
   y referenciado en `server.js` línea ~281). En su lugar, VECTOR 4 se resolvió con un cálculo modelado a partir de
   constantes reales del código (`validation.js:82-88`, `session-manager.js:85`), marcado explícitamente como
   proyección, no como ejecución.
@@ -2591,10 +2593,10 @@ Protocolo reportado por la sesión: se inyectó una key inválida en el entorno 
    (o `007` en su nombre)", pero el blast radius de `007` es `docs/` (`.claude/agents/007-documentador-as-build.md`
    §"Qué NO haces"). Quien edite los frontmatter tiene que decidirlo `002` o el usuario; `007` no lo asume.
 9. **Deriva de este documento detectada, no reescrita.** La "Nota breve (2026-08-16)" (líneas 1989-2052) ubica la
-   jerarquía RadFor-360 en `agents/Proy_03 */`, pero en disco está en `projects/Radford-360/` (Glob: 7 archivos
+   jerarquía RadFor-360 en `agents/Proy_03 */`, pero en disco está en `projects/Radford-360/` (hoy `agents/dominio-radfor360/`) (Glob: 7 archivos
    bajo `Proy_03 A Radar/`, `Proy_03 B Formulador/` y `Proy_03 GP Radford-360/`). El código ya lo refleja:
    `architecture-gate.cjs:158` y `:166`, `ENRUTADOR_ESTATICO.formulacion: 'projects/Radford-360/Proy_03 B
-   Formulador'`. El traslado ocurrió en un commit posterior a la nota (`02c7c27`, según el reflog) que nunca se
+   Formulador'` (hoy `'agents/dominio-radfor360/Proy_03 B Formulador'`, `architecture-gate.cjs:167`). El traslado ocurrió en un commit posterior a la nota (`02c7c27`, según el reflog) que nunca se
    registró aquí. Queda asentado desde esta sección.
 
 ### 0-AM.6 Divisa / idempotencia
@@ -2717,3 +2719,120 @@ este endurecimiento.
 lista original de 15 hallazgos y N1-N4 de `008` (no existe un reporte de `008` en disco que `007` pudiera leer; la
 fuente es ADR-0002 §2.8 más el reporte de la sesión); la llamada accidental a NIM; y la fila 7 línea a línea. El
 PDF tampoco se regeneró, por el mismo motivo que en 0-AM.
+
+---
+
+## §0-AN. LIMPIEZA Y REORGANIZACIÓN DEL REPOSITORIO + GATE CONSCIENTE DE RENOMBRADOS (2026-10-08)
+
+Orden del usuario ("optimización y desfragmentación"), aprobada grupo por grupo. Detalle archivo por archivo,
+método de verificación y comandos de recuperación: `docs/LIMPIEZA_REPOSITORIO_2026-10-08.md`. Esta sección solo
+asienta el resultado y el cambio de mecanismo del gate.
+
+### 0-AN.1 Cuatro grupos
+
+| Grupo | Qué | Commit |
+|---|---|---|
+| 1 | Basura local no versionada (carpetas vacías, caché `.firebase/` raíz, capturas, `Radar_Resultados/`) | sin commit (no versionado) |
+| 2 | Restos del Proyecto 01 y tooling legacy: `scripts/` (Donaciones, Trello, Brevo, `maintenance/`, `sentinela/`, lanzadores), `agents/` (`check_image`, `clean_excel`, `extractor-pro`, `fetch_municipios`, `read_excel`, `read_image`, `vision-engine`, `generar_reporte.cjs`, `perfil_disenador.json`), `config/*.json` legacy | `11884ea` |
+| 3 | Artefactos de build versionados por error: `config/public/`, `config/.firebase/` | `d38ac6a` (el reflog muestra un primer intento `410e113` revertido con `reset HEAD~1` y recommiteado) |
+| 4 | Reorganización con `git mv` (historial conservado) | commit de reorganización en curso; `007` no puede citar su sha porque cuando se escribió esta sección todavía no existía |
+
+Commits verificados por `007` en `.git/logs/HEAD:96-99`. Verificación funcional declarada en el documento de
+limpieza: `npm run test:gate` 255/255, arranque de `server.js` y `npm run build` con exit 0. `007` no la re-ejecutó
+porque no tiene `Bash`.
+
+### 0-AN.2 Nuevas ubicaciones (verificadas con Glob)
+
+- Fichas del dominio RadFor-360: `projects/Radford-360/` → **`agents/dominio-radfor360/`**. Las subcarpetas
+  `Proy_03 A Radar`, `Proy_03 B Formulador` y `Proy_03 GP Radford-360` conservan su nombre (7 archivos). La
+  carpeta `projects/` ya no existe. El gate rutea a la nueva ruta en
+  `ENRUTADOR_ESTATICO.formulacion: 'agents/dominio-radfor360/Proy_03 B Formulador'`
+  (`agents/architecture-gate.cjs:167`; prueba en `scripts/architecture-gate.test.cjs:142`). La ruta no cambia
+  lo que cuenta como agente: `listarCarpetasAgentes()` solo considera carpetas numeradas.
+- **`docs/historico/`**: 3 radiografías forenses (2026-08-06/07/08), `INFORME_RECONCILIACION_CIERRE_2026-08-07`,
+  `RADFOR360_IMPLEMENTACION_2026-08-06` (`.md`+`.pdf`) y `analisis_gaps_v1.md`. Son informes fechados que ya
+  superaron documentos posteriores.
+- `docs/separar-remote-radarfondos.sh` → **`scripts/separar-remote-radarfondos.sh`**. Es una herramienta vigente:
+  la operación de separar el remoto sigue pendiente de decisión humana (ver `§0-AJ.9`).
+- **`.gitattributes`** (nuevo): `*.sh text eol=lf`. Con `core.autocrlf=true`, un checkout podía convertir
+  `scripts/pre-commit.sh`, `scripts/separar-remote-radarfondos.sh` y los scripts de skills a CRLF, y bash dejaba
+  de ejecutarlos.
+
+En este documento, las rutas antiguas que funcionaban como puntero quedaron anotadas con su ubicación de hoy. La
+narrativa fechada no se reescribió.
+
+### 0-AN.3 Corrección del gate: rechazo falso de `002` ante `git mv`
+
+**Causa raíz.** `construirDiffPriorizado()` pedía la lista con `--no-renames`. Por eso cada `git mv` le llegaba a
+`002` como una baja más un alta completa. Las altas de `projects/…` → `agents/dominio-radfor360/…` caían en el
+último bucket, se truncaban por presupuesto, y `002` rechazó el cambio por "ruta inexistente". El cambio era
+correcto: el rechazo vino del diff incompleto que recibió.
+
+**Corrección** (`agents/architecture-gate.cjs`):
+
+- `:319`: `git diff HEAD --name-status -z -M`. `-z` hace que las rutas con espacios lleguen sin comillas, algo
+  necesario aquí porque las tres subcarpetas `Proy_03 *` tienen espacios.
+- `:297-312`: `parsearNameStatus()` convierte un `R<similitud>` en una sola entrada `{estado, similitud, origen, archivo}`.
+- `:336` y `:341-342`: un movimiento puro (`R100`) es resumible. Se nombra siempre
+  (`archivo RENOMBRADO sin cambios de contenido (git mv) — antes: …`), aunque el presupuesto esté agotado.
+- `:346-349`: un renombrado con cambios envía solo el delta (`-M` con ambas rutas en el pathspec).
+- `:253-255`: nuevo bucket `/^agents\/dominio-[^/]+\//`, que pone las fichas IDENTITY/PERMISSIONS antes de
+  `src/`, `docs/` y la telemetría.
+
+**Pruebas.** En `scripts/architecture-gate.test.cjs`:
+
+- `:425`: `parsearNameStatus`, con un `R100` real de este traslado y la entrada vacía.
+- `:444`: `bucketDe` aplicado a una ficha `agents/dominio-radfor360/…/PERMISSIONS.json`.
+
+```mermaid
+flowchart TD
+    A["git diff HEAD --name-status -z -M<br/>(architecture-gate.cjs:319)"] --> B["parsearNameStatus()<br/>:297-312"]
+    B --> C["sort por bucketDe()<br/>PRIORIDAD_DIFF :247-264<br/>(incluye agents/dominio-*)"]
+    C --> D{"estado"}
+    D -- "D (baja)" --> E["seccionResumida: ELIMINADO<br/>(siempre se nombra)"]
+    D -- "R100 (git mv puro)" --> F["seccionResumida: RENOMBRADO — antes: origen<br/>(siempre se nombra)"]
+    D -- "binario" --> G["seccionResumida: contenido omitido"]
+    D -- "M / A / R con cambios" --> H["git diff -M HEAD -- origen archivo<br/>:349 (solo delta)"]
+    H --> I{"¿cabe en LIMITE_DIFF_002<br/>(130000, :271)?"}
+    I -- "no" --> J["truncado / omitidos"]
+    I -- "sí" --> K["diff acumulado → 002"]
+    E --> K
+    F --> K
+    G --> K
+```
+
+### 0-AN.4 Inconsistencias detectadas en esta ronda
+
+1. **Comentario contradictorio en el gate: RESUELTO en la misma ronda.** `007` detectó que los comentarios decían
+   que `agents/dominio-radfor360/` estaba "fuera de agents/" y que `agents/` contenía "solo" el legacy 001/009/010,
+   que había salido de ahí el 2026-09-25 (`§0-AL.3`). Los corrigió el agente principal; `007` lo verificó con Grep y
+   Read.
+   - `agents/architecture-gate.cjs:84-90` cuenta el historial `projects/Radford-360/` → `agents/dominio-radfor360/`
+     desde 2026-10-08. También aclara que `listarCarpetasAgentes()` solo escanea carpetas numeradas
+     (`^\d{2,3}[_-]`), y `dominio-radfor360` no lo es.
+   - `:156-161` dice lo mismo para `ENRUTADOR_ESTATICO.formulacion`. Remite a
+     `docs/LIMPIEZA_REPOSITORIO_2026-10-08.md`.
+2. **El diff de mandato de los subgates ahora detecta renombrados: RESUELTO en la misma ronda.**
+   `agents/architecture-gate.cjs:1122` pasa a
+   `git diff ...FLAGS_DIFF_PROVEEDOR -M --cached -- …relevantes`.
+   **Residual vigente, señalado y no corregido:** el manifiesto del resto del staging (`:1133`) sigue con
+   `git diff --cached --name-status --no-renames`, sin `-z`. Un `git mv` fuera del mandato del subgate aparece ahí
+   como baja + alta. El manifiesto solo lista nombres y estado, nunca contenido, así que no consume presupuesto de
+   diff. Su efecto se limita a cómo se presenta el movimiento al subgate. No se observó ningún rechazo de subgate por
+   esta causa. Decide `002`.
+3. **Cambios ajenos apartados.** Hay un `git stash` "EXTERNO 2026-09-29" con modificaciones a IDENTITY/PERMISSIONS
+   en la ruta antigua, y su método de recuperación está en `docs/LIMPIEZA_REPOSITORIO_2026-10-08.md`. `007` no lo
+   inspeccionó porque no tiene `Bash`. La decisión es del dueño.
+
+### 0-AN.5 Divisa / idempotencia
+
+No aplica. No hay endpoints de mutación ni cálculos financieros nuevos: el cambio es borrar archivos, moverlos y
+ajustar el tooling local del gate.
+
+### Qué no se verificó en esta sección
+
+- La ejecución de 255/255, el arranque de `server.js` y `npm run build`.
+- El contenido del stash.
+- El sha del commit de reorganización (grupo 4).
+
+El PDF no se regeneró, por instrucción explícita de esta tarea.

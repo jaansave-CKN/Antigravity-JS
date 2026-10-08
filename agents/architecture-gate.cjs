@@ -83,11 +83,11 @@ const ESCUADRON_ELITE = {
         // consumidores reales en src/ ni server.js, confirmado antes de
         // borrar). 'Proy_03 A Radar', 'Proy_03 B Formulador' y
         // 'Proy_03 GP Radford-360' NO se purgaron — se reubicaron a
-        // projects/Radford-360/ (dominio de proyecto, fuera de agents/, que
-        // ahora contiene solo al Escuadrón Élite legacy 001/009/010). Ya no
-        // son subordinados de esta carpeta a efectos de listarCarpetasAgentes()
-        // (que solo escanea agents/) — la relación jerárquica GP→A/B sigue
-        // viva, documentada en agents/001-orquestador-maestro/IDENTITY.md.
+        // projects/Radford-360/ (dominio de proyecto) y desde 2026-10-08 viven
+        // en agents/dominio-radfor360/. Ya no son subordinados de esta carpeta
+        // a efectos de listarCarpetasAgentes(): solo escanea carpetas
+        // numeradas (^\d{2,3}[_-]), y 'dominio-radfor360' no lo es. La
+        // relación jerárquica GP→A/B sigue viva en sus IDENTITY.md.
         //
         // RENOMBRADA 2026-08-16 (mismo mandato de normalización de
         // nomenclatura): '009_gestor_datos' -> '009-ingeniero-frontend'. Pese
@@ -155,15 +155,16 @@ function comandanteDe(carpetaAgente) {
 // de inactiva — no reintroduce la clave 'convocatorias').
 // 'formulacion' actualizado 2026-08-16 (dos veces en la misma fecha): primero
 // renombrado de '050_Formulador_proy' a 'Proy_03 B Formulador', luego
-// reubicado fuera de agents/ a projects/Radford-360/Proy_03 B Formulador/
-// (mandato directo del usuario, "limpieza total y reestructuración") — el
-// valor ahora es ruta relativa a la raíz del repo, no solo nombre de carpeta.
+// reubicado a projects/Radford-360/Proy_03 B Formulador/ (mandato directo
+// del usuario, "limpieza total y reestructuración") — el valor es ruta
+// relativa a la raíz del repo, no solo nombre de carpeta. 2026-10-08: movido
+// a agents/dominio-radfor360/ (docs/LIMPIEZA_REPOSITORIO_2026-10-08.md).
 // 'administrativo' e 'inteligencia_mercado' removidas en la misma ronda:
 // apuntaban a '052_Form_Administrativo' y '012_Radar2_Estratega', ambas
 // purgadas del disco (0 código real, mismo criterio que 'convocatorias'
 // arriba) — sin destino válido al que rutear.
 const ENRUTADOR_ESTATICO = {
-    formulacion: 'projects/Radford-360/Proy_03 B Formulador',
+    formulacion: 'agents/dominio-radfor360/Proy_03 B Formulador',
 };
 
 function rutear(clave) {
@@ -249,6 +250,9 @@ const PRIORIDAD_DIFF = [
     // gate-proveedor.cjs junto al gate (hallazgo 2026-09-26: 002 rechazó por
     // "dependencia dura no visible" — caía al bucket final y nunca entraba).
     /^agents\/(architecture-gate|gate-proveedor)\.cjs$/,
+    // Fichas de agentes de dominio (IDENTITY/PERMISSIONS, 2026-10-08): definen
+    // permisos de agentes; antes caían al último bucket con la telemetría.
+    /^agents\/dominio-[^/]+\//,
     /^src\//,
     /^server\.js$/,
     /^public\/(?!estado_antigravity\.json)/,       // frontend real, no el JSON auto-generado
@@ -279,48 +283,70 @@ function bucketDe(archivo) {
 // definiciones de agentes.
 // Resumen de una sección que no vale la pena enviar completa. Cabecera con
 // formato git real: filtrarSecretosDiff() necesita leer la ruta.
-function seccionResumida(archivo, nota) {
-    return `diff --git a/${archivo} b/${archivo}\n[${nota}]\n`;
+// `origen` (renombrado): la cabecera lleva ambas rutas, así
+// filtrarSecretosDiff() también evalúa la ruta anterior.
+function seccionResumida(archivo, nota, origen = archivo) {
+    return `diff --git a/${origen} b/${archivo}\n[${nota}]\n`;
+}
+
+// Parsea `git diff --name-status -z -M`. Un renombrado (R<similitud>) es UNA
+// entrada con la ruta nueva y su origen (hallazgo 2026-10-08: con
+// --no-renames un `git mv` llegaba a 002 como baja + alta completa; las
+// altas caían al último bucket, se truncaban y 002 rechazó por "ruta
+// inexistente"). -z: rutas con espacios o no ASCII llegan sin comillas.
+function parsearNameStatus(salida) {
+    const tokens = String(salida || '').split('\0');
+    const entradas = [];
+    for (let i = 0; i < tokens.length;) {
+        const estado = tokens[i++];
+        if (!estado) continue;
+        if (/^[RC]\d*$/.test(estado)) {
+            const origen = tokens[i++], archivo = tokens[i++];
+            if (archivo) entradas.push({ estado: estado[0], similitud: Number(estado.slice(1)) || 0, origen, archivo });
+        } else {
+            const archivo = tokens[i++];
+            if (archivo) entradas.push({ estado: estado[0], archivo });
+        }
+    }
+    return entradas;
 }
 
 function construirDiffPriorizado(limiteChars) {
-    let archivos;
-    const eliminados = new Set();
+    let entradas;
     try {
         // --name-status: una baja (D) se fiscaliza por su nombre, no línea a
         // línea — 20 archivos legacy borrados se comían ~60 KB de presupuesto.
-        // --no-renames: cada ruta aparece sola, igual que el diff por archivo.
-        archivos = execFileSync('git', ['diff', 'HEAD', '--name-status', '--no-renames'], { cwd: dirRoot, encoding: 'utf8' })
-            .split('\n').map(l => l.trim()).filter(Boolean)
-            .map(l => {
-                const [estado, ...ruta] = l.split('\t');
-                const archivo = ruta.join('\t');
-                if (estado === 'D') eliminados.add(archivo);
-                return archivo;
-            })
-            .filter(Boolean);
+        entradas = parsearNameStatus(execFileSync('git', ['diff', 'HEAD', '--name-status', '-z', '-M'], { cwd: dirRoot, encoding: 'utf8' }));
     } catch (e) {
         return { diff: '', truncado: false, error: `No se pudo leer 'git diff HEAD --name-status': ${e.message}` };
     }
-    if (archivos.length === 0) return { diff: '', truncado: false };
+    if (entradas.length === 0) return { diff: '', truncado: false };
 
-    archivos.sort((a, b) => bucketDe(a) - bucketDe(b));
+    entradas.sort((a, b) => bucketDe(a.archivo) - bucketDe(b.archivo));
 
     let acumulado = '';
     let truncadoParcial = false;
     const omitidos = [];
-    for (const archivo of archivos) {
-        // Bajas y binarios cuestan ~150 caracteres: se nombran siempre, aun
-        // con el presupuesto agotado — ningún cambio queda invisible para 002.
-        const resumible = eliminados.has(archivo) || EXT_BINARIA.test(archivo);
+    for (const { estado, archivo, origen, similitud } of entradas) {
+        const renombrado = estado === 'R';
+        const movimientoPuro = renombrado && similitud === 100;
+        // Bajas, binarios y movimientos sin cambios cuestan ~150 caracteres:
+        // se nombran siempre, aun con el presupuesto agotado — ningún cambio
+        // queda invisible para 002.
+        const resumible = estado === 'D' || EXT_BINARIA.test(archivo) || movimientoPuro;
         if (acumulado.length >= limiteChars && !resumible) { omitidos.push(archivo); continue; }
         let diffArchivo;
-        if (eliminados.has(archivo)) {
+        if (estado === 'D') {
             diffArchivo = seccionResumida(archivo, 'archivo ELIMINADO — contenido previo omitido; se fiscaliza la baja por su ruta');
+        } else if (movimientoPuro) {
+            diffArchivo = seccionResumida(archivo, `archivo RENOMBRADO sin cambios de contenido (git mv) — antes: ${origen}`, origen);
         } else if (EXT_BINARIA.test(archivo)) {
-            diffArchivo = seccionResumida(archivo, 'archivo binario modificado — contenido omitido');
+            diffArchivo = seccionResumida(archivo, renombrado ? `archivo binario renombrado y modificado — antes: ${origen}; contenido omitido` : 'archivo binario modificado — contenido omitido', renombrado ? origen : archivo);
         } else try {
-            diffArchivo = execFileSync('git', ['diff', ...FLAGS_DIFF_PROVEEDOR, 'HEAD', '--', archivo], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+            // Renombrado con cambios: solo el delta respecto al origen (-M con
+            // ambas rutas en el pathspec), no el archivo entero como alta.
+            const rutas = renombrado ? [origen, archivo] : [archivo];
+            diffArchivo = execFileSync('git', ['diff', ...FLAGS_DIFF_PROVEEDOR, '-M', 'HEAD', '--', ...rutas], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
         } catch (e) {
             diffArchivo = `[No se pudo leer el diff de ${archivo}: ${e.message}]\n`;
         }
@@ -1092,7 +1118,8 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
     const systemPrompt = fs.readFileSync(cfg.promptPath, 'utf8');
     let diff;
     try {
-        diff = execFileSync('git', ['diff', ...FLAGS_DIFF_PROVEEDOR, '--cached', '--', ...relevantes], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+        // -M (2026-10-08): un git mv dentro del mandato llega como renombrado + delta, no baja + alta.
+        diff = execFileSync('git', ['diff', ...FLAGS_DIFF_PROVEEDOR, '-M', '--cached', '--', ...relevantes], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
     } catch (e) {
         return { aprobado: false, razon: `No se pudo leer 'git diff --cached': ${e.message}` };
     }
@@ -2577,7 +2604,7 @@ module.exports = {
     SUBGATES, archivosRelevantesPara, validarSubgate,
     descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
     escanearSecretos, verificarEnvExample, verificarDependencias, ejecutarChequeosEstaticos,
-    diffTocaDependencias, bucketDe, construirDiffPriorizado,
+    diffTocaDependencias, bucketDe, construirDiffPriorizado, parsearNameStatus,
     analizarTelemetriaPMU, verificarVigenciaAgentes, leerTelemetria,
     extraerJSONConCampo, asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
     validarFormaVeredicto, VEREDICTO_SCHEMAS,

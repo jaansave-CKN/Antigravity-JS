@@ -18,7 +18,7 @@ const {
   hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear, evidenciaE2E, diferimientoEnMandato,
   SUBGATES, archivosRelevantesPara, validarSubgate,
   descubrirAgentes, generarEstadoOperativo, mapaGatesPorPrefijo, leerFrontmatterAgente,
-  escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe,
+  escanearSecretos, verificarEnvExample, diffTocaDependencias, bucketDe, parsearNameStatus,
   analizarTelemetriaPMU, verificarVigenciaAgentes, extraerJSONConCampo,
   asegurarSubgatesAutoDescubiertos, paquetesVulnerables,
   validarFormaVeredicto, VEREDICTO_SCHEMAS,
@@ -135,11 +135,11 @@ test('validarDisenoAprobado: rechaza si diseno_aprobado.json no existe', () => {
 });
 
 test('rutear: clave válida devuelve el destino esperado', () => {
-  // Actualizado 2026-08-16: 'formulacion' ahora apunta a projects/Radford-360/
+  // Actualizado 2026-08-16: 'formulacion' ahora apunta a agents/dominio-radfor360/
   // (reubicado fuera de agents/ en la limpieza total). 'administrativo' e
   // 'inteligencia_mercado' se removieron del enrutador — sus destinos
   // (052_Form_Administrativo, 012_Radar2_Estratega) fueron purgados del disco.
-  assert.equal(rutear('formulacion'), 'projects/Radford-360/Proy_03 B Formulador');
+  assert.equal(rutear('formulacion'), 'agents/dominio-radfor360/Proy_03 B Formulador');
 });
 
 test('rutear: clave inválida lanza RUTEO_FALLIDO, nunca aprueba por defecto', () => {
@@ -420,6 +420,33 @@ test('bucketDe: gate-proveedor.cjs va con el gate y docs/ADR antes que docs/ (re
   assert.ok(bucketDe('docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md') < bucketDe('tests/gate/gate-proveedor.test.cjs'));
   assert.ok(bucketDe('tests/gate/gate-proveedor.test.cjs') < bucketDe('agents/pmu/telemetria.jsonl'));
   assert.ok(bucketDe('.claude/agents/002-arquitecto-de-software.md') < bucketDe('agents/gate-proveedor.cjs'));
+});
+
+test('parsearNameStatus: un git mv es UNA entrada con origen y similitud, no baja + alta (regresión 2026-10-08: 002 rechazó por "ruta inexistente")', () => {
+  const salida = [
+    'R100', 'projects/Radford-360/Proy_03 A Radar/IDENTITY.md', 'agents/dominio-radfor360/Proy_03 A Radar/IDENTITY.md',
+    'R087', 'docs/viejo.md', 'docs/historico/viejo.md',
+    'M', 'server.js',
+    'D', 'scripts/core/motor_donaciones.js',
+    'A', 'docs/con espacio ñ.md',
+    '',
+  ].join('\0');
+  assert.deepEqual(parsearNameStatus(salida), [
+    { estado: 'R', similitud: 100, origen: 'projects/Radford-360/Proy_03 A Radar/IDENTITY.md', archivo: 'agents/dominio-radfor360/Proy_03 A Radar/IDENTITY.md' },
+    { estado: 'R', similitud: 87, origen: 'docs/viejo.md', archivo: 'docs/historico/viejo.md' },
+    { estado: 'M', archivo: 'server.js' },
+    { estado: 'D', archivo: 'scripts/core/motor_donaciones.js' },
+    { estado: 'A', archivo: 'docs/con espacio ñ.md' },
+  ]);
+  assert.deepEqual(parsearNameStatus(''), []);
+});
+
+test('bucketDe: fichas de agentes de dominio (IDENTITY/PERMISSIONS) antes que docs/ y que la telemetría (2026-10-08)', () => {
+  const ficha = 'agents/dominio-radfor360/Proy_03 GP Radford-360/PERMISSIONS.json';
+  assert.ok(bucketDe(ficha) < bucketDe('src/modules/radar/m1Pipeline.js'));
+  assert.ok(bucketDe(ficha) < bucketDe('docs/historico/INFORME.md'));
+  assert.ok(bucketDe(ficha) < bucketDe('agents/pmu/telemetria.jsonl'));
+  assert.ok(bucketDe('agents/architecture-gate.cjs') < bucketDe(ficha));
 });
 
 test('analizarTelemetriaPMU: detecta 3+ rechazos consecutivos de un mismo subsistema (vigilancia activa 2026-08-13)', () => {

@@ -43,7 +43,7 @@ El Proyecto 01 fue purgado del disco el 2026-08-05 (`AGENTS.md` §VI); estos arc
 
 ## Cambios ajenos apartados (no incluidos en esta limpieza)
 
-Modificaciones sin commitear de `projects/Radford-360/` (IDENTITY/PERMISSIONS, otra sesión, 2026-09-29) apartadas en `git stash` ("EXTERNO 2026-09-29: …") para no mezclarlas: el agente 002 objetó que describen como política vigente PRs aún no fusionados. Quedan a decisión del dueño (`git stash list`).
+Modificaciones sin commitear de `projects/Radford-360/` (hoy `agents/dominio-radfor360/`, ver grupo 4) (IDENTITY/PERMISSIONS, otra sesión, 2026-09-29) apartadas en `git stash` ("EXTERNO 2026-09-29: …") para no mezclarlas: el agente 002 objetó que describen como política vigente PRs aún no fusionados. Quedan a decisión del dueño (`git stash list`).
 
 ## Grupo 3 — artefactos de build versionados por error
 
@@ -53,3 +53,48 @@ Modificaciones sin commitear de `projects/Radford-360/` (IDENTITY/PERMISSIONS, o
 | `config/.firebase/hosting.*.cache` | Caché local de Firebase Hosting | Artefacto de la CLI de Firebase, no fuente |
 
 **No se tocan, a propósito:** `config/firebase.json`, `config/.firebaserc`, `config/firestore.rules`, `config/firestore.indexes.json` y la `firestore.rules` de la raíz. Son configuración de seguridad de Firestore: las dos copias de reglas difieren (la de `config/` aún incluye colecciones del Proyecto 01: donaciones, contadores, proyectos modulares) y no hay forma de saber desde el repositorio cuál está desplegada. Unificarlas requiere verificar las reglas activas en la consola de Firebase. Con `config/public/` retirado, un `firebase deploy` de Hosting fallará en vez de publicar el frontend viejo; `firebase deploy --only firestore` no se ve afectado.
+
+## Grupo 4 — reorganización estructural (`git mv`, historial conservado)
+
+| Antes | Después | Motivo |
+|---|---|---|
+| `projects/Radford-360/` | `agents/dominio-radfor360/` | `projects/` (inglés) convivía con `proyectos/` (sub-proyectos con repo propio, ignorados por git) y parecía un duplicado. Son las fichas de los agentes del dominio RadFor-360: pertenecen a `agents/`. El ejecutor por lotes y la firma del gate solo consideran carpetas numeradas (`listarCarpetasAgentes()`, patrón `^\d{2,3}[_-]`), así que la nueva ruta no altera ni uno ni otro. |
+| `docs/RADIOGRAFIA_FORENSE_360_2026-08-06/07/08`, `docs/INFORME_RECONCILIACION_CIERRE_2026-08-07`, `docs/RADFOR360_IMPLEMENTACION_2026-08-06` (.md y .pdf), `docs/analisis_gaps_v1.md` | `docs/historico/` | Informes fechados ya superados por documentos posteriores; separados de la documentación viva. |
+| `docs/separar-remote-radarfondos.sh` | `scripts/` | Es una herramienta (operación pendiente de decisión humana), no documentación. Sigue vigente: el remoto aún mezcla `master` de Antigravity con las ramas de RadarFondos. |
+
+Referencias actualizadas en código (comentarios de `server.js`, `FormuladorPgController.js`, `session-manager.js`, `validation.js`, `scripts/generar_reporte.cjs`), gate (`rutear('formulacion')` y su prueba), registro de skills, `README` de skills rescatadas, documentos vivos y referencias cruzadas entre informes históricos. Verificación: cero referencias a las rutas antiguas fuera de `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md`.
+
+**Nombre de la carpeta:** `dominio-radfor360` usa el nombre oficial del producto, **RadFor-360** (Radar + Formulador; `AGENTS.md` §II.2). `Radford-360` era una grafía histórica de la carpeta; los nombres de las subcarpetas (`Proy_03 GP Radford-360`) se conservan para no romper referencias.
+
+**Gate — diff con renombrados (corregido en este commit):** `construirDiffPriorizado()` usaba `--no-renames`, así que cada `git mv` llegaba al 002 como baja más alta completa. Las altas caían al último bucket y se truncaban, y el 002 rechazó por "ruta inexistente". Ahora usa `--name-status -z -M`:
+- un movimiento sin cambios se resume como "RENOMBRADO — antes: …" y se nombra siempre, aunque se agote el presupuesto;
+- un renombrado con cambios envía solo el delta;
+- las fichas `agents/dominio-*/` suben de prioridad.
+
+Pruebas: `parsearNameStatus` y `bucketDe`.
+
+**Fin de línea:** nuevo `.gitattributes` con `*.sh text eol=lf`. Con `core.autocrlf=true` un checkout podía convertir los scripts de shell (`scripts/pre-commit.sh`, `scripts/separar-remote-radarfondos.sh`, scripts de skills) a CRLF y romperlos en bash.
+
+**Pendiente de 007:** `docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md` (mandato exclusivo de escritura del 007) conserva las rutas antiguas en su narrativa histórica (`projects/Radford-360`, `INFORME_RECONCILIACION_CIERRE_2026-08-07`).
+
+**Recuperar los cambios ajenos apartados en la ruta nueva** (si el dueño decide conservarlos):
+
+El parche del stash no se puede aplicar directo (`git stash show -p | git apply` falla: incluye borrados del grupo 2 y las rutas internas ya cambiaron). Método verificado (6/6 archivos extraídos): sacar cada archivo completo del stash y reescribir la ruta.
+
+```bash
+S='stash^{/EXTERNO 2026-09-29}'
+D='agents/dominio-radfor360'
+# 4 archivos versionados modificados
+for f in "Proy_03 A Radar/IDENTITY.md" "Proy_03 B Formulador/IDENTITY.md" \
+         "Proy_03 GP Radford-360/IDENTITY.md" "Proy_03 GP Radford-360/PERMISSIONS.json"; do
+  git show "$S:projects/Radford-360/$f" > "$D/$f"
+done
+# 2 archivos nuevos no versionados (tercer padre del stash)
+for f in "Proy_03 A Radar/PERMISSIONS.json" "Proy_03 B Formulador/PERMISSIONS.json"; do
+  git show "$S^3:projects/Radford-360/$f" > "$D/$f"
+done
+# rutas internas a la ubicación nueva
+grep -rl 'projects/Radford-360' "$D" | xargs -d '\n' sed -i 's#projects/Radford-360#agents/dominio-radfor360#g'
+```
+
+Revisar antes de commitear: tres de las fichas IDENTITY citan PRs (`PR #…`) no fusionados como política vigente (objeción del 002).

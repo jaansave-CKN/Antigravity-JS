@@ -1,17 +1,18 @@
 {
   "aprobado": true,
   "origen": "api_directa",
-  "firma": "f0cd3d5ebdd682a58d1a921884f19605d81b5693c4cf5d36453ceeaa7c63a5c3",
-  "timestamp": "2026-09-26T23:35:47.899Z",
-  "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API nim · modelo deepseek-ai/deepseek-v4.1-flash)",
+  "firma": "3a3fe6b3997fc72fa8d777a1702e1bfe76904b85dab41148b5f6400ae53f8a96",
+  "timestamp": "2026-10-08T19:39:21.570Z",
+  "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API nim · modelo moonshotai/kimi-k3)",
   "razones": [
-    "ADR-0002 documenta el diseño completo (contexto, decisión, consecuencias, verificación) y declara explícitamente los riesgos no remediados (5, 8, 9, 10) como pendientes de decisión de 002/usuario — no los oculta.",
-    "gate-proveedor.cjs es una capa única de proveedor coherente: NIM principal, Anthropic solo con GATE_PROVIDER=anthropic explícito, sin cascada automática a un proveedor de pago (elimina el riesgo de cobro que motiva el ADR).",
-    "Mejoras de seguridad reales verificadas en el diff: validación de base URL oficial (bloquea exfiltración de key vía ANTHROPIC_BASE_URL/GATE_NIM_BASE_URL falsos), validación de formato de key (evita TypeError→caida→soft-fail), filtrado extenso de secretos antes de enviar el diff a un tercero, circuit breaker con escritura atómica tmp+rename.",
-    "El soft-fail es opt-in (flag o GATE_SOFT_FAIL=true), exige responsable declarado, se marca visiblemente (nunca se confunde con aprobación real), se ata a la firma hash del estado (cualquier cambio lo invalida) y prohíbe diferimientos — bypass deliberado y autorizado por el usuario, no un descuido.",
-    "La limpieza de carpetas legacy (agents/001-orquestador-maestro/, agents/009-ingeniero-frontend/, agents/010-ingeniero-qa-automatizacion/) resuelve la colisión de nombres con .claude/agents/ y queda documentada como recuperable desde el commit ac1721c; el audit trail se reubica a agents/pmu/.",
-    "El mecanismo doc_revisado reemplaza la comparación de fechas por acuse explícito, con detección de sha inválido, commits posteriores que mencionan al agente, y degradación con gracia si git no está disponible (alerta explícita, no verde falso).",
-    "Limitación de esta fiscalización: los tests (tests/gate/gate-proveedor.test.cjs, scripts/architecture-gate.test.cjs), el documento maestro y .env.example/.gitignore/package.json quedaron fuera del presupuesto de caracteres — no pude verificar cobertura de pruebas ni documentación de las nuevas env vars; el ADR §4 describe el plan de verificación."
+    "Alcance ajustado y coherente: reorganización estructural con git mv (projects/Radford-360/ → agents/dominio-radfor360/, informes fechados → docs/historico/, script .sh → scripts/) más la corrección del gate para renombrados — nada de lógica de negocio, ni DDL, ni auth, ni borrado de interfaces de dominio vigente.",
+    "La corrección del gate (parsearNameStatus con --name-status -z -M, resumen de R100 siempre visible, delta con -M para renombrados con cambios, bucket nuevo para agents/dominio-*) resuelve una causa raíz real y documentada (rechazo falso de 002 por 'ruta inexistente' ante git mv) y mejora la fiscalización: ningún renombrado queda invisible aun con presupuesto agotado.",
+    "Cobertura de pruebas incluida en el mismo diff: tests de regresión para parsearNameStatus (R100, R087, M, D, A con espacios/ñ, entrada vacía) y para el nuevo bucket en scripts/architecture-gate.test.cjs, con la aserción de rutear('formulacion') actualizada a la nueva ruta.",
+    "Trazabilidad completa: docs/LIMPIEZA_REPOSITORIO_2026-10-08.md documenta los 4 grupos, el método de recuperación del stash ajeno verificado (6/6 archivos), y la nueva sección §0-AN de ARQUITECTURA_AGENTICA_ANTIGRAVITY.md asienta el estado con honestidad (incluye 'Qué no se verificó').",
+    "Referencias cruzadas actualizadas de forma consistente en código (server.js, FormuladorPgController.js, session-manager.js, validation.js, generar_reporte.cjs), IDENTITY.md/PERMISSIONS.json del dominio, y documentos vivos; los históricos solo actualizan punteros sin reescribir narrativa fechada.",
+    ".gitattributes (*.sh text eol=lf) es una corrección preventiva correcta y de riesgo cero para scripts bash bajo core.autocrlf=true.",
+    "Residual conocido y aceptable, ya autodenunciado en §0-AN.4: el manifiesto de subgates (:1131) seguiría usando --no-renames sin -z (sin evidencia de impacto observado) — queda como mejora futura, no bloquea este cambio.",
+    "Archivos omitidos por presupuesto (public/estado_antigravity.json, skills/ag_skills_registry.json) son artefactos auto-generados de bajo riesgo; no requieren re-envío."
   ],
   "diferimientos": []
 }

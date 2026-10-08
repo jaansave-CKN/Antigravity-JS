@@ -213,7 +213,7 @@ export async function obtenerModulo10(req, res) {
  * population/technical_core/attachments), no el shape de insertar_fase1().
  * Corre AGT-052/053/054/056 (src/orchestrator-engine.js) del lado del servidor —
  * antes solo se importaba desde el navegador con una ruta que 404 en producción
- * (ver docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4, Oleada 1 Grupo Elite).
+ * (ver docs/historico/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4, Oleada 1 Grupo Elite).
  * Sin persistencia propia: es un borrador ejecutado sobre la ficha recibida,
  * desacoplado de si esa ficha ya se guardó en Supabase o no.
  */

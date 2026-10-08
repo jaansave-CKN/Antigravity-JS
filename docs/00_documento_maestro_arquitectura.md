@@ -2,7 +2,7 @@
 
 **Producto:** RadFor-360 (repo raíz `brevo-total-integration`, servicio Render `radar-formulador-360`/`radar360-app`). **Propietario:** ASFÁLTICA S.A.S. — Jairo Antonio Salinas Velasco. **Fecha:** 2026-08-06. **Origen:** este documento no existía — el proyecto entró al protocolo Grupo Elite en modo auditoría (Fase 6, sobre un sistema ya construido), que salta la Fase 2 de arranque. Se produce ahora, retroactivamente, con el estado real verificado hoy (radiografía forense + Oleadas 0-3 de remediación), no con la especificación original.
 
-**Cómo se relaciona con el resto de `docs/`:** este es el documento de referencia estructural (qué es el sistema). `analisis_gaps_v1.md`/`01_propuesta_integral.md`/`ESTADO.md` son el plan de remediación en curso (qué se está arreglando). `RADIOGRAFIA_FORENSE_360_2026-08-06.md` es la auditoría forense original que originó todo lo anterior — mantiene su fecha, este documento la reemplaza como referencia viva.
+**Cómo se relaciona con el resto de `docs/`:** este es el documento de referencia estructural (qué es el sistema). `historico/analisis_gaps_v1.md`/`01_propuesta_integral.md`/`ESTADO.md` son el plan de remediación en curso (qué se está arreglando). `historico/RADIOGRAFIA_FORENSE_360_2026-08-06.md` es la auditoría forense original que originó todo lo anterior — mantiene su fecha, este documento la reemplaza como referencia viva.
 
 ---
 

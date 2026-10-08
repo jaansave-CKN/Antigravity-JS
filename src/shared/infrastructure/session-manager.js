@@ -102,7 +102,7 @@ export async function checkQuota(uid, max = 50) {
 // Mismo patrón deliberadamente en memoria (Map, sin Redis): una ráfaga solo tiene
 // sentido dentro del proceso que la está sirviendo ahora mismo, igual que
 // activeQueries. Ventana deslizante simple: descarta timestamps fuera de la ventana
-// en cada llamada — barato, sin dependencias nuevas (ver docs/analisis_gaps_v1.md A4).
+// en cada llamada — barato, sin dependencias nuevas (ver docs/historico/analisis_gaps_v1.md A4).
 const BURST_WINDOW_MS = 10_000; // 10 s
 const BURST_MAX       = 20;     // 20 requests / 10 s por clave
 const burstBuckets = new Map(); // clave (uid o ip) → number[] timestamps

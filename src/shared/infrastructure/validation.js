@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // Middleware factory — valida req.body contra un schema zod antes de llegar al handler.
 // Reemplaza los checks manuales de 1-2 campos dispersos por el árbol (ver
-// docs/analisis_gaps_v1.md A3). Errores de shape nunca llegan al handler como 500.
+// docs/historico/analisis_gaps_v1.md A3). Errores de shape nunca llegan al handler como 500.
 export function validateBody(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);

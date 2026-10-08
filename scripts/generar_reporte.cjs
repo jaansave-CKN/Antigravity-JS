@@ -28,7 +28,7 @@ if (process.env.NODE_ENV === 'production') {
 
 // Criterio mínimo verificable de que una carpeta de agente está "definida" (no "operativa" —
 // esto es una librería de prompts/skills para uso interactivo, no un runtime; ver
-// docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4 y docs/analisis_gaps_v1.md A2. Ningún agente
+// docs/historico/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4 y docs/historico/analisis_gaps_v1.md A2. Ningún agente
 // de agents/ corre como proceso en server.js — "definido" no implica ejecución real.
 function inspeccionarAgente(agentsDir, carpeta) {
     const ruta = path.join(agentsDir, carpeta);
@@ -66,7 +66,7 @@ async function generarReporteAntigravity() {
         disenador: "Jairo Salinas",
         fecha: new Date().toLocaleString(),
         nota: "Inventario de carpetas de agentes (definiciones de prompt/skill para uso interactivo). " +
-              "NO implica un proceso en ejecución — ver docs/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4.",
+              "NO implica un proceso en ejecución — ver docs/historico/RADIOGRAFIA_FORENSE_360_2026-08-06.md §4.",
         agentes_definidos: detalles.filter(d => d.definido).length,
         agentes_incompletos: detalles.filter(d => !d.definido).length,
         detalles,

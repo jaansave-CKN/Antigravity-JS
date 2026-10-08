@@ -327,7 +327,7 @@ app.delete('/api/session/:sessionId', async (req, res) => {
 // 2026-10-04 el ping recorre la misma cadena por aptitud que la app (tarea
 // "rapido"): sano = algún eslabón respondió; el label dice cuál. Antes de 2026-08
 // solo se comprobaba que la key existiera — así el saldo agotado pasó "healthy"
-// durante horas (docs/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §1).
+// durante horas (docs/historico/INFORME_RECONCILIACION_CIERRE_2026-08-07.md §1).
 const HEALTH_PING_TTL_SEC = 120;
 const HEALTH_PING_KEY     = 'health:ia_ping';
 

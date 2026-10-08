@@ -1,6 +1,6 @@
 # RadFor-360 — Plan de Construcción por Oleadas (Fase 4, Grupo Elite)
 
-**Deriva de:** `docs/analisis_gaps_v1.md` (Fase 3). **Regla dura:** no se empieza una oleada sin haber validado la anterior — cada oleada cierra con `node --check` (backend) y `npm run build` (frontend) reales, no solo lectura, siguiendo el mismo estándar de verificación que `docs/RADFOR360_IMPLEMENTACION_2026-08-06.md`.
+**Deriva de:** `docs/historico/analisis_gaps_v1.md` (Fase 3). **Regla dura:** no se empieza una oleada sin haber validado la anterior — cada oleada cierra con `node --check` (backend) y `npm run build` (frontend) reales, no solo lectura, siguiendo el mismo estándar de verificación que `docs/historico/RADFOR360_IMPLEMENTACION_2026-08-06.md`.
 
 **MVP de este plan de remediación — qué incluye y qué NO, a propósito:**
 - Incluye: cerrar todos los vacíos `RESUELTO` de la Fase 3 (Grupo A + B3 + C1), y lo que resulte autorizado de las 4 preguntas abiertas.

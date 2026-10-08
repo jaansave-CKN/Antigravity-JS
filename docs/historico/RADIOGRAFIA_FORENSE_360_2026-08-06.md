@@ -2,7 +2,7 @@
 
 **Alcance:** raíz `c:\2026 AI EGIOC5\Antigravity JS` (`package.json` → `name: "brevo-total-integration"`; producto real: **RadFor-360**, ver `render.yaml:3` → `name: radar-formulador-360`). Excluye `proyectos/`, `Repositorios/`, `EGIOC5/`, `ObsidianVault/`, `Radar_Resultados/` — proyectos hermanos con repos propios, fuera del perímetro de esta app (`.gitignore:23-31`).
 
-**Fecha:** 2026-08-06. **Método:** inspección forense en disco, de solo lectura, sin ejecutar el servidor. Código fuente leído completo en los archivos citados (no solo grep). Cruzado contra `git log`, `git status`, `.env` real y los dos informes previos del mismo día (`docs/RADFOR360_ARQUITECTURA_OPTIMIZACION.md`, `docs/RADFOR360_IMPLEMENTACION_2026-08-06.md`) — donde este documento diverge de esos informes por cambios posteriores confirmados en disco, se marca explícitamente **"⚠️ DIVERGE"**.
+**Fecha:** 2026-08-06. **Método:** inspección forense en disco, de solo lectura, sin ejecutar el servidor. Código fuente leído completo en los archivos citados (no solo grep). Cruzado contra `git log`, `git status`, `.env` real y los dos informes previos del mismo día (`docs/RADFOR360_ARQUITECTURA_OPTIMIZACION.md`, `docs/historico/RADFOR360_IMPLEMENTACION_2026-08-06.md`) — donde este documento diverge de esos informes por cambios posteriores confirmados en disco, se marca explícitamente **"⚠️ DIVERGE"**.
 
 ---
 

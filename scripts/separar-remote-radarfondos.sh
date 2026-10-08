@@ -20,7 +20,7 @@
 #   desarrollo activo independiente. Revisa 'git branch -vv' y 'git worktree list' antes de tocar nada.
 #
 # Ejecutar DENTRO del working tree de Proy_03_RadarFondos (ajusta la ruta si corres esto desde otro lugar):
-#   cd "proyectos/Proy_03_RadarFondos" && bash ../../docs/separar-remote-radarfondos.sh
+#   cd "proyectos/Proy_03_RadarFondos" && bash ../../scripts/separar-remote-radarfondos.sh
 
 set -euo pipefail
 
