@@ -1,8 +1,8 @@
 // auditor_008_advisory_gate.test.cjs -- cobertura de las funciones puras del
 // paso advisory de 008_AUDITOR_DE_CODIGO en CI (2026-08-13). Corre con:
 // node --test scripts/auditor_008_advisory_gate.test.cjs
-// No ejecuta ninguna llamada real a la API de Anthropic (ejecutarAuditor008CI
-// no se testea end-to-end aqui, mismo criterio que check_veto_008.test.cjs
+// No ejecuta ninguna llamada real a ningún proveedor (ejecutarAuditor008CI
+// se prueba con fetch simulado de NVIDIA NIM, abajo; mismo criterio que check_veto_008.test.cjs
 // no testea main() -- solo las funciones puras/deterministas).
 'use strict';
 const test = require('node:test');
@@ -126,4 +126,106 @@ test('formatearResumen: siempre incluye la aclaracion de modo ADVISORY (no bloqu
         assert.match(out, /ADVISORY/);
         assert.match(out, /002_ARQUITECTO_DE_SOFTWARE/);
     }
+});
+
+// --- Pivote a NVIDIA NIM (2026-10-08): ejecutarAuditor008CI con mocks -------
+// Ninguna prueba toca la red: fetchImpl simula la API compatible con OpenAI
+// de integrate.api.nvidia.com/v1. La key es ficticia (formato nvapi-).
+const { ejecutarAuditor008CI, entornoNim, lineaModelo } = require('./auditor_008_advisory_gate.cjs');
+const { execFileSync } = require('node:child_process');
+const path = require('node:path');
+
+const KEY_FALSA = 'nvapi-PRUEBA_abcdefghijklmnopqrstuvwxyz0123456789';
+const DIFF_FALSO = {
+    diff: 'diff --git a/src/x.js b/src/x.js\n+const TOKEN_SECRETO = "sk-live-abcdefghijklmnopqrstuvwxyz123456";\n',
+    archivos: ['src/x.js'], truncado: false, omitidos: [],
+};
+const sinEspera = async () => {};
+const diffFijo = () => DIFF_FALSO;
+
+function respuestaNim(status, cuerpo) {
+    const texto = typeof cuerpo === 'string' ? cuerpo : JSON.stringify(cuerpo);
+    return { ok: status >= 200 && status < 300, status, headers: { get: () => 'application/json' }, text: async () => texto };
+}
+const cuerpoOk = (contenido) => ({ choices: [{ message: { content: contenido }, finish_reason: 'stop' }], usage: { prompt_tokens: 1200, completion_tokens: 300 } });
+function fetchMock(respuestas) {
+    const llamadas = [];
+    const fn = async (url, init) => {
+        llamadas.push({ url, init });
+        const r = respuestas[Math.min(llamadas.length - 1, respuestas.length - 1)];
+        if (r instanceof Error) throw r;
+        return r;
+    };
+    fn.llamadas = llamadas;
+    return fn;
+}
+const VEREDICTO_OK = 'TOP 15 ... SCORE 92/100 ... VEREDICTO APTO\n{"apto": false, "score": 92, "hallazgos_criticos": ["falta idempotencia en X"]}';
+
+test('NIM: sin NVIDIA_API_KEY el paso se omite (exit 0 garantizado), aunque exista ANTHROPIC_API_KEY', async () => {
+    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { ANTHROPIC_API_KEY: 'sk-ant-x' }, diffContraBase: diffFijo, fetchImpl: fetchMock([]) });
+    assert.equal(r.ejecutado, false);
+    assert.match(r.razon, /NVIDIA_API_KEY no configurada/);
+});
+
+test('NIM: llama a integrate.api.nvidia.com/v1 con Bearer, sin Anthropic, y parsea el veredicto 008', async () => {
+    const f = fetchMock([respuestaNim(200, cuerpoOk(VEREDICTO_OK))]);
+    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { NVIDIA_API_KEY: KEY_FALSA }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
+    assert.equal(r.ejecutado, true);
+    assert.equal(r.parseable, true);
+    assert.deepEqual(r.veredicto, { apto: false, score: 92, hallazgos_criticos: ['falta idempotencia en X'] });
+    assert.equal(f.llamadas.length, 1);
+    assert.match(f.llamadas[0].url, /^https:\/\/integrate\.api\.nvidia\.com\/v1\/chat\/completions$/);
+    assert.equal(f.llamadas[0].init.headers.Authorization || f.llamadas[0].init.headers.authorization, `Bearer ${KEY_FALSA}`);
+    assert.ok(r.meta.modelo, 'registra el modelo que respondió');
+    assert.equal(r.meta.uso.prompt_tokens, 1200);
+});
+
+test('NIM: el diff sale filtrado — el secreto literal nunca llega al proveedor', async () => {
+    const f = fetchMock([respuestaNim(200, cuerpoOk(VEREDICTO_OK))]);
+    await ejecutarAuditor008CI('HEAD~1', 60000, { env: { NVIDIA_API_KEY: KEY_FALSA }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
+    const cuerpo = String(f.llamadas[0].init.body);
+    assert.ok(!cuerpo.includes('sk-live-abcdefghijklmnopqrstuvwxyz123456'), 'secreto filtrado antes de salir');
+    assert.match(cuerpo, /SECRETO_REDACTADO/);
+});
+
+test('NIM: modelo primario caído (503) → conmuta al siguiente de la cadena gratuita y lo registra', async () => {
+    const f = fetchMock([respuestaNim(503, 'overloaded'), respuestaNim(200, cuerpoOk(VEREDICTO_OK))]);
+    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { NVIDIA_API_KEY: KEY_FALSA }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
+    assert.equal(r.parseable, true);
+    assert.ok(r.meta.failover, 'deja constancia de la conmutación');
+    assert.ok(f.llamadas.every(l => l.url.startsWith('https://integrate.api.nvidia.com/v1')), 'toda la cadena es NIM');
+});
+
+test('NIM: key revocada (401) → omitido con causa clasificada, sin filtrar la key en el mensaje', async () => {
+    const f = fetchMock([respuestaNim(401, { error: { message: `invalid key ${KEY_FALSA}` } })]);
+    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { NVIDIA_API_KEY: KEY_FALSA }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
+    assert.equal(r.ejecutado, false);
+    assert.match(r.razon, /NVIDIA NIM \[auth\//);
+    assert.ok(!r.razon.includes(KEY_FALSA), 'la key nunca aparece en el log de CI');
+});
+
+test('entornoNim: fuerza GATE_PROVIDER=nim y descarta cadena/keys de Anthropic heredadas', () => {
+    const e = entornoNim({ GATE_PROVIDER: 'anthropic', GATE_FALLBACK_CHAIN: 'anthropic', ANTHROPIC_API_KEY: 'x', ANTHROPIC_BASE_URL: 'y', NVIDIA_API_KEY: KEY_FALSA });
+    assert.equal(e.GATE_PROVIDER, 'nim');
+    assert.equal(e.GATE_FALLBACK_CHAIN, undefined);
+    assert.equal(e.ANTHROPIC_API_KEY, undefined);
+    assert.equal(e.NVIDIA_API_KEY, KEY_FALSA);
+});
+
+test('lineaModelo + formatearResumen: reportan modelo NIM, conmutación y tokens (FinOps)', () => {
+    const linea = lineaModelo({ modelo: 'nvidia/nemotron-3-ultra-550b-a55b', failover: 'nim:a -> nim:b', uso: { prompt_tokens: 10, completion_tokens: 5 }, costo: { cop: 0 }, archivosSensiblesOmitidos: [] });
+    assert.match(linea, /nim:nvidia\/nemotron-3-ultra-550b-a55b/);
+    assert.match(linea, /conmutacion nim:a -> nim:b/);
+    assert.match(linea, /tokens 10 in \/ 5 out/);
+    const out = formatearResumen({ ejecutado: true, parseable: true, veredicto: { apto: true, score: 100, hallazgos_criticos: [] }, textoCompleto: '', archivosAuditados: [], meta: { modelo: 'm/x' } });
+    assert.match(out, /\*\*Modelo\*\*: nim:m\/x/);
+});
+
+test('main (proceso real): sin NVIDIA_API_KEY sale con exit 0 y lo informa — nunca bloquea el pipeline', () => {
+    const env = { ...process.env };
+    // Vacías (no borradas): dotenv no sobrescribe variables ya definidas, así
+    // el .env local no se cuela en el proceso hijo.
+    env.NVIDIA_API_KEY = ''; env.ANTHROPIC_API_KEY = ''; delete env.GITHUB_STEP_SUMMARY;
+    const salida = execFileSync(process.execPath, [path.join(__dirname, 'auditor_008_advisory_gate.cjs'), '--base', 'HEAD'], { env, encoding: 'utf8' });
+    assert.match(salida, /NVIDIA_API_KEY no configurada/);
 });

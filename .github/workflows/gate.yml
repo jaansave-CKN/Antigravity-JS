@@ -102,17 +102,25 @@ jobs:
         run: node scripts/auditor_008_advisory_gate.cjs --base ${{ github.event.pull_request.base.sha || github.event.before }}
         continue-on-error: true
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         # Integra el juicio real de un LLM aplicando el protocolo TITAN completo
         # de 008 (Capas 0-9, red team narrativo) contra el diff real del push/PR —
-        # hasta 2026-08-13 solo se invocaba a mano. Condición NO NEGOCIABLE impuesta
+        # hasta 2026-08-13 solo se invocaba a mano. Proveedor (2026-10-08, orden
+        # del dueño): NVIDIA NIM vía agents/gate-proveedor.cjs (modelos gratuitos
+        # con conmutación, la misma capa que usa el gate 002), ya no Anthropic.
+        # El diff se filtra de secretos (proveedorIA.filtrarSecretosDiff) antes de
+        # salir al proveedor. Condición NO NEGOCIABLE impuesta
         # por 002_ARQUITECTO_DE_SOFTWARE (veredicto + orden explícita del usuario):
         # este paso jamás puede bloquear el pipeline sin su aprobación explícita —
         # por eso continue-on-error: true Y el script mismo siempre sale con exit 0
         # (doble cinturón). El veto DETERMINISTA de arriba (check_veto_008.cjs) sigue
-        # siendo el único que bloquea de verdad. Si falta el secret ANTHROPIC_API_KEY
-        # en este repo, el paso simplemente reporta omitido y sigue sin efecto —
-        # ver scripts/auditor_008_advisory_gate.cjs para el detalle. El resultado
+        # siendo el único que bloquea de verdad. Si falta el secret NVIDIA_API_KEY
+        # en este repo, el paso simplemente reporta "omitido" y sigue sin efecto —
+        # ver scripts/auditor_008_advisory_gate.cjs para el detalle.
+        # Constancia histórica: hasta el 2026-10-08 este paso NUNCA ejecutó en CI —
+        # el secret de la API de Anthropic que leía no existía en el repositorio
+        # (verificado con `gh secret list`), así que siempre salió por "omitido".
+        # El resultado
         # (veredicto apto/no apto, score, hallazgos críticos, análisis narrativo
         # completo) queda visible en el log de este step y en el Step Summary de
         # GitHub Actions para revisión humana.

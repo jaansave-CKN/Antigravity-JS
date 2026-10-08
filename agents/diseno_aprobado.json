@@ -2,23 +2,21 @@
   "aprobado": true,
   "origen": "api_directa",
   "firma": "d3bbc5bc07ee6623b4f08809ab7db78c1841d89006bde2d3296f4b867c9e584c",
-  "timestamp": "2026-10-08T20:18:05.305Z",
+  "timestamp": "2026-10-08T20:48:04.986Z",
   "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API nim · modelo moonshotai/kimi-k3)",
   "razones": [
-    "Consistencia: el paso de `git diff HEAD` a `git diff --cached HEAD` en construirDiffPriorizado alinea la base fiscalizada por 002 con la que sella amarreStaged(); mensajes de error, prompt al modelo y docs actualizados de forma coherente en todo el diff.",
-    "Completitud: el amarre define entradas (diff raw staged), salidas (base_sha+huella+archivos), manejo de errores con try/catch y exit codes en las cuatro rutas (--check-gate, --aprobar-diseno, --aprobar-excepcion-manual, --verificar-commit), y un único punto de comparación (validarAmarre) propagado por validarDisenoAprobado.",
-    "Cierre de brecha real y verificable (incidente 410e113): base_sha ata la aprobación a un solo commit y la huella sha256 de (estado, modo, blob, ruta) invalida cualquier modificación post-aprobación; la doble instantánea antes/después de la evaluación cubre actores concurrentes y rechaza la firma si el staging cambió.",
-    "Exclusión GENERADO_POR_GATE correctamente acotada (diseno_aprobado.json, veredicto_*.json, pmu/): el propio motor del gate y las fichas de dominio quedan dentro de la huella, con test explícito que lo garantiza — sin esto el mecanismo sería auto-eludible.",
-    "Pruebas proporcionadas: parsearDiffRaw (altas/bajas/rutas con espacios/fallo ruidoso), huellaCambios (orden, exclusión, sensibilidad a un blob), validarAmarre (regresión 410e113) e integración con git real verificando huella staged == huella del commit y rechazo en el commit siguiente.",
-    "CI: fetch-depth 2 justificado y necesario para HEAD^; --verificar-commit bloqueante, sin API, limitado a push con justificación documentada (merge commit sintético en PR) y la limitación 'solo la punta' declarada explícitamente.",
-    "Rutas alternas cubiertas: soft-fail y excepción manual también escriben amarre y rechazan staging vacío — no quedan caminos que emitan aprobación sin amarre.",
-    "Unificación de config (firebase.json sin hosting, firestore.rules canónica de mínimo privilegio, skills-lock consolidado) documentada con verificación en código citada (AuditLogger.js, firebase.js) y la verificación externa pendiente en consola Firebase registrada — la baja de config/firestore.rules reduce privilegio en vez de ampliarlo.",
-    "Alcance ajustado: todo el diff sirve a la orden 'Blindaje Estricto del Gate 002' más la unificación de config ya documentada en el mismo doc; sin abstracciones no solicitadas."
+    "Alcance ajustado: el diff toca solo el paso advisory de 008 en CI (script, tests, workflow, .env.example) para pivotar de Anthropic a NVIDIA NIM, sin tocar el veto determinista check_veto_008.cjs ni el gate 002",
+    "Consistencia: reutiliza la capa existente agents/gate-proveedor.cjs (misma que el gate 002) en vez de duplicar un cliente HTTP nuevo — previene la duplicación histórica del proyecto",
+    "Seguridad: el diff se filtra con proveedorIA.filtrarSecretosDiff antes de salir al tercero; la API key se redacta en mensajes de error (test 401 lo verifica); entornoNim elimina ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL/GATE_FALLBACK_CHAIN heredados para que ninguna config local reintroduzca el proveedor de pago",
+    "No-bloqueo preservado: doble cinturón intacto (continue-on-error: true en el workflow + exit 0 garantizado en el script, verificado con test de proceso real vía execFileSync); sin NVIDIA_API_KEY el paso se omite limpiamente",
+    "Manejo de errores completo: clasificación de errores del proveedor (ErrorProveedor con categoría/código), conmutación de modelos con registro de failover, y tests que cubren 503→failover, 401→omitido, sin key→omitido",
+    "Trazabilidad FinOps: meta con modelo, failover, tokens y costo se propaga al Step Summary vía lineaModelo",
+    "Tests nuevos con fetch simulado (sin red) cubren el camino feliz, filtrado de secretos, failover, auth y entorno — cobertura adecuada para un paso advisory"
   ],
   "diferimientos": [],
   "amarre": {
-    "base_sha": "91a8650e2b996e252b0bf3a6f048165560bbe62d",
-    "huella": "69660b3f6838e5a498743fce134b8e8a46bddc56929d5e2838f12014c743019a",
-    "archivos": 13
+    "base_sha": "f0cf35f1d2a1c69c0f6c694aa6782325d192e3e9",
+    "huella": "bf21a5673a3b8f90a41c517fb466b557498d74b9cf827e08ca298f8250b305a6",
+    "archivos": 4
   }
 }

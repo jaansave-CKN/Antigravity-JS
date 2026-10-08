@@ -6,13 +6,24 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { z } = require('zod');
-const Anthropic = require('@anthropic-ai/sdk');
 
 const dirRoot = path.join(__dirname, '..');
 const { extraerJSONConCampo, bucketDe } = require('../agents/architecture-gate.cjs');
+// NVIDIA NIM (pivote 2026-10-08, orden del dueño): misma capa que el gate
+// 002 — API compatible con OpenAI en integrate.api.nvidia.com/v1, cadena de
+// modelos gratuitos con conmutación, clasificación de errores y filtro de
+// secretos del diff. Sin SDK de Anthropic ni ANTHROPIC_API_KEY.
+const proveedorIA = require('../agents/gate-proveedor.cjs');
 
 const PROMPT_008_PATH = path.join(dirRoot, '.claude', 'agents', '008-auditor-de-codigo.md');
-const ANTHROPIC_MODEL = process.env.PRIMARY_AI_MODEL || 'claude-sonnet-4-6';
+
+// Entorno del paso: NIM forzado y cadena por defecto (solo NIM). Se descartan
+// GATE_PROVIDER/GATE_FALLBACK_CHAIN/ANTHROPIC_API_KEY heredados para que
+// ninguna configuración local reintroduzca Anthropic (de pago) por la cadena.
+function entornoNim(env = process.env) {
+    const { GATE_FALLBACK_CHAIN, ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, ...resto } = env;
+    return { ...resto, GATE_PROVIDER: 'nim' };
+}
 
 const SCHEMA_008_CI = z.object({
     apto: z.boolean(),
@@ -74,7 +85,7 @@ function construirMensajeUsuario(diff, archivos, truncado, omitidos) {
         : '';
     return `Ejecuta tu PROTOCOLO TITAN completo (Capas 0-9, matriz de auditoria, pruebas de ruptura, BLOQUE FINAL) ` +
         `sobre el siguiente diff de un push/PR pendiente de merge (git diff contra la base, ${archivos.length} archivo(s) tocado(s)). ` +
-        `IMPORTANTE: esta invocacion es una llamada directa a la API de Anthropic dentro de un pipeline de CI, no una sesion ` +
+        `IMPORTANTE: esta invocacion es una llamada directa a la API de un modelo (NVIDIA NIM) dentro de un pipeline de CI, no una sesion ` +
         `de Claude Code -- NO tienes acceso real a Read/Grep/Glob/Bash pese a lo que indique tu mandato para tu uso habitual. ` +
         `No emitas tool_call, no intentes ejecutar comandos: no se ejecutara nada. Basa tu auditoria exclusivamente en el texto ` +
         `del diff provisto abajo -- para las capas que requieren ejecucion real (arranque de backend, ataques en vivo, simulacion ` +
@@ -88,16 +99,18 @@ function construirMensajeUsuario(diff, archivos, truncado, omitidos) {
         `excepcion, incluyendo empates o dudas razonables (mismo criterio ZERO TRUST de tu protocolo).\n\n${diff}${avisoTruncamiento}`;
 }
 
-async function ejecutarAuditor008CI(base, limiteChars = 60000) {
-    if (!process.env.ANTHROPIC_API_KEY) {
-        return { ejecutado: false, razon: 'ANTHROPIC_API_KEY no configurada -- paso advisory omitido (no bloquea el pipeline).' };
+// opciones.env / opciones.fetchImpl: inyección para pruebas (mocks de NIM).
+async function ejecutarAuditor008CI(base, limiteChars = 60000, opciones = {}) {
+    const env = entornoNim(opciones.env ?? process.env);
+    if (!String(env.NVIDIA_API_KEY ?? '').trim()) {
+        return { ejecutado: false, razon: 'NVIDIA_API_KEY no configurada -- paso advisory omitido (no bloquea el pipeline).' };
     }
     if (!fs.existsSync(PROMPT_008_PATH)) {
         return { ejecutado: false, razon: `No existe ${PROMPT_008_PATH} -- sin protocolo que aplicar.` };
     }
     const systemPrompt = fs.readFileSync(PROMPT_008_PATH, 'utf8');
 
-    const { diff, archivos, truncado, omitidos, error } = diffContraBase(base, limiteChars);
+    const { diff, archivos, truncado, omitidos, error } = (opciones.diffContraBase ?? diffContraBase)(base, limiteChars);
     if (error) {
         return { ejecutado: false, razon: error };
     }
@@ -105,11 +118,13 @@ async function ejecutarAuditor008CI(base, limiteChars = 60000) {
         return { ejecutado: true, sinCambios: true, razon: `Sin diff contra '${base}' -- nada que auditar en esta corrida.` };
     }
 
-    let response;
+    // El diff sale a un tercero: mismo filtro de secretos que el gate 002.
+    const { diff: mensajeFiltrado, omitidos: archivosSensibles } =
+        proveedorIA.filtrarSecretosDiff(construirMensajeUsuario(diff, archivos, truncado, omitidos));
+
+    let respuesta;
     try {
-        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-        response = await client.messages.create({
-            model: ANTHROPIC_MODEL,
+        respuesta = await proveedorIA.llamarModelo({
             // 16000, no 8192 (hallazgo real 2026-08-13, verificado en vivo con una
             // corrida real contra el repo): el protocolo COMPLETO de 008 (9 capas +
             // matriz de hallazgos + matriz de validaciones + TOP 15 + score + veredicto)
@@ -120,22 +135,40 @@ async function ejecutarAuditor008CI(base, limiteChars = 60000) {
             // de que el modelo se autolimite (mismo criterio que 006).
             max_tokens: 16000,
             system: systemPrompt,
-            messages: [{ role: 'user', content: construirMensajeUsuario(diff, archivos, truncado, omitidos) }],
-        });
+            user: mensajeFiltrado,
+        }, { env, fetchImpl: opciones.fetchImpl, sleep: opciones.sleep, cadenaPorDefecto: proveedorIA.CADENA_NIM_DEFAULT });
     } catch (e) {
-        return { ejecutado: false, razon: `Fallo de la API de Anthropic: ${e.message}` };
+        const codigo = e instanceof proveedorIA.ErrorProveedor ? ` [${e.categoria}/${e.codigo}]` : '';
+        return { ejecutado: false, razon: `Fallo del proveedor NVIDIA NIM${codigo}: ${proveedorIA.redactar(e?.detalle || e?.message || e, env.NVIDIA_API_KEY)}` };
     }
 
-    const text = response.content?.[0]?.text ?? '';
+    const text = respuesta.texto ?? '';
+    const meta = {
+        modelo: respuesta.modelo,
+        failover: respuesta.failover ? `${respuesta.failover.desde} -> ${respuesta.failover.hacia}` : null,
+        uso: respuesta.uso || null,
+        costo: respuesta.costo || null,
+        archivosSensiblesOmitidos: archivosSensibles,
+    };
     const veredicto = extraerJSONConCampo(text, 'apto');
     if (!veredicto) {
-        return { ejecutado: true, parseable: false, razon: '008 no devolvio un JSON final parseable con el campo apto.', respuestaCruda: text.slice(0, 4000), textoCompleto: text, archivosAuditados: archivos };
+        return { ejecutado: true, parseable: false, razon: '008 no devolvio un JSON final parseable con el campo apto.', respuestaCruda: text.slice(0, 4000), textoCompleto: text, archivosAuditados: archivos, meta };
     }
     const forma = validarVeredicto008(veredicto);
     if (!forma.ok) {
-        return { ejecutado: true, parseable: false, razon: forma.razon, respuestaCruda: text.slice(0, 4000), textoCompleto: text, archivosAuditados: archivos };
+        return { ejecutado: true, parseable: false, razon: forma.razon, respuestaCruda: text.slice(0, 4000), textoCompleto: text, archivosAuditados: archivos, meta };
     }
-    return { ejecutado: true, parseable: true, veredicto, textoCompleto: text, archivosAuditados: archivos };
+    return { ejecutado: true, parseable: true, veredicto, textoCompleto: text, archivosAuditados: archivos, meta };
+}
+
+// FinOps: modelo que respondió, conmutación, tokens y costo en COP.
+function lineaModelo(meta) {
+    const partes = [`**Modelo**: nim:${meta.modelo || 'desconocido'}`];
+    if (meta.failover) partes.push(`conmutacion ${meta.failover}`);
+    if (meta.uso) partes.push(`tokens ${meta.uso.prompt_tokens ?? '?'} in / ${meta.uso.completion_tokens ?? '?'} out${meta.uso.estimado ? ' (estimado)' : ''}`);
+    if (meta.costo && typeof meta.costo.cop === 'number') partes.push(`costo COP ${meta.costo.cop}`);
+    if (meta.archivosSensiblesOmitidos && meta.archivosSensiblesOmitidos.length) partes.push(`${meta.archivosSensiblesOmitidos.length} archivo(s) sensible(s) no enviado(s)`);
+    return partes.join('  |  ');
 }
 
 function formatearResumen(resultado) {
@@ -148,6 +181,7 @@ function formatearResumen(resultado) {
         lineas.push(`_${resultado.razon}_`);
     } else if (!resultado.parseable) {
         lineas.push(`**Sin senal accionable**: ${resultado.razon}`);
+        if (resultado.meta) lineas.push(lineaModelo(resultado.meta));
         lineas.push('');
         lineas.push('<details><summary>Analisis narrativo completo de 008 (sin JSON final parseable)</summary>');
         lineas.push('');
@@ -159,6 +193,7 @@ function formatearResumen(resultado) {
         const v = resultado.veredicto;
         lineas.push(`**Veredicto**: ${v.apto ? 'APTO' : 'NO APTO -- BLOQUEADO'}  |  **Score**: ${v.score}/100`);
         lineas.push(`**Archivos auditados**: ${(resultado.archivosAuditados || []).length}`);
+        if (resultado.meta) lineas.push(lineaModelo(resultado.meta));
         if (v.hallazgos_criticos && v.hallazgos_criticos.length > 0) {
             lineas.push('');
             lineas.push('**Hallazgos criticos:**');
@@ -205,5 +240,5 @@ if (require.main === module) main();
 
 module.exports = {
     obtenerBase, diffContraBase, construirMensajeUsuario,
-    validarVeredicto008, SCHEMA_008_CI, formatearResumen, ejecutarAuditor008CI,
+    validarVeredicto008, SCHEMA_008_CI, formatearResumen, ejecutarAuditor008CI, entornoNim, lineaModelo,
 };
