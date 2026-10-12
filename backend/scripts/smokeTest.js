@@ -8,11 +8,31 @@
  */
 
 const BASE_URL = process.argv[2] || 'http://localhost:8000';
-const TIMEOUT  = 15000; // ms por request
+
+// TIMEOUT por request: 15s → 35s (Protocolo de Calentamiento, 2026-10-12).
+// Causa medida en vivo: el servicio de Render se duerme por inactividad y su
+// arranque en frío tardó 28,5 s (medido el 2026-09-30 y de nuevo el 10-12).
+// Con el tope anterior de 15 s, la PRIMERA petición del smoke test abortaba
+// siempre que el servicio estuviera dormido, y la segunda caía dentro del
+// resto del despertar: los checks 1 y 2 fallaban y los 3–6 pasaban. Parecía
+// una app rota cuando en realidad estaba despertando. 35 s cubre el arranque
+// medido con margen.
+const TIMEOUT  = 35000;
+
+// ── Protocolo de Calentamiento (Warm-up con polling activo) ──────────────────
+// Antes de juzgar NADA, se despierta el servicio y se espera a que responda.
+// Un fallo aquí es de INFRAESTRUCTURA (el servicio no levanta), no de la app,
+// y se reporta como tal — distinción que el smoke test no hacía y que llevó a
+// leer un arranque en frío como un defecto de producción.
+const WARMUP_TIMEOUT  = 45000;  // 45 s para el intento despertador
+const WARMUP_INTENTOS = 3;      // reintentos antes de declarar fallo de infra
+const WARMUP_ESPERA   = 10000;  // 10 s entre intentos
 
 let passed = 0;
 let failed = 0;
 const results = [];
+
+const dormir = (ms) => new Promise(r => setTimeout(r, ms));
 
 function check(name, ok, detail = '') {
   const status = ok ? '✓' : '✗';
@@ -22,9 +42,9 @@ function check(name, ok, detail = '') {
   ok ? passed++ : failed++;
 }
 
-async function fetchJSON(path, options = {}) {
+async function fetchJSON(path, options = {}, timeoutMs = TIMEOUT) {
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), TIMEOUT);
+  const t = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const r = await fetch(`${BASE_URL}${path}`, {
       ...options,
@@ -41,11 +61,61 @@ async function fetchJSON(path, options = {}) {
   }
 }
 
+/**
+ * Despierta el servicio y espera a que responda ANTES de la batería de pruebas.
+ * Devuelve { ok, intentos, ms } — ok:false significa fallo de infraestructura.
+ */
+async function calentar() {
+  console.log('[0/*] Calentamiento — despertando el servicio...');
+  const inicio = Date.now();
+  for (let intento = 1; intento <= WARMUP_INTENTOS; intento++) {
+    const t0 = Date.now();
+    const r = await fetchJSON('/api/health', {}, WARMUP_TIMEOUT);
+    const ms = Date.now() - t0;
+    if (r.ok && r.data?.status === 'ok') {
+      console.log(`  \x1b[32m✓\x1b[0m Servicio despierto en ${(ms / 1000).toFixed(1)}s (intento ${intento}/${WARMUP_INTENTOS})\n`);
+      return { ok: true, intentos: intento, ms: Date.now() - inicio };
+    }
+    const motivo = r.data?.error || `HTTP ${r.status}`;
+    console.log(`  \x1b[33m…\x1b[0m Intento ${intento}/${WARMUP_INTENTOS} sin respuesta útil tras ${(ms / 1000).toFixed(1)}s (${motivo})`);
+    if (intento < WARMUP_INTENTOS) {
+      console.log(`     Reintentando en ${WARMUP_ESPERA / 1000}s — arranque en frío de Render puede tardar ~30s.`);
+      await dormir(WARMUP_ESPERA);
+    }
+  }
+  return { ok: false, intentos: WARMUP_INTENTOS, ms: Date.now() - inicio };
+}
+
 async function run() {
   console.log('\n╔══════════════════════════════════════════════════════╗');
   console.log('║  RADARFONDOS 360 V8.0 — SMOKE TEST DE PRODUCCIÓN    ║');
   console.log('╚══════════════════════════════════════════════════════╝');
   console.log(`  Target: ${BASE_URL}\n`);
+
+  // ── 0. Fail-fast de configuración ─────────────────────────────────────────
+  // Antes, un SMOKE_TEST_TOKEN ausente se reportaba como el check 7 fallido,
+  // al final de una corrida de 3 minutos y mezclado con resultados reales:
+  // parecía un problema de producción cuando era un secreto no registrado en
+  // GitHub Actions. Ahora corta en el primer segundo, con el motivo exacto.
+  if (!process.env.SMOKE_TEST_TOKEN || !process.env.SMOKE_TEST_TOKEN.trim()) {
+    console.error('\n\x1b[31m[FATAL] SMOKE_TEST_TOKEN no presente en las variables de entorno de GitHub Actions\x1b[0m');
+    console.error('  El endpoint POST /api/system/production-ready exige este secreto (server.js:~1684)');
+    console.error('  y sin él devuelve 503, así que el marcador de producción nunca se puede sellar.');
+    console.error('  Registrarlo con el MISMO valor que ya tiene Render → Environment:');
+    console.error('    gh secret set SMOKE_TEST_TOKEN --repo jaansave-CKN/Antigravity-JS');
+    console.error('  o en Settings → Secrets and variables → Actions → New repository secret.\n');
+    process.exit(1);
+  }
+
+  // ── 0.b Calentamiento antes de medir nada ─────────────────────────────────
+  const warm = await calentar();
+  if (!warm.ok) {
+    console.error('\n\x1b[31m[FATAL] FALLO DE INFRAESTRUCTURA — el servicio no respondió tras '
+      + `${warm.intentos} intentos en ${(warm.ms / 1000).toFixed(0)}s.\x1b[0m`);
+    console.error('  Esto NO es un defecto de la aplicación: el servicio no llegó a levantar.');
+    console.error('  Revisar el estado del servicio en el dashboard de Render y sus logs.\n');
+    process.exit(1);
+  }
 
   // ── 1. Healthcheck ────────────────────────────────────────────────────────
   console.log('[1/6] Healthcheck del servidor...');
