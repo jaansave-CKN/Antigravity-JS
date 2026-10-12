@@ -219,6 +219,27 @@ function verifyCsrf(req, res, next) {
   const auth = req.headers.authorization;
   if (auth && auth.startsWith('Bearer ')) return next(); // Regla 2
 
+  // Regla 2.b — X-Smoke-Token (2026-10-12). MISMO argumento que la Regla 2 y
+  // la misma garantía: un atacante cross-site logra que el navegador adjunte
+  // cookies solas, pero NUNCA que agregue un header propio como este — un
+  // header personalizado obliga a un preflight CORS, que este servidor solo
+  // concede a los orígenes autorizados.
+  //
+  // POR QUÉ HACÍA FALTA: el comentario de la Regla 2 afirmaba que
+  // backend/scripts/smokeTest.js quedaba exento "por construcción". Era FALSO
+  // para su llamada decisiva: el smoke test autentica
+  // POST /api/system/production-ready con X-Smoke-Token y sin Authorization,
+  // así que caía aquí y recibía 403 CSRF_TOKEN_INVALID *antes* de que el
+  // endpoint llegara a comparar el secreto. El marcador de producción era
+  // INALCANZABLE desde el CI, con o sin SMOKE_TEST_TOKEN registrado — por eso
+  // el smoke test nunca pudo cerrar en 9/9 y se culpó al secreto ausente.
+  // Verificado en vivo contra producción: el 403 que se leía como "token
+  // inválido" era en realidad CSRF_TOKEN_INVALID.
+  //
+  // Esto NO debilita la autenticación: el endpoint sigue exigiendo el secreto
+  // y comparándolo en tiempo constante (crypto.timingSafeEqual).
+  if (req.headers['x-smoke-token']) return next(); // Regla 2.b
+
   if (CSRF_EXEMPT_PATHS.has(req.path)) return next(); // Regla 1
 
   const cookieToken = req.cookies?.[XSRF_COOKIE_NAME];

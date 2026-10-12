@@ -275,12 +275,42 @@ test('INVARIANTE: el token del smoke test se resuelve de UNA fuente (Render), si
   // nada que mantuviera las copias sincronizadas ni que detectara la deriva.
   // El único síntoma era un smoke test rojo tras desplegar.
   const yml = lf(leer('.github/workflows/radar.yml'));
-  assert.match(yml, /api\.render\.com\/v1\/services\/\$\{RENDER_SERVICE_ID\}\/env-vars/,
-    'el job debe resolver el token desde la API de Render (fuente única)');
+  assert.match(yml, /https:\/\/api\.render\.com\/v1\$1/,
+    'el job debe hablar con la API de Render (fuente única)');
+  assert.match(yml, /\/services\/\$\{RENDER_SERVICE_ID\}\/env-vars/,
+    'debe consultar las variables del servicio');
+  // Render expone las variables en dos lugares: el servicio y los grupos de
+  // entorno compartidos. Buscar solo el primero fue la causa del fallo del
+  // run 38316218203, así que ambos deben seguir consultándose.
+  assert.match(yml, /\/services\/\$\{RENDER_SERVICE_ID\}\/env-groups/,
+    'y también los grupos de entorno vinculados');
+  assert.match(yml, /\/env-groups\/\$\{GID\}/, 'resolviendo el detalle de cada grupo');
   assert.match(yml, /::add-mask::\$TOKEN/,
     'el valor debe enmascararse antes de exportarse, o puede filtrarse a los logs');
   assert.match(yml, /TOKEN_MANUAL: \$\{\{ secrets\.SMOKE_TEST_TOKEN \}\}/,
     'el secreto de Actions se conserva como primera opción: este cambio no debe romper lo existente');
+});
+
+test('INVARIANTE: el marcador de producción es alcanzable desde el CI (X-Smoke-Token exento de CSRF)', () => {
+  // Causa raíz real de que el smoke test nunca cerrara en 9/9, hallada el
+  // 2026-10-12: el smoke test autentica POST /api/system/production-ready con
+  // X-Smoke-Token y SIN Authorization, así que verifyCsrf lo rechazaba con 403
+  // CSRF_TOKEN_INVALID *antes* de comparar el secreto. El check era imposible
+  // de pasar, con o sin SMOKE_TEST_TOKEN registrado. Se culpó al secreto
+  // ausente durante dos ciclos de pipeline.
+  const srv = lf(leer('server.js'));
+  assert.match(srv, /if \(req\.headers\['x-smoke-token'\]\) return next\(\); \/\/ Regla 2\.b/,
+    'verifyCsrf debe eximir las peticiones autenticadas por X-Smoke-Token');
+
+  // Y el cliente debe seguir mandando ese header (si cambiara a otro nombre,
+  // la exención de arriba dejaría de aplicarle y volvería el 403 silencioso).
+  const smoke = lf(leer('backend/scripts/smokeTest.js'));
+  assert.match(smoke, /'X-Smoke-Token': smokeToken/,
+    'el smoke test debe autenticar el marcador con X-Smoke-Token');
+
+  // La exención no debe ampliarse a una ruta de negocio por descuido.
+  assert.doesNotMatch(srv, /CSRF_EXEMPT_PATHS = new Set\(\[[^\]]*system\/production-ready/,
+    'la exención va por header, no agregando la ruta a la lista');
 });
 
 test('INVARIANTE: playwright.yml no puede volver a bloquear la fusión por un puerto ocupado', () => {
