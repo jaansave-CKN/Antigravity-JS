@@ -37,7 +37,7 @@ on:
 jobs:
   # ── CI: Validación TypeScript + Build (bloqueante) ────────────────────────────
   ci-gate:
-    name: ci-gate — TypeScript + 331 pruebas + Build
+    name: ci-gate — TypeScript + Pruebas + Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
