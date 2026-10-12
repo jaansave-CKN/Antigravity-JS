@@ -213,21 +213,57 @@ jobs:
             exit 1
           fi
 
-          echo "Resolviendo el token desde el entorno de Render (fuente única)…"
-          HTTP=$(curl -s -o /tmp/envvars.json -w "%{http_code}" --max-time 30 \
-            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars?limit=100" \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" -H "Accept: application/json")
+          api() {
+            # $1 = ruta. Imprime el cuerpo; devuelve 1 si el HTTP no es 2xx.
+            local cuerpo code
+            cuerpo=$(mktemp)
+            code=$(curl -s -o "$cuerpo" -w "%{http_code}" --max-time 30 \
+              "https://api.render.com/v1$1" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" -H "Accept: application/json")
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+              echo "::warning::GET /v1$1 → HTTP $code" >&2
+              rm -f "$cuerpo"; return 1
+            fi
+            cat "$cuerpo"; rm -f "$cuerpo"
+          }
 
-          if [ "$HTTP" != "200" ]; then
-            echo "::error::La API de Render respondió HTTP $HTTP al listar las variables de entorno. Revisar RENDER_API_KEY/RENDER_SERVICE_ID."
-            exit 1
+          # Render expone las variables en DOS lugares y este endpoint solo ve
+          # el primero: las del propio servicio. Si la variable vive en un
+          # GRUPO de entorno compartido, no aparece aquí — causa real del fallo
+          # del run 38316218203, diagnosticada con la lista de claves de abajo.
+          echo "Resolviendo el token desde el entorno de Render (fuente única)…"
+          TOKEN=""
+
+          if SERV=$(api "/services/${RENDER_SERVICE_ID}/env-vars?limit=100"); then
+            TOKEN=$(printf '%s' "$SERV" | jq -r '[.[] | .envVar | select(.key == "SMOKE_TEST_TOKEN") | .value][0] // ""')
+            if [ -z "$TOKEN" ]; then
+              # Solo NOMBRES de claves: nunca valores. Basta para diagnosticar.
+              echo "  Variables del servicio ($(printf '%s' "$SERV" | jq -r 'length')): $(printf '%s' "$SERV" | jq -r '[.[].envVar.key] | join(", ")')"
+            else
+              echo "  Encontrada en las variables del servicio."
+            fi
           fi
 
-          TOKEN=$(jq -r '[.[] | .envVar | select(.key == "SMOKE_TEST_TOKEN") | .value][0] // ""' /tmp/envvars.json)
-          rm -f /tmp/envvars.json
+          if [ -z "$TOKEN" ]; then
+            echo "  No está en el servicio — se buscan los grupos de entorno vinculados…"
+            if GRUPOS=$(api "/services/${RENDER_SERVICE_ID}/env-groups?limit=50"); then
+              for GID in $(printf '%s' "$GRUPOS" | jq -r '[.[] | (.envGroup.id // .id)] | .[]' 2>/dev/null); do
+                [ -z "$GID" ] && continue
+                if DET=$(api "/env-groups/${GID}"); then
+                  NOMBRE=$(printf '%s' "$DET" | jq -r '.name // "(sin nombre)"')
+                  CLAVES=$(printf '%s' "$DET" | jq -r '[(.envVars // [])[] | .key] | join(", ")')
+                  echo "    grupo '${NOMBRE}' → ${CLAVES:-(vacío)}"
+                  V=$(printf '%s' "$DET" | jq -r '[(.envVars // [])[] | select(.key == "SMOKE_TEST_TOKEN") | .value][0] // ""')
+                  if [ -n "$V" ] && [ "$V" != "null" ]; then
+                    TOKEN="$V"; echo "  Encontrada en el grupo de entorno '${NOMBRE}'."; break
+                  fi
+                fi
+              done
+            fi
+          fi
 
           if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
-            echo "::error::SMOKE_TEST_TOKEN no está definida en el entorno del servicio de Render. Definirla ahí (Environment) — es la fuente única de verdad, no hace falta duplicarla en Actions."
+            echo "::error::SMOKE_TEST_TOKEN no existe ni en las variables del servicio de Render ni en sus grupos de entorno (ver las claves listadas arriba). Definirla en Render → Environment: es la fuente única de verdad y no hace falta duplicarla en Actions."
             exit 1
           fi
 
