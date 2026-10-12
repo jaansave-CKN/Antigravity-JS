@@ -16,13 +16,29 @@ on:
       - 'package.json'
       - 'vite.config.ts'
       - 'tsconfig.json'
+  # Protocolo Omega (2026-10-12): el job `ci` también corre en los PULL
+  # REQUESTS hacia main. Hasta aquí radar.yml solo se disparaba con el push a
+  # main, así que `npm run test:unit` —y con él las guardas de
+  # tests/unit/invariantesLanzamiento.test.mjs— corrían DESPUÉS del merge,
+  # cuando ya era tarde para bloquear nada. Un gate que solo mira el código ya
+  # fusionado no es un gate.
+  #
+  # El job `deploy` NO se activa aquí: su `if` exige push o workflow_dispatch,
+  # así que un PR valida pero nunca despliega.
+  #
+  # NOTA para el dueño: para que este check BLOQUEE el merge hay que agregar
+  # el contexto `ci` a la protección de rama de main (hoy solo exige `test` y
+  # `react-doctor`). Eso es un ajuste de seguridad de la cuenta y no se toca
+  # sin autorización explícita.
+  pull_request:
+    branches:
+      - main
 
 jobs:
   # ── CI: Validación TypeScript + Build (bloqueante) ────────────────────────────
   ci:
-    name: CI — TypeScript + Build
+    name: CI — TypeScript + Pruebas + Build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

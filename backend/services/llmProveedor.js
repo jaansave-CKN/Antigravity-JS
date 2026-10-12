@@ -384,9 +384,15 @@ async function generarConIAInterno({
     if (!geminiCB.keys.length) { intentos.push({ proveedor: 'gemini_servidor', motivo: 'sin_llaves_servidor' }); return null; }
     if (restante() < TIEMPO_MIN_PASO_MS) { intentos.push({ proveedor: 'gemini_servidor', motivo: 'sin_tiempo' }); return null; }
 
-    const cfg = cfgPresupuestoGemini();
+    // El tráfico de SISTEMA (soloServidor) NO entra al tope en USD por usuario:
+    // ya está acotado por el tope DURO de tokens de iaTopeSistema.js, que
+    // generarConIA() aplica antes de llegar aquí. Meterlo también en
+    // ai_consumo_usuario lo haría chocar contra el tope de un "usuario"
+    // sintético (sistema-radar-batch) y cortaría el batch del Radar —
+    // doble contabilidad del mismo gasto.
+    const cfg = soloServidor ? null : cfgPresupuestoGemini();
     let reservaId = null;
-    try {
+    if (cfg) try {
       reservaId = await reservar({ userId, agente, modelo: MODELO_GEMINI, reservaUsd: estimarReservaUsd(messages, maxTokens, cfg) }, cfg);
     } catch (err) {
       if (err instanceof IaTopeAgotadoError) {
@@ -403,8 +409,10 @@ async function generarConIAInterno({
       const r = await withKeyRotation(intentoGemini({ messages, temperature, maxTokens, responseFormat, permitirTruncado, validar, agente, timeoutMs: Math.min(GEMINI_MAX_MS, restante()) }));
       const tokensIn = r.usage?.prompt_tokens ?? 0;
       const tokensOut = salidaFacturada(r.usage);
-      const costo = costoRealUsd({ prompt_tokens: tokensIn, completion_tokens: tokensOut }, null, cfg);
-      await liquidar(userId, reservaId, { costoUsd: costo, tokensIn, tokensOut, modelo: MODELO_GEMINI }, logger);
+      if (reservaId) {
+        const costo = costoRealUsd({ prompt_tokens: tokensIn, completion_tokens: tokensOut }, null, cfg);
+        await liquidar(userId, reservaId, { costoUsd: costo, tokensIn, tokensOut, modelo: MODELO_GEMINI }, logger);
+      }
       logTokenUsage({ userId, agentName: agente, tokensInput: tokensIn, tokensOutput: tokensOut }).catch(() => {});
       return { ...r, proveedor: 'gemini_servidor' };
     } catch (err) {
@@ -413,11 +421,11 @@ async function generarConIAInterno({
       // (el error siempre favorece al dinero). Un fallo de red/cuota sin
       // respuesta no cobró nada: se libera.
       const cobrable = !!err?.usage || err?.motivo === 'respuesta_truncada' || err instanceof SalidaInvalidaError;
-      if (cobrable) {
+      if (reservaId && cobrable) {
         const tokensIn = err.usage?.prompt_tokens ?? 0;
         const tokensOut = salidaFacturada(err.usage ?? {});
         await liquidar(userId, reservaId, { costoUsd: costoRealUsd({ prompt_tokens: tokensIn, completion_tokens: tokensOut }, null, cfg), tokensIn, tokensOut, modelo: MODELO_GEMINI }, logger);
-      } else {
+      } else if (reservaId) {
         await liberar(userId, reservaId, logger);
       }
       if (err instanceof LlmLoopGuardError) throw err;

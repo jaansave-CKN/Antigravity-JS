@@ -263,6 +263,22 @@ test('H1: tope agotado también frena el pool Gemini — 429 IA_TOPE_AGOTADO, no
   assert.equal(llamadas.length, 0, 'con el tope agotado no sale ninguna petición');
 });
 
+test('H1: soloServidor (Radar de fondo) NO entra al tope en USD por usuario — ya lo acota iaTopeSistema', async () => {
+  // Regresión: la primera versión del fix de H1 reservaba también para el
+  // tráfico de sistema, contra un "usuario" sintético (sistema-radar-batch).
+  // Con el tope de respaldo de 1 USD/día eso cortaba el batch del Radar y
+  // contaba dos veces el mismo gasto.
+  preparar();
+  const reservas = [];
+  estado.reservar = async (datos) => { reservas.push(datos); return 'reserva-sistema'; };
+  red();
+  topeFalso({ consumido: 1000 });   // tope de tokens del sistema: el que SÍ aplica aquí
+  const r = await generarConIA({ userId: 'sistema-radar-batch', agente: 'sector-classifier', messages: MSGS, soloServidor: true, maxTokens: 2048 });
+  assert.equal(r.proveedor, 'gemini_servidor');
+  assert.equal(reservas.length, 0, 'el tráfico de sistema no reserva en USD');
+  assert.equal(estado.liquidadas.length + estado.liberadas.length, 0, 'ni liquida ni libera');
+});
+
 test('H1: el pool Gemini reserva con las tarifas de Gemini y liquida el costo real de esa llamada', async () => {
   preparar({ openrouter: false });
   const reservas = [];

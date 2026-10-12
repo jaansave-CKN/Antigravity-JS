@@ -3,6 +3,46 @@
 # mayo 2026 (repo público) — nunca debe volver a pasar. Versionado con Husky
 # para que proteja cualquier clon nuevo del repo, no solo esta máquina.
 
+# ── Guarda de RAMA — bloquea commits directos sobre main/master ──────────────
+# Instalado 2026-10-12 tras el incidente 6f5495d: una sesión concurrente
+# commiteó 34 archivos directamente en el `main` local —arrastrando el trabajo
+# sin commitear de OTRO agente— bajo un mensaje que describía solo una parte.
+#
+# Causa raíz: `main` estaba protegida en GitHub (verificado por API:
+# enforce_admins=true, required_pull_request_reviews, linear history) pero NO
+# localmente. La protección estaba puesta donde el error se VE (el push), no
+# donde se COMETE (el commit local). En un flujo donde los agentes commitean
+# en local, esa es exactamente la brecha por donde entró el daño.
+#
+# Va PRIMERO y es lo más barato del hook: si la rama está mal, no se gasta
+# tiempo en react-doctor ni en el gate de arquitectura.
+#
+# Salida de emergencia explícita (no silenciosa):
+#   PERMITIR_COMMIT_MAIN=1 git commit -m "..."
+RAMA_ACTUAL="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo desconocida)"
+case "$RAMA_ACTUAL" in
+  main|master)
+    if [ "$PERMITIR_COMMIT_MAIN" != "1" ]; then
+      echo "❌ COMMIT BLOQUEADO — estás en la rama '$RAMA_ACTUAL'."
+      echo ""
+      echo "Esta rama solo se actualiza por Pull Request (está protegida en"
+      echo "GitHub: enforce_admins=true, historial lineal, push directo"
+      echo "rechazado). Un commit local aquí no se podrá empujar y además"
+      echo "arriesga arrastrar trabajo sin commitear de otra sesión."
+      echo ""
+      echo "Haz esto en su lugar:"
+      echo "    git switch -c feat/<nombre-corto>"
+      echo "    git commit -m \"...\""
+      echo ""
+      echo "Si de verdad necesitas commitear aquí (y sabes por qué):"
+      echo "    PERMITIR_COMMIT_MAIN=1 git commit -m \"...\""
+      exit 1
+    fi
+    echo "⚠️  [GUARDA_RAMA] Commit en '$RAMA_ACTUAL' autorizado por PERMITIR_COMMIT_MAIN=1."
+    ;;
+esac
+# ── Fin guarda de rama ───────────────────────────────────────────────────────
+
 # ── React Doctor — escaneo de diagnósticos en lo staged (no bloqueante) ──────
 # FIX (2026-09-05, "node: not found" reproducido en vivo): este bloque vivía
 # en `.husky/_/pre-commit` — un archivo GENERADO por Husky (`.husky/_/.gitignore`

@@ -565,15 +565,6 @@ export async function withTenant(tenantId, callback) {
     }
   }
 
-  // Fail-closed only after the bounded probe: a recovering scoped pool must
-  // be allowed to become ready before production tenant access is rejected.
-  if (strictProduction && (!scopedConfigured || !_pgScopedReady)) {
-    throw new RlsNoDisponibleError();
-  }
-
-  await asegurarSondeoInicial();
-  const pool = _pgScopedReady ? _pgScopedPool : (_pgReady ? _pgPool : null);
-
   // H8 (dictamen pre-lanzamiento 2026-09-30, Operación Lanzamiento Seguro
   // punto 3): en PRODUCCIÓN la degradación a BYPASSRLS deja de ser un warning
   // y pasa a ser un fallo duro. Antes, si DATABASE_URL_TENANT_SCOPED faltaba o
@@ -582,9 +573,16 @@ export async function withTenant(tenantId, callback) {
   // cuentas quedaba dependiendo de que ningún WHERE se hubiera olvidado, y el
   // único aviso era una línea en los logs que nadie mira. Fuera de producción
   // se conserva la degradación con advertencia (entornos locales sin el rol).
-  if (pool && pool === _pgPool && strictProduction) {
+  //
+  // El corte va DESPUÉS del sondeo acotado de arriba, a propósito: un pool
+  // escopado que se está recuperando debe poder volver a estar listo antes de
+  // que se rechace el acceso multi-tenant en producción.
+  if (strictProduction && (!scopedConfigured || !_pgScopedReady)) {
     throw new RlsNoDisponibleError();
   }
+
+  await asegurarSondeoInicial();
+  const pool = _pgScopedReady ? _pgScopedPool : (_pgReady ? _pgPool : null);
 
   if (pool) {
     if (pool === _pgPool && !_scopedWarnLogged) {
