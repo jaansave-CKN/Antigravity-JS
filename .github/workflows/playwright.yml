@@ -16,6 +16,18 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Un solo run por rama a la vez (2026-10-12). `test` es un check OBLIGATORIO de
+# la protección de main, así que un fallo suyo bloquea la fusión aunque el
+# código esté bien — y eso ya pasó: un run falló con
+#   failed to bind host port 0.0.0.0:54322 → address already in use
+# al levantar el Supabase local del runner. Sin este grupo, dos pushes
+# seguidos a la misma rama dejaban dos runs compitiendo por los puertos fijos
+# del stack de Supabase (54321-54324). El run viejo se cancela: lo que importa
+# es el veredicto sobre el commit más reciente.
+concurrency:
+  group: playwright-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     timeout-minutes: 30
@@ -62,10 +74,36 @@ jobs:
       # ── Supabase local: Postgres 17 (misma versión mayor que producción,
       # verificado: server_version 17.6) + Storage + API gateway.
       - name: Levantar Supabase local (Postgres 17 + Storage)
+        # Reintento con limpieza previa (2026-10-12). Un run falló con
+        #   failed to bind host port 0.0.0.0:54322 → address already in use
+        # verificado SIN runs concurrentes: un contenedor huérfano del stack
+        # seguía ocupando el puerto. `supabase start` no limpia por su cuenta,
+        # así que un arranque sucio tumbaba un check OBLIGATORIO con el código
+        # intacto. Ahora se limpia antes, y si el arranque falla igual se
+        # derriba todo y se reintenta una vez.
         run: |
+          set -uo pipefail
           supabase init --force
           sed -i 's/^major_version = .*/major_version = 17/' supabase/config.toml
-          supabase start -x studio,mailpit,inbucket,edge-runtime,logflare,vector,realtime,supavisor,postgres-meta
+
+          EXCLUIDOS="studio,mailpit,inbucket,edge-runtime,logflare,vector,realtime,supavisor,postgres-meta"
+
+          limpiar() {
+            echo "Limpiando restos del stack de Supabase…"
+            supabase stop --no-backup >/dev/null 2>&1 || true
+            # Red de seguridad: contenedores del stack que `supabase stop` no
+            # alcance (nombre supabase_*_<repo>) quedarían con el puerto tomado.
+            docker ps -aq --filter "name=supabase_" | xargs -r docker rm -f >/dev/null 2>&1 || true
+          }
+
+          limpiar
+          if ! supabase start -x "$EXCLUIDOS"; then
+            echo "::warning::El primer arranque de Supabase falló — se limpia y se reintenta una vez."
+            limpiar
+            sleep 10
+            supabase start -x "$EXCLUIDOS"
+          fi
+
           supabase status -o env | grep -E '^(API_URL|DB_URL|ANON_KEY|SERVICE_ROLE_KEY)=' > supabase.env
           for k in API_URL DB_URL ANON_KEY SERVICE_ROLE_KEY; do grep -q "^$k=" supabase.env || { echo "::error::supabase status no expuso $k"; exit 1; }; done
 
@@ -130,11 +168,28 @@ jobs:
       - name: Comprobar que la suite no dejó residuos en la réplica
         if: always()
         run: |
+          # Guarda del archivo (2026-10-12): con `if: always()` este paso corre
+          # incluso cuando Supabase no llegó a levantar, y entonces fallaba con
+          #   ./supabase.env: No such file or directory
+          # Ese error aparecía como el ÚLTIMO del log y tapaba la causa real
+          # (el puerto ocupado, varios pasos más arriba): se diagnosticaba el
+          # síntoma equivocado. Si no hay réplica, no hay residuo que medir.
+          if [ ! -f ./supabase.env ]; then
+            echo "::notice::Supabase local no llegó a levantar — no hay réplica que auditar. La causa real está en el paso que falló antes."
+            exit 0
+          fi
           set -a; . ./supabase.env; set +a
           # Falla (antes terminaba con "|| true") si queda algún usuario E2E.
           restantes=$(psql "$DB_URL" -At -c "SELECT count(*) FROM usuarios WHERE email LIKE 'e2e%@example.com';")
           echo "usuarios e2e restantes: $restantes"
           test "$restantes" = "0"
+
+      - name: Derribar el stack de Supabase local
+        if: always()
+        # Deja el runner limpio aunque la suite falle: un contenedor huérfano
+        # con el puerto 54322 tomado es la causa del flake que este commit
+        # corrige. Nunca debe hacer fallar el job.
+        run: supabase stop --no-backup || true
 
       - name: Subir reporte de Playwright (si falló)
         if: failure()

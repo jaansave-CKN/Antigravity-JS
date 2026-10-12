@@ -22,6 +22,7 @@
  * (:6543). Nunca pg_advisory_lock de sesión ni SET de sesión.
  */
 import { withTenant } from '../config/database.config.js';
+import { topesDePlan } from '../config/planes.config.js';
 
 // Precios por millón de tokens de anthropic/claude-sonnet-5 publicados en
 // https://openrouter.ai/api/v1/models (verificado 2026-09-28: prompt
@@ -98,12 +99,36 @@ const SQL_GASTO = `
 
 const esClienteRest = (client) => client && Object.prototype.hasOwnProperty.call(client, '_tenantId');
 
+/**
+ * Resuelve el techo de gasto del usuario. Orden de precedencia (2026-10-12):
+ *
+ *   1. ai_tope_usuario  — override explícito de un admin para ESE usuario.
+ *   2. tope del PLAN    — TOPES_IA_POR_PLAN (planes.config.js): el 20 % de lo
+ *                         que paga ese plan. Antes no existía este escalón y
+ *                         un usuario de Radar (~USD 37/mes) heredaba el mismo
+ *                         techo que uno de Suite (~USD 125/mes).
+ *   3. entorno          — LLM_TOPE_USD_DIA / LLM_TOPE_USD_MES.
+ *   4. respaldo duro    — en cfgPresupuestoGemini (llmProveedor.js).
+ *
+ * Si la consulta del plan falla, se cae al paso 3: nunca queda sin techo y
+ * nunca es peor que el comportamiento anterior.
+ */
 async function leerTopes(client, userId, cfg) {
   const { rows } = await client.query('SELECT tope_usd_dia, tope_usd_mes FROM ai_tope_usuario WHERE org_id = $1', [String(userId)]);
   const fila = rows?.[0];
+
+  let plan = null;
+  if (numPositivo(fila?.tope_usd_dia) === null || numPositivo(fila?.tope_usd_mes) === null) {
+    // Solo se consulta el plan si hace falta para algún lado del tope.
+    try {
+      const r = await client.query('SELECT plan FROM user_subscriptions WHERE user_id = $1', [String(userId)]);
+      plan = topesDePlan(r.rows?.[0]?.plan);
+    } catch { plan = null; }   // degradación segura: se usa el tope del entorno
+  }
+
   return {
-    dia: numPositivo(fila?.tope_usd_dia) ?? cfg.topeDia,
-    mes: numPositivo(fila?.tope_usd_mes) ?? cfg.topeMes,
+    dia: numPositivo(fila?.tope_usd_dia) ?? plan?.dia ?? cfg.topeDia,
+    mes: numPositivo(fila?.tope_usd_mes) ?? plan?.mes ?? cfg.topeMes,
   };
 }
 

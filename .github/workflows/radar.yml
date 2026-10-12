@@ -177,8 +177,66 @@ jobs:
           done
           echo "::warning::/api/health no respondió 200 tras 120s de polling — se ejecuta el smoke test de todas formas."
 
-      - name: Ejecutar smoke test contra el backend real
+      - name: Resolver SMOKE_TEST_TOKEN — fuente única de verdad en Render
+        # CAUSA RAÍZ eliminada aquí (2026-10-12). El diseño anterior exigía que
+        # el MISMO secreto existiera en DOS sistemas a la vez: en el entorno de
+        # Render (de donde lo lee server.js:~1684) y como secreto de GitHub
+        # Actions (de donde lo leía este job). Nada mantenía esas dos copias
+        # sincronizadas, nada detectaba la desincronización, y el único síntoma
+        # era un smoke test rojo después de desplegar. Eso costó dos ciclos de
+        # pipeline y una declaración de "estado nominal" que no se pudo emitir.
+        #
+        # Ahora hay UNA sola fuente: Render, que es donde el servidor realmente
+        # lo lee. El CI lo resuelve en tiempo de ejecución con RENDER_API_KEY,
+        # que ya existía como secreto para disparar el deploy. No queda ninguna
+        # copia que mantener a mano, así que la clase entera de fallo
+        # "secreto no registrado / desincronizado" desaparece.
+        #
+        # Se conserva el secreto de Actions como PRIMERA opción: si alguien lo
+        # registra a mano, manda ese — así este cambio no rompe nada existente.
         env:
-          SMOKE_TEST_TOKEN: ${{ secrets.SMOKE_TEST_TOKEN }}
+          TOKEN_MANUAL: ${{ secrets.SMOKE_TEST_TOKEN }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${TOKEN_MANUAL:-}" ]; then
+            echo "::add-mask::$TOKEN_MANUAL"
+            echo "SMOKE_TEST_TOKEN=$TOKEN_MANUAL" >> "$GITHUB_ENV"
+            echo "Origen del token: secreto de GitHub Actions."
+            exit 0
+          fi
+
+          if [ -z "${RENDER_API_KEY:-}" ] || [ -z "${RENDER_SERVICE_ID:-}" ]; then
+            echo "::error::No hay SMOKE_TEST_TOKEN en Actions ni credenciales de Render para resolverlo (faltan RENDER_API_KEY/RENDER_SERVICE_ID)."
+            exit 1
+          fi
+
+          echo "Resolviendo el token desde el entorno de Render (fuente única)…"
+          HTTP=$(curl -s -o /tmp/envvars.json -w "%{http_code}" --max-time 30 \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars?limit=100" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" -H "Accept: application/json")
+
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::La API de Render respondió HTTP $HTTP al listar las variables de entorno. Revisar RENDER_API_KEY/RENDER_SERVICE_ID."
+            exit 1
+          fi
+
+          TOKEN=$(jq -r '[.[] | .envVar | select(.key == "SMOKE_TEST_TOKEN") | .value][0] // ""' /tmp/envvars.json)
+          rm -f /tmp/envvars.json
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "::error::SMOKE_TEST_TOKEN no está definida en el entorno del servicio de Render. Definirla ahí (Environment) — es la fuente única de verdad, no hace falta duplicarla en Actions."
+            exit 1
+          fi
+
+          # Enmascarar ANTES de exportar: sin esto el valor podría aparecer en
+          # el log de cualquier paso posterior que lo imprima por accidente.
+          echo "::add-mask::$TOKEN"
+          echo "SMOKE_TEST_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          echo "Origen del token: entorno de Render (${#TOKEN} caracteres)."
+
+      - name: Ejecutar smoke test contra el backend real
         run: node backend/scripts/smokeTest.js "${{ secrets.SMOKE_TEST_URL }}"
 

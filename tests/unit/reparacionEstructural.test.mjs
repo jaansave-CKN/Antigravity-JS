@@ -45,11 +45,22 @@ const workflow = fs.readFileSync(new URL('../../.github/workflows/radar.yml', im
 // ── F1 ───────────────────────────────────────────────────────────────────────
 test('smoke de producción exige el secreto dedicado y nunca usa JWT_SECRET', () => {
   assert.match(smoke, /process\.env\.SMOKE_TEST_TOKEN/);
-  assert.match(smoke, /SMOKE_TEST_TOKEN no configurado/);
+  // 2026-10-12: el mensaje pasó de "SMOKE_TEST_TOKEN no configurado" (check 7
+  // fallido al final de una corrida de 3 min) a un fail-fast en el primer
+  // segundo. La propiedad vigilada es la misma —el script se niega a correr sin
+  // el secreto dedicado— solo que ahora lo dice antes y más claro.
+  assert.match(smoke, /\[FATAL\] SMOKE_TEST_TOKEN no presente/);
+  assert.match(smoke, /process\.exit\(1\)/);
   assert.doesNotMatch(smoke, /X-Smoke-Token['"]\s*:\s*process\.env\.JWT_SECRET/);
   assert.match(smoke, /mark\.ok && mark\.data\?\.success === true/);
   assert.match(render, /- key: SMOKE_TEST_TOKEN\s+sync: false/);
-  assert.match(workflow, /SMOKE_TEST_TOKEN:\s*\$\{\{ secrets\.SMOKE_TEST_TOKEN \}\}/);
+  // El workflow sigue entregándole el token al script, pero ya no exige una
+  // copia manual en los secretos de Actions: Render es la fuente única (de ahí
+  // lo lee el servidor) y el CI lo resuelve por API con RENDER_API_KEY. El
+  // secreto de Actions se conserva como primera opción si alguien lo registra.
+  assert.match(workflow, /TOKEN_MANUAL:\s*\$\{\{ secrets\.SMOKE_TEST_TOKEN \}\}/);
+  assert.match(workflow, /services\/\$\{RENDER_SERVICE_ID\}\/env-vars/);
+  assert.match(workflow, /SMOKE_TEST_TOKEN=\$TOKEN" >> "\$GITHUB_ENV"/);
 });
 
 test('F1: requireAdmin rechaza con 403 a un usuario estándar y deja pasar al admin', () => {
