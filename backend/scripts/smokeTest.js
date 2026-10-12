@@ -99,11 +99,15 @@ async function run() {
   // GitHub Actions. Ahora corta en el primer segundo, con el motivo exacto.
   if (!process.env.SMOKE_TEST_TOKEN || !process.env.SMOKE_TEST_TOKEN.trim()) {
     console.error('\n\x1b[31m[FATAL] SMOKE_TEST_TOKEN no presente en las variables de entorno de GitHub Actions\x1b[0m');
-    console.error('  El endpoint POST /api/system/production-ready exige este secreto (server.js:~1684)');
-    console.error('  y sin él devuelve 503, así que el marcador de producción nunca se puede sellar.');
-    console.error('  Registrarlo con el MISMO valor que ya tiene Render → Environment:');
-    console.error('    gh secret set SMOKE_TEST_TOKEN --repo jaansave-CKN/Antigravity-JS');
-    console.error('  o en Settings → Secrets and variables → Actions → New repository secret.\n');
+    console.error('  El endpoint POST /api/system/production-ready exige este secreto y sin él');
+    console.error('  devuelve 503, así que el marcador de producción nunca se puede sellar.');
+    console.error('');
+    console.error('  FUENTE ÚNICA DE VERDAD: el entorno del servicio en Render, que es de donde');
+    console.error('  lo lee el servidor. El workflow lo resuelve de ahí por API (RENDER_API_KEY),');
+    console.error('  así que basta con definirlo EN UN SOLO LUGAR:');
+    console.error('    Render → servicio → Environment → SMOKE_TEST_TOKEN = <valor largo y aleatorio>');
+    console.error('');
+    console.error('  Para correrlo a mano: SMOKE_TEST_TOKEN=<valor> node backend/scripts/smokeTest.js <url>\n');
     process.exit(1);
   }
 
