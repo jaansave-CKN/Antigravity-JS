@@ -117,6 +117,45 @@ test('INVARIANTE: siempre hay un techo en USD, incluso sin LLM_TOPE_USD_* en el 
   assert.ok(cfg.topeMes > 0, 'tope mensual de respaldo > 0');
 });
 
+test('INVARIANTE: el techo de IA de cada plan no pasa del 20% de lo que ese plan paga', async () => {
+  // Antes el tope era UNO para todos: con USD 30/mes plano, un usuario de
+  // Radar (~USD 37) podía quemar el 81% de su propio ingreso en un solo
+  // insumo, mientras en Suite (~USD 125) el mismo tope era el 24%. El techo
+  // no guardaba relación con el precio. Esta prueba fija esa relación.
+  const { PLANES, TOPES_IA_POR_PLAN, USD_COP_REF, topesDePlan } = await import('../../backend/config/planes.config.js');
+
+  assert.deepEqual(Object.keys(TOPES_IA_POR_PLAN).sort(), Object.keys(PLANES).sort(),
+    'todo plano del catálogo debe tener su techo de IA — si agregas un plan, agrégalo aquí');
+
+  for (const [plan, tope] of Object.entries(TOPES_IA_POR_PLAN)) {
+    assert.ok(tope.dia > 0 && tope.mes > 0, `${plan}: el techo nunca es cero (ni ilimitado)`);
+    assert.ok(tope.dia <= tope.mes, `${plan}: el techo diario no puede exceder el mensual`);
+
+    const ingresoUsd = PLANES[plan].precio / USD_COP_REF;
+    if (ingresoUsd > 0) {
+      const fraccion = tope.mes / ingresoUsd;
+      assert.ok(fraccion <= 0.25,
+        `${plan}: el techo de IA (USD ${tope.mes}) es el ${(fraccion * 100).toFixed(0)}% del ingreso (USD ${ingresoUsd.toFixed(2)}). Máximo 25%.`);
+    } else {
+      // free: cortesía de adquisición, acotada a propósito.
+      assert.ok(tope.mes <= 5, 'el plan gratuito debe tener una cortesía pequeña y acotada');
+    }
+  }
+
+  // Un plan desconocido no debe inventar un techo: cae al del entorno.
+  assert.equal(topesDePlan('plan-que-no-existe'), null);
+  assert.equal(topesDePlan(undefined), null);
+});
+
+test('INVARIANTE: el tope por plan se consulta en la cadena de resolución del presupuesto', () => {
+  const src = lf(leer('backend/services/iaPresupuesto.js'));
+  assert.match(src, /topesDePlan/, 'iaPresupuesto debe resolver el tope del plan');
+  assert.match(src, /FROM user_subscriptions WHERE user_id/, 'y leer el plan del usuario');
+  // El override por usuario sigue mandando sobre el del plan.
+  assert.match(src, /numPositivo\(fila\?\.tope_usd_dia\) \?\? plan\?\.dia \?\? cfg\.topeDia/,
+    'precedencia: override del usuario → tope del plan → entorno');
+});
+
 test('INVARIANTE: el tráfico de SISTEMA no entra al libro de USD por usuario (doble contabilidad)', () => {
   // Defecto real introducido y corregido el 2026-09-30: reservar también para
   // soloServidor cortaba el batch del Radar contra el tope de un "usuario"
@@ -223,10 +262,38 @@ test('INVARIANTE: el smoke test corta de inmediato si falta SMOKE_TEST_TOKEN, co
   assert.match(src, /\[FATAL\] SMOKE_TEST_TOKEN no presente/, 'mensaje explícito exigido');
   assert.match(src, /process\.exit\(1\)/, 'debe abortar con código 1');
 
-  // Y el workflow tiene que seguir pasándoselo al script.
+  // Y el workflow tiene que seguir resolviéndolo y exportándolo al script,
+  // venga del secreto de Actions o de la API de Render (fuente única).
   const yml = lf(leer('.github/workflows/radar.yml'));
-  assert.match(yml, /SMOKE_TEST_TOKEN: \$\{\{ secrets\.SMOKE_TEST_TOKEN \}\}/,
-    'radar.yml debe inyectar el secreto en el step del smoke test');
+  assert.match(yml, /SMOKE_TEST_TOKEN=\$TOKEN" >> "\$GITHUB_ENV"/,
+    'radar.yml debe exportar el token resuelto al entorno del step del smoke test');
+});
+
+test('INVARIANTE: el token del smoke test se resuelve de UNA fuente (Render), sin copia manual que desincronizar', () => {
+  // Causa raíz eliminada el 2026-10-12: el mismo secreto tenía que existir a la
+  // vez en Render (donde lo lee server.js) y en los secretos de Actions, sin
+  // nada que mantuviera las copias sincronizadas ni que detectara la deriva.
+  // El único síntoma era un smoke test rojo tras desplegar.
+  const yml = lf(leer('.github/workflows/radar.yml'));
+  assert.match(yml, /api\.render\.com\/v1\/services\/\$\{RENDER_SERVICE_ID\}\/env-vars/,
+    'el job debe resolver el token desde la API de Render (fuente única)');
+  assert.match(yml, /::add-mask::\$TOKEN/,
+    'el valor debe enmascararse antes de exportarse, o puede filtrarse a los logs');
+  assert.match(yml, /TOKEN_MANUAL: \$\{\{ secrets\.SMOKE_TEST_TOKEN \}\}/,
+    'el secreto de Actions se conserva como primera opción: este cambio no debe romper lo existente');
+});
+
+test('INVARIANTE: playwright.yml no puede volver a bloquear la fusión por un puerto ocupado', () => {
+  // `test` es un check OBLIGATORIO de la protección de main: un flake suyo
+  // bloquea la fusión con el código intacto. Ya ocurrió con
+  // "failed to bind host port 0.0.0.0:54322 → address already in use".
+  const yml = lf(leer('.github/workflows/playwright.yml'));
+  assert.match(yml, /^concurrency:/m, 'debe haber un grupo de concurrencia por rama');
+  assert.match(yml, /cancel-in-progress: true/, 'el run viejo se cancela: vale el commit más nuevo');
+  assert.match(yml, /supabase stop --no-backup/, 'debe derribar el stack para no dejar puertos tomados');
+  assert.match(yml, /docker ps -aq --filter "name=supabase_"/, 'red de seguridad para contenedores huérfanos');
+  assert.match(yml, /if \[ ! -f \.\/supabase\.env \]/,
+    'la comprobación de residuos no debe fallar por un archivo ausente y tapar la causa real');
 });
 
 // ── Invariante 6: la guarda local de rama existe (causa de 6f5495d) ──────────
