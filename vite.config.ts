@@ -1,6 +1,9 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import { resolve } from 'path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const configDir = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -11,22 +14,23 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
-    root: resolve(__dirname, 'client'),
+    root: resolve(configDir, 'client'),
     base: '/',
     define: {
       __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
       ...(isProd ? { 'console.log': 'function(){}' } : {}),
     },
     build: {
-      outDir: resolve(__dirname, 'dist'),
+      outDir: resolve(configDir, 'dist'),
       emptyOutDir: true,
       minify: isProd ? 'esbuild' : false,
       sourcemap: !isProd,
       cssMinify: true,
-      // Nivel Dios: Eleva el límite de advertencia para evitar alertas de chunks grandes
-      chunkSizeWarningLimit: 600,
+      // Mermaid's generated ABNF parser is one lazy upstream module (909.94 kB raw / 184.5 kB gzip).
+      // All eager and other manual chunks remain below 600 kB; keep this cap measured, not blanket-silenced.
+      chunkSizeWarningLimit: 1024,
       rollupOptions: {
-        input: resolve(__dirname, 'client', 'index.html'),
+        input: resolve(configDir, 'client', 'index.html'),
         output: {
           entryFileNames: 'assets/[name]-[hash].js',
           chunkFileNames: 'assets/[name]-[hash].js',
@@ -46,19 +50,31 @@ export default defineConfig(({ mode }) => {
           // arriba vía import() dinámico) — solo evita que compartan un
           // mismo archivo con librerías no relacionadas.
           manualChunks(id) {
-            if (!id.includes('node_modules')) return undefined;
-            if (/react-router-dom|\/react\/|\/react-dom\//.test(id)) return 'vendor-core';
-            if (/leaflet/.test(id)) return 'vendor-leaflet';
-            if (/xlsx/.test(id)) return 'vendor-xlsx';
-            if (/jspdf/.test(id)) return 'vendor-jspdf';
-            if (/@sentry/.test(id)) return 'vendor-sentry';
-            if (/framer-motion/.test(id)) return 'vendor-motion';
-            if (/mermaid/.test(id)) return 'vendor-mermaid';
-            if (/recharts|d3-/.test(id)) return 'vendor-recharts';
-            if (/posthog-js/.test(id)) return 'vendor-posthog';
-            if (/lucide-react/.test(id)) return 'vendor-icons';
-            if (/dompurify/.test(id)) return 'vendor-dompurify';
-            return 'vendor';
+            const moduleId = id.replaceAll('\\', '/');
+            if (!moduleId.includes('/node_modules/')) return undefined;
+            if (/\/node_modules\/@mermaid-js\/parser\//.test(moduleId)) return 'vendor-mermaid-parser';
+            const mermaidInternal = moduleId.match(/\/node_modules\/mermaid\/dist\/chunks\/mermaid\.core\/([^/]+)\.mjs$/);
+            if (mermaidInternal) return `vendor-mermaid-${mermaidInternal[1]}`;
+            if (/\/node_modules\/mermaid\//.test(moduleId)) return 'vendor-mermaid-core';
+            if (/\/node_modules\/(?:react-router-dom|react|react-dom)\//.test(moduleId)) return 'vendor-core';
+            if (/\/node_modules\/leaflet\//.test(moduleId)) return 'vendor-leaflet';
+            if (/\/node_modules\/xlsx\//.test(moduleId)) return 'vendor-xlsx';
+            if (/\/node_modules\/jspdf(?:-autotable)?\//.test(moduleId)) return 'vendor-jspdf';
+            if (/\/node_modules\/@sentry\//.test(moduleId)) return 'vendor-sentry';
+            if (/\/node_modules\/framer-motion\//.test(moduleId)) return 'vendor-motion';
+            if (/\/node_modules\/recharts\//.test(moduleId)) return 'vendor-recharts';
+            if (/\/node_modules\/posthog-js\//.test(moduleId)) return 'vendor-posthog';
+            if (/\/node_modules\/lucide-react\//.test(moduleId)) return 'vendor-icons';
+            if (/\/node_modules\/dompurify\//.test(moduleId)) return 'vendor-dompurify';
+            if (/\/node_modules\/cytoscape-fcose\//.test(moduleId)) return 'vendor-cytoscape-fcose';
+            if (/\/node_modules\/cytoscape-cose-bilkent\//.test(moduleId)) return 'vendor-cytoscape-cose-bilkent';
+            if (/\/node_modules\/cytoscape\//.test(moduleId)) return 'vendor-cytoscape-core';
+            if (/\/node_modules\/(?:cose-base|layout-base)\//.test(moduleId)) return 'vendor-cytoscape-layout';
+            if (/\/node_modules\/d3(?:-[^/]+)?\//.test(moduleId)) return 'vendor-d3';
+            if (/\/node_modules\/(?:katex|marked|roughjs|dagre-d3-es|dayjs|khroma|stylis|ts-dedent)\//.test(moduleId)) {
+              return `vendor-${moduleId.split('/node_modules/')[1].split('/')[0]}`;
+            }
+            return undefined;
           },
         },
       },
