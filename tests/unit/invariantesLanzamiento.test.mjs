@@ -153,34 +153,80 @@ test('INVARIANTE: las 9 secciones del Expediente tienen vetado el monto, sin exc
 });
 
 // ── Invariante 5: el pipeline de despliegue ejecuta las pruebas ──────────────
-test('INVARIANTE: el job ci de radar.yml corre las pruebas unitarias y el deploy depende de él (H9)', () => {
+// El job se llama `ci-gate` desde el 2026-10-12: el nombre declara su función
+// (es la puerta, no "unas pruebas más"). Si alguien lo renombra otra vez, hay
+// que actualizar también el contexto en la protección de rama de main.
+const JOB_GATE = '\n  ci-gate:';
+
+test('INVARIANTE: el job ci-gate de radar.yml corre las pruebas unitarias y el deploy depende de él (H9)', () => {
   const yml = lf(leer('.github/workflows/radar.yml'));   // lf(): el archivo tiene CRLF
-  assert.match(yml, /run: npm run test:unit/, 'el job ci debe ejecutar npm run test:unit');
-  // El step de pruebas tiene que estar DENTRO del job ci, antes del job deploy.
-  const iCi = yml.indexOf('\n  ci:');
+  assert.match(yml, /run: npm run test:unit/, 'el job ci-gate debe ejecutar npm run test:unit');
+  // El step de pruebas tiene que estar DENTRO del gate, antes del job deploy.
+  const iCi = yml.indexOf(JOB_GATE);
   const iDeploy = yml.indexOf('\n  deploy:');
   const iTest = yml.indexOf('run: npm run test:unit');
-  assert.ok(iCi >= 0 && iDeploy > iCi, 'se esperan los jobs ci y deploy en ese orden');
-  assert.ok(iTest > iCi && iTest < iDeploy, 'npm run test:unit debe estar en el job ci, no después del deploy');
-  assert.match(yml.slice(iDeploy), /needs: ci/, 'el deploy debe depender del job ci');
+  assert.ok(iCi >= 0, 'debe existir el job ci-gate');
+  assert.ok(iDeploy > iCi, 'se esperan los jobs ci-gate y deploy en ese orden');
+  assert.ok(iTest > iCi && iTest < iDeploy, 'npm run test:unit debe estar en el gate, no después del deploy');
+  assert.match(yml.slice(iDeploy), /needs: ci-gate/, 'el deploy debe depender del job ci-gate');
 });
 
-test('INVARIANTE: el job ci corre en los pull requests (un gate que solo mira el merge no es un gate)', () => {
+test('INVARIANTE: el job ci-gate corre en los pull requests (un gate que solo mira el merge no es un gate)', () => {
   const yml = lf(leer('.github/workflows/radar.yml'));
   const iJobs = yml.indexOf('\njobs:');
   const disparadores = yml.slice(0, iJobs);
   assert.match(disparadores, /^\s{2}pull_request:/m,
     'radar.yml debe dispararse en pull_request — si no, test:unit y estos invariantes corren DESPUÉS del merge');
 
-  // Y el job ci no puede excluirse a sí mismo de los PRs con un `if`.
-  const bloqueCi = yml.slice(yml.indexOf('\n  ci:'), yml.indexOf('\n  deploy:'));
+  // Y el gate no puede excluirse a sí mismo de los PRs con un `if`.
+  const bloqueCi = yml.slice(yml.indexOf(JOB_GATE), yml.indexOf('\n  deploy:'));
   assert.doesNotMatch(bloqueCi, /if:.*github\.event_name/,
-    'el job ci no debe filtrar por event_name: eso lo apaga en los PRs');
+    'el job ci-gate no debe filtrar por event_name: eso lo apaga en los PRs');
 
   // Pero el deploy SÍ debe excluirlos: un PR valida, nunca despliega.
   const bloqueDeploy = yml.slice(yml.indexOf('\n  deploy:'));
   assert.match(bloqueDeploy, /if: github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'/,
     'el deploy debe seguir restringido a push/workflow_dispatch — un PR jamás debe desplegar');
+});
+
+// ── Invariante: el smoke test tolera el arranque en frío y falla con motivo ──
+test('INVARIANTE: el smoke test calienta el servicio antes de juzgar, y su timeout cubre el arranque en frío medido', () => {
+  // Causa medida en vivo (2026-09-30 y 2026-10-12): el servicio de Render se
+  // duerme por inactividad y despertó en 28,5 s. Con el tope viejo de 15 s por
+  // petición y sin calentamiento, los checks 1 y 2 fallaban SIEMPRE que el
+  // servicio estuviera dormido, y los 3–6 pasaban: se leía como "producción
+  // rota" cuando era la prueba rindiéndose antes de tiempo.
+  const src = lf(leer('backend/scripts/smokeTest.js'));
+
+  const timeout = Number(src.match(/const TIMEOUT\s*=\s*(\d+)/)?.[1]);
+  assert.ok(Number.isFinite(timeout), 'debe declararse TIMEOUT');
+  assert.ok(timeout >= 30000,
+    `TIMEOUT=${timeout}ms no cubre el arranque en frío medido (28.500ms). Subirlo, no bajarlo.`);
+
+  const warmup = Number(src.match(/const WARMUP_TIMEOUT\s*=\s*(\d+)/)?.[1]);
+  assert.ok(warmup >= 45000, 'el intento despertador debe esperar al menos 45s');
+  assert.ok(Number(src.match(/const WARMUP_INTENTOS\s*=\s*(\d+)/)?.[1]) >= 3, 'al menos 3 reintentos de calentamiento');
+  assert.match(src, /async function calentar\(/, 'debe existir la rutina de calentamiento');
+  assert.match(src, /await calentar\(\)/, 'y debe invocarse antes de la batería de pruebas');
+
+  // Un servicio que no levanta es fallo de INFRAESTRUCTURA, no un defecto de
+  // la app: la distinción tiene que seguir siendo explícita en la salida.
+  assert.match(src, /FALLO DE INFRAESTRUCTURA/, 'el fallo de arranque debe reportarse como infraestructura');
+});
+
+test('INVARIANTE: el smoke test corta de inmediato si falta SMOKE_TEST_TOKEN, con el motivo exacto', () => {
+  // Antes, el secreto ausente aparecía como el check 7 fallido al final de una
+  // corrida de 3 minutos, mezclado con resultados reales: parecía un problema
+  // de producción cuando era un secreto no registrado en GitHub Actions.
+  const src = lf(leer('backend/scripts/smokeTest.js'));
+  assert.match(src, /process\.env\.SMOKE_TEST_TOKEN/, 'debe leer el secreto');
+  assert.match(src, /\[FATAL\] SMOKE_TEST_TOKEN no presente/, 'mensaje explícito exigido');
+  assert.match(src, /process\.exit\(1\)/, 'debe abortar con código 1');
+
+  // Y el workflow tiene que seguir pasándoselo al script.
+  const yml = lf(leer('.github/workflows/radar.yml'));
+  assert.match(yml, /SMOKE_TEST_TOKEN: \$\{\{ secrets\.SMOKE_TEST_TOKEN \}\}/,
+    'radar.yml debe inyectar el secreto en el step del smoke test');
 });
 
 // ── Invariante 6: la guarda local de rama existe (causa de 6f5495d) ──────────

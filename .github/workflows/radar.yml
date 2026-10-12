@@ -36,8 +36,8 @@ on:
 
 jobs:
   # ── CI: Validación TypeScript + Build (bloqueante) ────────────────────────────
-  ci:
-    name: CI — TypeScript + Pruebas + Build
+  ci-gate:
+    name: ci-gate — TypeScript + 331 pruebas + Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -59,7 +59,7 @@ jobs:
       # era solo tsc + build — un cambio que compilaba pero rompía el cobro, el
       # gating de plan o el guardado llegaba a producción sin fricción, aunque
       # las 300+ pruebas unitarias lo detectaran. Ahora son bloqueantes: el job
-      # `deploy` tiene `needs: ci`, así que si esto falla, nada se despliega.
+      # `deploy` tiene `needs: ci-gate`, así que si esto falla, nada se despliega.
       - name: Pruebas unitarias (bloqueante)
         run: npm run test:unit
 
@@ -80,14 +80,14 @@ jobs:
   # ── CD: Deploy a Render (único destino real — Firebase no existe en esta arquitectura) ──
   deploy:
     name: CD — Deploy a Render
-    needs: ci
+    needs: ci-gate
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Trigger Render deploy
         # API oficial de Render (autenticada), no un Deploy Hook. El servicio
         # debe tener autoDeploy=no (render.yaml) para que este paso, gateado
-        # por needs:ci, sea el ÚNICO disparador: nada llega a producción sin
+        # por needs:ci-gate, sea el ÚNICO disparador: nada llega a producción sin
         # que tsc/build pasen.
         run: |
           HTTP_CODE=$(curl -s -o /tmp/render_response.json -w "%{http_code}" -X POST "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
