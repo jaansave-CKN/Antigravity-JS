@@ -50,6 +50,10 @@ tests/test_mcp.cjs
 agents/pmu/circuit_breaker.json
 agents/pmu/circuit_breaker.json.*.tmp
 agents/pmu/circuit_breaker.*.json
+# Caché del descubrimiento de modelos (ADR-0004) y temporales de escritura atómica
+agents/pmu/modelos_descubiertos.json
+agents/pmu/validacion_keys.json
+agents/pmu/*.tmp
 
 # Estado runtime del gate (se regenera en cada aprobación; no se versiona)
 agents/veredicto_*.json

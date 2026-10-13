@@ -2,8 +2,8 @@
 // M1 PIPELINE — planificador → Tavily → síntesis | Antigravity OS v9.0
 // Cache dual: Upstash Redis (primario) + Map en memoria (fallback).
 //
-// 2026-10-04 (orden del dueño, ADR-0003 enmendado): enrutamiento por aptitud
-// sobre el catálogo NIM vía LlmGateway, con Anthropic como respaldo de pago.
+// 2026-10-04: flujo por tareas vía LlmGateway. Desde 2026-10-08 (ADR-0004):
+// Claude primero, Gemini de respaldo, modelos descubiertos por gama.
 // El bucle de tool-calling se reemplazó por un flujo determinístico:
 //   1. PLAN (tarea "rapido"): el modelo propone hasta 3 consultas como JSON;
 //      cada una pasa por TavilyToolInputSchema. Si el plan falla, se busca
@@ -28,6 +28,7 @@ import { dlq, cuarentenaPorFallo } from '../../shared/infrastructure/DeadLetterQ
 import { llamarIA, usoLangfuse, proveedoresConfigurados, PERFILES_TAREA } from '../../shared/infrastructure/LlmGateway.js';
 import ExtraerDatos from '../../../skills/seguridad/Skill_Protocolo_Fuente_Unica.cjs';
 
+const MENSAJE_IA_NO_DISPONIBLE = 'Módulo de IA temporalmente no disponible. Intenta de nuevo más tarde.';
 export const MAX_BUSQUEDAS = 3;
 const PLAN_DEADLINE_MS = 30_000;
 const SINTESIS_DEADLINE_MS = 120_000;
@@ -211,7 +212,7 @@ export async function runM1Pipeline({ query, filters = {}, bypassCache = false, 
         modelo = `${r.proveedor}:${r.modelo}`;
       }
       const result = construirResultado({ query, filters, raw: texto, model: modelo, startMs, key, urlsVistas, dlq });
-      result.meta.engine = 'Plan → Tavily → síntesis (NIM por aptitud; Anthropic de respaldo)';
+      result.meta.engine = 'Plan → Tavily → síntesis (Claude primario; Gemini de respaldo)';
       result.meta.consultas = consultas;
       console.log(`[M1] ✅ ${result.rawTotal} válidas | ${result.rechazadas} en cuarentena | ${result.total} filtradas | ${result.meta.durationMs}ms | ${modelo ?? 'sin síntesis'}`);
       if (esCacheable(result)) await cacheSet(key, result);
@@ -241,8 +242,8 @@ router.get('/status', (_req, res) => {
   const tavilyReady = !!process.env.TAVILY_API_KEY;
   res.json({
     pipeline:    'M1 — plan → Tavily → síntesis v9.1',
-    status:      (ia.nim || ia.anthropic) && tavilyReady ? 'online' : 'degradado',
-    engine:      'NIM por aptitud (Anthropic de respaldo) + Tavily Search API',
+    status:      (ia.anthropic || ia.gemini) && tavilyReady ? 'online' : 'degradado',
+    engine:      'Claude primario (Gemini de respaldo) + Tavily Search API',
     proveedores: ia,
     perfiles:    { rapido: PERFILES_TAREA.rapido, razonamiento: PERFILES_TAREA.razonamiento },
     tavilyReady,
@@ -261,6 +262,9 @@ router.post('/search', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[M1 Router /search]', err.message);
+    // Fallo del proveedor de IA: mensaje neutro (anomalía de 005, 2026-10-12);
+    // el detalle queda en el log, nunca en la respuesta al usuario.
+    if (err?.categoria) return res.status(503).json({ error: MENSAJE_IA_NO_DISPONIBLE });
     res.status(500).json({ error: err.message });
   }
 });
@@ -305,7 +309,7 @@ router.post('/stream', async (req, res) => {
     sse.done();
   } catch (err) {
     console.error('[M1 /stream]', err.message);
-    sse.error(err.message);
+    sse.error(err?.categoria ? MENSAJE_IA_NO_DISPONIBLE : err.message);
   } finally {
     releaseQuery(uid, queryId);
   }

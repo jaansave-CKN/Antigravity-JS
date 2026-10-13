@@ -1,7 +1,7 @@
 {
   "project": "Antigravity OS - agents/ (jerarquía canónica)",
   "version": "4.2.0",
-  "last_migration": "2026-09-25",
+  "last_migration": "2026-10-12",
   "canonical_hierarchy_note": "CORREGIDO 2026-08-13 (auditoría forense §0-Z, docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md): la afirmación anterior de esta nota ('agents/ es la jerarquía OPERATIVA real, ejecutada de verdad') era FALSA, verificado por evidencia directa — 0 imports desde src/ o server.js de cualquier carpeta listada en agent_mappings, y el único agente con log de actividad real (011_Radar1_minero/radar_log.txt) no se actualiza desde 2026-05-16 (3+ meses dormido a la fecha de esta corrección). agents/architecture-gate.cjs SÍ ejecuta código de este directorio (ejecutarTodosLosAgentes(), el batch executor legado), pero solo genera actas de entrega (docs/as-build/) sobre estas carpetas — no corre lógica de negocio de ninguna de ellas, y ese batch tampoco se dispara automáticamente (no está en package.json, render.yaml, ni ningún cron). La jerarquía que SÍ es operativa real hoy es el Sistema C (.claude/agents/001-008, con enforcement técnico vía .git/hooks/pre-commit + .github/workflows/gate.yml) — ver docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md. Historia previa preservada: renombrado 2026-08-08 desde agents/000_Orquestador.cjs (colisión de nombres); renumeración 2026-08-08 movió 000_ORQUESTADOR→001_ORQUESTADOR_MAESTRO, 001_gestor_datos→009_gestor_datos, 002_redactor_tecnico→010_redactor_tecnico, 005_Radar1_minero→011_Radar1_minero, 006_Radar2_Estratega→012_Radar2_Estratega. 4 sistemas de agentes coexisten (A=agents/, B=.agent/ [ya no existe en disco, purgado 2026-08-11], C=.claude/agents/, E=opencode.json).",
   "sync_method": "Glob ampliado: agents/**/skills/**/*.{cjs,js,py} + skills/**/*.{cjs,js,py} (antes solo *.cjs). Punto ciego de extensiones cerrado en Fase 1; poda de entradas huérfanas añadida en Fase 3, 2026-08-04.",
   "agent_mappings": {
@@ -50,73 +50,16 @@
   },
   "transversal_skills_cjs": {
     "location": "./agents/skills/",
-    "skills": [
-      {
-        "id": "Skill_Sync_MCP",
-        "file": "agents/skills/Skill_Sync_MCP.cjs"
-      },
-      {
-        "id": "Skill_Config_Sistema",
-        "file": "agents/skills/Skill_Config_Sistema.cjs"
-      },
-      {
-        "id": "Skill_Config_Honestidad",
-        "file": "agents/skills/Skill_Config_Honestidad.cjs"
-      }
-    ]
+    "skills": []
   },
   "transversal_skills_markdown": {
     "location": "./agents/skills/",
     "sync_note": "Formato SKILL.md (documentación/prompt, no .cjs ejecutable). FASE 3 (Saneamiento, 2026-08-04): eliminadas 'link-analyzer' (dependencia agents/shared/ inexistente, inejecutable), 'design-md' y 'taste-design' (duplicados funcionales de síntesis DESIGN.md — se consolidó en 'stitch-design', que ya cubre ese workflow de forma nativa y además prompt-enhancement/generación de pantallas).",
     "skills": [
-      "api-and-interface-design",
-      "autoguardado-autorecuperacion",
-      "browser-automation",
-      "docker-expert",
-      "docx-official",
-      "enhance-prompt",
-      "find-skills",
-      "humanizer-es",
-      "interface-design",
-      "make-interfaces-feel-better",
-      "nodejs-best-practices",
-      "project-profiler",
-      "react-components",
-      "shadcn-ui",
-      "stitch-design",
-      "stitch-mcp-get-screen"
+      "nodejs-best-practices"
     ]
   },
   "global_skills": [
-    {
-      "id": "Skill_Auditor_Pro",
-      "file": "skills/Skill_integracion_auditoria_pro.cjs"
-    },
-    {
-      "id": "Skill_Business_Rules_Engine",
-      "file": "skills/arquitectura/Skill_datos_reglas_negocio.cjs"
-    },
-    {
-      "id": "Skill_Consultor_Tecnico",
-      "file": "skills/documentacion/Skill_integracion_consultoria.cjs"
-    },
-    {
-      "id": "Skill_Ontologia_MGA",
-      "file": "skills/arquitectura/Skill_datos_ontologia_mga.cjs"
-    },
-    {
-      "id": "Skill_Selector_Metodologia",
-      "file": "skills/arquitectura/Skill_datos_selector_metodologia.cjs"
-    },
-    {
-      "id": "Skill_Project_Formulator",
-      "file": "skills/Skill_datos_formulador_proyectos.cjs"
-    },
-    {
-      "id": "Skill_Bitacora_Sistema",
-      "file": "skills/Skill_Bitacora_Sistema.cjs",
-      "sync_note": "Existía en disco desde antes pero nunca se había registrado en global_skills. Es la única de las 8 con manejo de errores real."
-    },
     {
       "id": "Skill_Ascii_Puro",
       "file": "skills/_quarantine/Skill_integracion_formato_ascii.cjs.disabled",
@@ -132,71 +75,6 @@
     "principle": "Usuario (DISEÑADOR) tiene la última palabra. Decisiones bloqueadas = inamovibles."
   },
   "global_skills_auto_discovered": [
-    {
-      "id": "pack",
-      "file": "agents/skills/docx-official/ooxml/scripts/pack.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "unpack",
-      "file": "agents/skills/docx-official/ooxml/scripts/unpack.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "validate",
-      "file": "agents/skills/docx-official/ooxml/scripts/validate.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "base",
-      "file": "agents/skills/docx-official/ooxml/scripts/validation/base.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "docx",
-      "file": "agents/skills/docx-official/ooxml/scripts/validation/docx.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "pptx",
-      "file": "agents/skills/docx-official/ooxml/scripts/validation/pptx.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "redlining",
-      "file": "agents/skills/docx-official/ooxml/scripts/validation/redlining.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "__init__",
-      "file": "agents/skills/docx-official/ooxml/scripts/validation/__init__.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "document",
-      "file": "agents/skills/docx-official/scripts/document.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "utilities",
-      "file": "agents/skills/docx-official/scripts/utilities.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "__init__",
-      "file": "agents/skills/docx-official/scripts/__init__.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "scan-project",
-      "file": "agents/skills/project-profiler/scripts/scan-project.py",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
-    {
-      "id": "validate",
-      "file": "agents/skills/react-components/scripts/validate.js",
-      "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04."
-    },
     {
       "id": "GitHubProvider",
       "file": "skills/ingenieria/GitHubProvider.js",
@@ -218,5 +96,261 @@
     ],
     "sync_note": "Sistema A legacy movido fuera de agents/ para eliminar la colisión de nombres con .claude/agents/ (Escuadrón Élite real). Sin registro de skills activos: nada en src/, server.js ni package.json los importa. Eliminado físicamente del disco el 2026-09-26 (orden del usuario, directiva PMU Titán V2); los 22 archivos siguen íntegros en el commit ac1721c.",
     "eliminado": "2026-09-26"
+  },
+  "cuarentena_2026_10_12": {
+    "status": "EN_CUARENTENA",
+    "fecha": "2026-10-12",
+    "motivo": "Directiva PMUI (R6): sin ningún invocador real en src/, server.js, agents/*.cjs, scripts/ ni en los agentes de .claude/agents/ — solo existían en este registro. Cuatro además ejecutaban su lógica al ser requeridas (generaban .docx/.txt en el cwd, se caían, o retrocedían last_migration de este archivo); ya llevan guarda require.main === module.",
+    "requisitos_reactivacion": [
+      "Invocador real identificado (código o agente de .claude/agents/ que la cite).",
+      "Contrato tipado de entrada/salida (schema zod o equivalente) validado en runtime.",
+      "Guarda require.main === module y try/catch con exit code != 0 ante fallo.",
+      "Test que pruebe que requerirla no escribe archivos."
+    ],
+    "como_reactivar": "Mover de vuelta a su ruta \"origen\", quitar el sufijo .disabled y reinsertar la entrada en \"seccion_origen\".",
+    "skills": [
+      {
+        "id": "Skill_Sync_MCP",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-cjs/Skill_Sync_MCP.cjs.disabled",
+        "origen": "agents/skills/Skill_Sync_MCP.cjs",
+        "seccion_origen": "transversal_skills_cjs"
+      },
+      {
+        "id": "Skill_Config_Sistema",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-cjs/Skill_Config_Sistema.cjs.disabled",
+        "origen": "agents/skills/Skill_Config_Sistema.cjs",
+        "seccion_origen": "transversal_skills_cjs"
+      },
+      {
+        "id": "Skill_Config_Honestidad",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-cjs/Skill_Config_Honestidad.cjs.disabled",
+        "origen": "agents/skills/Skill_Config_Honestidad.cjs",
+        "seccion_origen": "transversal_skills_cjs"
+      },
+      {
+        "id": "Skill_Auditor_Pro",
+        "file": "skills/_quarantine/2026-10-12/skills/Skill_integracion_auditoria_pro.cjs.disabled",
+        "origen": "skills/Skill_integracion_auditoria_pro.cjs",
+        "seccion_origen": "global_skills"
+      },
+      {
+        "id": "Skill_Business_Rules_Engine",
+        "file": "skills/_quarantine/2026-10-12/skills/arquitectura/Skill_datos_reglas_negocio.cjs.disabled",
+        "origen": "skills/arquitectura/Skill_datos_reglas_negocio.cjs",
+        "seccion_origen": "global_skills"
+      },
+      {
+        "id": "Skill_Consultor_Tecnico",
+        "file": "skills/_quarantine/2026-10-12/skills/documentacion/Skill_integracion_consultoria.cjs.disabled",
+        "origen": "skills/documentacion/Skill_integracion_consultoria.cjs",
+        "seccion_origen": "global_skills"
+      },
+      {
+        "id": "Skill_Ontologia_MGA",
+        "file": "skills/_quarantine/2026-10-12/skills/arquitectura/Skill_datos_ontologia_mga.cjs.disabled",
+        "origen": "skills/arquitectura/Skill_datos_ontologia_mga.cjs",
+        "seccion_origen": "global_skills"
+      },
+      {
+        "id": "Skill_Selector_Metodologia",
+        "file": "skills/_quarantine/2026-10-12/skills/arquitectura/Skill_datos_selector_metodologia.cjs.disabled",
+        "origen": "skills/arquitectura/Skill_datos_selector_metodologia.cjs",
+        "seccion_origen": "global_skills"
+      },
+      {
+        "id": "Skill_Project_Formulator",
+        "file": "skills/_quarantine/2026-10-12/skills/Skill_datos_formulador_proyectos.cjs.disabled",
+        "origen": "skills/Skill_datos_formulador_proyectos.cjs",
+        "seccion_origen": "global_skills"
+      },
+      {
+        "id": "Skill_Bitacora_Sistema",
+        "file": "skills/_quarantine/2026-10-12/skills/Skill_Bitacora_Sistema.cjs.disabled",
+        "sync_note": "Existía en disco desde antes pero nunca se había registrado en global_skills. Es la única de las 8 con manejo de errores real.",
+        "origen": "skills/Skill_Bitacora_Sistema.cjs",
+        "seccion_origen": "global_skills"
+      },
+      {
+        "id": "api-and-interface-design",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/api-and-interface-design/",
+        "origen": "agents/skills/api-and-interface-design/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "autoguardado-autorecuperacion",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/autoguardado-autorecuperacion/",
+        "origen": "agents/skills/autoguardado-autorecuperacion/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "browser-automation",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/browser-automation/",
+        "origen": "agents/skills/browser-automation/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "docker-expert",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docker-expert/",
+        "origen": "agents/skills/docker-expert/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "docx-official",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/",
+        "origen": "agents/skills/docx-official/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "enhance-prompt",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/enhance-prompt/",
+        "origen": "agents/skills/enhance-prompt/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "find-skills",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/find-skills/",
+        "origen": "agents/skills/find-skills/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "humanizer-es",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/humanizer-es/",
+        "origen": "agents/skills/humanizer-es/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "interface-design",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/interface-design/",
+        "origen": "agents/skills/interface-design/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "make-interfaces-feel-better",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/make-interfaces-feel-better/",
+        "origen": "agents/skills/make-interfaces-feel-better/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "project-profiler",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/project-profiler/",
+        "origen": "agents/skills/project-profiler/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "react-components",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/react-components/",
+        "origen": "agents/skills/react-components/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "shadcn-ui",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/shadcn-ui/",
+        "origen": "agents/skills/shadcn-ui/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "stitch-design",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/stitch-design/",
+        "origen": "agents/skills/stitch-design/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "stitch-mcp-get-screen",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/stitch-mcp-get-screen/",
+        "origen": "agents/skills/stitch-mcp-get-screen/",
+        "seccion_origen": "transversal_skills_markdown"
+      },
+      {
+        "id": "pack",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/ooxml/scripts/pack.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/docx-official/ooxml/scripts/pack.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "unpack",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/ooxml/scripts/unpack.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/docx-official/ooxml/scripts/unpack.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "validate",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/ooxml/scripts/validate.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/docx-official/ooxml/scripts/validate.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "base",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/ooxml/scripts/validation/base.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/docx-official/ooxml/scripts/validation/base.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "docx",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/ooxml/scripts/validation/docx.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/docx-official/ooxml/scripts/validation/docx.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "pptx",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/ooxml/scripts/validation/pptx.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/docx-official/ooxml/scripts/validation/pptx.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "redlining",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/ooxml/scripts/validation/redlining.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/docx-official/ooxml/scripts/validation/redlining.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "__init__",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/ooxml/scripts/validation/__init__.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/docx-official/ooxml/scripts/validation/__init__.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "document",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/scripts/document.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/docx-official/scripts/document.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "utilities",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/scripts/utilities.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/docx-official/scripts/utilities.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "__init__",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/docx-official/scripts/__init__.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/docx-official/scripts/__init__.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "scan-project",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/project-profiler/scripts/scan-project.py",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/project-profiler/scripts/scan-project.py",
+        "seccion_origen": "global_skills_auto_discovered"
+      },
+      {
+        "id": "validate",
+        "file": "skills/_quarantine/2026-10-12/agents-skills-md/react-components/scripts/validate.js",
+        "sync_note": "Detectado por el escaneo ampliado (.cjs+.js+.py) — Fase 1 \"Visibilidad y Censo\", 2026-08-04.",
+        "origen": "agents/skills/react-components/scripts/validate.js",
+        "seccion_origen": "global_skills_auto_discovered"
+      }
+    ]
   }
 }

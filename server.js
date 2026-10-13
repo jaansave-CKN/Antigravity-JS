@@ -34,8 +34,8 @@ initSentry();
 initLangfuse();
 
 // ── Configuración central ─────────────────────────────────────────────────────
-// IA por aptitud (2026-10-04, ADR-0003 enmendado): toda llamada pasa por
-// LlmGateway — cadena NIM por tarea, Anthropic (PRIMARY_AI_MODEL) de respaldo.
+// IA (ADR-0004, 2026-10-08): toda llamada pasa por LlmGateway — Claude
+// primero, Gemini de respaldo, modelos descubiertos por gama y recencia.
 const PORT         = process.env.PORT || 5000;
 
 const __filename = fileURLToPath(import.meta.url);
@@ -194,9 +194,9 @@ app.get('/api/convocatorias', (_req, res) => {
   res.json(radarData);
 });
 
-// IA Central — proxy de texto (formato OpenAI-compatible). Desde 2026-10-04
-// pasa por LlmGateway (tarea "rapido": NIM por aptitud, Anthropic de
-// respaldo). Lo usa AGT-052 (callAI). Un turno: system + transcripción.
+// IA Central — proxy de texto (formato OpenAI-compatible). Pasa por
+// LlmGateway (tarea "rapido": Claude primero, Gemini de respaldo; ADR-0004).
+// Lo usa AGT-052 (callAI). Un turno: system + transcripción.
 app.post('/api/chat', validateBody(schemas.chat), async (req, res) => {
   const t0 = Date.now();
   try {
@@ -227,9 +227,12 @@ app.post('/api/chat', validateBody(schemas.chat), async (req, res) => {
     // poder atribuir consumo de IA a un usuario.
     AuditLogger.log('IA_CHAT_ERROR', { uid: req.user?.uid ?? null, codigo: err?.codigo ?? null, error: err.message });
     trackGeneration({ traceId: crypto.randomUUID(), name: 'api-chat', userId: req.user?.uid, model: null, error: err });
-    // Sin proveedor disponible (cuota, caída o sin keys): mensaje neutro, sin
-    // filtrar detalle de cuentas al usuario final; el log conserva el detalle.
-    if (['cuota', 'caida', 'config'].includes(err?.categoria)) {
+    // Cualquier fallo del proveedor de IA (todo ErrorProveedor trae categoria:
+    // cuota, caida, config, auth, politica, solicitud): mensaje neutro, sin
+    // filtrar detalle de cuentas ni de la cadena al usuario final; el log y la
+    // auditoría conservan el detalle (anomalía de 005, 2026-10-12 — antes
+    // auth/politica/solicitud salían con err.message y 500).
+    if (err?.categoria) {
       return res.status(503).json({ error: 'Módulo de IA temporalmente no disponible. Intenta de nuevo más tarde.' });
     }
     res.status(500).json({ error: err.message });
@@ -337,8 +340,8 @@ async function pingIA() {
 
   let result;
   const ia = proveedoresConfigurados();
-  if (!ia.nim && !ia.anthropic) {
-    result = { ok: false, label: '⚠️  sin proveedor de IA (NVIDIA_API_KEY / ANTHROPIC_API_KEY ausentes)', modelo: null };
+  if (!ia.anthropic && !ia.gemini) {
+    result = { ok: false, label: 'IA no configurada (sin ANTHROPIC_API_KEY ni GEMINI_API_KEY)', modelo: null };
   } else {
     try {
       const r = await llamarIA({ system: 'Responde exactamente con la palabra OK.', user: 'ping', max_tokens: 256 }, { tarea: 'rapido', deadlineMs: 30_000 });
@@ -562,15 +565,14 @@ setInterval(refreshRadarLive, RADAR_CRON_HOURS * 60 * 60 * 1000);
 // ── Arranque ──────────────────────────────────────────────────────────────────
 httpServer.listen(PORT, () => {
   const ia       = proveedoresConfigurados();
-  const claudeOk = ia.anthropic;
   const dbOk     = !!process.env.DATABASE_URL;
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('  Antigravity OS — Backend Express v9.0');
-  console.log('  Motor de IA: NIM por aptitud · Anthropic de respaldo (LlmGateway)');
+  console.log('  Motor de IA: Claude primario · Gemini de respaldo (LlmGateway, ADR-0004)');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`  Puerto      : http://localhost:${PORT}`);
-  console.log(`  NVIDIA NIM  : ${ia.nim ? '✅ Configurada' : '⚠️  NVIDIA_API_KEY ausente'}`);
-  console.log(`  Anthropic   : ${claudeOk ? '✅ Configurada (respaldo)' : '⚠️  ANTHROPIC_API_KEY ausente'}`);
+  console.log(`  Claude      : ${ia.anthropic ? '✅ Configurada (primario)' : '— sin key'}`);
+  console.log(`  Gemini      : ${ia.gemini ? '✅ Configurada (respaldo)' : '— sin key'}`);
   console.log(`  Database    : ${dbOk     ? '✅ Definida'    : '⚠️  Sin credenciales PostgreSQL'}`);
   console.log(`  Firebase    : ✅ Inicializado`);
   console.log(`  WebSocket   : ✅ ws://localhost:${PORT}/ws/live_radar`);

@@ -30,5 +30,10 @@ function auditarProyecto(archivoWordGenerado, datosOriginales) {
     }
 }
 
-const texto = process.argv[2] || "";
-auditarProyecto("borrador.docx", texto);
+// Guarda 2026-10-12 (H7, auditoría cruzada 008): solo corre invocado con node.
+if (require.main === module) {
+    const texto = process.argv[2] || "";
+    auditarProyecto("borrador.docx", texto);
+}
+
+module.exports = { auditarProyecto };

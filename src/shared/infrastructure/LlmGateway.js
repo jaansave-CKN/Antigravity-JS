@@ -1,13 +1,15 @@
 // =============================================================================
 // LlmGateway.js — puerta única de IA de la aplicación RadFor-360 (M1, AGT-052
-// vía /api/chat, health). Orden del dueño 2026-10-04 (ADR-0003 enmendado):
-// enrutamiento por aptitud sobre el catálogo NIM, con Anthropic al final como
-// respaldo de pago si hay ANTHROPIC_API_KEY.
+// vía /api/chat, health). ADR-0004 (2026-10-08): Claude primero en toda
+// tarea, Gemini como único respaldo; los modelos se descubren en el catálogo
+// de cada proveedor y se eligen por gama y recencia según la tarea, sin
+// nombres quemados en el código.
 //
 // Reutiliza la capa del gate (agents/gate-proveedor.cjs): mismos contratos de
 // error, contención <15 s de primer byte por eslabón, breakers por modelo y
-// FinOps (uso real o estimado + costo en COP). Breakers propios de la app en
-// LLM_BREAKER_DIR (por defecto logs/llm/, no versionado), separados del gate.
+// FinOps (uso real + costo en COP). Breakers y caché del descubrimiento de la
+// app en LLM_BREAKER_DIR (por defecto logs/llm/, no versionado), separados
+// del gate.
 // =============================================================================
 
 import path from 'node:path';
@@ -24,17 +26,24 @@ export const PRIMER_BYTE_APP_MS = 15_000;
 
 export const { ErrorProveedor, PERFILES_TAREA } = proveedor;
 
+const dirLlm = (env) => env.LLM_BREAKER_DIR || DIR_BREAKERS_DEFAULT;
+
 export function rutaBreaker(tarea, env = process.env) {
-  return path.join(env.LLM_BREAKER_DIR || DIR_BREAKERS_DEFAULT, `cb_${tarea}.json`);
+  return path.join(dirLlm(env), `cb_${tarea}.json`);
+}
+
+export function rutaCacheModelos(env = process.env) {
+  return path.join(dirLlm(env), 'modelos_descubiertos.json');
 }
 
 // mensaje: { system, user, max_tokens }. Devuelve { texto, uso, costo,
 // proveedor, modelo, failover, ... } o lanza ErrorProveedor.
 export async function llamarIA(mensaje, { tarea, deadlineMs, env = process.env } = {}) {
-  return proveedor.llamarPorTarea(mensaje, {
+  return proveedor.llamarModelo(mensaje, {
     tarea, env, deadlineMs,
     primerByteMs: PRIMER_BYTE_APP_MS,
     breakerPath: rutaBreaker(tarea, env),
+    cachePath: rutaCacheModelos(env),
   });
 }
 
@@ -43,10 +52,8 @@ export function usoLangfuse(r) {
   return r?.uso ? { input_tokens: r.uso.prompt_tokens ?? null, output_tokens: r.uso.completion_tokens ?? null } : undefined;
 }
 
-// Proveedores configurados (para /status y /api/health), sin exponer keys.
+// Familias con key (para /status y /api/health), sin exponer keys:
+// { anthropic: bool, gemini: bool }.
 export function proveedoresConfigurados(env = process.env) {
-  return {
-    nim: Boolean(String(env.NVIDIA_API_KEY ?? '').trim()),
-    anthropic: Boolean(String(env.ANTHROPIC_API_KEY ?? '').trim()),
-  };
+  return proveedor.proveedoresConKey(env);
 }

@@ -17,18 +17,14 @@ services:
         value: 10000
 
       # ── IA — requeridos ────────────────────────────────────────────────────
-      # ADR-0003 enmendado (2026-10-04): IA por aptitud sobre el catálogo NIM
-      # (LlmGateway) con Anthropic como respaldo de pago. Riesgo aceptado por el
-      # dueño: los términos de NVIDIA reservan los endpoints gratuitos a
-      # desarrollo/pruebas. Usar una key de NVIDIA distinta a la del gate de
-      # desarrollo: el límite de tasa es por key.
-      - key: NVIDIA_API_KEY
-        sync: false
-      # Respaldo de pago (opcional): sin esta key la app depende solo de NIM.
+      # ADR-0004 (2026-10-08): Claude primario obligatorio, Gemini único
+      # respaldo (LlmGateway). Los modelos se descubren solos por gama y
+      # recencia; LLM_MODELOS_CLAUDE / LLM_MODELOS_GEMINI los fijan si hace
+      # falta. La key de Gemini debe ser de un proyecto con facturación activa.
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: PRIMARY_AI_MODEL
-        value: claude-sonnet-4-6
+      - key: GEMINI_API_KEY
+        sync: false
       - key: TAVILY_API_KEY
         sync: false
 

@@ -42,5 +42,21 @@ DOCUMENTO PRELIMINAR PARA CONSULTORÍA TÉCNICA
     console.log(entrega);
 }
 
-const input = process.argv.slice(2).join(" ");
-formularProyecto(input);
+// Guarda 2026-10-12 (directiva PMUI, R6): importar este módulo ya no ejecuta
+// nada ni escribe archivos — solo corre invocado directamente con node.
+if (require.main === module) {
+    const input = process.argv.slice(2).join(" ");
+    if (!input.trim()) {
+        console.error('🛑 Uso: node Skill_datos_formulador_proyectos.cjs "<datos del proyecto>"');
+        process.exitCode = 1;
+    } else {
+        try {
+            formularProyecto(input);
+        } catch (e) {
+            console.error(`🛑 Skill_datos_formulador_proyectos falló: ${e.message}`);
+            process.exitCode = 1;
+        }
+    }
+}
+
+module.exports = { formularProyecto };

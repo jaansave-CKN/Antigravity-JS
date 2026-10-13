@@ -23,5 +23,21 @@ function configurarMetodologia(formato, sector, problema) {
     console.log("✅ Guía Metodológica generada para el Agente 00.");
 }
 
-const args = process.argv.slice(2);
-configurarMetodologia(args[0], args[1], args[2]);
+// Guarda 2026-10-12 (directiva PMUI, R6): importar este módulo ya no ejecuta
+// nada ni escribe archivos — solo corre invocado directamente con node.
+if (require.main === module) {
+    const [formato, sector, problema] = process.argv.slice(2);
+    if (!formato || !sector || !problema) {
+        console.error('🛑 Uso: node Skill_datos_selector_metodologia.cjs "<MGA|Marco Lógico>" "<sector>" "<problema>"');
+        process.exitCode = 1;
+    } else {
+        try {
+            configurarMetodologia(formato, sector, problema);
+        } catch (e) {
+            console.error(`🛑 Skill_datos_selector_metodologia falló: ${e.message}`);
+            process.exitCode = 1;
+        }
+    }
+}
+
+module.exports = { configurarMetodologia };

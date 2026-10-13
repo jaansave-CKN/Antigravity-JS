@@ -14,6 +14,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// Sandbox de estado ANTES de requerir el gate (R3/R4, 2026-10-12): firma de
+// 002, veredictos y PMU viven en un directorio temporal; agents/ real no se
+// escribe nunca desde esta suite (invariante verificado al final del archivo).
+const { prepararSandboxEstado, huellaEstadoReal } = require('../tests/gate/sandbox-estado.cjs');
+const SANDBOX = prepararSandboxEstado();
+
 const {
   hashArchivo, hashEstado, validarDisenoAprobado, listarCarpetasAgentes, rutear, evidenciaE2E, diferimientoEnMandato,
   SUBGATES, archivosRelevantesPara, validarSubgate,
@@ -27,7 +33,7 @@ const {
   clasificarFalloApi, resolverPermisoSoftFail, construirRegistroSoftFail,
 } = require('../agents/architecture-gate.cjs');
 
-const TELEMETRIA_PATH_REAL = path.join(__dirname, '..', 'agents', 'pmu', 'telemetria.jsonl');
+const TELEMETRIA_PATH_SANDBOX = path.join(SANDBOX.dir, 'pmu', 'telemetria.jsonl');
 
 function crearFixture() {
   const dirTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-test-'));
@@ -221,7 +227,7 @@ test('validarSubgate: no aplica (aprobado=true) si el commit no toca nada releva
 // justamente este mecanismo se implementó editando ese archivo).
 test('validarSubgate: un diferimiento real de 002 (diseno_aprobado.json vigente + diferimientos[]) satisface el subgate sin que el propio agente lo haya aprobado', () => {
   const path = require('path');
-  const aprobacionPath = path.join(__dirname, '..', 'agents', 'diseno_aprobado.json');
+  const aprobacionPath = path.join(SANDBOX.dir, 'diseno_aprobado.json');
   const original = fs.readFileSync(aprobacionPath, 'utf8');
   try {
     const firmaVigente = hashEstado(listarCarpetasAgentes());
@@ -250,7 +256,7 @@ test('validarSubgate: un diferimiento real de 002 (diseno_aprobado.json vigente 
 
 test('validarSubgate: un diferimiento con justificación AJENA al mandato (caso real 002→005 citando render.yaml) se ignora y el subgate exige su veredicto', () => {
   const path = require('path');
-  const aprobacionPath = path.join(__dirname, '..', 'agents', 'diseno_aprobado.json');
+  const aprobacionPath = path.join(SANDBOX.dir, 'diseno_aprobado.json');
   const veredicto005 = SUBGATES['005_INGENIERO_BACKEND'].veredictoPath;
   const original = fs.readFileSync(aprobacionPath, 'utf8');
   const original005 = fs.existsSync(veredicto005) ? fs.readFileSync(veredicto005, 'utf8') : null;
@@ -282,7 +288,7 @@ test('diferimientoEnMandato: solo cuenta la cita exacta de un archivo staged del
 
 test('validarSubgate: un diferimiento para OTRO subgate distinto no satisface este', () => {
   const path = require('path');
-  const aprobacionPath = path.join(__dirname, '..', 'agents', 'diseno_aprobado.json');
+  const aprobacionPath = path.join(SANDBOX.dir, 'diseno_aprobado.json');
   const original = fs.readFileSync(aprobacionPath, 'utf8');
   try {
     const firmaVigente = hashEstado(listarCarpetasAgentes());
@@ -347,7 +353,9 @@ test('generarEstadoOperativo: expone "alertas_activas" como arreglo, combinando 
     assert.ok(tiposValidos.includes(alerta.tipo), `tipo de alerta inesperado: ${alerta.tipo}`);
   }
   assert.ok(Array.isArray(estado.alertas_criticas_proveedor), 'alertas_criticas_proveedor debe existir siempre');
-  assert.ok(estado.proveedor_ia && estado.proveedor_ia.circuit_breaker, 'proveedor_ia.circuit_breaker debe existir');
+  // ADR-0004: familias Claude (primario) y Gemini (respaldo), breakers por modelo.
+  assert.ok(estado.proveedor_ia && Array.isArray(estado.proveedor_ia.circuit_breakers), 'proveedor_ia.circuit_breakers debe existir');
+  assert.deepEqual(estado.proveedor_ia.familias.map(f => [f.proveedor, f.rol]), [['anthropic', 'primario'], ['gemini', 'respaldo']]);
   // Formato real de key, no la subcadena (2026-10-04): el PMU incluye
   // veredictos reales y 006 citó en prosa "'nvapi-'" al comentar este mismo
   // test — mencionar el prefijo no es fugar una credencial.
@@ -387,6 +395,23 @@ test('escanearSecretos: un archivo committeado normal (package.json) no da falso
 test('verificarEnvExample: .env.example existe y cubre todas las variables de .env (generado 2026-08-12)', () => {
   const resultado = verificarEnvExample();
   assert.equal(resultado.ok, true, resultado.razon);
+});
+
+test('verificarEnvExample: variables de proveedores retirados (ADR-0004) en .env no bloquean; se informan para borrarlas', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'envex-'));
+  const env = path.join(dir, '.env');
+  const ejemplo = path.join(dir, '.env.example');
+  fs.writeFileSync(ejemplo, 'ANTHROPIC_API_KEY=\nGEMINI_API_KEY=\n');
+  fs.writeFileSync(env, 'ANTHROPIC_API_KEY=x\nNVIDIA_API_KEY=y\nGROQ_API_KEY=z\nOPENROUTER_API_KEY=w\n');
+  const r = verificarEnvExample(env, ejemplo);
+  assert.equal(r.ok, true);
+  assert.match(r.razon, /retiradas \(ADR-0004\).*NVIDIA_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY/);
+  assert.ok(!r.razon.includes('=y') && !r.razon.includes('=z'), 'solo nombres, nunca valores');
+  fs.writeFileSync(env, 'ANTHROPIC_API_KEY=x\nNUEVA_SIN_DOCUMENTAR=1\n');
+  const falta = verificarEnvExample(env, ejemplo);
+  assert.equal(falta.ok, false, 'una variable vigente sin documentar sigue bloqueando');
+  assert.match(falta.razon, /NUEVA_SIN_DOCUMENTAR/);
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('bucketDe: prioriza .claude/agents/ y código de gate sobre lockfiles/artefactos generados (regresión 2026-08-13)', () => {
@@ -542,34 +567,34 @@ test('bucketDe: fichas de agentes de dominio (IDENTITY/PERMISSIONS) antes que do
 test('analizarTelemetriaPMU: detecta 3+ rechazos consecutivos de un mismo subsistema (vigilancia activa 2026-08-13)', () => {
   // Opera sobre el archivo real (leerTelemetria() no es inyectable sin
   // refactorizar el módulo) — append + restore exacto para no dejar rastro.
-  const original = fs.existsSync(TELEMETRIA_PATH_REAL) ? fs.readFileSync(TELEMETRIA_PATH_REAL, 'utf8') : null;
+  const original = fs.existsSync(TELEMETRIA_PATH_SANDBOX) ? fs.readFileSync(TELEMETRIA_PATH_SANDBOX, 'utf8') : null;
   const subsistemaFalso = '999_TEST_FICTICIO_NO_REAL';
   const lineasFalsas = [1, 2, 3].map(n => JSON.stringify({
     timestamp: new Date().toISOString(), tipo: 'check-gate', subsistema: subsistemaFalso, resultado: 'rechazado', razon: `fallo de prueba ${n}`,
   })).join('\n') + '\n';
   try {
-    fs.appendFileSync(TELEMETRIA_PATH_REAL, lineasFalsas, 'utf8');
+    fs.appendFileSync(TELEMETRIA_PATH_SANDBOX, lineasFalsas, 'utf8');
     const alertas = analizarTelemetriaPMU();
     const alerta = alertas.find(a => a.subsistema === subsistemaFalso);
     assert.ok(alerta, 'debe detectar el patrón de 3 rechazos consecutivos inyectado');
     assert.equal(alerta.cantidad, 3);
   } finally {
-    if (original !== null) fs.writeFileSync(TELEMETRIA_PATH_REAL, original, 'utf8');
-    else fs.rmSync(TELEMETRIA_PATH_REAL, { force: true });
+    if (original !== null) fs.writeFileSync(TELEMETRIA_PATH_SANDBOX, original, 'utf8');
+    else fs.rmSync(TELEMETRIA_PATH_SANDBOX, { force: true });
   }
 });
 
 test('analizarTelemetriaPMU: sin patrón de rechazo, no genera alerta para un subsistema sano', () => {
-  const original = fs.existsSync(TELEMETRIA_PATH_REAL) ? fs.readFileSync(TELEMETRIA_PATH_REAL, 'utf8') : null;
+  const original = fs.existsSync(TELEMETRIA_PATH_SANDBOX) ? fs.readFileSync(TELEMETRIA_PATH_SANDBOX, 'utf8') : null;
   const subsistemaFalso = '999_TEST_SANO_NO_REAL';
   const linea = JSON.stringify({ timestamp: new Date().toISOString(), tipo: 'check-gate', subsistema: subsistemaFalso, resultado: 'aprobado' }) + '\n';
   try {
-    fs.appendFileSync(TELEMETRIA_PATH_REAL, linea, 'utf8');
+    fs.appendFileSync(TELEMETRIA_PATH_SANDBOX, linea, 'utf8');
     const alertas = analizarTelemetriaPMU();
     assert.ok(!alertas.some(a => a.subsistema === subsistemaFalso));
   } finally {
-    if (original !== null) fs.writeFileSync(TELEMETRIA_PATH_REAL, original, 'utf8');
-    else fs.rmSync(TELEMETRIA_PATH_REAL, { force: true });
+    if (original !== null) fs.writeFileSync(TELEMETRIA_PATH_SANDBOX, original, 'utf8');
+    else fs.rmSync(TELEMETRIA_PATH_SANDBOX, { force: true });
   }
 });
 
@@ -764,19 +789,52 @@ test('validarFormaVeredicto: 005 con estado_backend fuera del enum real (aislado
   assert.equal(r.ok, false);
 });
 
-test('validarFormaVeredicto: agente sin contrato declarado en VEREDICTO_SCHEMAS no bloquea (compatibilidad)', () => {
-  const r = validarFormaVeredicto('999_AGENTE_INEXISTENTE', { cualquier_cosa: true });
-  assert.equal(r.ok, true);
+// Fail-closed desde 2026-10-12 (directiva PMUI): antes un agente sin
+// contrato pasaba sin validar forma ("compatibilidad").
+test('validarFormaVeredicto: agente sin contrato declarado en VEREDICTO_SCHEMAS se RECHAZA (fail-closed)', () => {
+  const r = validarFormaVeredicto('999_AGENTE_INEXISTENTE', { cualquier_cosa: true, aprobado: true });
+  assert.equal(r.ok, false);
+  assert.match(r.razon, /fail-closed/);
 });
 
 // 010 agregado 2026-09-26 (PMU Titán V2): era el único subgate sin contrato.
-test('VEREDICTO_SCHEMAS: cubre exactamente los agentes con veredicto JSON real hoy (002 + subgates 003/004/005/006/009/010)', () => {
+// 007 agregado 2026-10-12 (directiva PMUI, Fase 4).
+test('VEREDICTO_SCHEMAS: cubre exactamente los agentes con veredicto JSON real hoy (002 + subgates 003/004/005/006/007/009/010)', () => {
   const claves = Object.keys(VEREDICTO_SCHEMAS).sort();
   assert.deepEqual(claves, [
     '002_ARQUITECTO_DE_SOFTWARE', '003_ESP_DISENO_STITCH', '004_SENTINELA_FRONTEND',
-    '005_INGENIERO_BACKEND', '006_DEVSECOPS_INFRAESTRUCTURA', '009_INGENIERO_FRONTEND',
-    '010_INGENIERO_QA_AUTOMATIZACION',
+    '005_INGENIERO_BACKEND', '006_DEVSECOPS_INFRAESTRUCTURA', '007_DOCUMENTADOR_AS_BUILD',
+    '009_INGENIERO_FRONTEND', '010_INGENIERO_QA_AUTOMATIZACION',
   ].sort());
+});
+
+// Invariante del fail-closed: un subgate registrado (manual o por
+// frontmatter) sin contrato nunca podría aprobar — se detecta aquí, no en
+// el primer commit bloqueado.
+test('SUBGATES: todo subgate registrado tiene contrato en VEREDICTO_SCHEMAS', () => {
+  asegurarSubgatesAutoDescubiertos();
+  const sinContrato = Object.keys(SUBGATES).filter(id => !VEREDICTO_SCHEMAS[id]);
+  assert.deepEqual(sinContrato, []);
+});
+
+test('007 subgate: auto-registrado desde su frontmatter sobre su documento exclusivo, campo "documentado"', () => {
+  asegurarSubgatesAutoDescubiertos();
+  const cfg = SUBGATES['007_DOCUMENTADOR_AS_BUILD'];
+  assert.ok(cfg, '007 debe tener subgate');
+  assert.equal(cfg.campoAprobado, 'documentado');
+  assert.deepEqual(archivosRelevantesPara('007_DOCUMENTADOR_AS_BUILD', ['docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md', 'docs/ADR/ADR-0004.md', 'server.js']), ['docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md']);
+  const ok = validarFormaVeredicto('007_DOCUMENTADOR_AS_BUILD', { documentado: true, artefactos: [{ archivo: 'docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY.md', seccion: '§0-AO', resumen: 'x' }], hallazgos_financieros_o_idempotencia: [] });
+  assert.equal(ok.ok, true);
+  assert.equal(validarFormaVeredicto('007_DOCUMENTADOR_AS_BUILD', { documentado: true }).ok, false, 'sin artefactos no hay documentación válida');
+});
+
+test('008: sin Bash ni Write/Edit — solo lectura en el PMU (directiva PMUI, Fase 4)', () => {
+  const meta = leerFrontmatterAgente(path.join(__dirname, '..', '.claude', 'agents', '008-auditor-de-codigo.md'));
+  const tools = meta.tools;
+  assert.ok(tools.length > 0, 'precondición: 008 declara tools');
+  assert.ok(!tools.includes('Bash') && !tools.includes('Write') && !tools.includes('Edit'), `tools de 008: ${tools.join(', ')}`);
+  const ocho = generarEstadoOperativo().agentes.find(a => a.archivo.includes('008-auditor-de-codigo'));
+  assert.equal(ocho.permiso_escritura, false);
 });
 
 test('validarFormaVeredicto: 002 sin diferimientos es válido (default vacío, compatibilidad con veredictos previos)', () => {
@@ -871,7 +929,7 @@ test('ORIGENES_VALIDOS: expone exactamente api_directa, excepcion_manual y soft_
 // mutación del archivo real con try/finally que el resto de este archivo.
 test('validarDisenoAprobado: veredicto con firma/hash correctos pero SIN "origen" es RECHAZADO (regresión de la brecha real)', () => {
   const path = require('path');
-  const aprobacionPath = path.join(__dirname, '..', 'agents', 'diseno_aprobado.json');
+  const aprobacionPath = path.join(SANDBOX.dir, 'diseno_aprobado.json');
   const original = fs.readFileSync(aprobacionPath, 'utf8');
   try {
     const firmaVigente = hashEstado(listarCarpetasAgentes());
@@ -961,7 +1019,9 @@ test('clasificarFalloApi: 402, 429, 529, 5xx, 400 "credit balance is too low" y 
   assert.equal(clasificarFalloApi(errorApi(429, 'rate limited')).codigo, 'http_429_rate_limit');
   assert.equal(clasificarFalloApi(errorApi(529, 'overloaded')).codigo, 'http_529_sobrecargada');
   assert.equal(clasificarFalloApi(errorApi(503, 'unavailable')).codigo, 'http_503');
-  assert.equal(clasificarFalloApi(new Anthropic.APIConnectionTimeoutError()).codigo, 'sin_respuesta');
+  // Sin conexión: la capa de proveedor (fetch, ADR-0004) ya lo clasifica como caída.
+  const { ErrorProveedor } = require('../agents/gate-proveedor.cjs');
+  assert.equal(clasificarFalloApi(new ErrorProveedor({ codigo: 'sin_respuesta', categoria: 'caida' })).codigo, 'sin_respuesta');
   assert.equal(clasificarFalloApi(errorApi(402, 'x')).request_id, 'req_test');
 });
 
@@ -991,12 +1051,14 @@ test('resolverPermisoSoftFail: flag + --autorizado-por, o env completo, SÍ est�
   assert.equal(porEnv.via, 'env');
 });
 
-test('resolverPermisoSoftFail: ANTHROPIC_BASE_URL no oficial lo DESHABILITA aunque haya opt-in', () => {
-  const env = { GATE_SOFT_FAIL: 'true', GATE_SOFT_FAIL_AUTORIZADO_POR: 'Jairo', ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' };
-  const r = resolverPermisoSoftFail(['node', 'gate'], env);
-  assert.equal(r.permitido, false);
-  assert.match(r.razon, /ANTHROPIC_BASE_URL/);
-  assert.equal(resolverPermisoSoftFail(['node', 'gate'], { ...env, ANTHROPIC_BASE_URL: 'https://api.anthropic.com/' }).permitido, true);
+test('URL base fijas (ADR-0004): ANTHROPIC_BASE_URL u otra variable no redirige la key ni el diff a otro host', () => {
+  const P = require('../agents/gate-proveedor.cjs');
+  const hostil = { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', GEMINI_BASE_URL: 'http://127.0.0.1:9', ANTHROPIC_API_KEY: 'sk-ant-' + 'x'.repeat(30), GEMINI_API_KEY: 'AIza' + 'y'.repeat(35) };
+  assert.equal(P.configModelo('anthropic', 'claude-x', hostil).baseUrl, 'https://api.anthropic.com/v1');
+  assert.equal(P.configModelo('gemini', 'gemini-x', hostil).baseUrl, 'https://generativelanguage.googleapis.com/v1beta');
+  assert.ok(Object.isFrozen(P.BASE_URLS));
+  // Sin vector de redirección, el soft-fail con opt-in no depende de la base URL.
+  assert.equal(resolverPermisoSoftFail(['node', 'gate'], { GATE_SOFT_FAIL: 'true', GATE_SOFT_FAIL_AUTORIZADO_POR: 'Jairo', ...hostil }).permitido, true);
 });
 
 test('validarOrigenVeredicto: soft_fail_api completo es aceptado; sin autorizado_por o con diferimientos es RECHAZADO', () => {
@@ -1010,7 +1072,7 @@ test('validarOrigenVeredicto: soft_fail_api completo es aceptado; sin autorizado
 });
 
 test('validarDisenoAprobado: soft_fail_api con firma vigente aprueba con diferimientos [] y se invalida si el estado cambia', () => {
-  const aprobacionPath = path.join(__dirname, '..', 'agents', 'diseno_aprobado.json');
+  const aprobacionPath = path.join(SANDBOX.dir, 'diseno_aprobado.json');
   const original = fs.existsSync(aprobacionPath) ? fs.readFileSync(aprobacionPath, 'utf8') : null;
   try {
     const permiso = { autorizadoPor: 'Jairo', via: 'env' };
@@ -1049,4 +1111,57 @@ test('evidenciaE2E (010): adjunta la última corrida real de Playwright y si es 
 
   assert.equal(evidencia(evidenciaE2E(spec, path.join(dir, 'no-existe.json'))).status, 'sin_evidencia');
   assert.match(evidenciaE2E(spec, ruta), /"pass" solo si status es "passed" y posterior_a_specs_staged es true/);
+});
+
+// ---------------------------------------------------------------------------
+// R3/R4 (2026-10-12, directiva PMUI) — aislamiento del estado del gate
+// ---------------------------------------------------------------------------
+
+test('R3/R4: con GATE_ESTADO_DIR, toda ruta de estado del gate (firma, veredictos, breakers, PMU) vive en el sandbox', () => {
+  const { RUTAS_ESTADO } = require('../agents/architecture-gate.cjs');
+  asegurarSubgatesAutoDescubiertos();
+  const rutas = [...Object.values(RUTAS_ESTADO), ...Object.values(SUBGATES).map(s => s.veredictoPath)];
+  const fuera = rutas.filter(r => !path.resolve(r).startsWith(path.resolve(SANDBOX.dir)));
+  assert.deepEqual(fuera, []);
+});
+
+test('R3/R4: GATE_ESTADO_DIR fuera de os.tmpdir() se rechaza (fail-closed, nunca redirige a una ruta arbitraria)', () => {
+  const { resolverDirEstado } = require('../agents/architecture-gate.cjs');
+  assert.throws(() => resolverDirEstado({ GATE_ESTADO_DIR: path.join(__dirname, '..', 'agents') }), /fuera de/);
+  assert.throws(() => resolverDirEstado({ GATE_ESTADO_DIR: os.tmpdir() }), /fuera de/, 'el propio tmp raíz tampoco: solo un subdirectorio');
+  assert.equal(resolverDirEstado({}), path.join(__dirname, '..', 'agents'));
+  assert.equal(resolverDirEstado({ GATE_ESTADO_DIR: SANDBOX.dir }), path.resolve(SANDBOX.dir));
+});
+
+// H6 (auditoría cruzada 008, 2026-10-12): los 6 modos que deciden Y el batch
+// por defecto sin flags (H1). Sandbox VACÍO (sin firma que aprovechar) y keys
+// falsas: si la guarda regresara, ninguna llamada llegaría a la API real con
+// una key válida ni el batch encontraría una firma con la que ejecutar.
+test('R3/R4: con sandbox activo, todo modo que decide o ejecuta (6 modos + batch sin flags) se niega con exit 1', () => {
+  const { spawnSync } = require('child_process');
+  const vacio = fs.mkdtempSync(path.join(os.tmpdir(), 'pmui-sandbox-vacio-'));
+  try {
+    const env = { ...process.env, GATE_ESTADO_DIR: vacio, ANTHROPIC_API_KEY: 'test-key-invalida-sin-red', GEMINI_API_KEY: 'test-key-invalida-sin-red' };
+    const casos = [['--check-gate'], ['--verificar-commit'], ['--aprobar-diseno'], ['--aprobar-subgate', '005_INGENIERO_BACKEND'], ['--aprobar-pendientes'], ['--aprobar-excepcion-manual', '002', '--motivo', 'x', '--autorizado-por', 'x'], [],
+      // Combinados (condición 2 de 002, hallazgo de 006): un flag permitido no
+      // habilita a otro que decide.
+      ['--check-gate', '--pmu-status'], ['--aprobar-diseno', '--rutear', 'formulacion'], ['--pmu-status', '--verificar-commit']];
+    for (const args of casos) {
+      const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'agents', 'architecture-gate.cjs'), ...args], {
+        cwd: path.join(__dirname, '..'), env, encoding: 'utf8', timeout: 60000,
+      });
+      const nombre = args[0] || '(sin flags)';
+      assert.equal(r.status, 1, `${nombre}: ${r.stderr}`);
+      assert.match(r.stderr, /sandbox de tests/, nombre);
+    }
+    assert.deepEqual(fs.readdirSync(vacio), [], 'ningún modo negado escribió en el sandbox');
+  } finally {
+    fs.rmSync(vacio, { recursive: true, force: true });
+  }
+});
+
+// Último test del archivo a propósito: tras correr todo lo anterior, el
+// estado real de agents/ debe ser byte a byte el mismo que al empezar.
+test('R3/R4 invariante final: la suite no modificó ningún archivo de estado real (diseno_aprobado, veredicto_*, pmu/*)', () => {
+  assert.deepEqual(huellaEstadoReal(), SANDBOX.huellaInicial);
 });

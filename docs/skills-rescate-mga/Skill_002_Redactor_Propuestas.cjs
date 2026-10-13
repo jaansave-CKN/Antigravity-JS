@@ -34,5 +34,15 @@ async function generarBorrador(nombre, tipo, ubicacion, poblacion, presupuesto) 
     console.log(`\n📄 DOCUMENTO GENERADO: ${fileName}`);
 }
 
-const args = process.argv.slice(2);
-if(args.length > 0) generarBorrador(args[0], args[1], args[2], args[3], args[4]);
+// Guarda 2026-10-12 (directiva PMUI, R6): solo corre invocado con node.
+if (require.main === module) {
+    const args = process.argv.slice(2);
+    if (args.length > 0) {
+        generarBorrador(args[0], args[1], args[2], args[3], args[4]).catch((e) => {
+            console.error(`🛑 Skill_002_Redactor_Propuestas falló: ${e.message}`);
+            process.exitCode = 1;
+        });
+    }
+}
+
+module.exports = { generarBorrador };

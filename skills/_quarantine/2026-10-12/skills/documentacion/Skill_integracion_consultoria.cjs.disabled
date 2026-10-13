@@ -33,7 +33,16 @@ async function generarEntrega(datosRaw, nombreConsultor, archivoOriginal) {
     console.log(`📄 Archivo Word generado: ${path.basename(wordPath)}`);
 }
 
-const datos = process.argv[2] || "Sin datos";
-const consultor = process.argv[3] || "Jairo Antonio Salinas Velasco";
-const origen = process.argv[4] || "Proyecto_Nuevo";
-generarEntrega(datos, consultor, origen);
+// Guarda 2026-10-12 (directiva PMUI, R6): importar este módulo ya no ejecuta
+// nada ni escribe archivos — solo corre invocado directamente con node.
+if (require.main === module) {
+    const datos = process.argv[2] || "Sin datos";
+    const consultor = process.argv[3] || "Jairo Antonio Salinas Velasco";
+    const origen = process.argv[4] || "Proyecto_Nuevo";
+    generarEntrega(datos, consultor, origen).catch((e) => {
+        console.error(`🛑 Skill_integracion_consultoria falló: ${e.message}`);
+        process.exitCode = 1;
+    });
+}
+
+module.exports = { generarEntrega };

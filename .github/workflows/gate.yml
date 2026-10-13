@@ -102,21 +102,30 @@ jobs:
         run: node scripts/auditor_008_advisory_gate.cjs --base ${{ github.event.pull_request.base.sha || github.event.before }}
         continue-on-error: true
         env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         # Integra el juicio real de un LLM aplicando el protocolo TITAN completo
         # de 008 (Capas 0-9, red team narrativo) contra el diff real del push/PR —
-        # hasta 2026-08-13 solo se invocaba a mano. Proveedor (2026-10-08, orden
-        # del dueño): NVIDIA NIM vía agents/gate-proveedor.cjs (modelos gratuitos
-        # con conmutación, la misma capa que usa el gate 002), ya no Anthropic.
+        # hasta 2026-08-13 solo se invocaba a mano. Proveedor (ADR-0004,
+        # docs/ADR/ADR-0004-claude-primario-gemini-respaldo.md): Claude primario
+        # (ANTHROPIC_API_KEY) con Gemini de respaldo (GEMINI_API_KEY), vía
+        # agents/gate-proveedor.cjs — la misma capa que usa el gate 002 — con
+        # modelos descubiertos por gama. GEMINI_API_KEY reutiliza el secret
+        # GOOGLE_API_KEY ya existente (ADR-0004 §2.5); si esa key no fuera de
+        # Gemini, el paso lo informa como categoría `auth` y sigue.
+        # La advertencia del IDE "Context access might be invalid:
+        # ANTHROPIC_API_KEY" desaparece cuando el dueño crea ese secret.
         # El diff se filtra de secretos (proveedorIA.filtrarSecretosDiff) antes de
         # salir al proveedor. Condición NO NEGOCIABLE impuesta
         # por 002_ARQUITECTO_DE_SOFTWARE (veredicto + orden explícita del usuario):
         # este paso jamás puede bloquear el pipeline sin su aprobación explícita —
         # por eso continue-on-error: true Y el script mismo siempre sale con exit 0
         # (doble cinturón). El veto DETERMINISTA de arriba (check_veto_008.cjs) sigue
-        # siendo el único que bloquea de verdad. Si falta el secret NVIDIA_API_KEY
-        # en este repo, el paso simplemente reporta "omitido" y sigue sin efecto —
+        # siendo el único que bloquea de verdad. Sin ninguna de las dos keys
+        # (ANTHROPIC_API_KEY ni GEMINI_API_KEY/GOOGLE_API_KEY), el paso simplemente
+        # reporta "omitido" y sigue sin efecto —
         # ver scripts/auditor_008_advisory_gate.cjs para el detalle.
+        # 2026-10-08: NIM retirado por ADR-0004.
         # Constancia histórica: hasta el 2026-10-08 este paso NUNCA ejecutó en CI —
         # el secret de la API de Anthropic que leía no existía en el repositorio
         # (verificado con `gh secret list`), así que siempre salió por "omitido".

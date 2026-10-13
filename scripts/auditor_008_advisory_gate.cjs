@@ -9,21 +9,14 @@ const { z } = require('zod');
 
 const dirRoot = path.join(__dirname, '..');
 const { extraerJSONConCampo, bucketDe } = require('../agents/architecture-gate.cjs');
-// NVIDIA NIM (pivote 2026-10-08, orden del dueño): misma capa que el gate
-// 002 — API compatible con OpenAI en integrate.api.nvidia.com/v1, cadena de
-// modelos gratuitos con conmutación, clasificación de errores y filtro de
-// secretos del diff. Sin SDK de Anthropic ni ANTHROPIC_API_KEY.
+// Misma capa de proveedor que el gate 002 (ADR-0004, 2026-10-08): Claude
+// primero (Opus → Sonnet más recientes), Gemini de respaldo, modelos
+// descubiertos por gama, clasificación de errores y filtro de secretos del
+// diff. Sin SDK.
 const proveedorIA = require('../agents/gate-proveedor.cjs');
 
 const PROMPT_008_PATH = path.join(dirRoot, '.claude', 'agents', '008-auditor-de-codigo.md');
 
-// Entorno del paso: NIM forzado y cadena por defecto (solo NIM). Se descartan
-// GATE_PROVIDER/GATE_FALLBACK_CHAIN/ANTHROPIC_API_KEY heredados para que
-// ninguna configuración local reintroduzca Anthropic (de pago) por la cadena.
-function entornoNim(env = process.env) {
-    const { GATE_FALLBACK_CHAIN, ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, ...resto } = env;
-    return { ...resto, GATE_PROVIDER: 'nim' };
-}
 
 const SCHEMA_008_CI = z.object({
     apto: z.boolean(),
@@ -85,7 +78,7 @@ function construirMensajeUsuario(diff, archivos, truncado, omitidos) {
         : '';
     return `Ejecuta tu PROTOCOLO TITAN completo (Capas 0-9, matriz de auditoria, pruebas de ruptura, BLOQUE FINAL) ` +
         `sobre el siguiente diff de un push/PR pendiente de merge (git diff contra la base, ${archivos.length} archivo(s) tocado(s)). ` +
-        `IMPORTANTE: esta invocacion es una llamada directa a la API de un modelo (NVIDIA NIM) dentro de un pipeline de CI, no una sesion ` +
+        `IMPORTANTE: esta invocacion es una llamada directa a la API de un modelo (Claude, con Gemini de respaldo) dentro de un pipeline de CI, no una sesion ` +
         `de Claude Code -- NO tienes acceso real a Read/Grep/Glob/Bash pese a lo que indique tu mandato para tu uso habitual. ` +
         `No emitas tool_call, no intentes ejecutar comandos: no se ejecutara nada. Basa tu auditoria exclusivamente en el texto ` +
         `del diff provisto abajo -- para las capas que requieren ejecucion real (arranque de backend, ataques en vivo, simulacion ` +
@@ -99,11 +92,12 @@ function construirMensajeUsuario(diff, archivos, truncado, omitidos) {
         `excepcion, incluyendo empates o dudas razonables (mismo criterio ZERO TRUST de tu protocolo).\n\n${diff}${avisoTruncamiento}`;
 }
 
-// opciones.env / opciones.fetchImpl: inyección para pruebas (mocks de NIM).
+// opciones.env / opciones.fetchImpl: inyección para pruebas (mocks de Claude/Gemini).
 async function ejecutarAuditor008CI(base, limiteChars = 60000, opciones = {}) {
-    const env = entornoNim(opciones.env ?? process.env);
-    if (!String(env.NVIDIA_API_KEY ?? '').trim()) {
-        return { ejecutado: false, razon: 'NVIDIA_API_KEY no configurada -- paso advisory omitido (no bloquea el pipeline).' };
+    const env = opciones.env ?? process.env;
+    const conKey = proveedorIA.proveedoresConKey(env);
+    if (!conKey.anthropic && !conKey.gemini) {
+        return { ejecutado: false, razon: 'Sin ANTHROPIC_API_KEY ni GEMINI_API_KEY -- paso advisory omitido (no bloquea el pipeline).' };
     }
     if (!fs.existsSync(PROMPT_008_PATH)) {
         return { ejecutado: false, razon: `No existe ${PROMPT_008_PATH} -- sin protocolo que aplicar.` };
@@ -136,14 +130,16 @@ async function ejecutarAuditor008CI(base, limiteChars = 60000, opciones = {}) {
             max_tokens: 16000,
             system: systemPrompt,
             user: mensajeFiltrado,
-        }, { env, fetchImpl: opciones.fetchImpl, sleep: opciones.sleep, cadenaPorDefecto: proveedorIA.CADENA_NIM_DEFAULT });
+        }, { tarea: 'razonamiento', env, fetchImpl: opciones.fetchImpl, sleep: opciones.sleep });
     } catch (e) {
         const codigo = e instanceof proveedorIA.ErrorProveedor ? ` [${e.categoria}/${e.codigo}]` : '';
-        return { ejecutado: false, razon: `Fallo del proveedor NVIDIA NIM${codigo}: ${proveedorIA.redactar(e?.detalle || e?.message || e, env.NVIDIA_API_KEY)}` };
+        const detalle = proveedorIA.redactar(proveedorIA.redactar(e?.detalle || e?.message || e, proveedorIA.keyDe('anthropic', env)), proveedorIA.keyDe('gemini', env));
+        return { ejecutado: false, razon: `Fallo de los proveedores de IA${codigo}: ${detalle}` };
     }
 
     const text = respuesta.texto ?? '';
     const meta = {
+        proveedor: respuesta.proveedor,
         modelo: respuesta.modelo,
         failover: respuesta.failover ? `${respuesta.failover.desde} -> ${respuesta.failover.hacia}` : null,
         uso: respuesta.uso || null,
@@ -163,7 +159,7 @@ async function ejecutarAuditor008CI(base, limiteChars = 60000, opciones = {}) {
 
 // FinOps: modelo que respondió, conmutación, tokens y costo en COP.
 function lineaModelo(meta) {
-    const partes = [`**Modelo**: nim:${meta.modelo || 'desconocido'}`];
+    const partes = [`**Modelo**: ${meta.proveedor || 'desconocido'}:${meta.modelo || 'desconocido'}`];
     if (meta.failover) partes.push(`conmutacion ${meta.failover}`);
     if (meta.uso) partes.push(`tokens ${meta.uso.prompt_tokens ?? '?'} in / ${meta.uso.completion_tokens ?? '?'} out${meta.uso.estimado ? ' (estimado)' : ''}`);
     if (meta.costo && typeof meta.costo.cop === 'number') partes.push(`costo COP ${meta.costo.cop}`);
@@ -240,5 +236,5 @@ if (require.main === module) main();
 
 module.exports = {
     obtenerBase, diffContraBase, construirMensajeUsuario,
-    validarVeredicto008, SCHEMA_008_CI, formatearResumen, ejecutarAuditor008CI, entornoNim, lineaModelo,
+    validarVeredicto008, SCHEMA_008_CI, formatearResumen, ejecutarAuditor008CI, lineaModelo,
 };

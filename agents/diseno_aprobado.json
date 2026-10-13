@@ -1,22 +1,23 @@
 {
   "aprobado": true,
-  "origen": "api_directa",
-  "firma": "d3bbc5bc07ee6623b4f08809ab7db78c1841d89006bde2d3296f4b867c9e584c",
-  "timestamp": "2026-10-08T21:24:04.754Z",
-  "firmado_por": "Agente Arquitecto (.claude/agents/002-arquitecto-de-software.md, vía API nim · modelo moonshotai/kimi-k3)",
+  "origen": "soft_fail_api",
+  "soft_fail": {
+    "codigo": "circuito_abierto",
+    "detalle": "Circuit breaker abierto desde 2026-10-13T00:11:04.695Z (último error http_400_sin_saldo) — no se llama al proveedor hasta el cooldown de 900s. | cadena: anthropic:claude-opus-5-5=circuito_abierto, anthropic:claude-sonnet-5-5=circuito_abierto",
+    "request_id": null,
+    "autorizado_por": "Jairo Antonio Salinas Velasco",
+    "habilitado_via": "flag"
+  },
+  "firma": "217dd26436b35e59142e1cd1ad52fbda1968f51497a5f9f5d2d0b7e279257a53",
+  "timestamp": "2026-10-13T00:12:43.790Z",
+  "firmado_por": "SOFT-FAIL (proveedores de IA no disponibles: circuito_abierto) — SIN evaluación de 002_ARQUITECTO_DE_SOFTWARE. Autorizado por: Jairo Antonio Salinas Velasco",
   "razones": [
-    "El diff es exclusivamente un ADR (docs/ADR/ADR-0004) — documento de diseño, no código; fiscalizar el diseño propuesto es exactamente el mandato de este agente y el documento es la especificación previa a la implementación",
-    "Completitud de especificación: define entradas/salidas (endpoints de listado de ambos proveedores, formato de keys, variables de entorno), manejo de errores (clasificación ErrorProveedor, comportamiento sin keys por contexto: app degradada, gate bloqueo duro, 008 exit 0), y quién llama a quién (cadena por tarea con orden explícito y reglas de conmutación entre familias)",
-    "Seguridad bien cubierta: URLs base fijas sin override por entorno (elimina vector de exfiltración de keys/diffs a host falso), validación de formato de keys, filtro de secretos heredado de ADR-0002/0003 declarado vigente, y riesgo de privacidad Ley 1581 con Gemini explícitamente documentado con requisito del dueño",
-    "Trazabilidad de reemplazo: el ADR declara explícitamente qué secciones de ADR-0002 y ADR-0003 reemplaza y cuáles siguen vigentes — no hay borrado implícito de interfaces ni decisiones huérfanas",
-    "Alcance ajustado: lista cerrada de archivos a tocar en §Alcance y plan de entrega en commits atómicos con gate por commit; el retiro de NIM/Groq/OpenRouter está justificado con hechos verificados (15 archivos, keys sin consumidor)",
-    "Criterios de cierre con evidencia física verificable (suite, build, sonda real, CI) y riesgo de determinismo del descubrimiento dinámico mitigado con LLM_MODELOS_* y registro de modelo por veredicto",
-    "Limitación declarada: esta fiscalización se basa solo en el diff (sin acceso a Read/Grep en esta invocación); la consistencia con el código real (p. ej. que el SDK solo se use en los 2 archivos citados) queda apoyada en los hechos verificados que el propio ADR declara con fecha"
+    "SOFT-FAIL, no veredicto de 002_ARQUITECTO_DE_SOFTWARE: Circuit breaker abierto desde 2026-10-13T00:11:04.695Z (último error http_400_sin_saldo) — no se llama al proveedor hasta el cooldown de 900s. | cadena: anthropic:claude-opus-5-5=circuito_abierto, anthropic:claude-sonnet-5-5=circuito_abierto"
   ],
   "diferimientos": [],
   "amarre": {
-    "base_sha": "c36ec4d29f5ada619e3ce1c588180cd953680af6",
-    "huella": "ee55fda1c9a3d285aefa8f08dbf76cfa639303920c6b24db296034190325cd28",
-    "archivos": 1
+    "base_sha": "2b8b49914ea0f49c25c6bdbb0a085f37f41a19e0",
+    "huella": "b458a078bd022e4f9bfce1d65b2fc5743b3986c70f3c7f3091ae35cdf5d5f9a9",
+    "archivos": 286
   }
 }

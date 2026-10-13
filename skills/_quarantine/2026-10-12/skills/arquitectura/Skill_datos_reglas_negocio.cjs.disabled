@@ -26,5 +26,10 @@ function validarAnalisis(texto) {
     }
 }
 
-const textoParaAnalizar = process.argv.slice(2).join(" ");
-validarAnalisis(textoParaAnalizar);
+// Guarda 2026-10-12 (H7, auditoría cruzada 008): solo corre invocado con node.
+if (require.main === module) {
+    const textoParaAnalizar = process.argv.slice(2).join(" ");
+    validarAnalisis(textoParaAnalizar);
+}
+
+module.exports = { validarAnalisis };

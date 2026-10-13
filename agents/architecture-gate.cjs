@@ -5,10 +5,10 @@ const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
-const Anthropic = require('@anthropic-ai/sdk');
 const { z } = require('zod');
-// Capa única de proveedor (ADR-0002, 2026-09-26): NIM principal, breaker,
-// filtrado de secretos. Ver agents/gate-proveedor.cjs.
+// Capa única de proveedor (ADR-0004, 2026-10-08; contrato de ADR-0002):
+// Claude primario, Gemini de respaldo, breakers por modelo, filtrado de
+// secretos. Ver agents/gate-proveedor.cjs.
 const proveedorIA = require('./gate-proveedor.cjs');
 
 // A diferencia de server.js, este script se invoca standalone (node agents/architecture-gate.cjs)
@@ -21,6 +21,28 @@ console.log('\n🚀 [001] ANTIGRAVITY OS: Iniciando Orquestación Dinámica con 
 
 const dirAgents = __dirname;
 const dirRoot = path.join(dirAgents, '..');
+
+// Estado mutable del gate (firma de 002, veredictos de subgates, breakers,
+// caché de modelos, PMU) — agents/ por defecto. GATE_ESTADO_DIR lo redirige
+// a un sandbox para la suite de tests (2026-10-12, hallazgos R3/R4 del
+// diagnóstico PMUI: los tests escribían en agents/pmu/telemetria.jsonl y
+// mutaban agents/diseno_aprobado.json en caliente). Fail-closed: solo se
+// acepta un directorio dentro de os.tmpdir(); cualquier otro valor aborta la
+// carga del módulo. Con el sandbox activo, los modos que deciden sobre un
+// commit real o ejecutan el batch se niegan a correr (lista blanca MODOS_PERMITIDOS_EN_SANDBOX más abajo).
+function resolverDirEstado(env = process.env) {
+    const crudo = String(env.GATE_ESTADO_DIR ?? '').trim();
+    if (!crudo) return dirAgents;
+    const destino = path.resolve(crudo);
+    const tmp = path.resolve(os.tmpdir());
+    const norm = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
+    if (!norm(destino).startsWith(norm(tmp) + path.sep)) {
+        throw new Error(`GATE_ESTADO_DIR="${crudo.slice(0, 200)}" está fuera de ${tmp} — solo se permite un sandbox temporal de tests (fail-closed).`);
+    }
+    return destino;
+}
+const dirEstado = resolverDirEstado();
+const SANDBOX_ESTADO_ACTIVO = dirEstado !== dirAgents;
 
 // =============================================================================
 // ESCUADRÓN ÉLITE — Mando Central (Renumerado 2026-08-08, ver AGENTS.md §IV)
@@ -189,16 +211,14 @@ function rutear(clave) {
 // Vive directo en agents/ (NO dentro de ninguna carpeta \d{2,3}[_-]*) — si estuviera
 // dentro de una carpeta de agente, escribir la firma cambiaría el listado de esa
 // carpeta y la firma se autoinvalidaría en el acto.
-const APROBACION_PATH = path.join(dirAgents, 'diseno_aprobado.json');
+const APROBACION_PATH = path.join(dirEstado, 'diseno_aprobado.json');
 const ARCHITECT_PROMPT_PATH = path.join(dirRoot, '.claude', 'agents', '002-arquitecto-de-software.md');
-// Mismo criterio que server.js/m1Pipeline.js: modelo vía env var, no hardcodeado
-// por tercera vez (hallazgo 2026-08-08, se había centralizado en los otros 2
-// archivos pero se pasó por alto este).
-const ANTHROPIC_MODEL = process.env.PRIMARY_AI_MODEL || 'claude-sonnet-4-6';
 // Estado del circuit breaker del proveedor de IA (ADR-0002 §2.4) — generado
 // por código, fuera de las carpetas numeradas de agents/ (no entra en
 // hashEstado, no autoinvalida la firma).
-const BREAKER_PATH = path.join(dirAgents, 'pmu', 'circuit_breaker.json');
+const BREAKER_PATH = path.join(dirEstado, 'pmu', 'circuit_breaker.json');
+// Caché del descubrimiento de modelos (ADR-0004 §2.3) — runtime, en .gitignore.
+const MODELOS_CACHE_PATH = path.join(dirEstado, 'pmu', 'modelos_descubiertos.json');
 // Formato de diff determinista para lo que sale al proveedor (hallazgo 008):
 // sin color, sin diff externo, prefijos a/ b/ fijos aunque el usuario tenga
 // diff.noprefix / diff.mnemonicPrefix — filtrarSecretosDiff() depende de
@@ -211,14 +231,21 @@ const FLAGS_DIFF_PROVEEDOR = ['--no-color', '--no-ext-diff', '--src-prefix=a/', 
 // {ok:false, error: ErrorProveedor}.
 async function consultarModelo(subsistema, { system, user, max_tokens }) {
     const { diff: userFiltrado, omitidos } = proveedorIA.filtrarSecretosDiff(user);
+    // Familias cuya key actual fue rechazada en la última validación de
+    // --pmu-status (vigente 24 h): fuera de la cadena (directiva PMUI Omega,
+    // 2026-10-12). Hoy: Gemini con HTTP 400 → Claude queda exclusivo.
+    const familiasExcluidas = proveedorIA.familiasRechazadas(leerUltimaValidacionKeys()?.resultados);
+    if (familiasExcluidas.length) {
+        console.warn(`🟡 [${subsistema}] Familias fuera de la cadena por key rechazada en la última validación: ${familiasExcluidas.join(', ')} — corre --pmu-status tras reemplazar la key.`);
+    }
     try {
-        // Cadena por defecto: modelos NIM gratuitos (GATE_FALLBACK_CHAIN la reemplaza).
-        const r = await proveedorIA.llamarModelo({ system, user: userFiltrado, max_tokens }, { breakerPath: BREAKER_PATH, cadenaPorDefecto: proveedorIA.CADENA_NIM_DEFAULT });
+        // Tarea 'razonamiento': Claude (Opus → Sonnet más recientes) → Gemini.
+        const r = await proveedorIA.llamarModelo({ system, user: userFiltrado, max_tokens }, { tarea: 'razonamiento', breakerPath: BREAKER_PATH, cachePath: MODELOS_CACHE_PATH, familiasExcluidas });
         registrarTelemetria({
             tipo: 'uso_modelo', subsistema, resultado: 'ok', proveedor: r.proveedor, modelo: r.modelo,
             intentos: r.intentos, uso: r.uso, fin: r.fin, archivos_sensibles_omitidos: omitidos.length,
             texto_chars: r.texto_chars ?? null, razonamiento_chars: r.razonamiento_chars ?? null,
-            failover: r.failover ?? null, costo: r.costo ?? null,
+            failover: r.failover ?? null, costo: r.costo ?? null, familias_excluidas: familiasExcluidas,
         });
         return { ok: true, texto: r.texto, fin: r.fin, proveedor: r.proveedor, modelo: r.modelo };
     } catch (e) {
@@ -487,15 +514,33 @@ const VEREDICTO_SCHEMAS = {
             resultado: z.enum(['pass', 'fail', 'skip_justificado']),
         })),
     }),
+    // Agregado 2026-10-12 (directiva PMUI, Fase 4): 007 pasa a subgate sobre
+    // su documento exclusivo. Refleja la "Salida obligatoria" de
+    // .claude/agents/007-documentador-as-build.md.
+    '007_DOCUMENTADOR_AS_BUILD': z.object({
+        documentado: z.boolean(),
+        artefactos: z.array(z.object({
+            archivo: z.string(),
+            seccion: z.string(),
+            resumen: z.string(),
+        })),
+        hallazgos_financieros_o_idempotencia: z.array(z.object({
+            archivo: z.string(),
+            tipo: z.string(),
+            evidencia: z.string(),
+        })).default([]),
+    }),
 };
 
 // Fail-closed: un veredicto que no matchea la forma declarada por su propio
 // agente NUNCA se trata como aprobado, aunque el campo booleano diga true —
-// mismo criterio de "Honestidad Técnica" que el resto del gate. Agentes sin
-// contrato en VEREDICTO_SCHEMAS no bloquean (compatibilidad hacia atrás).
+// mismo criterio de "Honestidad Técnica" que el resto del gate. Un agente sin
+// contrato en VEREDICTO_SCHEMAS también se rechaza (2026-10-12, directiva
+// PMUI "fail-closed absoluto" — antes pasaba sin validar forma): un subgate
+// nuevo declarado en frontmatter necesita su contrato aquí para aprobar.
 function validarFormaVeredicto(agentId, veredicto) {
     const schema = VEREDICTO_SCHEMAS[agentId];
-    if (!schema) return { ok: true };
+    if (!schema) return { ok: false, razon: `${agentId} no tiene contrato de salida en VEREDICTO_SCHEMAS — fail-closed: su veredicto no puede aprobar hasta declararlo.` };
     const resultado = schema.safeParse(veredicto);
     if (resultado.success) return { ok: true };
     const detalle = resultado.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
@@ -506,9 +551,8 @@ function validarFormaVeredicto(agentId, veredicto) {
 // pendiente contra HEAD. Nunca autoaprueba por ausencia de respuesta — todo camino
 // de error devuelve aprobado:false con la razón concreta (Honestidad Técnica).
 async function pedirVeredictoArquitecto() {
-    // Chequeo de key movido a gate-proveedor.cjs (2026-09-26): depende del
-    // proveedor activo (NVIDIA_API_KEY o ANTHROPIC_API_KEY); ausente sigue
-    // siendo bloqueo duro (categoría 'config', nunca soft-fail).
+    // Chequeo de key en gate-proveedor.cjs (ADR-0004): sin ANTHROPIC_API_KEY
+    // ni GEMINI_API_KEY es bloqueo duro (categoría 'config', nunca soft-fail).
     if (!fs.existsSync(ARCHITECT_PROMPT_PATH)) {
         return { aprobado: false, razones: [`No existe ${ARCHITECT_PROMPT_PATH} — sin criterio de arquitectura que aplicar.`] };
     }
@@ -530,8 +574,8 @@ async function pedirVeredictoArquitecto() {
           `Si alguno de esos archivos omitidos SÍ te parece crítico por su nombre, no apruebes sin verlo — pide que se re-envíe.`
         : '';
 
-    // Proveedor vía consultarModelo() desde 2026-09-26 (ADR-0002): NIM por
-    // defecto, breaker, reintentos, filtrado de secretos del diff.
+    // Proveedor vía consultarModelo() (ADR-0002/0004): Claude primero,
+    // Gemini de respaldo, breakers, reintentos, filtrado de secretos del diff.
     const r = await consultarModelo('002_principal', {
             // 1500 no alcanzaba en diffs grandes (>15 archivos): el análisis
             // narrativo agotaba el presupuesto antes de llegar al JSON final,
@@ -739,15 +783,16 @@ function hashEstado(carpetas) {
 // hash del estado actual (cualquier cambio posterior la invalida). Siguen
 // siendo bloqueo duro: rechazo real del modelo, respuesta no parseable,
 // ANTHROPIC_API_KEY ausente (error de configuración, no de saldo),
-// ANTHROPIC_BASE_URL no oficial y los chequeos estáticos de 006.
+// ANTHROPIC_BASE_URL no oficial y los chequeos estáticos de 006. Desde
+// ADR-0004 las URL base son fijas en gate-proveedor.cjs (no hay variable que
+// las redirija), así que el chequeo de base URL ya no aplica.
 const ORIGENES_VALIDOS = ['api_directa', 'excepcion_manual', 'soft_fail_api'];
 const HORAS_MAX_EXCEPCION_MANUAL = 6;
-const ANTHROPIC_BASE_URL_OFICIAL = 'https://api.anthropic.com';
 
 // Devuelve {codigo, detalle, request_id} si el error es de disponibilidad
 // de la API (no de contenido); null en cualquier otro caso.
 function clasificarFalloApi(e) {
-    // ErrorProveedor (capa NIM/Anthropic, 2026-09-26): la categoría ya viene
+    // ErrorProveedor (capa de proveedor, ADR-0002/0004): la categoría ya viene
     // resuelta — solo cuota/caida son disponibilidad. auth (401/403),
     // politica (modelo retirado), solicitud y config → null = bloqueo duro.
     if (e instanceof proveedorIA.ErrorProveedor) {
@@ -764,24 +809,13 @@ function clasificarFalloApi(e) {
     else if (status === 429) codigo = 'http_429_rate_limit';
     else if (status === 529) codigo = 'http_529_sobrecargada';
     else if (status !== null && status >= 500) codigo = `http_${status}`;
-    else if (e instanceof Anthropic.APIConnectionError) codigo = 'sin_respuesta';
     return codigo ? { codigo, detalle, request_id } : null;
 }
 
 // Opt-in explícito con responsable declarado (flag o .env) — nunca se
-// activa solo. ANTHROPIC_BASE_URL no oficial lo deshabilita: evita provocar
-// el soft-fail a voluntad apuntando a un host muerto o que devuelve 402/529.
+// activa solo. Provocarlo apuntando a un host muerto ya no es posible: las
+// URL base de los proveedores son fijas (ADR-0004 §2.1).
 function resolverPermisoSoftFail(argv = process.argv, env = process.env) {
-    const base = env.ANTHROPIC_BASE_URL;
-    if (base && base.trim().replace(/\/+$/, '') !== ANTHROPIC_BASE_URL_OFICIAL) {
-        return { permitido: false, razon: `ANTHROPIC_BASE_URL apunta a "${base}", no al endpoint oficial — soft-fail deshabilitado.` };
-    }
-    // Mismo criterio para NIM (2026-09-26): no se puede provocar el soft-fail
-    // a voluntad apuntando el gate a un host muerto.
-    const baseNim = env.GATE_NIM_BASE_URL;
-    if (baseNim && baseNim.trim().replace(/\/+$/, '') !== proveedorIA.NIM_BASE_URL_OFICIAL) {
-        return { permitido: false, razon: `GATE_NIM_BASE_URL apunta a "${baseNim}", no a ${proveedorIA.NIM_BASE_URL_OFICIAL} — soft-fail deshabilitado.` };
-    }
     const leerFlag = (nombre) => { const i = argv.indexOf(nombre); return i !== -1 ? argv[i + 1] : undefined; };
     const viaFlag = argv.includes('--permitir-soft-fail');
     if (!viaFlag && env.GATE_SOFT_FAIL !== 'true') {
@@ -965,13 +999,13 @@ const SUBGATES = {
         promptPath: path.join(dirRoot, '.claude', 'agents', '004-sentinela-frontend.md'),
         patrones: [/^public\/src\/.*\.(jsx|tsx)$/],
         campoAprobado: 'limpio',
-        veredictoPath: path.join(dirAgents, 'veredicto_004.json'),
+        veredictoPath: path.join(dirEstado, 'veredicto_004.json'),
     },
     '003_ESP_DISENO_STITCH': {
         promptPath: path.join(dirRoot, '.claude', 'agents', '003-esp-diseno-stitch.md'),
         patrones: [/^public\/src\/.*\.(jsx|tsx)$/],
         campoAprobado: 'diseno_valido',
-        veredictoPath: path.join(dirAgents, 'veredicto_003.json'),
+        veredictoPath: path.join(dirEstado, 'veredicto_003.json'),
     },
     // Agregado 2026-08-13: antes 006 solo se invocaba manualmente ("bajo demanda"),
     // sin ningún gate automático — un commit podía tocar render.yaml, .env.example
@@ -994,9 +1028,13 @@ const SUBGATES = {
         patrones: [
             /^render\.yaml$/, /^\.env\.example$/, /^package\.json$/, /^package-lock\.json$/,
             /^\.github\/workflows\/.*\.ya?ml$/, /^scripts\/.*(gate|veto).*\.cjs$/,
+            // tests/gate/ agregado 2026-10-12 (H9, auditoría cruzada 008):
+            // sandbox-estado.cjs controla GATE_ESTADO_DIR — infraestructura del
+            // propio gate, no solo tests.
+            /^tests\/gate\//,
         ],
         campoAprobado: 'infraestructura_segura',
-        veredictoPath: path.join(dirAgents, 'veredicto_006.json'),
+        veredictoPath: path.join(dirEstado, 'veredicto_006.json'),
     },
     // Agregado 2026-08-13 (orden explícita: "todos los agentes... PMU real,
     // no solo documentado"): 005 es el único subagente además de 001 con
@@ -1023,7 +1061,7 @@ const SUBGATES = {
         patrones: [/^src\/modules\/formulador\//, /^src\/modules\/radar\//, /^src\/shared\/infrastructure\//, /^src\/shared\/contracts\//, /^server\.js$/, /^src\/orchestrator-engine\.js$/],
         campoAprobado: 'estado_backend',
         valorAprobado: 'aislado_y_seguro',
-        veredictoPath: path.join(dirAgents, 'veredicto_005.json'),
+        veredictoPath: path.join(dirEstado, 'veredicto_005.json'),
     },
 };
 
@@ -1059,7 +1097,7 @@ function asegurarSubgatesAutoDescubiertos() {
             patrones,
             campoAprobado: cfg.campo,
             ...(cfg.valor ? { valorAprobado: cfg.valor } : {}),
-            veredictoPath: path.join(dirAgents, `veredicto_${agente.prefijo}.json`),
+            veredictoPath: path.join(dirEstado, `veredicto_${agente.prefijo}.json`),
         };
         console.log(`[SUBGATES auto] Registrado desde frontmatter: ${agentId} (${agente.archivo})`);
     }
@@ -1308,9 +1346,24 @@ async function pedirVeredictoSubagente(agentId, relevantes) {
 // commit — son advisories, no un tercer tipo de gate duro — pero ya no
 // dependen de que alguien invoque a 006 a mano para notarlos.
 // =============================================================================
-const PMU_DIR = path.join(dirAgents, 'pmu');
+const PMU_DIR = path.join(dirEstado, 'pmu');
 const ESTADO_OPERATIVO_PATH = path.join(PMU_DIR, 'estado_operativo.json');
 const TELEMETRIA_PATH = path.join(PMU_DIR, 'telemetria.jsonl');
+// Última validación real de keys (la escribe solo --pmu-status). Los demás
+// modos regeneran el PMU sin sonda y la heredan mientras esté vigente, en vez
+// de pisarla con NO_VERIFICADO (H2, auditoría cruzada 008, 2026-10-12).
+// Runtime, en .gitignore.
+const VALIDACION_KEYS_PATH = path.join(PMU_DIR, 'validacion_keys.json');
+const VALIDACION_KEYS_VIGENCIA_MS = 24 * 60 * 60 * 1000;
+
+function leerUltimaValidacionKeys(ahora = Date.now()) {
+    try {
+        const v = JSON.parse(fs.readFileSync(VALIDACION_KEYS_PATH, 'utf8'));
+        const edad = ahora - Date.parse(v?.validado_en || '');
+        if (!Array.isArray(v?.resultados) || !(edad >= 0 && edad <= VALIDACION_KEYS_VIGENCIA_MS)) return null;
+        return v;
+    } catch { return null; }
+}
 
 function registrarTelemetria(evento) {
     fs.mkdirSync(PMU_DIR, { recursive: true });
@@ -1570,7 +1623,16 @@ function generarMapaDelegacion001(agentes, gatesPorPrefijo) {
     });
 }
 
-function generarEstadoOperativo() {
+// validacionKeys: resultado de proveedorIA.validarKeys() (solo --pmu-status
+// lo pasa). Sin él se hereda la última validación vigente (24 h, con su
+// fecha visible); sin ninguna, una familia con key figura como NO_VERIFICADO
+// — nunca como válida por el solo hecho de tener la variable definida.
+function generarEstadoOperativo({ validacionKeys = null, heredarValidacion = true, ahora = Date.now() } = {}) {
+    let validadoEn = validacionKeys ? new Date(ahora).toISOString() : null;
+    if (!validacionKeys && heredarValidacion) {
+        const previa = leerUltimaValidacionKeys(ahora);
+        if (previa) { validacionKeys = previa.resultados; validadoEn = previa.validado_en; }
+    }
     // Corregido 2026-08-13 (auditoría A-Z, hallazgo real): antes dependía de
     // que el CALLER hubiera invocado asegurarSubgatesAutoDescubiertos() antes
     // — un contrato implícito no forzado. Reproducido en vivo: llamar a esta
@@ -1618,26 +1680,82 @@ function generarEstadoOperativo() {
         })),
     ];
 
-    // Proveedor de IA (ADR-0002 §2.4) — estado del breaker y alertas críticas,
-    // derivadas de agents/pmu/circuit_breaker.json. Nunca incluye la key.
-    let cfgProveedor;
-    try {
-        const c = proveedorIA.resolverConfig();
-        cfgProveedor = { proveedor: c.proveedor, modelo: c.modelo, base_url: c.baseUrl, key_configurada: Boolean(c.key) };
-        cfgProveedor.cadena_conmutacion = proveedorIA.resolverCadena(process.env, c, proveedorIA.CADENA_NIM_DEFAULT)
-            .map(e => ({ modelo: proveedorIA.etiquetaModelo(e), key_configurada: Boolean(e.key) }));
-        cfgProveedor.primer_byte_conmutacion_ms = proveedorIA.resolverPlazoFailover(process.env);
-    } catch (e) {
-        cfgProveedor = { proveedor: process.env.GATE_PROVIDER || 'nim', error_config: e.codigo || String(e.message) };
-    }
-    const breaker = proveedorIA.leerBreaker(BREAKER_PATH);
-    const alertasProveedor = proveedorIA.alertasDeProveedor(breaker, cfgProveedor.proveedor, cfgProveedor.modelo);
-    if (cfgProveedor.error_config || cfgProveedor.key_configurada === false) {
+    // Proveedor de IA (ADR-0004) — familias con key, último catálogo
+    // descubierto, breakers por modelo y alertas. Nunca incluye la key.
+    const conKey = proveedorIA.proveedoresConKey();
+    let cacheModelos = {};
+    try { cacheModelos = JSON.parse(fs.readFileSync(MODELOS_CACHE_PATH, 'utf8')) || {}; } catch { cacheModelos = {}; }
+    let plazoConmutacion = null;
+    try { plazoConmutacion = proveedorIA.resolverPlazoFailover(process.env); } catch (e) { plazoConmutacion = { error_config: e.codigo }; }
+    const validacionDe = new Map((validacionKeys || []).map(v => [v.proveedor, v]));
+    const cfgProveedor = {
+        familias: proveedorIA.PROVEEDORES.map(p => ({
+            proveedor: p,
+            rol: p === 'anthropic' ? 'primario' : 'respaldo',
+            estado_key: validacionDe.get(p)?.estado ?? (conKey[p] ? proveedorIA.ESTADOS_KEY.NO_VERIFICADO : proveedorIA.ESTADOS_KEY.SIN_KEY),
+            validacion_key: validacionDe.has(p) ? { http: validacionDe.get(p).http, codigo: validacionDe.get(p).codigo, validado_en: validadoEn } : null,
+            modelos_descubiertos: cacheModelos[p]?.modelos?.map(m => m.id) ?? null,
+            descubierto_en: cacheModelos[p]?.descubierto_en ?? null,
+        })),
+        perfiles: proveedorIA.PERFILES_TAREA,
+        primer_byte_conmutacion_ms: plazoConmutacion,
+    };
+    const breakers = proveedorIA.breakersDe(BREAKER_PATH);
+    const alertasProveedor = breakers.flatMap(({ modelo, breaker }) => {
+        const i = modelo.indexOf(':');
+        return proveedorIA.alertasDeProveedor(breaker, i < 0 ? modelo : modelo.slice(0, i), i < 0 ? null : modelo.slice(i + 1));
+    });
+    if (!conKey.anthropic && !conKey.gemini) {
         alertasProveedor.push({
-            tipo: 'ALERTA CRÍTICA DE PROVEEDOR EXTERNO', proveedor: cfgProveedor.proveedor, modelo: cfgProveedor.modelo || null,
+            tipo: 'ALERTA CRÍTICA DE PROVEEDOR EXTERNO', proveedor: null, modelo: null,
             severidad: 'critica', efecto: 'bloqueo_duro',
-            ultimo_error: { codigo: cfgProveedor.error_config || `${cfgProveedor.proveedor === 'nim' ? 'NVIDIA' : 'ANTHROPIC'}_API_KEY_ausente`, categoria: 'config' },
-            accion: 'Configurar la key / base URL del proveedor en .env — el gate no puede evaluar nada hasta entonces.',
+            ultimo_error: { codigo: 'sin_proveedor_ia', categoria: 'config' },
+            accion: 'Configurar ANTHROPIC_API_KEY (primario) o GEMINI_API_KEY (respaldo) en .env — el gate no puede evaluar nada hasta entonces.',
+        });
+    }
+    // Key presente pero rechazada por el proveedor (R2, 2026-10-12): bloqueo
+    // duro de esa familia — la cadena no la usa y el PMU no la da por buena.
+    for (const v of validacionKeys || []) {
+        if (v.estado !== proveedorIA.ESTADOS_KEY.RECHAZADA) continue;
+        // Sin saldo/cuota: la key es válida y la familia sigue en la cadena
+        // (soft-fail con opt-in) — solo auth la saca (familiasRechazadas).
+        const sinSaldo = v.categoria === 'cuota';
+        alertasProveedor.push({
+            tipo: 'ALERTA CRÍTICA DE PROVEEDOR EXTERNO', proveedor: v.proveedor, modelo: null,
+            severidad: 'critica', efecto: sinSaldo ? 'soft_fail_con_opt_in' : 'bloqueo_duro',
+            ultimo_error: { codigo: v.codigo, categoria: sinSaldo ? 'cuota' : 'auth', http: v.http },
+            accion: sinSaldo
+                ? `La cuenta de ${v.proveedor} no tiene saldo o agotó su cuota (HTTP ${v.http ?? 'n/a'}) — recargar; la key es válida y la familia sigue en la cadena (soft-fail solo con opt-in del dueño).`
+                : `La key de ${v.proveedor} existe pero el proveedor la rechaza (HTTP ${v.http ?? 'n/a'}) — reemplazarla en .env; esa familia queda fuera de la cadena.`,
+        });
+    }
+    // Cadena IA: true = al menos una familia validada; false = todas
+    // rechazadas o sin key (bloqueo duro real); null = indeterminada — nadie
+    // validó, o alguna quedó NO_VERIFICABLE (sin red/429/5xx): es la
+    // condición de soft-fail con opt-in, no un bloqueo duro (H3, auditoría
+    // cruzada 008, 2026-10-12).
+    const E = proveedorIA.ESTADOS_KEY;
+    let cadenaOperativa = null;
+    if (validacionKeys) {
+        if (validacionKeys.some(v => v.estado === E.VALIDADA)) cadenaOperativa = true;
+        // Saldo/cuota no es bloqueo duro: el gate lo trata como soft-fail con
+        // opt-in (familiasRechazadas no lo excluye) — el PMU no puede ser más
+        // estricto que el gate (hallazgo de 006, 2026-10-12).
+        else if (validacionKeys.every(v => v.estado === E.SIN_KEY || (v.estado === E.RECHAZADA && v.categoria !== 'cuota'))) cadenaOperativa = false;
+    }
+    if (cadenaOperativa === false) {
+        alertasProveedor.push({
+            tipo: 'ALERTA CRÍTICA DE PROVEEDOR EXTERNO', proveedor: null, modelo: null,
+            severidad: 'critica', efecto: 'bloqueo_duro',
+            ultimo_error: { codigo: 'cadena_sin_proveedor_validado', categoria: 'auth' },
+            accion: 'Ninguna familia de IA quedó CONECTADO_Y_VALIDADO y ninguna es recuperable sin intervención — los subagentes no pueden emitir veredictos (002 y subgates detenidos) hasta corregir una key.',
+        });
+    } else if (validacionKeys && cadenaOperativa === null) {
+        alertasProveedor.push({
+            tipo: 'ALERTA CRÍTICA DE PROVEEDOR EXTERNO', proveedor: null, modelo: null,
+            severidad: 'alta', efecto: 'soft_fail_con_opt_in',
+            ultimo_error: { codigo: 'cadena_indeterminada', categoria: 'caida' },
+            accion: 'Ninguna familia confirmada y al menos una sin respuesta o sin saldo (red/429/5xx/cuota) — 002 y subgates no emiten veredicto real; el commit solo procede con soft-fail autorizado por el dueño (GATE_SOFT_FAIL + responsable).',
         });
     }
 
@@ -1648,23 +1766,23 @@ function generarEstadoOperativo() {
         agentes_con_permiso_escritura: tablero.filter(a => a.permiso_escritura).map(a => a.nombre || a.archivo),
         alertas_activas: alertasActivas,
         alertas_criticas_proveedor: alertasProveedor,
-        proveedor_ia: { ...cfgProveedor, circuit_breaker: proveedorIA.breakerPublico(breaker) },
+        proveedor_ia: { ...cfgProveedor, cadena_ia_operativa: cadenaOperativa, circuit_breakers: breakers.map(b => ({ modelo: b.modelo, ...proveedorIA.breakerPublico(b.breaker) })) },
         // Modo local/offline (2026-09-25): la API es opcional para el flujo
-        // de commit — ver bloque SOFT-FAIL DE API. Actualizado 2026-09-26
-        // (ADR-0002) con la clasificación del proveedor NIM.
+        // de commit — ver bloque SOFT-FAIL DE API. Clasificación de ADR-0002,
+        // proveedores de ADR-0004.
         politica_api: {
             modo: 'soft_fail',
             soft_fail_habilitado_env: process.env.GATE_SOFT_FAIL === 'true',
             disparadores: ['http_402', 'http_400_cuota', 'http_429', 'http_5xx', 'timeout_sin_respuesta', 'timeout_inactividad', 'timeout_total', 'stream_incompleto', 'sin_respuesta', 'circuito_abierto(cuota|caida)'],
-            bloqueo_duro: ['rechazo_real_del_modelo', 'respuesta_no_parseable', 'http_401/403 (ALERTA CRÍTICA)', 'modelo_no_disponible (ALERTA CRÍTICA)', 'API_KEY_ausente', 'BASE_URL_no_oficial', 'chequeos_estaticos_006'],
+            bloqueo_duro: ['rechazo_real_del_modelo', 'respuesta_no_parseable', 'http_401/403 (ALERTA CRÍTICA)', 'modelo_no_disponible (ALERTA CRÍTICA)', 'sin_proveedor_ia', 'API_KEY_malformada', 'chequeos_estaticos_006'],
         },
         mapa_delegacion_001: mapaMando,
         agentes: tablero,
     };
 }
 
-function escribirEstadoOperativo() {
-    const estado = generarEstadoOperativo();
+function escribirEstadoOperativo(opciones) {
+    const estado = generarEstadoOperativo(opciones);
     fs.mkdirSync(PMU_DIR, { recursive: true });
     fs.writeFileSync(ESTADO_OPERATIVO_PATH, JSON.stringify(estado, null, 2) + '\n', 'utf8');
     return estado;
@@ -1731,9 +1849,17 @@ function escanearSecretos(archivosStaged) {
 // variable que .env real — sin esto, .env.example se desincroniza en
 // silencio (alguien agrega una var nueva a .env y nunca actualiza la
 // plantilla) y el siguiente desarrollador no sabe qué configurar.
-function verificarEnvExample() {
-    const envPath = path.join(dirRoot, '.env');
-    const ejemploPath = path.join(dirRoot, '.env.example');
+// Variables de proveedores retirados por ADR-0004 (2026-10-08): si aún están
+// en el .env local no tienen ningún efecto — ningún código las lee — y no
+// deben bloquear el commit ni exigir que la plantilla las documente. Se
+// informan para que el dueño las borre cuando quiera; el gate nunca toca .env.
+const VARIABLES_RETIRADAS = new Set([
+    'NVIDIA_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'PRIMARY_AI_MODEL',
+    'GATE_PROVIDER', 'GATE_MODEL', 'GATE_NIM_BASE_URL', 'GATE_FALLBACK_CHAIN',
+    'LLM_PERFIL_RAPIDO', 'LLM_PERFIL_RAZONAMIENTO',
+]);
+
+function verificarEnvExample(envPath = path.join(dirRoot, '.env'), ejemploPath = path.join(dirRoot, '.env.example')) {
     if (!fs.existsSync(envPath)) return { ok: true }; // sin .env real, nada que comparar (ej. CI)
     if (!fs.existsSync(ejemploPath)) {
         return { ok: false, razon: '.env.example no existe — crear una plantilla con los mismos nombres de variable que .env, sin valores.' };
@@ -1746,11 +1872,14 @@ function verificarEnvExample() {
     );
     const nombresEnv = extraerNombres(fs.readFileSync(envPath, 'utf8'));
     const nombresEjemplo = extraerNombres(fs.readFileSync(ejemploPath, 'utf8'));
-    const faltantes = [...nombresEnv].filter(n => !nombresEjemplo.has(n));
+    const faltantes = [...nombresEnv].filter(n => !nombresEjemplo.has(n) && !VARIABLES_RETIRADAS.has(n));
     if (faltantes.length > 0) {
         return { ok: false, razon: `.env.example desincronizado — faltan estas variables: ${faltantes.join(', ')}` };
     }
-    return { ok: true };
+    const retiradas = [...nombresEnv].filter(n => VARIABLES_RETIRADAS.has(n));
+    return retiradas.length
+        ? { ok: true, razon: `variables retiradas (ADR-0004) aún en .env, sin efecto — se pueden borrar: ${retiradas.join(', ')}` }
+        : { ok: true };
 }
 
 // npm audit solo cuando package.json/package-lock.json está en el diff — no
@@ -1932,6 +2061,26 @@ function ejecutarChequeosEstaticos(archivosStaged) {
     return resultados;
 }
 
+// Sandbox de tests activo (GATE_ESTADO_DIR): invocado como CLI, solo corren
+// los modos de lectura de esta lista blanca. Todo lo demás — --check-gate,
+// --verificar-commit, los --aprobar-*, el batch por defecto sin flags (que
+// ejecuta programas de las carpetas de agentes según la firma) y cualquier
+// modo futuro — se niega con exit 1: nada decide sobre estado aislado
+// (hallazgo H1 de la auditoría cruzada de 008, 2026-10-12: la primera
+// versión era una lista negra y dejaba fuera el batch).
+const MODOS_PERMITIDOS_EN_SANDBOX = ['--pmu-status', '--rutear', '--sondear-proveedores'];
+// Exige que TODO flag "--" esté en la lista y que haya al menos uno: con
+// .some(), "--check-gate --pmu-status" pasaba la guarda y --check-gate corría
+// primero sobre la firma del sandbox (condición 2 de 002 y hallazgo de 006,
+// 2026-10-12).
+const flagsCli = process.argv.slice(2).filter(a => a.startsWith('--'));
+if (SANDBOX_ESTADO_ACTIVO && require.main === module && (flagsCli.length === 0 || !flagsCli.every(a => MODOS_PERMITIDOS_EN_SANDBOX.includes(a)))) {
+    const modo = flagsCli.find(a => !MODOS_PERMITIDOS_EN_SANDBOX.includes(a)) || '(batch por defecto, sin flags)';
+    console.error(`🛑 [GATE] GATE_ESTADO_DIR apunta a un sandbox de tests (${dirEstado}) — ${modo} no decide ni ejecuta sobre estado aislado. Quita la variable para usar el gate real.`);
+    process.exitCode = 1;
+    return;
+}
+
 // Modo ruteo: `node agents/architecture-gate.cjs --rutear <clave>`
 if (process.argv.includes('--rutear')) {
     const clave = process.argv[process.argv.indexOf('--rutear') + 1];
@@ -2102,16 +2251,21 @@ if (process.argv.includes('--verificar-commit')) {
 }
 
 // Sonda de modelos: `node agents/architecture-gate.cjs --sondear-proveedores`
-// — ping mínimo a cada modelo de la cadena (primario + conmutación) para
-// saber cuáles responden hoy y en cuánto. Exit 0 si al menos uno vive.
+// — descubre el catálogo de Claude y Gemini (sin caché) y hace un ping mínimo
+// a cada modelo que alguna tarea elegiría. Exit 0 si al menos uno vive.
 if (process.argv.includes('--sondear-proveedores')) {
     (async () => {
-        const resultados = await proveedorIA.sondearModelos({ cadenaPorDefecto: proveedorIA.CADENA_NIM_DEFAULT });
-        console.log('\n📡 Sonda de modelos del gate (orden de la cadena):');
-        for (const r of resultados) {
-            console.log(`   ${r.vivo ? '🟢' : '🔴'} ${r.modelo.padEnd(48)} ${String(r.ms).padStart(6)} ms  ${r.codigo}`);
+        const { resultados, descubiertos } = await proveedorIA.sondearModelos({ cachePath: MODELOS_CACHE_PATH });
+        console.log('\n🔭 Catálogo descubierto:');
+        for (const [p, d] of Object.entries(descubiertos)) {
+            const detalle = !d.key_configurada ? 'sin key (se omite)' : d.error ? `listado falló: ${d.error}` : `${d.modelos.length} modelos (${d.origen}): ${d.modelos.join(', ')}`;
+            console.log(`   ${p.padEnd(10)} ${detalle}`);
         }
-        registrarTelemetria({ tipo: 'sonda_proveedores', subsistema: 'gate', resultado: resultados.some(r => r.vivo) ? 'ok' : 'sin_modelos', resultados });
+        console.log('\n📡 Sonda de modelos (orden de la cadena: Claude → Gemini):');
+        for (const r of resultados) {
+            console.log(`   ${r.vivo ? '🟢' : '🔴'} ${r.modelo.padEnd(48)} ${String(r.ms).padStart(6)} ms  ${r.codigo}${r.tareas?.length ? `  [${r.tareas.join(', ')}]` : ''}`);
+        }
+        registrarTelemetria({ tipo: 'sonda_proveedores', subsistema: 'gate', resultado: resultados.some(r => r.vivo) ? 'ok' : 'sin_modelos', resultados, descubiertos });
         process.exit(resultados.some(r => r.vivo) ? 0 : 1);
     })().catch(err => {
         console.error(`🛑 Sonda falló: ${proveedorIA.redactar(err?.message || err)}`);
@@ -2121,37 +2275,61 @@ if (process.argv.includes('--sondear-proveedores')) {
 
 // Modo tablero: `node agents/architecture-gate.cjs --pmu-status` — imprime el
 // estado operativo actual del Escuadrón Élite completo, regenerado en el
-// momento (nunca sirve una copia vieja). No consume API.
+// momento (nunca sirve una copia vieja). Desde 2026-10-12 (R2) valida cada
+// key contra el listado de modelos del proveedor más una sonda de saldo
+// mínima con consumo real (ya no es offline ni gratuito), guarda la validación en pmu/validacion_keys.json y sale con
+// exit 1 si la cadena no queda confirmada (bloqueada o indeterminada).
 if (process.argv.includes('--pmu-status')) {
     asegurarSubgatesAutoDescubiertos();
-    const estado = escribirEstadoOperativo();
-    console.log(`\n🎖️  PUESTO DE MANDO UNIFICADO — Escuadrón Élite (${estado.generado})`);
-    console.log(`   ${estado.total_agentes} agentes registrados · ${estado.agentes_con_gate} con gate técnico propio\n`);
-    const mando = new Map(estado.mapa_delegacion_001.map(m => [m.archivo, m]));
-    for (const a of estado.agentes) {
-        const escritura = a.permiso_escritura ? '✍️  ESCRITURA' : '👁️  solo lectura';
-        const gate = a.gate === 'sin_gate_propio' ? '⚪ sin gate propio' : `🔒 ${a.gate}`;
-        // Origen visible (2026-09-26): un soft-fail nunca se ve igual que
-        // una evaluación real del modelo.
-        const v = a.ultimo_veredicto;
-        const veredicto = v
-            ? (v.aprobado
-                ? (v.origen === 'api_directa' ? `✅ aprobado api_directa (${(v.timestamp || '').slice(0, 10)})` : `🟡 aprobado ${v.origen} (${(v.timestamp || '').slice(0, 10)}) — SIN evaluación del modelo`)
-                : '🛑 rechazado')
-            : (a.gate === 'sin_gate_propio' ? '— n/a' : '— sin cambios evaluados');
-        console.log(`   ${a.nombre || a.archivo}`);
-        console.log(`      ${escritura} · ${gate} · ${veredicto} · mando 001: ${mando.get(a.archivo)?.mapeado_por_001 ? 'sí' : 'NO'}`);
-    }
-    const pv = estado.proveedor_ia;
-    console.log(`\n   Proveedor IA: ${pv.proveedor} · ${pv.modelo || '—'} · key ${pv.key_configurada ? 'configurada' : 'AUSENTE'} · breaker ${pv.circuit_breaker.estado}`);
-    console.log(`   alertas_activas: ${estado.alertas_activas.length} · alertas_criticas_proveedor: ${estado.alertas_criticas_proveedor.length}`);
-    for (const al of estado.alertas_criticas_proveedor) {
-        console.log(`   🚨 ${al.tipo} [${al.severidad}] ${al.ultimo_error?.codigo || ''} — ${al.accion}`);
-    }
-    for (const al of estado.alertas_activas) {
-        console.log(`   ⚠️  ${al.tipo}: ${al.agente || al.subsistema || 'git'} — ${al.razon || al.ultima_razon || ''}`);
-    }
-    process.exitCode = 0;
+    (async () => {
+        const validacionKeys = await proveedorIA.validarKeys({ sondaSaldo: true });
+        // El PMU y la telemetría nunca llevan la huella de la key; el archivo
+        // de runtime (en .gitignore) sí, para que familiasRechazadas() solo
+        // excluya mientras siga la MISMA key que se rechazó.
+        const resultados = validacionKeys.map(({ proveedor, estado: e, http, codigo, categoria }) => ({ proveedor, estado: e, http, codigo, categoria }));
+        fs.mkdirSync(PMU_DIR, { recursive: true });
+        fs.writeFileSync(VALIDACION_KEYS_PATH, JSON.stringify({ validado_en: new Date().toISOString(), resultados: validacionKeys.map(({ detalle, ...v }) => v) }, null, 2) + '\n', 'utf8');
+        const estado = escribirEstadoOperativo({ validacionKeys: resultados });
+        const cadena = estado.proveedor_ia.cadena_ia_operativa;
+        registrarTelemetria({ tipo: 'validacion_keys', subsistema: 'pmu', resultado: cadena === true ? 'ok' : cadena === false ? 'cadena_bloqueada' : 'cadena_indeterminada', validacion: resultados });
+        console.log(`\n🎖️  PUESTO DE MANDO UNIFICADO — Escuadrón Élite (${estado.generado})`);
+        console.log(`   ${estado.total_agentes} agentes registrados · ${estado.agentes_con_gate} con gate técnico propio\n`);
+        const mando = new Map(estado.mapa_delegacion_001.map(m => [m.archivo, m]));
+        for (const a of estado.agentes) {
+            const escritura = a.permiso_escritura ? '✍️  ESCRITURA' : '👁️  solo lectura';
+            const gate = a.gate === 'sin_gate_propio' ? '⚪ sin gate propio' : `🔒 ${a.gate}`;
+            // Origen visible (2026-09-26): un soft-fail nunca se ve igual que
+            // una evaluación real del modelo.
+            const v = a.ultimo_veredicto;
+            const veredicto = v
+                ? (v.aprobado
+                    ? (v.origen === 'api_directa' ? `✅ aprobado api_directa (${(v.timestamp || '').slice(0, 10)})` : `🟡 aprobado ${v.origen} (${(v.timestamp || '').slice(0, 10)}) — SIN evaluación del modelo`)
+                    : '🛑 rechazado')
+                : (a.gate === 'sin_gate_propio' ? '— n/a' : '— sin cambios evaluados');
+            console.log(`   ${a.nombre || a.archivo}`);
+            console.log(`      ${escritura} · ${gate} · ${veredicto} · mando 001: ${mando.get(a.archivo)?.mapeado_por_001 ? 'sí' : 'NO'}`);
+        }
+        const pv = estado.proveedor_ia;
+        const icono = { CONECTADO_Y_VALIDADO: '🟢', ERROR_AUTENTICACION_O_SALDO: '🔴', SIN_KEY: '⚪', NO_VERIFICABLE: '🟡', NO_VERIFICADO: '🟡' };
+        for (const f of pv.familias) {
+            const http = f.validacion_key?.http ? ` HTTP ${f.validacion_key.http}` : '';
+            console.log(`\n   IA ${f.rol.padEnd(9)} ${f.proveedor.padEnd(10)} ${icono[f.estado_key] || '🟡'} ${f.estado_key}${http} (${f.validacion_key?.codigo || 'n/a'}) · modelos: ${f.modelos_descubiertos ? f.modelos_descubiertos.slice(0, 4).join(', ') : 'sin descubrir aún'}`);
+        }
+        console.log(`   cadena IA operativa: ${pv.cadena_ia_operativa === true ? '🟢 sí' : pv.cadena_ia_operativa === false ? '🔴 NO — subagentes detenidos' : '🟡 indeterminada — sin veredicto real; solo soft-fail autorizado'}`);
+        const abiertos = pv.circuit_breakers.filter(b => b.estado !== 'cerrado').map(b => `${b.modelo} (${b.estado})`);
+        console.log(`   breakers no cerrados: ${abiertos.length ? abiertos.join(', ') : 'ninguno'}`);
+        console.log(`   alertas_activas: ${estado.alertas_activas.length} · alertas_criticas_proveedor: ${estado.alertas_criticas_proveedor.length}`);
+        for (const al of estado.alertas_criticas_proveedor) {
+            console.log(`   🚨 ${al.tipo} [${al.severidad}] ${al.ultimo_error?.codigo || ''} — ${al.accion}`);
+        }
+        for (const al of estado.alertas_activas) {
+            console.log(`   ⚠️  ${al.tipo}: ${al.agente || al.subsistema || 'git'} — ${al.razon || al.ultima_razon || ''}`);
+        }
+        process.exitCode = pv.cadena_ia_operativa === true ? 0 : 1;
+    })().catch(err => {
+        console.error(`🛑 --pmu-status falló: ${proveedorIA.redactar(err?.message || err)}`);
+        process.exitCode = 1;
+    });
     return;
 }
 
@@ -2176,7 +2354,7 @@ function construirRegistroSoftFail(firma, falloApi, permiso, evaluador) {
         },
         firma,
         timestamp: new Date().toISOString(),
-        firmado_por: `SOFT-FAIL (proveedor de IA ${process.env.GATE_PROVIDER || 'nim'} no disponible: ${falloApi.codigo}) — SIN evaluación de ${evaluador}. Autorizado por: ${permiso.autorizadoPor}`,
+        firmado_por: `SOFT-FAIL (proveedores de IA no disponibles: ${falloApi.codigo}) — SIN evaluación de ${evaluador}. Autorizado por: ${permiso.autorizadoPor}`,
         razones: [`SOFT-FAIL, no veredicto de ${evaluador}: ${falloApi.detalle}`],
         diferimientos: [],
     };
@@ -2616,7 +2794,7 @@ async function ejecutarConResiliencia(carpeta, comando) {
 // OPERACIÓN 4 — Contrato de Salida (Audit Trail): artefacto obligatorio en disco al finalizar.
 // Reubicado 2026-09-25 a agents/pmu/ — la carpeta legacy 001 se movió a
 // _legacy_backup/ y el mkdir recursivo de escribirAuditTrail() la recrearía.
-const AUDIT_TRAIL_PATH = path.join(dirAgents, 'pmu', 'orquestacion_log.jsonl');
+const AUDIT_TRAIL_PATH = path.join(dirEstado, 'pmu', 'orquestacion_log.jsonl');
 
 function escribirAuditTrail(registro) {
     fs.mkdirSync(path.dirname(AUDIT_TRAIL_PATH), { recursive: true });
@@ -2800,5 +2978,8 @@ module.exports = {
     validarFormaVeredicto, VEREDICTO_SCHEMAS,
     validarOrigenVeredicto, ORIGENES_VALIDOS, HORAS_MAX_EXCEPCION_MANUAL,
     clasificarFalloApi, resolverPermisoSoftFail, construirRegistroSoftFail,
-    mencionaAgente, generarMapaDelegacion001, consultarModelo, BREAKER_PATH,
+    mencionaAgente, generarMapaDelegacion001, consultarModelo, BREAKER_PATH, MODELOS_CACHE_PATH,
+    resolverDirEstado, MODOS_PERMITIDOS_EN_SANDBOX,
+    RUTAS_ESTADO: { dirEstado, APROBACION_PATH, BREAKER_PATH, MODELOS_CACHE_PATH, PMU_DIR, ESTADO_OPERATIVO_PATH, TELEMETRIA_PATH, AUDIT_TRAIL_PATH, VALIDACION_KEYS_PATH },
+    leerUltimaValidacionKeys,
 };

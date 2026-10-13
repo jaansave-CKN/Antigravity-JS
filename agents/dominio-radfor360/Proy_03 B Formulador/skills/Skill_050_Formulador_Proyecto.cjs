@@ -24,27 +24,34 @@ module.exports = { ejecutar: ejecutar${nombre.replace(/Skill_?\d*/g, '').replace
     return template;
 }
 
-const args = process.argv.slice(2);
-const accion = args[0] || 'list';
+// Guarda 2026-10-12 (directiva PMUI, R6): el bloque de abajo tenía backticks
+// escapados fuera de un template literal (SyntaxError — el archivo nunca pudo
+// cargarse) y, con "create", escribe archivos; ahora solo corre invocado con node.
+if (require.main === module) {
+    const args = process.argv.slice(2);
+    const accion = args[0] || 'list';
 
-const skillsPendientes = [
-    { skill: 'Skill_050_Formulador_Proyecto', desc: 'Formulación de proyectos' },
-    { skill: 'Skill_051_Lluvia_Ideas', desc: 'Lluvia de ideas - brainstorming' },
-    { skill: 'Skill_054_Gestion_Riesgos', desc: 'Gestión de riesgos' },
-    { skill: 'Skill_056_Evaluador', desc: 'Evaluación de propuestas' },
-    { skill: 'Skill_057_Interventor', desc: 'Interventoría de obras' }
-];
+    const skillsPendientes = [
+        { skill: 'Skill_050_Formulador_Proyecto', desc: 'Formulación de proyectos' },
+        { skill: 'Skill_051_Lluvia_Ideas', desc: 'Lluvia de ideas - brainstorming' },
+        { skill: 'Skill_054_Gestion_Riesgos', desc: 'Gestión de riesgos' },
+        { skill: 'Skill_056_Evaluador', desc: 'Evaluación de propuestas' },
+        { skill: 'Skill_057_Interventor', desc: 'Interventoría de obras' }
+    ];
 
-if (accion === 'list') {
-    console.log('\n📋 Skills pendientes por crear:');
-    skillsPendientes.forEach((s, i) => console.log(\`  \${i+1}. \${s.skill}\`));
-} else if (accion === 'create') {
-    skillsPendientes.forEach(s => {
-        const contenido = inicializarSkill(s.skill, s.desc);
-        const ruta = path.join('./agents', args[1] || 'Proy_03 B Formulador', 'skills', s.skill + '.cjs');
-        if (!fs.existsSync(ruta)) {
-            fs.writeFileSync(ruta, contenido);
-            console.log(\`✅ Creado: \${ruta}\`);
-        }
-    });
+    if (accion === 'list') {
+        console.log('\n📋 Skills pendientes por crear:');
+        skillsPendientes.forEach((s, i) => console.log(`  ${i+1}. ${s.skill}`));
+    } else if (accion === 'create') {
+        skillsPendientes.forEach(s => {
+            const contenido = inicializarSkill(s.skill, s.desc);
+            const ruta = path.join('./agents', args[1] || 'Proy_03 B Formulador', 'skills', s.skill + '.cjs');
+            if (!fs.existsSync(ruta)) {
+                fs.writeFileSync(ruta, contenido);
+                console.log(`✅ Creado: ${ruta}`);
+            }
+        });
+    }
 }
+
+module.exports = { inicializarSkill };

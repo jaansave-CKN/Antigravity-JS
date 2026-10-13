@@ -24,5 +24,16 @@ Cada ítem refleja la realidad operativa de campo según la experiencia del form
     console.log("✅ Memoria generada. Lista para adjuntar al proyecto.");
 }
 
-const pInput = process.argv[2] || "Presupuesto Real";
-generarMemoriaJustificativa(pInput);
+// Guarda 2026-10-12 (directiva PMUI, R6): importar este módulo escribía
+// MEMORIA_TECNICA.txt en el cwd; ahora solo corre invocado con node.
+if (require.main === module) {
+    const pInput = process.argv[2] || "Presupuesto Real";
+    try {
+        generarMemoriaJustificativa(pInput);
+    } catch (e) {
+        console.error(`🛑 Skill_002_Generador_Anexos falló: ${e.message}`);
+        process.exitCode = 1;
+    }
+}
+
+module.exports = { generarMemoriaJustificativa };

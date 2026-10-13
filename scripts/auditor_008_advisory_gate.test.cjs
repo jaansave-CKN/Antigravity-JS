@@ -2,7 +2,7 @@
 // paso advisory de 008_AUDITOR_DE_CODIGO en CI (2026-08-13). Corre con:
 // node --test scripts/auditor_008_advisory_gate.test.cjs
 // No ejecuta ninguna llamada real a ningún proveedor (ejecutarAuditor008CI
-// se prueba con fetch simulado de NVIDIA NIM, abajo; mismo criterio que check_veto_008.test.cjs
+// se prueba con fetch simulado de Claude y Gemini, abajo; mismo criterio que check_veto_008.test.cjs
 // no testea main() -- solo las funciones puras/deterministas).
 'use strict';
 const test = require('node:test');
@@ -128,104 +128,113 @@ test('formatearResumen: siempre incluye la aclaracion de modo ADVISORY (no bloqu
     }
 });
 
-// --- Pivote a NVIDIA NIM (2026-10-08): ejecutarAuditor008CI con mocks -------
-// Ninguna prueba toca la red: fetchImpl simula la API compatible con OpenAI
-// de integrate.api.nvidia.com/v1. La key es ficticia (formato nvapi-).
-const { ejecutarAuditor008CI, entornoNim, lineaModelo } = require('./auditor_008_advisory_gate.cjs');
+// --- ADR-0004 (2026-10-08): ejecutarAuditor008CI con Claude primario y Gemini
+// de respaldo, con mocks. Ninguna prueba toca la red: fetchImpl simula los
+// listados de modelos y la generación de ambos proveedores. Keys ficticias.
+const { ejecutarAuditor008CI, lineaModelo } = require('./auditor_008_advisory_gate.cjs');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 
-const KEY_FALSA = 'nvapi-PRUEBA_abcdefghijklmnopqrstuvwxyz0123456789';
+const KEY_CLAUDE = 'sk-ant-api03-PRUEBA_abcdefghijklmnopqrstuvwxyz0123456789';
+const KEY_GEMINI = 'AIzaPRUEBA_abcdefghijklmnopqrstuvwxyz012345';
 const DIFF_FALSO = {
     diff: 'diff --git a/src/x.js b/src/x.js\n+const TOKEN_SECRETO = "sk-live-abcdefghijklmnopqrstuvwxyz123456";\n',
     archivos: ['src/x.js'], truncado: false, omitidos: [],
 };
 const sinEspera = async () => {};
 const diffFijo = () => DIFF_FALSO;
+const VEREDICTO = 'TOP 15 ... SCORE 92/100 ... VEREDICTO\n{"apto": false, "score": 92, "hallazgos_criticos": ["falta idempotencia en X"]}';
 
-function respuestaNim(status, cuerpo) {
+function respuestaJSON(status, cuerpo) {
     const texto = typeof cuerpo === 'string' ? cuerpo : JSON.stringify(cuerpo);
-    return { ok: status >= 200 && status < 300, status, headers: { get: () => 'application/json' }, text: async () => texto };
+    return { ok: status >= 200 && status < 300, status, headers: { get: (h) => (String(h).toLowerCase() === 'content-type' ? 'application/json' : 'req-008') }, text: async () => texto };
 }
-const cuerpoOk = (contenido) => ({ choices: [{ message: { content: contenido }, finish_reason: 'stop' }], usage: { prompt_tokens: 1200, completion_tokens: 300 } });
-function fetchMock(respuestas) {
+
+// plan: { claude: estado HTTP o 'ok', gemini: estado HTTP o 'ok' }
+function redIA(plan = {}) {
     const llamadas = [];
     const fn = async (url, init) => {
-        llamadas.push({ url, init });
-        const r = respuestas[Math.min(llamadas.length - 1, respuestas.length - 1)];
-        if (r instanceof Error) throw r;
-        return r;
+        const u = String(url);
+        llamadas.push({ url: u, init });
+        if (u.startsWith('https://api.anthropic.com/v1/models')) {
+            return respuestaJSON(200, { data: [{ id: 'claude-opus-5-5', created_at: '2026-09-01T00:00:00Z' }, { id: 'claude-sonnet-5-5', created_at: '2026-09-01T00:00:00Z' }], has_more: false });
+        }
+        if (u.startsWith('https://generativelanguage.googleapis.com/v1beta/models?')) {
+            return respuestaJSON(200, { models: [{ name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] }, { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }] });
+        }
+        if (u === 'https://api.anthropic.com/v1/messages') {
+            const e = plan.claude ?? 'ok';
+            if (e !== 'ok') return respuestaJSON(e, { type: 'error', error: { type: 'authentication_error', message: `clave ${KEY_CLAUDE} rechazada` } });
+            return respuestaJSON(200, { type: 'message', content: [{ type: 'text', text: VEREDICTO }], stop_reason: 'end_turn', usage: { input_tokens: 1200, output_tokens: 300 } });
+        }
+        const e = plan.gemini ?? 'ok';
+        if (e !== 'ok') return respuestaJSON(e, { error: { code: e, status: 'UNAVAILABLE', message: 'x' } });
+        return respuestaJSON(200, [{ candidates: [{ content: { parts: [{ text: VEREDICTO }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 900, candidatesTokenCount: 250 } }]);
     };
     fn.llamadas = llamadas;
     return fn;
 }
-const VEREDICTO_OK = 'TOP 15 ... SCORE 92/100 ... VEREDICTO APTO\n{"apto": false, "score": 92, "hallazgos_criticos": ["falta idempotencia en X"]}';
+const generacion = (f) => f.llamadas.filter(l => /\/messages$|:streamGenerateContent/.test(l.url));
 
-test('NIM: sin NVIDIA_API_KEY el paso se omite (exit 0 garantizado), aunque exista ANTHROPIC_API_KEY', async () => {
-    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { ANTHROPIC_API_KEY: 'sk-ant-x' }, diffContraBase: diffFijo, fetchImpl: fetchMock([]) });
+test('ADR-0004: sin ninguna key el paso se omite (exit 0); keys de proveedores externos no cuentan', async () => {
+    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { NVIDIA_API_KEY: 'nvapi-x', OPENROUTER_API_KEY: 'y' }, diffContraBase: diffFijo, fetchImpl: redIA() });
     assert.equal(r.ejecutado, false);
-    assert.match(r.razon, /NVIDIA_API_KEY no configurada/);
+    assert.match(r.razon, /Sin ANTHROPIC_API_KEY ni GEMINI_API_KEY/);
 });
 
-test('NIM: llama a integrate.api.nvidia.com/v1 con Bearer, sin Anthropic, y parsea el veredicto 008', async () => {
-    const f = fetchMock([respuestaNim(200, cuerpoOk(VEREDICTO_OK))]);
-    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { NVIDIA_API_KEY: KEY_FALSA }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
+test('ADR-0004: Claude responde primero (Opus más reciente) y el veredicto 008 se parsea', async () => {
+    const f = redIA();
+    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { ANTHROPIC_API_KEY: KEY_CLAUDE, GEMINI_API_KEY: KEY_GEMINI }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
     assert.equal(r.ejecutado, true);
     assert.equal(r.parseable, true);
     assert.deepEqual(r.veredicto, { apto: false, score: 92, hallazgos_criticos: ['falta idempotencia en X'] });
-    assert.equal(f.llamadas.length, 1);
-    assert.match(f.llamadas[0].url, /^https:\/\/integrate\.api\.nvidia\.com\/v1\/chat\/completions$/);
-    assert.equal(f.llamadas[0].init.headers.Authorization || f.llamadas[0].init.headers.authorization, `Bearer ${KEY_FALSA}`);
-    assert.ok(r.meta.modelo, 'registra el modelo que respondió');
+    assert.equal(`${r.meta.proveedor}:${r.meta.modelo}`, 'anthropic:claude-opus-5-5');
     assert.equal(r.meta.uso.prompt_tokens, 1200);
+    assert.ok(r.meta.costo.cop > 0, 'costo en COP registrado');
+    assert.equal(generacion(f).length, 1);
+    assert.equal(generacion(f)[0].init.headers['x-api-key'], KEY_CLAUDE);
+    assert.ok(!f.llamadas.some(l => l.url.includes('googleapis')), 'con Claude sano Gemini ni se lista');
 });
 
-test('NIM: el diff sale filtrado — el secreto literal nunca llega al proveedor', async () => {
-    const f = fetchMock([respuestaNim(200, cuerpoOk(VEREDICTO_OK))]);
-    await ejecutarAuditor008CI('HEAD~1', 60000, { env: { NVIDIA_API_KEY: KEY_FALSA }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
-    const cuerpo = String(f.llamadas[0].init.body);
+test('ADR-0004: el diff sale filtrado — el secreto literal nunca llega al proveedor', async () => {
+    const f = redIA();
+    await ejecutarAuditor008CI('HEAD~1', 60000, { env: { ANTHROPIC_API_KEY: KEY_CLAUDE }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
+    const cuerpo = String(generacion(f)[0].init.body);
     assert.ok(!cuerpo.includes('sk-live-abcdefghijklmnopqrstuvwxyz123456'), 'secreto filtrado antes de salir');
     assert.match(cuerpo, /SECRETO_REDACTADO/);
 });
 
-test('NIM: modelo primario caído (503) → conmuta al siguiente de la cadena gratuita y lo registra', async () => {
-    const f = fetchMock([respuestaNim(503, 'overloaded'), respuestaNim(200, cuerpoOk(VEREDICTO_OK))]);
-    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { NVIDIA_API_KEY: KEY_FALSA }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
+test('ADR-0004: Claude con key revocada (401) → Gemini resuelve y la conmutación queda registrada', async () => {
+    const f = redIA({ claude: 401 });
+    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { ANTHROPIC_API_KEY: KEY_CLAUDE, GEMINI_API_KEY: KEY_GEMINI }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
     assert.equal(r.parseable, true);
-    assert.ok(r.meta.failover, 'deja constancia de la conmutación');
-    assert.ok(f.llamadas.every(l => l.url.startsWith('https://integrate.api.nvidia.com/v1')), 'toda la cadena es NIM');
+    assert.equal(r.meta.proveedor, 'gemini');
+    assert.match(r.meta.failover, /anthropic:claude-opus-5-5 -> gemini:gemini-2.5-pro/);
 });
 
-test('NIM: key revocada (401) → omitido con causa clasificada, sin filtrar la key en el mensaje', async () => {
-    const f = fetchMock([respuestaNim(401, { error: { message: `invalid key ${KEY_FALSA}` } })]);
-    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { NVIDIA_API_KEY: KEY_FALSA }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
+test('ADR-0004: ambos proveedores fallan → omitido con causa clasificada, sin filtrar ninguna key en el log de CI', async () => {
+    const f = redIA({ claude: 401, gemini: 503 });
+    const r = await ejecutarAuditor008CI('HEAD~1', 60000, { env: { ANTHROPIC_API_KEY: KEY_CLAUDE, GEMINI_API_KEY: KEY_GEMINI }, diffContraBase: diffFijo, fetchImpl: f, sleep: sinEspera });
     assert.equal(r.ejecutado, false);
-    assert.match(r.razon, /NVIDIA NIM \[auth\//);
-    assert.ok(!r.razon.includes(KEY_FALSA), 'la key nunca aparece en el log de CI');
+    assert.match(r.razon, /Fallo de los proveedores de IA \[caida\//);
+    assert.ok(!r.razon.includes(KEY_CLAUDE) && !r.razon.includes(KEY_GEMINI), 'ninguna key aparece en el log de CI');
 });
 
-test('entornoNim: fuerza GATE_PROVIDER=nim y descarta cadena/keys de Anthropic heredadas', () => {
-    const e = entornoNim({ GATE_PROVIDER: 'anthropic', GATE_FALLBACK_CHAIN: 'anthropic', ANTHROPIC_API_KEY: 'x', ANTHROPIC_BASE_URL: 'y', NVIDIA_API_KEY: KEY_FALSA });
-    assert.equal(e.GATE_PROVIDER, 'nim');
-    assert.equal(e.GATE_FALLBACK_CHAIN, undefined);
-    assert.equal(e.ANTHROPIC_API_KEY, undefined);
-    assert.equal(e.NVIDIA_API_KEY, KEY_FALSA);
-});
-
-test('lineaModelo + formatearResumen: reportan modelo NIM, conmutación y tokens (FinOps)', () => {
-    const linea = lineaModelo({ modelo: 'nvidia/nemotron-3-ultra-550b-a55b', failover: 'nim:a -> nim:b', uso: { prompt_tokens: 10, completion_tokens: 5 }, costo: { cop: 0 }, archivosSensiblesOmitidos: [] });
-    assert.match(linea, /nim:nvidia\/nemotron-3-ultra-550b-a55b/);
-    assert.match(linea, /conmutacion nim:a -> nim:b/);
+test('lineaModelo + formatearResumen: reportan proveedor:modelo, conmutación y tokens (FinOps)', () => {
+    const linea = lineaModelo({ proveedor: 'anthropic', modelo: 'claude-opus-5-5', failover: 'anthropic:a -> gemini:b', uso: { prompt_tokens: 10, completion_tokens: 5 }, costo: { cop: 12.5 }, archivosSensiblesOmitidos: [] });
+    assert.match(linea, /\*\*Modelo\*\*: anthropic:claude-opus-5-5/);
+    assert.match(linea, /conmutacion anthropic:a -> gemini:b/);
     assert.match(linea, /tokens 10 in \/ 5 out/);
-    const out = formatearResumen({ ejecutado: true, parseable: true, veredicto: { apto: true, score: 100, hallazgos_criticos: [] }, textoCompleto: '', archivosAuditados: [], meta: { modelo: 'm/x' } });
-    assert.match(out, /\*\*Modelo\*\*: nim:m\/x/);
+    assert.match(linea, /costo COP 12.5/);
+    const out = formatearResumen({ ejecutado: true, parseable: true, veredicto: { apto: true, score: 100, hallazgos_criticos: [] }, textoCompleto: '', archivosAuditados: [], meta: { proveedor: 'gemini', modelo: 'gemini-2.5-pro' } });
+    assert.match(out, /\*\*Modelo\*\*: gemini:gemini-2.5-pro/);
 });
 
-test('main (proceso real): sin NVIDIA_API_KEY sale con exit 0 y lo informa — nunca bloquea el pipeline', () => {
+test('main (proceso real): sin keys de Claude ni Gemini sale con exit 0 y lo informa — nunca bloquea el pipeline', () => {
     const env = { ...process.env };
     // Vacías (no borradas): dotenv no sobrescribe variables ya definidas, así
     // el .env local no se cuela en el proceso hijo.
-    env.NVIDIA_API_KEY = ''; env.ANTHROPIC_API_KEY = ''; delete env.GITHUB_STEP_SUMMARY;
+    env.ANTHROPIC_API_KEY = ''; env.GEMINI_API_KEY = ''; env.GOOGLE_API_KEY = ''; delete env.GITHUB_STEP_SUMMARY;
     const salida = execFileSync(process.execPath, [path.join(__dirname, 'auditor_008_advisory_gate.cjs'), '--base', 'HEAD'], { env, encoding: 'utf8' });
-    assert.match(salida, /NVIDIA_API_KEY no configurada/);
+    assert.match(salida, /Sin ANTHROPIC_API_KEY ni GEMINI_API_KEY/);
 });
