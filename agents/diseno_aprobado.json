@@ -2,22 +2,22 @@
   "aprobado": true,
   "origen": "soft_fail_api",
   "soft_fail": {
-    "codigo": "http_400_sin_saldo",
-    "detalle": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CgAAANspKquFqiX4VRBe5\"}",
-    "request_id": "req_011CgAAANspKquFqiX4VRBe5",
+    "codigo": "circuito_abierto",
+    "detalle": "Circuit breaker abierto desde 2026-10-18T18:15:24.110Z (último error http_400_sin_saldo) — no se llama al proveedor hasta el cooldown de 900s. | cadena: anthropic:claude-opus-5-5=circuito_abierto, anthropic:claude-sonnet-5-5=circuito_abierto",
+    "request_id": null,
     "autorizado_por": "Jairo Antonio Salinas Velasco",
     "habilitado_via": "flag"
   },
-  "firma": "eaaf486dabb19fb33ec1bbd1685526ddcb3f3f3bd50faded0c90b2b28bc09e02",
-  "timestamp": "2026-10-18T18:15:22.681Z",
-  "firmado_por": "SOFT-FAIL (proveedores de IA no disponibles: http_400_sin_saldo) — SIN evaluación de 002_ARQUITECTO_DE_SOFTWARE. Autorizado por: Jairo Antonio Salinas Velasco",
+  "firma": "a1f096fcf5bbf7adf05d971f5012e3ecca592c0377ea4ecd01f6e1f6f0daf0f5",
+  "timestamp": "2026-10-18T18:16:36.073Z",
+  "firmado_por": "SOFT-FAIL (proveedores de IA no disponibles: circuito_abierto) — SIN evaluación de 002_ARQUITECTO_DE_SOFTWARE. Autorizado por: Jairo Antonio Salinas Velasco",
   "razones": [
-    "SOFT-FAIL, no veredicto de 002_ARQUITECTO_DE_SOFTWARE: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.\"},\"request_id\":\"req_011CgAAANspKquFqiX4VRBe5\"}"
+    "SOFT-FAIL, no veredicto de 002_ARQUITECTO_DE_SOFTWARE: Circuit breaker abierto desde 2026-10-18T18:15:24.110Z (último error http_400_sin_saldo) — no se llama al proveedor hasta el cooldown de 900s. | cadena: anthropic:claude-opus-5-5=circuito_abierto, anthropic:claude-sonnet-5-5=circuito_abierto"
   ],
   "diferimientos": [],
   "amarre": {
-    "base_sha": "fe13a2f3fb523a74dc2f197235418690433c2bdb",
-    "huella": "9d4480fb21e2c6676cd6c6a5f5925cb943d0a225b453f1fabb06e2813eb17ad3",
-    "archivos": 9
+    "base_sha": "6db9a193314c51a7719f1ccfd6d4e91e61a1c60c",
+    "huella": "501480d21932432c5dd76c414f48356cdcd1b75a4849fffa7c123bac76b40c76",
+    "archivos": 8
   }
 }

@@ -14,7 +14,7 @@ model: inherit
 # seguridad, CAPA 5/9 pruebas de ruptura/caos, mismo dominio que 010 usa para
 # su suite E2E real).
 skills: api-security-best-practices, playwright-best-practices
-doc_revisado: 91a8650e2b996e252b0bf3a6f048165560bbe62d  # revisado 2026-10-12 (directiva PMUI): 91a8650 solo reubica rutas (§0-AN), sin cambio de mandato
+doc_revisado: 6db9a193314c51a7719f1ccfd6d4e91e61a1c60c  # revisado 2026-10-18 (cierre Omega PMUI): 91a8650 y 6db9a19 (§0-AO) revisados, definición consistente
 ---
 
 # ⚡ PROTOCOLO TITÁN ∞ — AUDITORÍA TOTAL 100/100 (PRE-LANZAMIENTO REAL)

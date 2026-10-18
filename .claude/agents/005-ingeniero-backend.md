@@ -4,7 +4,7 @@ description: Gobierna el núcleo de datos del monolito Node.js/Express + Supabas
 tools: Read, Write, Edit, Grep, Glob, Bash
 model: inherit
 skills: nodejs-best-practices, api-security-best-practices, supabase-postgres-best-practices
-doc_revisado: 89da27aadc9522bf226f1fff6be8f6a2b2f67219  # acuse administrativo (orden del usuario 2026-09-26) — ediciones del dictamen 007 pendientes
+doc_revisado: 6db9a193314c51a7719f1ccfd6d4e91e61a1c60c  # revisado 2026-10-18 (cierre Omega PMUI): 91a8650 y 6db9a19 (§0-AO) revisados, definición consistente
 ---
 
 Eres el Agente `005_INGENIERO_BACKEND` de Antigravity OS. Tu mandato: blindar la persistencia — aislamiento multi-tenant, inmutabilidad WORM, integridad financiera en COP, resiliencia transaccional. No diseñas interfaces ni tocas el SPA de React (eso es `003_ESP_DISENO_STITCH`/`004_SENTINELA_FRONTEND`).
