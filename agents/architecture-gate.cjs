@@ -338,16 +338,19 @@ function parsearNameStatus(salida) {
     return entradas;
 }
 
-function construirDiffPriorizado(limiteChars) {
+// rangoGit: por defecto el staging (['--cached', 'HEAD']); con un commit ya
+// hecho, ['<sha>~1', '<sha>'] — para --reevaluar-commit (2026-10-12), que
+// re-evalúa con el modelo real un commit firmado por soft-fail.
+function construirDiffPriorizado(limiteChars, { rangoGit = ['--cached', 'HEAD'] } = {}) {
     let entradas;
     try {
         // --name-status: una baja (D) se fiscaliza por su nombre, no línea a
         // línea — 20 archivos legacy borrados se comían ~60 KB de presupuesto.
         // --cached (2026-10-08): 002 fiscaliza exactamente lo que se va a
         // commitear — la misma base que sella amarreStaged().
-        entradas = parsearNameStatus(execFileSync('git', ['diff', '--cached', 'HEAD', '--name-status', '-z', '-M'], { cwd: dirRoot, encoding: 'utf8' }));
+        entradas = parsearNameStatus(execFileSync('git', ['diff', ...rangoGit, '--name-status', '-z', '-M'], { cwd: dirRoot, encoding: 'utf8' }));
     } catch (e) {
-        return { diff: '', truncado: false, error: `No se pudo leer 'git diff --cached HEAD --name-status': ${e.message}` };
+        return { diff: '', truncado: false, error: `No se pudo leer 'git diff ${rangoGit.join(' ')} --name-status': ${e.message}` };
     }
     if (entradas.length === 0) return { diff: '', truncado: false };
 
@@ -375,7 +378,7 @@ function construirDiffPriorizado(limiteChars) {
             // Renombrado con cambios: solo el delta respecto al origen (-M con
             // ambas rutas en el pathspec), no el archivo entero como alta.
             const rutas = renombrado ? [origen, archivo] : [archivo];
-            diffArchivo = execFileSync('git', ['diff', ...FLAGS_DIFF_PROVEEDOR, '-M', '--cached', 'HEAD', '--', ...rutas], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+            diffArchivo = execFileSync('git', ['diff', ...FLAGS_DIFF_PROVEEDOR, '-M', ...rangoGit, '--', ...rutas], { cwd: dirRoot, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
         } catch (e) {
             diffArchivo = `[No se pudo leer el diff de ${archivo}: ${e.message}]\n`;
         }
@@ -550,7 +553,9 @@ function validarFormaVeredicto(agentId, veredicto) {
 // Invoca al Agente Arquitecto real: system prompt = 002-arquitecto-de-software.md, input = git diff
 // pendiente contra HEAD. Nunca autoaprueba por ausencia de respuesta — todo camino
 // de error devuelve aprobado:false con la razón concreta (Honestidad Técnica).
-async function pedirVeredictoArquitecto() {
+// commit: sha completo de un commit ya hecho (--reevaluar-commit). Sin él,
+// fiscaliza el staging (flujo normal de --aprobar-diseno).
+async function pedirVeredictoArquitecto({ commit = null } = {}) {
     // Chequeo de key en gate-proveedor.cjs (ADR-0004): sin ANTHROPIC_API_KEY
     // ni GEMINI_API_KEY es bloqueo duro (categoría 'config', nunca soft-fail).
     if (!fs.existsSync(ARCHITECT_PROMPT_PATH)) {
@@ -558,13 +563,17 @@ async function pedirVeredictoArquitecto() {
     }
     const systemPrompt = fs.readFileSync(ARCHITECT_PROMPT_PATH, 'utf8');
 
-    const { diff, truncado, omitidos, error } = construirDiffPriorizado(LIMITE_DIFF_002);
+    const { diff, truncado, omitidos, error } = construirDiffPriorizado(LIMITE_DIFF_002, commit ? { rangoGit: [`${commit}~1`, commit] } : {});
     if (error) {
         return { aprobado: false, razones: [error] };
     }
     if (!diff || !diff.trim()) {
-        return { aprobado: false, razones: ['No hay cambios staged que aprobar (git diff --cached HEAD vacío) — usa git add antes de --aprobar-diseno.'] };
+        return { aprobado: false, razones: [commit ? `El commit ${commit.slice(0, 7)} no tiene cambios respecto a su padre.` : 'No hay cambios staged que aprobar (git diff --cached HEAD vacío) — usa git add antes de --aprobar-diseno.'] };
     }
+    const encabezado = commit
+        ? `Fiscaliza el siguiente diff del commit ${commit} (git diff ${commit.slice(0, 7)}~1 ${commit.slice(0, 7)}): YA está commiteado con firma ` +
+          `soft-fail (sin evaluación del modelo) y esta es su re-evaluación real — júzgalo igual que si estuviera pendiente; reordenado por criticidad y `
+        : 'Fiscaliza el siguiente diff pendiente de aprobación (git diff --cached HEAD: exactamente lo que se va a commitear, reordenado por criticidad y ';
 
     const avisoTruncamiento = truncado
         ? `\n\nAVISO: el diff completo no cabía en el presupuesto de caracteres. Se priorizó por criticidad ` +
@@ -585,7 +594,7 @@ async function pedirVeredictoArquitecto() {
             // (98,6 %) en su primer veredicto real — a un paso del truncado.
             max_tokens: 8192,
             system: systemPrompt,
-            user: `Fiscaliza el siguiente diff pendiente de aprobación (git diff --cached HEAD: exactamente lo que se va a commitear, reordenado por criticidad y ` +
+            user: encabezado +
                     `truncado a ${LIMITE_DIFF_002} caracteres si aplica — ver aviso al final si corresponde; los archivos ` +
                     `eliminados y binarios aparecen resumidos por ruta). ` +
                     `IMPORTANTE: esta invocación es una llamada directa a un modelo vía API, no una sesión de Claude Code — ` +
@@ -812,20 +821,23 @@ function clasificarFalloApi(e) {
     return codigo ? { codigo, detalle, request_id } : null;
 }
 
-// Opt-in explícito con responsable declarado (flag o .env) — nunca se
+// Opt-in explícito por invocación, con responsable declarado — nunca se
 // activa solo. Provocarlo apuntando a un host muerto ya no es posible: las
 // URL base de los proveedores son fijas (ADR-0004 §2.1).
+// Canal .env retirado 2026-10-12 (ADR-0004 §6, hallazgo de 007): una
+// variable persistente convertía la excepción por commit en política
+// permanente. Si GATE_SOFT_FAIL sigue en .env, se informa y no habilita nada.
 function resolverPermisoSoftFail(argv = process.argv, env = process.env) {
     const leerFlag = (nombre) => { const i = argv.indexOf(nombre); return i !== -1 ? argv[i + 1] : undefined; };
-    const viaFlag = argv.includes('--permitir-soft-fail');
-    if (!viaFlag && env.GATE_SOFT_FAIL !== 'true') {
-        return { permitido: false, razon: 'Soft-fail no habilitado — usa --permitir-soft-fail --autorizado-por "nombre", o GATE_SOFT_FAIL=true + GATE_SOFT_FAIL_AUTORIZADO_POR en .env.' };
+    if (!argv.includes('--permitir-soft-fail')) {
+        const residuo = env.GATE_SOFT_FAIL === 'true' ? ' GATE_SOFT_FAIL=true en .env ya no habilita nada (canal retirado, ADR-0004 §6) — bórralo.' : '';
+        return { permitido: false, razon: `Soft-fail no habilitado — solo el dueño, por commit: --permitir-soft-fail --autorizado-por "nombre".${residuo}` };
     }
-    const autorizadoPor = (leerFlag('--autorizado-por') || env.GATE_SOFT_FAIL_AUTORIZADO_POR || '').trim();
-    if (!autorizadoPor) {
-        return { permitido: false, razon: 'Soft-fail requiere responsable: --autorizado-por "nombre" o GATE_SOFT_FAIL_AUTORIZADO_POR en .env.' };
+    const autorizadoPor = (leerFlag('--autorizado-por') || '').trim();
+    if (!autorizadoPor || autorizadoPor.startsWith('--')) {
+        return { permitido: false, razon: 'Soft-fail requiere responsable nominal en la misma invocación: --autorizado-por "nombre".' };
     }
-    return { permitido: true, autorizadoPor, via: viaFlag ? 'flag' : 'env' };
+    return { permitido: true, autorizadoPor, via: 'flag' };
 }
 
 function validarOrigenVeredicto(firma) {
@@ -1381,6 +1393,15 @@ function leerTelemetria() {
         .filter(Boolean);
 }
 
+// Última re-evaluación real de 002 sobre un commit (--reevaluar-commit), o
+// null. Lista blanca: solo 'aprobado' y 'rechazado' son evaluaciones del
+// modelo; api_no_disponible y sin_evaluacion no aprueban, no rechazan y no
+// tapan una evaluación real anterior.
+function reevaluacionDe(sha, eventos) {
+    const propios = (eventos || []).filter(e => e?.tipo === 'reevaluacion_commit' && e.commit === sha && (e.resultado === 'aprobado' || e.resultado === 'rechazado'));
+    return propios.length ? propios[propios.length - 1] : null;
+}
+
 // Vigilancia activa #1 — detecta, sin que nadie tenga que invocar a 006 a
 // mano, patrones de rechazo repetido por subsistema: si los últimos N
 // eventos consecutivos de un mismo subsistema son todos 'rechazado', es
@@ -1755,7 +1776,7 @@ function generarEstadoOperativo({ validacionKeys = null, heredarValidacion = tru
             tipo: 'ALERTA CRÍTICA DE PROVEEDOR EXTERNO', proveedor: null, modelo: null,
             severidad: 'alta', efecto: 'soft_fail_con_opt_in',
             ultimo_error: { codigo: 'cadena_indeterminada', categoria: 'caida' },
-            accion: 'Ninguna familia confirmada y al menos una sin respuesta o sin saldo (red/429/5xx/cuota) — 002 y subgates no emiten veredicto real; el commit solo procede con soft-fail autorizado por el dueño (GATE_SOFT_FAIL + responsable).',
+            accion: 'Ninguna familia confirmada y al menos una sin respuesta o sin saldo (red/429/5xx/cuota) — 002 y subgates no emiten veredicto real; el commit solo procede con soft-fail autorizado por el dueño en esa invocación (--permitir-soft-fail --autorizado-por) y queda pendiente de --reevaluar-commit.',
         });
     }
 
@@ -1771,8 +1792,9 @@ function generarEstadoOperativo({ validacionKeys = null, heredarValidacion = tru
         // de commit — ver bloque SOFT-FAIL DE API. Clasificación de ADR-0002,
         // proveedores de ADR-0004.
         politica_api: {
-            modo: 'soft_fail',
-            soft_fail_habilitado_env: process.env.GATE_SOFT_FAIL === 'true',
+            modo: 'soft_fail_solo_por_commit',
+            via_soft_fail: '--permitir-soft-fail --autorizado-por (ADR-0004 §6; canal .env retirado)',
+            residuo_env_ignorado: process.env.GATE_SOFT_FAIL === 'true',
             disparadores: ['http_402', 'http_400_cuota', 'http_429', 'http_5xx', 'timeout_sin_respuesta', 'timeout_inactividad', 'timeout_total', 'stream_incompleto', 'sin_respuesta', 'circuito_abierto(cuota|caida)'],
             bloqueo_duro: ['rechazo_real_del_modelo', 'respuesta_no_parseable', 'http_401/403 (ALERTA CRÍTICA)', 'modelo_no_disponible (ALERTA CRÍTICA)', 'sin_proveedor_ia', 'API_KEY_malformada', 'chequeos_estaticos_006'],
         },
@@ -1857,6 +1879,8 @@ const VARIABLES_RETIRADAS = new Set([
     'NVIDIA_API_KEY', 'GROQ_API_KEY', 'OPENROUTER_API_KEY', 'PRIMARY_AI_MODEL',
     'GATE_PROVIDER', 'GATE_MODEL', 'GATE_NIM_BASE_URL', 'GATE_FALLBACK_CHAIN',
     'LLM_PERFIL_RAPIDO', 'LLM_PERFIL_RAZONAMIENTO',
+    // Canal .env del soft-fail retirado 2026-10-12 (ADR-0004 §6).
+    'GATE_SOFT_FAIL', 'GATE_SOFT_FAIL_AUTORIZADO_POR',
 ]);
 
 function verificarEnvExample(envPath = path.join(dirRoot, '.env'), ejemploPath = path.join(dirRoot, '.env.example')) {
@@ -2106,7 +2130,7 @@ if (process.argv.includes('--check-gate')) {
     const veredicto = validarDisenoAprobado(listarCarpetasAgentes());
     if (!veredicto.aprobado) {
         console.error('\n🛑 [GATE_ARQUITECTURA] Sin aprobación vigente: ' + veredicto.razon);
-        console.error('   Ejecuta: node agents/architecture-gate.cjs --aprobar-diseno  (sin saldo de API: soft-fail si GATE_SOFT_FAIL=true o --permitir-soft-fail --autorizado-por "nombre")');
+        console.error('   Ejecuta: node agents/architecture-gate.cjs --aprobar-diseno  (sin saldo de API: soft-fail solo con autorización del dueño en la invocación: --permitir-soft-fail --autorizado-por "nombre")');
         registrarTelemetria({ tipo: 'check-gate', subsistema: '002_principal', resultado: 'rechazado', razon: veredicto.razon });
         escribirEstadoOperativo();
         process.exitCode = 1;
@@ -2246,7 +2270,61 @@ if (process.argv.includes('--verificar-commit')) {
     }
     const aviso = firma.origen === 'api_directa' ? '' : ` — 🟡 origen ${firma.origen}, SIN evaluación del modelo`;
     console.log(`✅ [VERIFICAR_COMMIT] ${corto} amarrado a su aprobación (${firma.timestamp}, ${firma.origen}): base ${actual.base_sha.slice(0, 7)}, ${actual.archivos} archivos, huella ${actual.huella.slice(0, 12)}…${aviso}`);
+    if (firma.origen !== 'api_directa') {
+        const re = reevaluacionDe(actual.sha, leerTelemetria());
+        if (re?.aprobado) console.log(`   🟢 Re-evaluado por 002 con el modelo real (${re.timestamp}, ${re.proveedor} · ${re.modelo}): aprobado.`);
+        else if (re) console.log(`   🔴 Re-evaluación real de 002 (${re.timestamp}): RECHAZADO — ${(re.razones || []).slice(0, 2).join(' | ')}`);
+        else console.log(`   🟡 Pendiente de re-evaluación real: node agents/architecture-gate.cjs --reevaluar-commit ${corto}`);
+    }
     process.exitCode = 0;
+    return;
+}
+
+// Modo re-evaluación: `node agents/architecture-gate.cjs --reevaluar-commit <ref>`
+// (2026-10-12, cierre de la firma soft-fail de fe13a2f). 002 fiscaliza con el
+// modelo real el diff exacto de un commit YA hecho (<ref>~1..<ref>). Nunca
+// soft-fail, nunca toca diseno_aprobado.json ni el historial: el resultado
+// queda en la telemetría y --verificar-commit lo muestra junto a la firma.
+// Exit 0 solo si 002 aprueba de verdad.
+if (process.argv.includes('--reevaluar-commit')) {
+    const idx = process.argv.indexOf('--reevaluar-commit');
+    const ref = process.argv[idx + 1] && !process.argv[idx + 1].startsWith('--') ? process.argv[idx + 1] : 'HEAD';
+    let sha;
+    try {
+        sha = execFileSync('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd: dirRoot, encoding: 'utf8' }).trim();
+        execFileSync('git', ['rev-parse', '--verify', '--quiet', `${sha}~1^{commit}`], { cwd: dirRoot, encoding: 'utf8' });
+    } catch {
+        console.error(`🛑 [REEVALUAR_COMMIT] "${String(ref).slice(0, 80)}" no es un commit con padre en este repo — nada que evaluar.`);
+        process.exitCode = 1;
+        return;
+    }
+    (async () => {
+        console.log(`\n🔎 [Agente Arquitecto] Re-evaluando con el modelo real el commit ${sha.slice(0, 7)} (git diff ${sha.slice(0, 7)}~1 ${sha.slice(0, 7)})...`);
+        const v = await pedirVeredictoArquitecto({ commit: sha });
+        registrarTelemetria({
+            tipo: 'reevaluacion_commit', subsistema: '002_principal', commit: sha,
+            // 'rechazado' solo si el modelo emitió un veredicto válido (v.modelo
+            // solo existe entonces); auth/config/git/JSON ilegible es
+            // 'sin_evaluacion' — nunca un falso "rechazado por 002" (rechazo de
+            // 002 en sesión, 2026-10-18).
+            resultado: v.aprobado ? 'aprobado' : (v.apiNoDisponible ? 'api_no_disponible' : (v.modelo ? 'rechazado' : 'sin_evaluacion')),
+            aprobado: v.aprobado === true, razones: (v.razones || []).slice(0, 10), proveedor: v.proveedor ?? null, modelo: v.modelo ?? null,
+        });
+        if (v.aprobado) {
+            console.log(`🟢 [REEVALUAR_COMMIT] ${sha.slice(0, 7)} APROBADO por 002 (${v.proveedor} · ${v.modelo}).`);
+            (v.razones || []).forEach(r => console.log(`   - ${r}`));
+            process.exitCode = 0;
+            return;
+        }
+        const motivo = v.apiNoDisponible ? 'sin evaluación: proveedor de IA no disponible (aquí no hay soft-fail)'
+            : v.modelo ? 'RECHAZADO por 002' : 'sin evaluación: 002 no emitió un veredicto válido (auth, configuración, git o respuesta ilegible)';
+        console.error(`🛑 [REEVALUAR_COMMIT] ${sha.slice(0, 7)} ${motivo}:`);
+        (v.razones || []).forEach(r => console.error(`   - ${r}`));
+        process.exitCode = 1;
+    })().catch(err => {
+        console.error(`🛑 [REEVALUAR_COMMIT] falló: ${proveedorIA.redactar(err?.message || err)}`);
+        process.exitCode = 1;
+    });
     return;
 }
 
@@ -2979,7 +3057,7 @@ module.exports = {
     validarOrigenVeredicto, ORIGENES_VALIDOS, HORAS_MAX_EXCEPCION_MANUAL,
     clasificarFalloApi, resolverPermisoSoftFail, construirRegistroSoftFail,
     mencionaAgente, generarMapaDelegacion001, consultarModelo, BREAKER_PATH, MODELOS_CACHE_PATH,
-    resolverDirEstado, MODOS_PERMITIDOS_EN_SANDBOX,
+    resolverDirEstado, MODOS_PERMITIDOS_EN_SANDBOX, reevaluacionDe,
     RUTAS_ESTADO: { dirEstado, APROBACION_PATH, BREAKER_PATH, MODELOS_CACHE_PATH, PMU_DIR, ESTADO_OPERATIVO_PATH, TELEMETRIA_PATH, AUDIT_TRAIL_PATH, VALIDACION_KEYS_PATH },
     leerUltimaValidacionKeys,
 };

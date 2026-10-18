@@ -73,7 +73,7 @@
 
 ### 2.4 Ausencia de keys
 - **Aplicación:** sin ninguna de las dos keys, la IA queda "no configurada". `/api/health` lo reporta como degradado y el arranque lo informa sin advertencia de proveedor externo. No hay referencias a NIM.
-- **Gate 002 y subgates:** necesitan al menos una de las dos keys. Sin ninguna, bloqueo duro de tipo `config`, igual que hoy: es el mandato del gate (Axioma II.1). El soft-fail sigue prohibido por orden del dueño; la ruta de opt-in del código no cambia.
+- **Gate 002 y subgates:** necesitan al menos una de las dos keys. Sin ninguna, bloqueo duro de tipo `config`, igual que hoy: es el mandato del gate (Axioma II.1). El soft-fail sigue prohibido por orden del dueño; la ruta de opt-in del código no cambia. *(enmendado: ver §6)*
 - **008 en CI:** sin keys, el paso se omite con exit 0, como hoy.
 
 ### 2.5 CI (`.github/workflows/gate.yml`, mandato de 006)
@@ -100,7 +100,7 @@
 
 1. **Costo:** todo el tráfico pasa a ser de pago (no hay más eslabón gratuito). El costo por ciclo se reporta en COP.
 2. **Privacidad (Ley 1581):** en el nivel gratuito de la Gemini API, Google puede usar el contenido para mejorar sus productos. Los diffs del gate y las consultas del M1 pueden contener datos personales. **Requisito del dueño:** la key de Gemini debe pertenecer a un proyecto con facturación activa. El código no puede verificarlo.
-3. **Disponibilidad del gate:** mientras Anthropic no tenga saldo, el gate dependerá solo de Gemini. Si las dos familias fallan, ningún commit pasa (soft-fail prohibido).
+3. **Disponibilidad del gate:** mientras Anthropic no tenga saldo, el gate dependerá solo de Gemini. Si las dos familias fallan, ningún commit pasa (soft-fail prohibido). *(enmendado: ver §6)*
 4. **Determinismo:** el descubrimiento actualiza el modelo sin intervención. Cada veredicto registra el modelo; `LLM_MODELOS_*` fija la versión cuando se necesite reproducibilidad.
 5. **Pruebas:** unas 60 pruebas del proveedor están escritas sobre NIM y se reescriben con mocks de los dos protocolos. Ninguna prueba toca la red.
 
@@ -126,3 +126,71 @@
 | 3 | Descubrimiento real | `node agents/architecture-gate.cjs --sondear-proveedores` lista modelos `claude-*` y `gemini-*` descubiertos y los marca vivos |
 | 4 | Claude primario real (requiere el saldo recargado) | La sonda muestra el primer eslabón Claude vivo; un `--aprobar-diseno` real registra `modelo: claude-…` |
 | 5 | CI | Corrida verde en `master` |
+
+## 6. Enmienda 2026-10-12 — soft-fail y re-evaluación
+
+Redactada por `007` (paso 4 del §4). §2.4 y §3.3 dicen "soft-fail prohibido por orden del dueño". `AGENTS.md:23` (Axioma II.1) describe un soft-fail con opt-in vigente desde 2026-09-25. Esta sección reconcilia los dos textos con el comportamiento del código al 2026-10-12. Las referencias de línea son de `agents/architecture-gate.cjs` tal como entra en el commit que agrega esta sección, salvo que se indique otro archivo.
+
+### 6.1 Regla vigente
+
+1. **Prohibido por defecto.** Sin opt-in, `resolverPermisoSoftFail()` devuelve `permitido: false` (`:830-841`). Un fallo de disponibilidad del proveedor termina entonces en rechazo con exit 1 (`:2605-2619`).
+2. **Qué puede ser soft-fail.** Solo las categorías `cuota` y `caida` (`esElegibleSoftFail`, `agents/gate-proveedor.cjs:81-83`, usada por `clasificarFalloApi`, `:803-811`). `auth`, `politica`, `solicitud` y `config` siempre bloquean.
+   - Una familia cuya key fue rechazada **por autenticación** en la última validación de `--pmu-status`, con la misma huella de key que hay hoy en el entorno, queda fuera de la cadena (`familiasRechazadas`, `agents/gate-proveedor.cjs:966-977`, consumida en `:237`). Así un fallo elegible del primario no termina reportado como el error de auth del respaldo.
+   - Si todas las familias con key quedan fuera, el error es `todas_las_keys_rechazadas` (categoría `auth`, bloqueo duro, `agents/gate-proveedor.cjs:1113-1115`).
+   - Saldo o cuota **no** excluyen a la familia: siguen siendo la condición elegible a soft-fail (`agents/gate-proveedor.cjs:966-971`, comentario de diseño).
+3. **Única excepción admitida por el dueño: autorización nominal por commit.** Se pide con `--permitir-soft-fail --autorizado-por "<nombre>"` en el `--aprobar-diseno`/`--aprobar-subgate` de ese commit.
+   - Queda registrada como `origen: "soft_fail_api"` con `soft_fail: {codigo, detalle, autorizado_por, habilitado_via}` y sin diferimientos (`construirRegistroSoftFail`, `:2422-2439`). `validarOrigenVeredicto` la acepta solo con esos campos completos (`:850-860`).
+   - En 002 lleva además el `amarre` del diff staged (`:2595-2597`), así que no cubre ningún otro cambio.
+   - La autorización vale para un commit. No es una habilitación general.
+4. **Re-evaluación obligatoria.** Todo commit firmado como `soft_fail_api` queda pendiente de `node agents/architecture-gate.cjs --reevaluar-commit <sha>` cuando vuelva un proveedor.
+   - Ese modo (`:2283-2329`) evalúa con el modelo real el diff `<sha>~1..<sha>`. Nunca hace soft-fail ni modifica `agents/diseno_aprobado.json`.
+   - Registra un evento `tipo: "reevaluacion_commit"` en `agents/pmu/telemetria.jsonl` (`:2304-2312`) y sale con exit 0 solo si 002 aprueba. El campo `resultado` puede ser:
+     - `aprobado`;
+     - `rechazado`, solo si el modelo emitió un veredicto válido (`v.modelo` presente);
+     - `api_no_disponible` (proveedor caído o sin saldo);
+     - `sin_evaluacion`: auth, configuración, git o JSON ilegible, que no son un veredicto del modelo (`:2306-2310`).
+   - La consola también los distingue: "RECHAZADO por 002" frente a "sin evaluación…" (`:2319-2321`). Este cambio salió de un rechazo de 002 en sesión, el 2026-10-18.
+   - `--verificar-commit` (`:2236-2281`) muestra, para todo origen distinto de `api_directa`, uno de tres estados (`:2273-2278`):
+     - 🟢 la última evaluación real es `aprobado`;
+     - 🔴 la última evaluación real es `rechazado`;
+     - 🟡 pendiente, con el comando exacto, si no hay ninguna evaluación real.
+
+     El dato sale de `reevaluacionDe()` (`:1396-1403`), que usa una **lista blanca**: solo `aprobado` y `rechazado` cuentan. `api_no_disponible` y `sin_evaluacion` no aprueban, no rechazan y no tapan una evaluación real anterior.
+   - Este modo va incluido en el commit que agrega esta sección. Pruebas: `scripts/architecture-gate.test.cjs:1170-1217`. El test de `reevaluacionDe` (`:1170-1188`) cubre `sin_evaluacion` y un resultado desconocido.
+5. **Detección de saldo.** El listado de modelos de Anthropic responde 200 aunque la cuenta no tenga saldo. Por eso `--pmu-status` hace una llamada real mínima: `max_tokens: 1`, el modelo más barato de la tarea `rapido`, 1 intento (`validarKeys({sondaSaldo})`, `agents/gate-proveedor.cjs:926-950`, invocada en `:2363`). Cada corrida de `--pmu-status` consume tokens reales.
+
+**Discrepancia del canal `.env`: cerrada el 2026-10-12.** El cierre va incluido en el commit que agrega esta sección. Las entradas antiguas de `agents/pmu/telemetria.jsonl` que mencionan `GATE_SOFT_FAIL=true … en .env` son históricas (el archivo es append-only) y no describen la regla vigente.
+
+- **Código:** `resolverPermisoSoftFail()` exige `--permitir-soft-fail` y `--autorizado-por "nombre"` en la misma invocación (`agents/architecture-gate.cjs:827-841`, comentario "Canal .env retirado 2026-10-12" en `:827`). Si el nombre falta o es otro flag, no hay permiso (`:836-839`).
+  - `GATE_SOFT_FAIL=true` en `.env` ya no habilita nada; solo se informa como residuo (`:833-834`).
+  - El responsable ya no se toma del `.env`.
+- **Variables retiradas:** `GATE_SOFT_FAIL` y `GATE_SOFT_FAIL_AUTORIZADO_POR` entraron a `VARIABLES_RETIRADAS` (`:1882-1883`).
+- **Plantilla:** `.env.example:76-78` ya no las declara; solo deja una nota con el comando por commit.
+- **PMU:** expone `politica_api.modo: 'soft_fail_solo_por_commit'` y `residuo_env_ignorado` (`:1794-1797`).
+- **Texto del axioma:** `AGENTS.md:23` corregido ("el canal `.env` … fue retirado del código el 2026-10-12 y ya no habilita nada").
+- **Prueba:** `scripts/architecture-gate.test.cjs:1046-1057`, test «resolverPermisoSoftFail: solo flag + --autorizado-por en la invocación; el .env completo ya NO habilita (canal retirado)».
+
+### 6.2 Precedente: commit `fe13a2f`
+
+- **Commit:** `fe13a2f3fb523a74dc2f197235418690433c2bdb`, padre `2b8b499` (`.git/logs/HEAD:104`), rama `feat/gate-nim-circuit-breaker`. `origin/master` está en `f0cf35f` (`.git/refs/remotes/origin/master`), así que **no está en `master`**. Que la rama esté publicada en `origin` lo declaró el ejecutor: en `.git/refs/remotes/origin/` no hay ref de seguimiento de esa rama para comprobarlo.
+- **Firma:** `agents/diseno_aprobado.json`, tal como estaba el 2026-10-12 antes de la firma del commit que agrega esta sección (que lo reemplaza), contenía:
+  - `origen: "soft_fail_api"` y `soft_fail.codigo: "circuito_abierto"`, con detalle "último error http_400_sin_saldo";
+  - `autorizado_por: "Jairo Antonio Salinas Velasco"` y `habilitado_via: "flag"`;
+  - `amarre.base_sha: 2b8b499…` (el padre de `fe13a2f`), `archivos: 286`.
+
+  La cadena registrada en el detalle solo tiene `anthropic:claude-opus-5-5` y `anthropic:claude-sonnet-5-5`. Gemini quedó fuera por auth: la telemetría `agents/pmu/telemetria.jsonl:1600` muestra `gemini … listado_http_400_auth`. No se verificó que este archivo sea idéntico al blob commiteado en `fe13a2f` (`007` no tiene Bash); el `base_sha` sí coincide.
+- **Autorización:** la dio el dueño el 2026-10-12, **solo para ese commit**. Levantó para ese caso la prohibición de §2.4. No se extiende a ningún commit posterior.
+- **Revisión previa:** el ejecutor declara que 002 dio `aprobado: true`, 005 `aislado_y_seguro` y 006 `infraestructura_segura: true` dentro de la sesión. No hay registro `api_directa` de esas revisiones en disco. La telemetría registra los subgates 005 y 006 como `soft_fail` (`agents/pmu/telemetria.jsonl:1569`, `:1571`, `:1580`, `:1589`).
+- **Re-evaluación:** se intentó el 2026-10-13T00:28:05Z (UTC), con resultado `api_no_disponible` por `http_400_sin_saldo` (`agents/pmu/telemetria.jsonl:1604-1605`). Sigue **🟡 pendiente**.
+
+### 6.3 Estado de los criterios de cierre (§5) al 2026-10-12
+
+| # | Criterio | Estado | Evidencia |
+|---|---|---|---|
+| 1 | `npm run test:gate` | ✅ 302/302, exit 0 | Declarado por el ejecutor; `007` no lo re-ejecutó (no tiene Bash) |
+| 2 | `npm run build` | ✅ exit 0 | Declarado por el ejecutor, 2026-10-12; no re-ejecutado por `007` |
+| 3 | Descubrimiento real | 🟡 pendiente | Anthropic sin saldo, Gemini con key inválida (`agents/pmu/telemetria.jsonl:1600`) |
+| 4 | Claude primario real | 🟡 pendiente | Requiere saldo de Anthropic. Ningún `--aprobar-diseno` registra `api_directa` con `modelo: claude-…` en esta ronda |
+| 5 | CI verde en `master` | 🟡 pendiente | `fe13a2f` no está en `origin/master` (`f0cf35f`) |
+
+El campo **Estado** del encabezado de este ADR sigue en "Propuesto". No hay en disco un veredicto `api_directa` de 002 sobre él. Esta enmienda no lo cambia.

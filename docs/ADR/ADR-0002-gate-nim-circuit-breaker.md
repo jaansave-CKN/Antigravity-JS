@@ -92,3 +92,17 @@ El PMU publica `mapa_delegacion_001`: por agente, propósito (`description`), sk
 
 ## 4. Verificación
 Tests `node:test` en `tests/gate/` (clasificación HTTP, transiciones del breaker, 401 que no abre el gate, timeout simulado, filtrado de secretos, key ausente de logs) + prueba negativa real con key inválida en el entorno del proceso.
+
+## 5. Enmienda 2026-10-12 — superado en parte por ADR-0004
+
+Agregada por `007`. Esta enmienda no reescribe las secciones anteriores.
+
+- **Superado:** §2.1 completo (NIM como proveedor principal, `GATE_NIM_BASE_URL`, `GATE_MODEL`, `NVIDIA_API_KEY`, `CADENA_NIM_DEFAULT`, `GATE_FALLBACK_CHAIN`) y la mención de NIM en §2.5 y §3. Ver `docs/ADR/ADR-0004-claude-primario-gemini-respaldo.md` §2.1-§2.3.
+  - Hoy solo existen `anthropic` y `gemini`, con URL base fija y sin override (`agents/gate-proveedor.cjs:21-27`).
+  - `agents/architecture-gate.cjs:1879-1880` lista las variables NIM, Groq y OpenRouter como retiradas: el chequeo `006_env_example` avisa si siguen en `.env`.
+- **Cambia una regla de conmutación de §2.1:** `auth`/`config` ya no abortan toda la cadena; saltan a la otra familia (ADR-0004 §2.2).
+  - Además, una familia con key rechazada por autenticación en la última validación del PMU queda fuera de la cadena (`familiasRechazadas`, `agents/gate-proveedor.cjs:966-977`).
+- **Sigue vigente y se aplica a los dos proveedores nuevos:** clasificación de fallas (§2.3), circuit breaker (§2.4), filtro de secretos (§2.5, sin la referencia a NIM), vigencia `doc_revisado` (§2.6), mando del 001 (§2.7) y endurecimiento de §2.8.
+- **Soft-fail:** el régimen vigente está en ADR-0004 §6. Prohibido por defecto; autorización nominal por commit; re-evaluación con `--reevaluar-commit`.
+  - Pendiente (5) de §2.8 ("`soft_fail_api` no expira ni se corrobora"): **atendido en parte**. Hay re-evaluación posterior y `--verificar-commit` la muestra (`agents/architecture-gate.cjs:2236-2329`, incluido en el commit que agrega esta sección), pero la firma sigue sin expirar.
+  - Pendiente (8), el canal persistente `GATE_SOFT_FAIL=true` en `.env`: **cerrado el 2026-10-12**, incluido en el commit que agrega esta sección. `resolverPermisoSoftFail()` solo acepta el flag con el responsable en la misma invocación (`agents/architecture-gate.cjs:827-841`), y ambas variables están en `VARIABLES_RETIRADAS` (`:1882-1883`). Detalle en ADR-0004 §6.1.

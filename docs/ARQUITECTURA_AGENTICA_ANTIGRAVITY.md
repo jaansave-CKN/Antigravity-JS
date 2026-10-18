@@ -2836,3 +2836,219 @@ ajustar el tooling local del gate.
 - El sha del commit de reorganización (grupo 4).
 
 El PDF no se regeneró, por instrucción explícita de esta tarea.
+
+## §0-AO. RONDA PMUI — ADR-0004 EN CÓDIGO, BLINDAJE DEL ESCUADRÓN, CUARENTENA Y PRIMERA FIRMA SOFT-FAIL CON RE-EVALUACIÓN (2026-10-12)
+
+Ronda ejecutada bajo la directiva PMUI del dueño y los pasos 2-4 del plan de
+`docs/ADR/ADR-0004-claude-primario-gemini-respaldo.md` §4. `007` verificó con Read, Grep y Glob cada ruta citada.
+Lo que solo declaró el ejecutor (exit codes, revisiones en sesión, push) se marca como **declarado**: `007` no tiene
+Bash y no lo re-ejecutó.
+
+### 0-AO.1 Commits
+
+| Commit | Qué | Evidencia |
+|---|---|---|
+| `2b8b499` | ADR-0004 (paso 1) | `.git/logs/HEAD:103` |
+| `fe13a2f` (`fe13a2f3fb523a74dc2f197235418690433c2bdb`) | ADR-0004 pasos 2-3, blindaje PMUI y cuarentena de 25 skills | `.git/logs/HEAD:104`, padre `2b8b499` |
+| commit que agrega esta sección | `--reevaluar-commit` y la indicación de re-evaluación en `--verificar-commit`; la semántica `sin_evaluacion` (2026-10-18); el cierre del canal `.env` del soft-fail; las enmiendas de ADR-0002, ADR-0003 y ADR-0004; esta §0-AO | Incluido en el commit que agrega esta sección. Su sha no puede citarse aquí porque no existe al escribirla |
+
+`fe13a2f` está en la rama `feat/gate-nim-circuit-breaker`. `origin/master` sigue en `f0cf35f`
+(`.git/refs/remotes/origin/master`), así que **la ronda no está en `master`**. Que la rama esté publicada en `origin`
+lo declaró el ejecutor: no hay ref de seguimiento local de esa rama en `.git/refs/remotes/origin/`.
+
+### 0-AO.2 Proveedor de IA (ADR-0004 en código)
+
+- Solo dos proveedores, `anthropic` y `gemini`, con URL base fija (`agents/gate-proveedor.cjs:21-27`). NIM salió de la
+  capa de proveedor.
+  - Las variables `NVIDIA_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `PRIMARY_AI_MODEL`, `GATE_PROVIDER`,
+    `GATE_MODEL`, `GATE_NIM_BASE_URL` y `GATE_FALLBACK_CHAIN` figuran como retiradas en
+    `agents/architecture-gate.cjs:1879-1880`. El chequeo `006_env_example` avisa si siguen en `.env`
+    (`agents/pmu/telemetria.jsonl:1599`).
+- La aplicación usa la misma capa a través de `src/shared/infrastructure/LlmGateway.js:20`. El 008 de CI también,
+  con la tarea `razonamiento` (`scripts/auditor_008_advisory_gate.cjs:16`, `:121-133`).
+- `render.yaml:24-29` declara `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` y `TAVILY_API_KEY`. `.github/workflows/gate.yml:106`
+  pasa `GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}`.
+- En `.env`, las cuatro variables retiradas quedaron comentadas con el prefijo `# RETIRADA ADR-0004 (2026-10-12)`,
+  no borradas (`.env:18`, `:79`, `:82`, `:88`). Ver la inconsistencia 0-AO.8 (2).
+
+### 0-AO.3 Hallazgos del diagnóstico PMUI (serie R)
+
+| Id | Hallazgo | Corrección en disco | Prueba |
+|---|---|---|---|
+| R2 | El PMU decía "key configurada" con la key de Gemini rechazada por Google | `validarKeys()` valida cada key contra el listado del proveedor. Estados `CONECTADO_Y_VALIDADO`, `ERROR_AUTENTICACION_O_SALDO`, `SIN_KEY`, `NO_VERIFICABLE` y `NO_VERIFICADO` (`agents/gate-proveedor.cjs:892-918`, `:933-964`). Alerta crítica por familia rechazada (`agents/architecture-gate.cjs:1737-1752`) | `tests/gate/gate-proveedor.test.cjs:1023-1084` |
+| R2 (complemento, sonda de saldo) | El listado de Anthropic responde 200 sin saldo, así que el PMU daba un falso `CONECTADO_Y_VALIDADO` | `sondaSaldo`: llamada real con `max_tokens: 1` tras el listado (`agents/gate-proveedor.cjs:926-950`). La activa `--pmu-status` (`agents/architecture-gate.cjs:2363`) | `tests/gate/gate-proveedor.test.cjs:1204` |
+| R3/R4 | Los tests escribían en `agents/pmu/telemetria.jsonl` y mutaban `agents/diseno_aprobado.json` | `GATE_ESTADO_DIR` redirige todo el estado a un sandbox, que solo se acepta dentro de `os.tmpdir()` (fail-closed, `agents/architecture-gate.cjs:25-45`). Helper `tests/gate/sandbox-estado.cjs` | `scripts/architecture-gate.test.cjs:1125-1139`, `:1221-1223`; `tests/gate/gate-proveedor.test.cjs:1151` |
+| R6 | Skills sin invocador real; cuatro ejecutaban su lógica con solo hacer `require()` | Cuarentena (0-AO.6) y guardas `require.main === module` | `tests/gate/skills.test.cjs:46-99` |
+| Omega | Un fallo transitorio de Claude terminaba reportado como el error de auth de Gemini | `familiasRechazadas()` (`agents/gate-proveedor.cjs:966-977`) excluye solo por `auth` y con la misma huella de key. `llamarModelo` recibe `familiasExcluidas` (`:1106-1115`) desde `consultarModelo` (`agents/architecture-gate.cjs:234-240`) | `tests/gate/gate-proveedor.test.cjs:1156-1204` |
+| fail-closed absoluto | Un subgate sin contrato en `VEREDICTO_SCHEMAS` pasaba sin validar la forma de su veredicto | `validarFormaVeredicto()` lo rechaza (`agents/architecture-gate.cjs:538-551`) | `scripts/architecture-gate.test.cjs:794` |
+
+**R1 y R5:** no hay ninguna traza en disco con esas etiquetas (Grep sobre `agents/*.cjs`, `scripts/`, `tests/`, `.claude/agents/`,
+`skills/`). `007` no puede decir a qué corresponden. El ejecutor debe precisarlo si hace falta.
+
+### 0-AO.4 Auditoría cruzada de `008` (serie H)
+
+| Id | Hallazgo | Corrección | Evidencia |
+|---|---|---|---|
+| H1 | La guarda del sandbox era una lista negra y dejaba correr el batch por defecto (sin flags) | Lista blanca `MODOS_PERMITIDOS_EN_SANDBOX = ['--pmu-status','--rutear','--sondear-proveedores']`. Exige que **todos** los flags estén en ella y que haya al menos uno | `agents/architecture-gate.cjs:2088-2106` |
+| H2 | `--check-gate` y `--aprobar-*` regeneraban el PMU y pisaban la validación de keys con `NO_VERIFICADO` | Heredan la última validación si tiene menos de 24 h (`validacion_keys.json`, en `.gitignore:55`) | `agents/architecture-gate.cjs:1364-1378`; `tests/gate/gate-proveedor.test.cjs:1115-1117` |
+| H3 | Sin red, la cadena quedaba como bloqueo duro | Una cadena sin ninguna familia validada y con alguna `NO_VERIFICABLE` queda **indeterminada** (`null`), con alerta `soft_fail_con_opt_in`. Saldo/cuota tampoco cuenta como bloqueo duro | `agents/architecture-gate.cjs:1753-1780`; `tests/gate/gate-proveedor.test.cjs:1086-1088` |
+| H4 | Un 400 `FAILED_PRECONDITION` de Gemini se marcaba como key rechazada | La decisión usa la categoría de `clasificarHttp()`: un 400 de política o precondición da `NO_VERIFICABLE` | `agents/gate-proveedor.cjs:906-908`; `tests/gate/gate-proveedor.test.cjs:1141-1143` |
+| H6 | La prueba del sandbox no cubría todos los modos que deciden | Prueba de los 6 modos que deciden, el batch sin flags y las combinaciones con un flag permitido | `scripts/architecture-gate.test.cjs:1145-1166` |
+| H7 | Las `.cjs.disabled` de la cuarentena podían ejecutar código al ser requeridas | Guarda `require.main === module`. Una prueba exige que las 10 sean inertes | `tests/gate/skills.test.cjs:74-93`; p. ej. `skills/_quarantine/2026-10-12/skills/Skill_integracion_auditoria_pro.cjs.disabled:33` |
+| H9 | `tests/gate/sandbox-estado.cjs` controla `GATE_ESTADO_DIR` y no tenía subgate | `/^tests\/gate\//` entra en los patrones de `006` | `agents/architecture-gate.cjs:1043-1046` |
+
+**H5 y H8:** no hay ninguna traza en disco con esas etiquetas. `007` no puede verificar si se corrigieron, se descartaron o
+se fusionaron con otro hallazgo.
+
+### 0-AO.5 Cambios a `007` y `008`
+
+- **`007` pasa a subgate** sobre su documento exclusivo.
+  - Frontmatter: `gate: {"campo":"documentado","patrones":["^docs/ARQUITECTURA_AGENTICA_ANTIGRAVITY\\.md$","^docs/as-build/.*\\.md$"]}` (`.claude/agents/007-documentador-as-build.md:6`).
+  - Contrato Zod en `VEREDICTO_SCHEMAS` (`agents/architecture-gate.cjs:520-535`). Prueba: `scripts/architecture-gate.test.cjs:802`.
+  - El PDF queda fuera porque su diff es binario.
+  - **Esta misma sección activa ese subgate** en el commit que la incluya.
+- **`008` queda en solo lectura:** `tools: Read, Grep, Glob`, sin `Bash` (`.claude/agents/008-auditor-de-codigo.md:4-8`). Prueba: `scripts/architecture-gate.test.cjs:831`.
+  - Las capas del Protocolo Titán que exigen ejecutar se piden a `010` o a `005`, que tienen subgate.
+- **Acuse `doc_revisado`:** los agentes 001, 002, 007, 008, 009 y 010 declaran `doc_revisado: 91a8650…` con el comentario "revisado 2026-10-12 (directiva PMUI)" (`.claude/agents/*.md:7` u `:8`/`:17`). Con esta sección `91a8650` deja de ser el último commit del documento. Las alertas `agente_desactualizado` (ADR-0002 §2.6) solo saltan para los agentes cuyo ID aparece en líneas agregadas. Esta sección menciona `007` y `008`, y también a `002`, `005`, `006` y `010`, así que se esperan alertas para ellos tras el commit. No se verificó; lo verá `--pmu-status`.
+
+### 0-AO.6 Cuarentena de 25 skills (R6)
+
+En `skills/_quarantine/2026-10-12/`. Motivo y requisitos de reactivación en `skills/_quarantine/README.md:18-29`. El
+registro está en la sección `cuarentena_2026_10_12` de `skills/ag_skills_registry.json:100-103`.
+
+- `skills/`: 7 `.cjs.disabled`. `agents-skills-cjs/`: 3 (`Skill_Config_Honestidad`, `Skill_Config_Sistema`, `Skill_Sync_MCP`). En total, las 10 que cuenta `tests/gate/skills.test.cjs:85`. Verificadas con Glob.
+- `agents-skills-md/`: 15 carpetas `SKILL.md`, verificadas con Glob. En `agents/skills/` queda activa solo `nodejs-best-practices`, según el README; `007` no listó esa carpeta.
+- Total: 10 + 15 = 25.
+- `skills/sync_registry.cjs` sigue activo. Ya no fija `last_migration` con un literal y lleva guarda (`skills/sync_registry.cjs:58`; prueba `tests/gate/skills.test.cjs:95-99`).
+- Las skills MGA rescatadas en `docs/skills-rescate-mga/` y la de `agents/dominio-radfor360/Proy_03 B Formulador/skills/Skill_050_Formulador_Proyecto.cjs:27` también llevan guarda.
+
+### 0-AO.7 Firma soft-fail de `fe13a2f` y vía de re-evaluación
+
+**Qué se firmó.** `agents/diseno_aprobado.json`, tal como estaba el 2026-10-12 antes de la firma del commit que
+agrega esta sección (que lo reemplaza), contenía:
+
+- `origen: "soft_fail_api"`, `soft_fail.codigo: "circuito_abierto"` y detalle "último error http_400_sin_saldo";
+- `autorizado_por: "Jairo Antonio Salinas Velasco"` y `habilitado_via: "flag"`;
+- `amarre.base_sha` = `2b8b499…` (el padre de `fe13a2f`), con 286 archivos.
+
+En la cadena registrada solo están `anthropic:claude-opus-5-5` y `anthropic:claude-sonnet-5-5`. Gemini ya estaba
+excluido por auth: la validación de `agents/pmu/telemetria.jsonl:1600` da `anthropic … http_400_sin_saldo (cuota)` y
+`gemini … listado_http_400_auth (auth)`. Por eso el fallo final fue el de Claude (cuota, elegible a soft-fail) y no
+el auth de Gemini, que habría sido bloqueo duro. No se verificó que el archivo sea byte a byte el blob commiteado en
+`fe13a2f` (`007` no tiene Bash); el `base_sha` sí coincide.
+
+**Autorización.** El dueño autorizó nominalmente el soft-fail el 2026-10-12 **solo para ese commit**, levantando para ese caso
+la prohibición de ADR-0004 §2.4. El régimen vigente quedó escrito en ADR-0004 §6. Según el ejecutor, en sesión (canal
+Agent tool) 002 dio `aprobado: true`, 005 `aislado_y_seguro` y 006 `infraestructura_segura: true`. No hay registro
+`api_directa` de esas revisiones: la telemetría muestra los subgates 005 y 006 como `soft_fail`
+(`agents/pmu/telemetria.jsonl:1569`, `:1571`, `:1580`, `:1589`).
+
+**Re-evaluación.** `--reevaluar-commit fe13a2f` se intentó el 2026-10-13T00:28:05Z (UTC). Dio `api_no_disponible` por
+`http_400_sin_saldo` y salió con exit 1 (`agents/pmu/telemetria.jsonl:1604-1605`; exit 1 declarado por el ejecutor).
+Estado: **🟡 pendiente**. `reevaluacionDe()` ignora ese intento (`agents/architecture-gate.cjs:1396-1403`).
+
+**Semántica de la re-evaluación (ajustada el 2026-10-18 tras un rechazo de 002 en sesión).** Cada intento de
+`--reevaluar-commit` deja en `resultado` uno de cuatro valores:
+
+- `aprobado`;
+- `rechazado`, solo cuando el modelo emitió un veredicto válido (`v.modelo` presente);
+- `api_no_disponible`;
+- `sin_evaluacion`, para auth, configuración, git o JSON ilegible (`agents/architecture-gate.cjs:2304-2312`).
+
+Antes, esos fallos sin veredicto quedaban como `rechazado`. La consola distingue ahora "RECHAZADO por 002" de "sin
+evaluación…" (`:2319-2321`). `reevaluacionDe()` usa una lista blanca (`:1396-1403`): solo `aprobado` y `rechazado`
+cuentan, y ningún `api_no_disponible`, `sin_evaluacion` o valor desconocido tapa una evaluación real anterior. Por
+eso 🟢/🔴 en `--verificar-commit` siempre reflejan un veredicto real del modelo y 🟡 cubre todo lo demás. Prueba:
+`scripts/architecture-gate.test.cjs:1170-1188`.
+
+```mermaid
+flowchart TD
+    A["--aprobar-diseno<br/>architecture-gate.cjs:2559"] --> B["amarreStaged()<br/>:2565"]
+    B --> C["consultarModelo()<br/>:232"]
+    P["--pmu-status :2360<br/>validarKeys sondaSaldo<br/>gate-proveedor.cjs:933"] --> V["pmu/validacion_keys.json<br/>:2369 (vigencia 24 h, :1369)"]
+    V --> X["familiasRechazadas()<br/>gate-proveedor.cjs:972<br/>solo auth + misma huella"]
+    X --> C
+    C --> L["llamarModelo tarea razonamiento<br/>gate-proveedor.cjs:1095<br/>Claude → Gemini menos excluidas"]
+    L -- "aprobado" --> OK["diseno_aprobado.json<br/>origen api_directa :2626"]
+    L -- "rechazo real / auth / config / politica" --> R1["🛑 exit 1 :2608-2618"]
+    L -- "cuota / caida<br/>esElegibleSoftFail gate-proveedor.cjs:81" --> S{"resolverPermisoSoftFail()<br/>:830"}
+    S -- "sin opt-in o sin responsable" --> R1
+    S -- "--permitir-soft-fail --autorizado-por" --> SF["construirRegistroSoftFail() :2422<br/>origen soft_fail_api + amarre :2597"]
+    SF --> CM["commit (pre-commit --check-gate)<br/>ej. fe13a2f"]
+    CM --> VC["--verificar-commit :2236"]
+    VC --> RE{"reevaluacionDe() :1400<br/>lista blanca: solo aprobado / rechazado"}
+    RE -- "sin evaluación real" --> Y["🟡 pendiente: --reevaluar-commit sha"]
+    RE -- "aprobado" --> G["🟢 re-evaluado"]
+    RE -- "rechazado (veredicto del modelo)" --> RR["🔴 rechazado"]
+    Y --> RC["--reevaluar-commit :2289<br/>diff sha~1..sha, nunca soft-fail"]
+    RC --> T["telemetria.jsonl :2305<br/>aprobado / rechazado / api_no_disponible / sin_evaluacion"]
+    T --> RE
+```
+
+### 0-AO.8 Inconsistencias detectadas (señaladas, no corregidas: no son archivos de `007`)
+
+1. **Canal persistente de soft-fail: CERRADO el 2026-10-12.** El cierre va incluido en el commit que agrega esta
+   sección. `007` lo verificó con Read y Grep. Las entradas antiguas de `agents/pmu/telemetria.jsonl` que mencionan
+   `GATE_SOFT_FAIL=true … en .env` son históricas (el archivo es append-only) y no describen la regla vigente.
+   - **Código:** `resolverPermisoSoftFail()` exige `--permitir-soft-fail --autorizado-por "nombre"` en la misma
+     invocación (`agents/architecture-gate.cjs:827-841`; comentario "Canal .env retirado 2026-10-12" en `:827`).
+     `GATE_SOFT_FAIL=true` solo se informa como residuo (`:833-834`) y el responsable ya no se toma del `.env`.
+   - **Variables retiradas:** ambas variables entraron a `VARIABLES_RETIRADAS` (`:1882-1883`).
+   - **Plantilla:** `.env.example:76-78` ya no las declara; solo deja una nota.
+   - **PMU:** expone `politica_api.modo: 'soft_fail_solo_por_commit'` y `residuo_env_ignorado` (`:1794-1797`).
+   - **Texto del axioma:** `AGENTS.md:23` corregido.
+   - **Prueba:** `scripts/architecture-gate.test.cjs:1046-1057`.
+   - Detalle en ADR-0004 §6.1.
+2. **Secretos en texto claro dentro de `.env`.** Las líneas comentadas `# RETIRADA …` de `.env:79`, `:82` y `:88`
+   conservan valores completos de keys de OpenRouter, Groq y NVIDIA. `.env` no está versionado, pero las keys siguen
+   vivas mientras no se revoquen. `007` no reproduce los valores aquí.
+   - **Respaldo eliminado (2026-10-12):** según el ejecutor, guardó el respaldo como `.env.respaldo-2026-10-12` en el
+     scratchpad de su sesión (fuera del repo) y luego lo eliminó. Es un hecho declarado. El Glob `**/*env*` de `007`
+     sobre `C:\Users\Usuario\AppData\Local\Temp\claude\c--2026-AI-EGIOC5-Antigravity-JS` no encontró nada, pero no
+     alcanza para confirmarlo, porque no recorrió ese scratchpad de sesión.
+   - **Sigue pendiente humano:** revocar las keys de OpenRouter, Groq y NVIDIA en cada proveedor y luego borrar esas
+     líneas.
+3. **El propio cuerpo de `007`** dice que `docs/as-build/` "no existe en disco"
+   (`.claude/agents/007-documentador-as-build.md:12`). Sigue siendo cierto: Glob no encuentra nada, 2026-10-12. Su
+   subgate (`:6`) ya cubre esa ruta por si se crea. No hay corrección pendiente; queda anotado.
+4. **ADR-0004 sigue en "Propuesto"** (`docs/ADR/ADR-0004-claude-primario-gemini-respaldo.md:3`). No hay en disco un
+   veredicto `api_directa` de 002 sobre ningún commit de la ronda.
+
+### 0-AO.9 Pendientes humanos
+
+1. **Saldo de Anthropic o key de Gemini válida.** Sin alguna de las dos no se cumplen los criterios 3 y 4 de ADR-0004
+   §5 y `fe13a2f` no se puede re-evaluar. La key de Gemini debe ser de un proyecto con facturación activa
+   (ADR-0004 §3.2, Ley 1581).
+2. **Cargar `GEMINI_API_KEY` en Render antes del merge a `master`.** `render.yaml:6-7` (`branch: master`,
+   `autoDeploy: true`) despliega solo, y `:26-27` declara `GEMINI_API_KEY` como `sync: false`. Sin ese valor, y con
+   Anthropic sin saldo, el servicio quedaría sin IA (`/api/health` degradado, ADR-0004 §2.4).
+3. **Re-evaluar `fe13a2f`** con `node agents/architecture-gate.cjs --reevaluar-commit fe13a2f` en cuanto vuelva un
+   proveedor, y comprobar el resultado con `--verificar-commit fe13a2f`.
+4. **`--reevaluar-commit`:** ya no es un pendiente; va incluido en el commit que agrega esta sección.
+5. **Criterio 5 (CI verde en `master`):** espera el merge.
+6. **Revocar las keys retiradas** (0-AO.8, punto 2).
+
+Estado de los criterios de ADR-0004 §5: el 1 (`npm run test:gate` 302/302, exit 0) y el 2 (`npm run build`, exit 0)
+están cumplidos según el ejecutor; el 3, el 4 y el 5 siguen pendientes. Detalle en ADR-0004 §6.3.
+
+### 0-AO.10 Divisa / idempotencia
+
+- No hay endpoints de mutación nuevos en la aplicación. `--reevaluar-commit` solo agrega líneas a
+  `telemetria.jsonl` y `reevaluacionDe()` toma la última evaluación real (`aprobado` o `rechazado`), así que
+  repetirlo es seguro.
+- **Costo en divisa:** el costo por llamada se calcula en USD por millón de tokens (`TARIFAS_USD_POR_MILLON`) y se
+  convierte a COP con la TRM (`agents/gate-proveedor.cjs:689-738`). La salida trae tanto `usd` como `cop`. Es FinOps
+  del consumo de API, que el proveedor factura en USD; no es un presupuesto de proyecto. Se reporta como hallazgo, sin
+  bloquear: la TRM por defecto (3273,49) es la de 2026-10-03..05 (`:689-691`).
+- `--pmu-status` consume tokens reales en cada corrida desde que tiene la sonda de saldo.
+
+### Qué no se verificó en esta sección
+
+- Los 302/302 de la suite, el exit 0 de `npm run build` y el exit 1 de la re-evaluación (no se re-ejecutaron).
+- Que la rama esté publicada en `origin`.
+- Que `agents/diseno_aprobado.json` coincida con el blob de `fe13a2f`.
+- Qué son R1, R5, H5 y H8.
+- Las revisiones de 002, 005 y 006 en sesión.
+
+El PDF no se regeneró: `007` no tiene Bash. Hay que regenerarlo con el pipeline markdown→HTML→PDF (Edge headless)
+cuando se cierre el commit.

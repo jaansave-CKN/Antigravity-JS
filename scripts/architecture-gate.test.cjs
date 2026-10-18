@@ -1041,14 +1041,19 @@ test('resolverPermisoSoftFail: opt-in sin responsable NO está permitido', () =>
   assert.equal(resolverPermisoSoftFail(['node', 'gate'], { GATE_SOFT_FAIL: 'true' }).permitido, false);
 });
 
-test('resolverPermisoSoftFail: flag + --autorizado-por, o env completo, SÍ está permitido', () => {
+// Canal .env retirado 2026-10-12 (ADR-0004 §6): solo la autorización del
+// dueño en la propia invocación habilita el soft-fail.
+test('resolverPermisoSoftFail: solo flag + --autorizado-por en la invocación; el .env completo ya NO habilita (canal retirado)', () => {
   const porFlag = resolverPermisoSoftFail(['node', 'gate', '--permitir-soft-fail', '--autorizado-por', 'Jairo'], {});
   assert.equal(porFlag.permitido, true);
   assert.equal(porFlag.autorizadoPor, 'Jairo');
   assert.equal(porFlag.via, 'flag');
   const porEnv = resolverPermisoSoftFail(['node', 'gate'], { GATE_SOFT_FAIL: 'true', GATE_SOFT_FAIL_AUTORIZADO_POR: 'Jairo' });
-  assert.equal(porEnv.permitido, true);
-  assert.equal(porEnv.via, 'env');
+  assert.equal(porEnv.permitido, false);
+  assert.match(porEnv.razon, /canal retirado/);
+  const flagConNombreDelEnv = resolverPermisoSoftFail(['node', 'gate', '--permitir-soft-fail'], { GATE_SOFT_FAIL_AUTORIZADO_POR: 'Jairo' });
+  assert.equal(flagConNombreDelEnv.permitido, false, 'el responsable tampoco se toma del .env');
+  assert.equal(resolverPermisoSoftFail(['node', 'gate', '--permitir-soft-fail', '--autorizado-por', '--aprobar-diseno'], {}).permitido, false, 'otro flag no cuenta como nombre');
 });
 
 test('URL base fijas (ADR-0004): ANTHROPIC_BASE_URL u otra variable no redirige la key ni el diff a otro host', () => {
@@ -1058,7 +1063,7 @@ test('URL base fijas (ADR-0004): ANTHROPIC_BASE_URL u otra variable no redirige 
   assert.equal(P.configModelo('gemini', 'gemini-x', hostil).baseUrl, 'https://generativelanguage.googleapis.com/v1beta');
   assert.ok(Object.isFrozen(P.BASE_URLS));
   // Sin vector de redirección, el soft-fail con opt-in no depende de la base URL.
-  assert.equal(resolverPermisoSoftFail(['node', 'gate'], { GATE_SOFT_FAIL: 'true', GATE_SOFT_FAIL_AUTORIZADO_POR: 'Jairo', ...hostil }).permitido, true);
+  assert.equal(resolverPermisoSoftFail(['node', 'gate', '--permitir-soft-fail', '--autorizado-por', 'Jairo'], hostil).permitido, true);
 });
 
 test('validarOrigenVeredicto: soft_fail_api completo es aceptado; sin autorizado_por o con diferimientos es RECHAZADO', () => {
@@ -1158,6 +1163,57 @@ test('R3/R4: con sandbox activo, todo modo que decide o ejecuta (6 modos + batch
   } finally {
     fs.rmSync(vacio, { recursive: true, force: true });
   }
+});
+
+// --reevaluar-commit (2026-10-12): re-evaluación real de 002 sobre un
+// commit firmado por soft-fail. Sin red en estos tests.
+test('reevaluacionDe: devuelve la última evaluación real del commit; un intento sin proveedor no cuenta', () => {
+  const { reevaluacionDe } = require('../agents/architecture-gate.cjs');
+  const sha = 'a'.repeat(40);
+  const ev = [
+    { tipo: 'reevaluacion_commit', commit: sha, resultado: 'rechazado', aprobado: false, timestamp: 't1' },
+    { tipo: 'reevaluacion_commit', commit: sha, resultado: 'aprobado', aprobado: true, timestamp: 't2' },
+    { tipo: 'reevaluacion_commit', commit: sha, resultado: 'api_no_disponible', aprobado: false, timestamp: 't3' },
+    { tipo: 'reevaluacion_commit', commit: 'b'.repeat(40), resultado: 'rechazado', aprobado: false, timestamp: 't4' },
+  ];
+  assert.equal(reevaluacionDe(sha, ev).timestamp, 't2');
+  assert.equal(reevaluacionDe('c'.repeat(40), ev), null);
+  assert.equal(reevaluacionDe(sha, ev.slice(2, 3)), null, 'api_no_disponible no es una evaluación');
+  // Rechazo de 002 en sesión (2026-10-18): un intento sin veredicto del modelo
+  // (auth, git, JSON ilegible) no es "rechazado" ni tapa un aprobado real.
+  const conSinEvaluacion = [...ev.slice(0, 2), { tipo: 'reevaluacion_commit', commit: sha, resultado: 'sin_evaluacion', aprobado: false, timestamp: 't5' }];
+  assert.equal(reevaluacionDe(sha, conSinEvaluacion).timestamp, 't2', 'sin_evaluacion no tapa el aprobado previo');
+  assert.equal(reevaluacionDe(sha, [{ tipo: 'reevaluacion_commit', commit: sha, resultado: 'sin_evaluacion', aprobado: false }]), null);
+  assert.equal(reevaluacionDe(sha, [{ tipo: 'reevaluacion_commit', commit: sha, resultado: 'otro_desconocido', aprobado: true }]), null, 'lista blanca: un resultado desconocido nunca cuenta');
+});
+
+test('construirDiffPriorizado: con rangoGit lee el diff de un commit ya hecho (HEAD~1..HEAD), no el staging', () => {
+  const { construirDiffPriorizado } = require('../agents/architecture-gate.cjs');
+  const r = construirDiffPriorizado(5000, { rangoGit: ['HEAD~1', 'HEAD'] });
+  assert.equal(r.error, undefined, r.error);
+  assert.equal(typeof r.diff, 'string');
+  const malo = construirDiffPriorizado(5000, { rangoGit: ['no-existe-zzz~1', 'no-existe-zzz'] });
+  assert.match(malo.error, /no-existe-zzz/);
+});
+
+// Keys falsas: si la validación de la ref regresara, ninguna llamada llegaría
+// a la API real con una key válida (dotenv no pisa variables ya definidas).
+test('--reevaluar-commit: una ref que no es commit sale con exit 1 antes de tocar la red o la telemetría', () => {
+  const { spawnSync } = require('child_process');
+  const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'agents', 'architecture-gate.cjs'), '--reevaluar-commit', 'no-existe-zzz-123'], {
+    cwd: path.join(__dirname, '..'), env: { ...process.env, GATE_ESTADO_DIR: '', ANTHROPIC_API_KEY: 'test-key-invalida-sin-red', GEMINI_API_KEY: 'test-key-invalida-sin-red' }, encoding: 'utf8', timeout: 60000,
+  });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /no es un commit/);
+});
+
+test('--reevaluar-commit: en sandbox se niega (no está en la lista blanca)', () => {
+  const { spawnSync } = require('child_process');
+  const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'agents', 'architecture-gate.cjs'), '--reevaluar-commit', 'HEAD'], {
+    cwd: path.join(__dirname, '..'), env: { ...process.env, GATE_ESTADO_DIR: SANDBOX.dir, ANTHROPIC_API_KEY: 'test-key-invalida-sin-red', GEMINI_API_KEY: 'test-key-invalida-sin-red' }, encoding: 'utf8', timeout: 60000,
+  });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /sandbox de tests/);
 });
 
 // Último test del archivo a propósito: tras correr todo lo anterior, el

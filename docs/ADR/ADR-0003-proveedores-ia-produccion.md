@@ -73,3 +73,17 @@ curl -s "$UPSTASH_REDIS_REST_URL/lrange/dlq:cuarentena/0/9" -H "Authorization: B
 | 3 | (Opcional) `ANTHROPIC_API_KEY` con saldo como respaldo | Dueño (facturación) | Log `Anthropic : ✅ Configurada (respaldo)` |
 | 4 | `/api/health` en verde | Verificación | `HTTP 200`, `"status": "healthy"`, `services.ia: "✅ operativo (ping real · nim:…)"` |
 | 5 | DLQ operativa en Upstash | Verificación | `LLEN dlq:cuarentena` responde |
+
+## 7. Enmienda 2026-10-12 — §6 superado por ADR-0004
+
+Agregada por `007`. Esta enmienda no reescribe las secciones anteriores.
+
+- **Superado:** §6 completo, que operaba producción sobre el catálogo NIM con Anthropic de respaldo, y su checklist. También queda superada la mención de `PRIMARY_AI_MODEL` en §2. Ver `docs/ADR/ADR-0004-claude-primario-gemini-respaldo.md`.
+  - Hoy producción usa Claude como primario y Gemini como único respaldo, con modelos descubiertos por gama y recencia (`src/shared/infrastructure/LlmGateway.js:4-20`, sobre `agents/gate-proveedor.cjs`).
+  - `render.yaml:24-29` declara `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` y `TAVILY_API_KEY`. Ya no declara `NVIDIA_API_KEY` ni `PRIMARY_AI_MODEL`.
+- **Sigue vigente:** el diseño del M1 de §6 (plan con tarea `rapido` → Tavily → síntesis con tarea `razonamiento`) y el paso de `/api/chat` y `/api/health` por el gateway. Cambia el proveedor detrás, no el flujo. `007` no volvió a verificar `m1Pipeline.js` en esta enmienda.
+- **Checklist de producción vigente** (reemplaza la de §6; los demás puntos de §6 siguen igual):
+  - el punto 2 pasa a ser "cargar `ANTHROPIC_API_KEY` (con saldo) y `GEMINI_API_KEY`";
+  - `GEMINI_API_KEY` debe ser de un proyecto de Google con facturación activa (ADR-0004 §3.2, Ley 1581);
+  - **ese cargue debe hacerse en Render antes de cualquier merge a `master`**: `render.yaml:6-7` (`branch: master`, `autoDeploy: true`) despliega automáticamente.
+- **Costo:** ya no hay eslabón a COP 0. Las tarifas de referencia están en ADR-0004 §2.6. La tabla de §3 sigue como registro histórico de Sonnet.
