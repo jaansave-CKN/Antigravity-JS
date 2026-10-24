@@ -1,6 +1,17 @@
 import { paymentProvider } from '../payments/index.js';
 import { PLANES } from '../config/planes.config.js';
-import { withTenantRow } from '../config/database.config.js';
+// withTenantRun faltaba (hallado 2026-10-24 por el fiscal de arquitectura y
+// reverificado leyendo el archivo): se usaba en las dos ramas de la activación
+// por admin (UPDATE e INSERT de user_subscriptions) y en getOrCreateCustomer,
+// pero nunca se importó. Era un ReferenceError en tiempo de ejecución, que
+// tryCatch convertía en 500.
+//
+// Por qué nada lo detectó: `node --check` solo valida sintaxis, `tsc` no cubre
+// el backend en JS, y ninguna prueba ejercitaba la activación por admin. Con
+// las pasarelas de pago congeladas, esa ruta es el ÚNICO modo de otorgar un
+// plan o una cortesía — es decir, el camino estaba roto justo donde no había
+// alternativa. Ver la prueba de regresión en tests/unit/suscripcionAdmin.test.mjs.
+import { withTenantRow, withTenantRun } from '../config/database.config.js';
 import { formularConvocatoria } from '../agents/gp/gerenteProyecto.js';
 import { validarBody, subscriptionActivateSchema, bridgeTransferSchema } from '../validators/zodSchemas.js';
 import { urlPublica } from '../utils/urlPublica.js';
@@ -73,9 +84,15 @@ export function registerSubscriptionRoutes(app, { authenticateToken, tryCatch })
 
     // ── PATH USUARIO: genera checkout hosteado en la pasarela activa ──────────
     if (!paymentProvider.isConfigured) {
+      // `code` estable (2026-10-24): el 503 y su mensaje ya existían, pero sin
+      // un código la UI no puede distinguir "pagos en stand-by" (estado
+      // deliberado del lanzamiento, con las pasarelas congeladas a propósito)
+      // de una caída real de la pasarela. Son dos cosas distintas para el
+      // usuario y para quien lee los logs.
       return res.status(503).json({
         success: false,
-        message: 'El sistema de pagos no está disponible en este momento. Contacta al administrador.',
+        code: 'PAGOS_EN_STANDBY',
+        message: 'El pago en línea aún no está habilitado. Escríbenos y activamos tu plan manualmente.',
       });
     }
 
