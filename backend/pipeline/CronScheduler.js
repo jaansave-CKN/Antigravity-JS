@@ -10,6 +10,11 @@ import { ejecutarBatchEmbeddings } from './EmbeddingsBatch.js';
 import { runSql, getRows } from '../db.js';
 import { dbStatus } from '../config/database.config.js';
 import { purgarBasuraConRespaldo } from '../services/purgaCatalogo.js';
+// Lock distribuido (2026-10-24): estos trabajos viven en el proceso web, así
+// que con dos réplicas cada una corría su propio cron a la misma hora — dos
+// rastreos simultáneos sobre las mismas fuentes y el costo de embeddings ×N.
+// Ver backend/utils/redisLock.js para por qué Redis y no un advisory lock.
+import { conLockDeTrabajo, lockDisponible } from '../utils/redisLock.js';
 
 async function expirarConvocatorias() {
   const today = new Date().toISOString().slice(0, 10);
@@ -99,8 +104,13 @@ export function resumeScheduler() {
 export function startScheduler() {
   const RASTREO_TIMEOUT = 60 * 60_000; // 60 minutos máximo por rastreo
 
+  // El TTL de cada lock debe SUPERAR la duración máxima del trabajo: si la
+  // instancia muere a mitad, el lock expira solo y la corrida siguiente no
+  // queda bloqueada para siempre. Rastreos: 60 min de timeout → 90 min de TTL.
+  const TTL_RASTREO = 90 * 60;
+
   // Rastreo 2: Fuentes web EXTERNAS al Directorio — 02:00 AM COT
-  scheduledTasks.push(cron.schedule('0 2 * * *', async () => {
+  scheduledTasks.push(cron.schedule('0 2 * * *', () => conLockDeTrabajo('rastreo2', TTL_RASTREO, async () => {
     console.log('[Cron] ▶ Rastreo 2: fuentes web externas al Directorio...');
     const start = Date.now();
     try {
@@ -112,10 +122,10 @@ export function startScheduler() {
       console.error('[Cron] ✗ Error Rastreo 2:', err.message);
       await logCrawl('cron_rastreo2_error', { error: err.message });
     }
-  }, { timezone: 'America/Bogota' }));
+  }), { timezone: 'America/Bogota' }));
 
   // Rastreo 1: Directorio de entidades — 02:30 AM COT (30 min después del Rastreo 2)
-  scheduledTasks.push(cron.schedule('30 2 * * *', async () => {
+  scheduledTasks.push(cron.schedule('30 2 * * *', () => conLockDeTrabajo('rastreo1', TTL_RASTREO, async () => {
     console.log('[Cron] ▶ Rastreo 1: entidades del Directorio...');
     const start = Date.now();
     try {
@@ -127,10 +137,10 @@ export function startScheduler() {
       console.error('[Cron] ✗ Error Rastreo 1:', err.message);
       await logCrawl('cron_rastreo1_error', { error: err.message });
     }
-  }, { timezone: 'America/Bogota' }));
+  }), { timezone: 'America/Bogota' }));
 
   // Expiración diaria de convocatorias vencidas — 01:45 AM COT (antes de los rastreos)
-  scheduledTasks.push(cron.schedule('45 1 * * *', async () => {
+  scheduledTasks.push(cron.schedule('45 1 * * *', () => conLockDeTrabajo('expiracion', 15 * 60, async () => {
     console.log('[Cron] ▶ Expirando convocatorias vencidas...');
     try {
       const r = await expirarConvocatorias();
@@ -138,7 +148,7 @@ export function startScheduler() {
     } catch (err) {
       console.error('[Cron] ✗ Error en expiración:', err.message);
     }
-  }, { timezone: 'America/Bogota' }));
+  }), { timezone: 'America/Bogota' }));
 
   // Lote 6 T2 (2026-09-24): el backup S3 YA NO corre aquí. El único
   // responsable es .github/workflows/backup-s3.yml (pg_dump 17 + validación +
@@ -155,7 +165,7 @@ export function startScheduler() {
   // En scheduledTasks → /api/radar/stop también lo pausa.
   const embeddingsActivo = process.env.EMBEDDINGS_BATCH_ENABLED !== 'false';
   if (embeddingsActivo) {
-    scheduledTasks.push(cron.schedule('45 3 * * *', async () => {
+    scheduledTasks.push(cron.schedule('45 3 * * *', () => conLockDeTrabajo('embeddings', 30 * 60, async () => {
       console.log('[Cron] ▶ Embeddings por lotes del catálogo...');
       try {
         const r = await withTimeout(() => ejecutarBatchEmbeddings(), 20 * 60_000, 'EmbeddingsBatch');
@@ -163,10 +173,13 @@ export function startScheduler() {
       } catch (err) {
         console.error('[Cron] ✗ Error en embeddings por lotes:', err.message);
       }
-    }, { timezone: 'America/Bogota' }));
+    }), { timezone: 'America/Bogota' }));
   }
 
   console.log(`[Cron] Programador activo · Expiración 01:45 · Rastreo2 02:00 · Rastreo1 02:30 · Embeddings 03:45 ${embeddingsActivo ? 'ACTIVO' : 'apagado (EMBEDDINGS_BATCH_ENABLED)'} COT (backup S3: GitHub Actions backup-s3.yml)`);
+  console.log(lockDisponible()
+    ? '[Cron] Lock distribuido ACTIVO (Upstash Redis) — seguro para más de una instancia.'
+    : '[Cron] Lock distribuido INACTIVO (sin UPSTASH_REDIS_REST_URL/TOKEN) — con más de una instancia los trabajos se DUPLICARÍAN.');
 }
 
 // Permite ejecutar la ingesta manualmente (llamado desde /api/convocatorias/refresh)
